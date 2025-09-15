@@ -7,8 +7,6 @@ entries:
     kind: function.lua
     meta:
       comment: Lists all agents with optional filtering and pagination
-      depends_on:
-        - app:api
     source: file://list_agents.lua
     modules:
       - http
@@ -24,9 +22,6 @@ entries:
     kind: http.endpoint
     meta:
       comment: Endpoint that lists all agents
-      depends_on:
-        - app:api
-      router: app:api
     method: GET
     func: list_agents
     path: /keeper/agents/list

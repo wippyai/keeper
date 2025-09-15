@@ -7,7 +7,6 @@ entries:
     kind: http.endpoint
     meta:
       comment: Discovers all available tests cases
-      router: app:api
     method: GET
     func: discovery
     path: /keeper/tests/discover
@@ -46,9 +45,6 @@ entries:
     kind: http.endpoint
     meta:
       comment: Runs specific test or test group
-      depends_on:
-        - app:api
-      router: app:api
     method: GET
     func: run_specific
     path: /keeper/tests/run

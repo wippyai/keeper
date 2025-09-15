@@ -7,7 +7,6 @@ entries:
     kind: function.lua
     meta:
       comment: Change user password (can change own or others as admin)
-      router: app:api
     source: file://change_password.lua
     modules:
       - http
@@ -23,7 +22,6 @@ entries:
       comment: Endpoint for changing user passwords
       depends_on:
         - ns:app
-      router: app:api
     method: PUT
     func: change_password
     path: /keeper/users/{id}/password
@@ -33,7 +31,6 @@ entries:
     kind: function.lua
     meta:
       comment: Create a new user with optional security groups
-      router: app:api
     source: file://create_user.lua
     modules:
       - http
@@ -53,7 +50,6 @@ entries:
       comment: Endpoint for creating new users
       depends_on:
         - ns:app
-      router: app:api
     method: POST
     func: create_user
     path: /keeper/users
@@ -63,7 +59,6 @@ entries:
     kind: function.lua
     meta:
       comment: Delete a user (cannot delete self)
-      router: app:api
     source: file://delete_user.lua
     modules:
       - http
@@ -80,7 +75,6 @@ entries:
       comment: Endpoint for deleting users
       depends_on:
         - ns:app
-      router: app:api
     method: DELETE
     func: delete_user
     path: /keeper/users/{id}
@@ -90,7 +84,6 @@ entries:
     kind: function.lua
     meta:
       comment: Get a single user by ID with security groups
-      router: app:api
     source: file://get_user.lua
     modules:
       - http
@@ -107,7 +100,6 @@ entries:
       comment: Endpoint for getting a single user
       depends_on:
         - ns:app
-      router: app:api
     method: GET
     func: get_user
     path: /keeper/users/{id}
@@ -117,7 +109,6 @@ entries:
     kind: function.lua
     meta:
       comment: List available security groups for user assignment
-      router: app:api
     source: file://list_security_groups.lua
     modules:
       - http
@@ -131,7 +122,6 @@ entries:
       comment: Endpoint for listing security groups
       depends_on:
         - ns:app
-      router: app:api
     method: GET
     func: list_security_groups
     path: /keeper/security-groups
@@ -141,7 +131,6 @@ entries:
     kind: function.lua
     meta:
       comment: List all users with their security groups for admin management
-      router: app:api
     source: file://list_users.lua
     modules:
       - http
@@ -158,7 +147,6 @@ entries:
       comment: Endpoint for listing all users for keeper management
       depends_on:
         - ns:app
-      router: app:api
     method: GET
     func: list_users
     path: /keeper/users
@@ -168,7 +156,6 @@ entries:
     kind: function.lua
     meta:
       comment: Update user details and security groups
-      router: app:api
     source: file://update_user.lua
     modules:
       - http
@@ -185,7 +172,6 @@ entries:
       comment: Endpoint for updating user details
       depends_on:
         - ns:app
-      router: app:api
     method: PUT
     func: update_user
     path: /keeper/users/{id}

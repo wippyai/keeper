@@ -22,7 +22,6 @@ entries:
     kind: http.endpoint
     meta:
       comment: Endpoint that lists models with UI relevant metadata
-      router: app:api
     method: GET
     func: list_models
     path: /keeper/models/list

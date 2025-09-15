@@ -22,7 +22,6 @@ entries:
   - name: start_agent.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: keeper.api.entries:start_agent
     path: /keeper/agents/start-agent

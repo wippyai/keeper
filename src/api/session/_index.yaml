@@ -7,7 +7,6 @@ entries:
     kind: function.lua
     meta:
       comment: Get complete session details for the authenticated admin user
-      router: app:api
     source: file://get_session_details.lua
     modules:
       - http
@@ -29,7 +28,6 @@ entries:
       comment: Endpoint for getting complete session details for the authenticated admin user
       depends_on:
         - ns:app
-      router: app:api
     method: GET
     func: get_session_details
     path: /keeper/sessions/{id}
@@ -42,7 +40,6 @@ entries:
       depends_on:
         - ns:app
         - ns:wippy.session.persist
-      router: app:api
     source: file://list_own_sessions.lua
     modules:
       - http
@@ -60,7 +57,6 @@ entries:
       comment: Endpoint for listing all sessions of the authenticated admin user
       depends_on:
         - ns:app
-      router: app:api
     method: GET
     func: list_own_sessions
     path: /keeper/sessions
