@@ -18,6 +18,36 @@ local function normalize_namespace_path(path)
     return path:gsub("/", ".")
 end
 
+-- Helper function to safely convert workspace_id to string
+local function safe_workspace_id_to_string(workspace_id)
+    if not workspace_id then
+        return nil
+    end
+    
+    local id_type = type(workspace_id)
+    if id_type == "string" then
+        return workspace_id
+    elseif id_type == "table" then
+        -- If it's a table, try to extract the id field or convert to JSON
+        if workspace_id.id then
+            return tostring(workspace_id.id)
+        elseif workspace_id[1] then
+            return tostring(workspace_id[1])
+        else
+            -- Fallback to JSON representation for debugging
+            local json = require("json")
+            local success, result = pcall(json.encode, workspace_id)
+            if success then
+                return "table:" .. result
+            else
+                return "table:unparseable"
+            end
+        end
+    else
+        return tostring(workspace_id)
+    end
+end
+
 -- Helper function to get namespace entries efficiently
 local function get_namespace_entries(namespace, session, show_original)
     if session and not show_original then
@@ -44,7 +74,8 @@ local function handler(params)
     end
     local user_id = actor:id()
 
-    local ctx_workspace_id, _ = ctx.get("workspace_id")
+    local ctx_workspace_id_raw, _ = ctx.get("workspace_id")
+    local ctx_workspace_id = safe_workspace_id_to_string(ctx_workspace_id_raw)
     local param_workspace_id = params.workspace_id
 
     if ctx_workspace_id and param_workspace_id and ctx_workspace_id ~= param_workspace_id then
@@ -150,6 +181,12 @@ function search_operation(params, session, show_original)
     local text_scanner, err = scanner.new(reader)
     if err then
         return nil, "Failed to create scanner: " .. err
+    end
+
+    -- Build search index automatically when needed
+    local build_err = text_scanner:build_index()
+    if build_err then
+        return nil, "Failed to build search index: " .. build_err
     end
 
     -- Prepare queries
