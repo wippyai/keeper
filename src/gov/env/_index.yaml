@@ -1,0 +1,24 @@
+version: "1.0"
+namespace: keeper.gov.env
+
+entries:
+  # keeper.gov.env:linter_level
+  - name: linter_level
+    kind: env.variable
+    meta:
+      comment: Default linter strictness level for governance validation
+      icon: tabler:shield-check
+    default: "100"
+    storage: app.env:router
+    variable: GOV_LINTER_LEVEL
+    
+  # keeper.gov.env:managed_namespaces
+  - name: managed_namespaces
+    kind: env.variable
+    meta:
+      comment: Comma-separated list of namespaces managed by governance
+      icon: tabler:list
+    default: app
+    storage: app.env:router
+    variable: GOV_MANAGED_NAMESPACES
+    

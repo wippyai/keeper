@@ -30,20 +30,6 @@ entries:
     component: "wippy/test"
     version: ">=v0.0.7"
 
-  - name: __dependency.wippy.uploads
-    kind: "ns.dependency"
-    meta:
-      description: "File upload management component"
-    component: "wippy/uploads"
-    version: ">=v0.0.7"
-
-  - name: __dependency.wippy.embeddings
-    kind: "ns.dependency"
-    meta:
-      description: "Embeddings processing component"
-    component: "wippy/embeddings"
-    version: ">=v0.0.7"
-
   - name: __dependency.wippy.agent
     kind: "ns.dependency"
     meta:
@@ -57,18 +43,3 @@ entries:
       description: "View rendering component"
     component: "wippy/views"
     version: ">=v0.0.7"
-
-  - name: __dependency.wippy.dataflow
-    kind: "ns.dependency"
-    meta:
-      description: "Dataflow processing component"
-    component: "wippy/dataflow"
-    version: ">=v0.0.7"
-
-  - name: __dependency.wippy.gov
-    kind: "ns.dependency"
-    meta:
-      description: "Governance component"
-    component: "wippy/gov"
-    version: ">=v0.0.7"
-

@@ -1,0 +1,223 @@
+version: "1.0"
+namespace: keeper.overlay.rfs
+
+entries:
+  # keeper.overlay.rfs:ns
+  - name: ns
+    kind: library.lua
+    meta:
+      comment: Namespace operations and YAML index management
+      tags:
+        - namespace
+        - yaml
+        - registry
+        - files
+      description: |-
+        Core namespace operations for registry entries. Handles conversion between
+        registry entries and YAML index format, file:// reference resolution,
+        and content preservation during edits. Provides clean abstraction for
+        namespace-level operations without workspace coupling.
+    source: file://ns.lua
+    modules:
+      - yaml
+    imports:
+      consts: keeper.overlay:consts
+    
+  # keeper.overlay.rfs:ns_diff
+  - name: ns_diff
+    kind: library.lua
+    meta:
+      comment: Namespace diff and change detection with file:// reference safety
+      tags:
+        - diff
+        - namespace
+        - change-detection
+        - files
+      description: |-
+        Compares namespace entries and detects changes between original and edited
+        states. Handles file:// reference resolution to prevent content loss during
+        YAML editing. Provides change analysis and workspace operation generation.
+    source: file://ns_diff.lua
+    modules:
+      - json
+    
+  # keeper.overlay.rfs:ns_diff_test
+  - name: ns_diff_test
+    kind: function.lua
+    meta:
+      name: Namespace Diff Tests
+      type: test
+      comment: Tests for namespace diff operations and file:// reference handling
+      group: Keeper / Overlay / RFS
+      tags:
+        - test
+        - diff
+        - namespace
+        - files
+      description: |-
+        Test suite for ns_diff module covering change detection, file:// reference
+        safety, metadata-only changes, and complex editing workflows.
+    source: file://ns_diff_test.lua
+    imports:
+      ns: keeper.overlay.rfs:ns
+      ns_diff: keeper.overlay.rfs:ns_diff
+      test: wippy.test:test
+    method: run_tests
+    
+  # keeper.overlay.rfs:ns_test
+  - name: ns_test
+    kind: function.lua
+    meta:
+      name: Namespace Tests
+      type: test
+      comment: Tests for namespace operations and YAML index management
+      group: Keeper / Overlay / RFS
+      tags:
+        - test
+        - namespace
+        - yaml
+      description: Test suite for ns module covering file configs, YAML conversion, and file:// reference resolution
+    source: file://ns_test.lua
+    imports:
+      ns: keeper.overlay.rfs:ns
+      test: wippy.test:test
+    method: run_tests
+    
+  # keeper.overlay.rfs:rfs
+  - name: rfs
+    kind: library.lua
+    meta:
+      comment: Registry Virtual Filesystem with fluent API for workspace-aware file operations
+      tags:
+        - registry
+        - filesystem
+        - virtual
+        - overlay
+        - fluent
+      description: |-
+        Virtual filesystem interface to registry entries with fluent API. Supports both
+        workspace overlay views and clean registry views. Provides file-like access to
+        registry namespaces with status tracking, content extraction, and path management.
+    source: file://rfs.lua
+    modules:
+      - registry
+    imports:
+      consts: keeper.overlay:consts
+      ns: keeper.overlay.rfs:ns
+      snapshot: keeper.overlay.rfs:snapshot
+    method: rfs
+    
+  # keeper.overlay.rfs:rfs_test
+  - name: rfs_test
+    kind: function.lua
+    meta:
+      name: RFS Tests
+      type: test
+      comment: Tests for registry virtual filesystem with fluent API
+      group: Keeper / Overlay / RFS
+      tags:
+        - test
+        - rfs
+        - filesystem
+        - fluent
+      description: |-
+        Test suite covering fluent API methods, path parsing, file operations,
+        workspace vs registry modes, status detection, and error handling.
+    source: file://rfs_test.lua
+    imports:
+      consts: keeper.overlay:consts
+      ns: keeper.overlay.rfs:ns
+      rfs: keeper.overlay.rfs:rfs
+      test: wippy.test:test
+    method: run_tests
+    
+  # keeper.overlay.rfs:scanner
+  - name: scanner
+    kind: library.lua
+    meta:
+      comment: Text search engine over RFS with indexing and parallel query support
+      tags:
+        - search
+        - text
+        - index
+        - regex
+        - rfs
+      description: |-
+        Builds searchable text indexes over RFS file contents and supports multiple
+        parallel queries without rebuilding. Handles both literal string matching
+        and regex patterns across _index.yaml and source files with precise line
+        tracking and context extraction.
+    source: file://scanner.lua
+    imports:
+      consts: keeper.overlay:consts
+    method: scanner
+    
+  # keeper.overlay.rfs:scanner_test
+  - name: scanner_test
+    kind: function.lua
+    meta:
+      name: Scanner Tests
+      type: test
+      comment: Tests for text search engine with indexing and parallel queries
+      group: Keeper / Overlay / RFS
+      tags:
+        - test
+        - scanner
+        - search
+        - index
+      description: |-
+        Test suite covering index building, string vs regex search patterns,
+        multiple parallel queries, line tracking, context extraction, and
+        integration with RFS reader sources.
+    source: file://scanner_test.lua
+    imports:
+      consts: keeper.overlay:consts
+      rfs: keeper.overlay.rfs:rfs
+      scanner: keeper.overlay.rfs:scanner
+      test: wippy.test:test
+    method: run_tests
+    
+  # keeper.overlay.rfs:snapshot
+  - name: snapshot
+    kind: library.lua
+    meta:
+      comment: Workspace-aware registry snapshot builder with compiled regex pattern matching
+      tags:
+        - registry
+        - workspace
+        - snapshot
+        - overlay
+        - permissions
+      description: |-
+        Builds merged snapshots of registry entries with workspace overlays applied.
+        Handles permission-based filtering using compiled regex patterns for performance.
+        Provides workspace-aware entry views without knowledge of filesystem operations.
+    source: file://snapshot.lua
+    modules:
+      - registry
+    imports:
+      consts: keeper.overlay:consts
+    
+  # keeper.overlay.rfs:snapshot_test
+  - name: snapshot_test
+    kind: function.lua
+    meta:
+      name: Snapshot Tests
+      type: test
+      comment: Tests for workspace-aware registry snapshot operations
+      group: Keeper / Overlay / RFS
+      tags:
+        - test
+        - snapshot
+        - workspace
+        - permissions
+      description: |-
+        Test suite covering workspace overlay merging, permission filtering,
+        compiled regex pattern matching, and namespace snapshot operations.
+    source: file://snapshot_test.lua
+    imports:
+      consts: keeper.overlay:consts
+      snapshot: keeper.overlay.rfs:snapshot
+      test: wippy.test:test
+    method: run_tests
+    

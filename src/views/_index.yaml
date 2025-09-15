@@ -1,29 +1,8 @@
 version: "1.0"
-namespace: wippy.keeper.views
+namespace: keeper.views
 
 entries:
-  # wippy.keeper.views:git_sync
-  - name: git_sync
-    kind: template.jet
-    meta:
-      name: control.git
-      type: view.page
-      title: Git Synchronization
-      group: Keeper
-      icon: tabler:git-branch
-      description: Manage Git operations for Wippy platform resources
-      order: 20
-      content_type: text/html
-      announced: true
-      group_icon: tabler:settings
-      group_order: 9999
-      group_placement: bottom
-      public: true
-      secure: true
-    source: file://git_sync.jet
-    set: wippy.keeper.views.common:templates
-
-  # wippy.keeper.views:registry
+  # keeper.views:registry
   - name: registry
     kind: registry.entry
     meta:
@@ -38,8 +17,8 @@ entries:
       group_order: 9999
       group_placement: bottom
       internal: /keeper
-
-  # wippy.keeper.views:tests
+    
+  # keeper.views:tests
   - name: tests
     kind: template.jet
     meta:
@@ -58,9 +37,9 @@ entries:
       secure: true
       space: admin
     source: file://tests.jet
-    set: wippy.keeper.views.common:templates
-
-  # wippy.keeper.views:token_usage
+    set: keeper.views.common:templates
+    
+  # keeper.views:token_usage
   - name: token_usage
     kind: template.jet
     meta:
@@ -82,3 +61,4 @@ entries:
     set: app.views.common:templates
     resources: {}
     data_func: ""
+    

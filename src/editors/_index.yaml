@@ -1,8 +1,8 @@
 version: "1.0"
-namespace: wippy.keeper.editors
+namespace: keeper.editors
 
 entries:
-  # wippy.keeper.editors:entry_editor_registry
+  # keeper.editors:entry_editor_registry
   - name: entry_editor_registry
     kind: library.lua
     meta:
@@ -12,3 +12,4 @@ entries:
       - registry
     imports:
       start_tokens: wippy.session:start_tokens
+    

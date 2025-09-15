@@ -1,0 +1,992 @@
+version: "1.0"
+namespace: keeper.agents.manager
+
+entries:
+  # keeper.agents.manager:agent_management_knowledge
+  - name: agent_management_knowledge
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Agent Management Core Knowledge
+      comment: Comprehensive understanding of agent creation, configuration, and visibility
+      tags:
+        - knowledge
+        - management
+        - configuration
+      icon: tabler:settings
+    prompt: |-
+      ## Agent Management Knowledge
+    
+      You understand how to create and configure agents effectively on the Wippy platform.
+    
+      ### Agent Visibility Principles
+    
+      **Public Class Usage:**
+      - Standalone agents that users interact with directly need `class: [public]`
+      - Root orchestrators in team structures need `class: [public]`
+      - Child delegates in teams don't need public class - only parent is user-facing
+      - When adding to existing namespaces, check context to determine if public needed
+    
+      ### Configuration Essentials
+    
+      **Required Elements:**
+      - Proper entry structure with kind, meta, and configuration
+      - Model selection from available models (use list_models)
+      - Tool and trait validation (verify they exist)
+      - Appropriate temperature and token settings
+      - Clear, focused prompts
+    
+      **Model Selection Strategy:**
+      - Always check available models first
+      - Match model capabilities to agent requirements
+      - Consider cost vs performance tradeoffs
+      - Thinking effort only works with reasoning-capable models
+    
+      ### Enhancement Approaches
+    
+      **Memory Usage:**
+      - Memories override prompt instructions
+      - Can accumulate many memories (10-20+) before prompt rewrite needed
+      - Perfect for behavioral corrections and quick fixes
+      - Easier to test and iterate than prompt changes
+    
+      **When to Modify Prompts:**
+      - Fundamental behavior changes
+      - Memory list becomes unwieldy
+      - Architectural restructuring needed
+    
+      ### Platform Capabilities
+    
+      **Know What Exists:**
+      - Use discovery tools to find available resources
+      - Check for existing similar agents to extend
+      - Verify tools and traits before referencing
+      - Understand when to redirect to engineer for new capabilities
+    
+  # keeper.agents.manager:analyze_agent
+  - name: analyze_agent
+    kind: function.lua
+    meta:
+      type: tool
+      title: Analyze Agent
+      comment: Comprehensive analysis of agent configuration with validation
+      hard: rock
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "pattern": "^[^:]+:[^:]+$",
+              "description": "Agent ID to analyze"
+            }
+          },
+          "required": ["agent_id"],
+          "additionalProperties": false
+        }
+      llm_alias: AnalyzeAgent
+      llm_description: Analyzes agent configuration including validation, compatibility checks, and recommendations for improvement.
+    source: file://analyze_agent.lua
+    modules:
+      - registry
+      - json
+    imports:
+      llm: wippy.llm:llm
+      traits: wippy.agent.discovery:traits
+    method: handler
+    
+  # keeper.agents.manager:clone_agent
+  - name: clone_agent
+    kind: function.lua
+    meta:
+      type: tool
+      title: Clone Agent
+      comment: Clones an existing agent with optional modifications
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "source_agent_id": {
+              "type": "string",
+              "pattern": "^[^:]+:[^:]+$",
+              "description": "Agent to clone from"
+            },
+            "new_agent_id": {
+              "type": "string",
+              "description": "New agent ID (will add app.agents: prefix if no namespace provided)"
+            },
+            "modifications": {
+              "type": "object",
+              "properties": {
+                "prompt": {"type": "string"},
+                "comment": {"type": "string"},
+                "model": {"type": "string"},
+                "max_tokens": {"type": "integer", "minimum": 1},
+                "temperature": {"type": "number", "minimum": 0, "maximum": 1},
+                "thinking_effort": {"type": "integer", "minimum": 0, "maximum": 100},
+                "title": {"type": "string"},
+                "icon": {"type": "string"},
+                "class": {"type": "array", "items": {"type": "string"}}
+              },
+              "additionalProperties": false,
+              "description": "Fields to modify in the clone"
+            }
+          },
+          "required": ["source_agent_id", "new_agent_id"],
+          "additionalProperties": false
+        }
+      llm_alias: CloneAgent
+      llm_description: Creates a copy of an existing agent with optional modifications. Useful for creating variations.
+    source: file://clone_agent.lua
+    modules:
+      - registry
+      - json
+    imports:
+      governance_client: keeper.gov:client
+      llm: wippy.llm:llm
+      traits: wippy.agent.discovery:traits
+    method: handler
+    
+  # keeper.agents.manager:create_agent
+  - name: create_agent
+    kind: function.lua
+    meta:
+      type: tool
+      title: Create Agent
+      comment: Creates a new agent with validation and intelligent defaults
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "Agent identifier. If no namespace provided (no ':'), will use 'app.agents:' prefix"
+            },
+            "prompt": {
+              "type": "string",
+              "minLength": 1,
+              "description": "System prompt defining agent behavior"
+            },
+            "comment": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Description of agent purpose"
+            },
+            "model": {
+              "type": "string",
+              "description": "LLM model to use (validated against available models)"
+            },
+            "max_tokens": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000,
+              "description": "Maximum tokens for responses"
+            },
+            "temperature": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Temperature for response generation"
+            },
+            "thinking_effort": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "description": "Thinking effort level (only for reasoning models)"
+            },
+            "memory": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Array of memory items"
+            },
+            "tools": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string"},
+                  "alias": {"type": "string"},
+                  "context": {"type": "object"},
+                  "description": {"type": "string"}
+                },
+                "required": ["id"]
+              },
+              "description": "Array of tool objects with id, optional alias, context, and description"
+            },
+            "traits": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string"},
+                  "context": {"type": "object"}
+                },
+                "required": ["id"]
+              },
+              "description": "Array of trait objects with id and optional context"
+            },
+            "delegates": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {"type": "string"},
+                  "id": {"type": "string"},
+                  "rule": {"type": "string"},
+                  "context": {"type": "object"}
+                },
+                "required": ["name", "id", "rule"]
+              },
+              "description": "Array of delegate workflow specifications"
+            },
+            "title": {
+              "type": "string",
+              "description": "Display title"
+            },
+            "icon": {
+              "type": "string",
+              "description": "Icon identifier"
+            },
+            "class": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Agent classes (always includes 'public' unless specified otherwise)"
+            }
+          },
+          "required": ["agent_id", "prompt", "comment"],
+          "additionalProperties": false
+        }
+      llm_alias: CreateAgent
+      llm_description: Creates a new agent with validation and intelligent defaults. Automatically ensures agent is publicly accessible and adds app.agents namespace if none provided.
+    source: file://create_agent.lua
+    modules:
+      - registry
+      - json
+    imports:
+      governance_client: keeper.gov:client
+      llm: wippy.llm:llm
+      traits: wippy.agent.discovery:traits
+    method: handler
+    
+  # keeper.agents.manager:debugging_knowledge
+  - name: debugging_knowledge
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Agent Debugging and Analysis
+      comment: Using session history and patterns to diagnose and fix agent issues
+      tags:
+        - knowledge
+        - debugging
+        - analysis
+      icon: tabler:bug
+    prompt: |-
+      ## Debugging and Analysis Knowledge
+    
+      You understand how to diagnose and fix agent issues effectively.
+    
+      ### Session Analysis Approach
+    
+      **When Users Report Problems:**
+      - Use session agent to review recent interactions
+      - Look for patterns in failures or misunderstandings
+      - Identify specific triggers for issues
+      - Create targeted fixes based on findings
+    
+      ### Common Issue Patterns
+    
+      **Behavioral Issues:**
+      - Agent misunderstands intent → Add clarifying memory
+      - Agent over-complicates → Add simplification memory
+      - Agent exceeds scope → Add boundary memory
+    
+      **Technical Issues:**
+      - Tool failures → Verify tool exists and works
+      - Context problems → Check context passing
+      - Model limitations → Consider different model
+    
+      ### Fix Strategies
+    
+      **Quick Fixes:**
+      - Add targeted memories for specific corrections
+      - Test with user's actual scenario
+      - Monitor subsequent interactions
+    
+      **Structural Fixes:**
+      - Rewrite prompt if memories exceed 20
+      - Add child delegate for new capability domain
+      - Restructure team if workflow changed
+    
+      **Platform Limitations:**
+      - Missing tools → Redirect to engineer
+      - New integration needed → Engineer handles
+      - Platform bug → Report appropriately
+    
+  # keeper.agents.manager:delegate_to_agent
+  - name: delegate_to_agent
+    kind: function.lua
+    meta:
+      type: tool
+      title: Delegate to Agent
+      comment: Run a child agent workflow and return results
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "Target agent ID or name to delegate to"
+            },
+            "message": {
+              "type": "string",
+              "description": "Message/task to send to the agent"
+            },
+            "context": {
+              "type": "object",
+              "description": "Optional context to pass to the agent"
+            }
+          },
+          "required": ["agent_id", "message"],
+          "additionalProperties": false
+        }
+      llm_alias: DelegateToAgent
+      llm_description: Delegate a task to another agent by running them in an isolated workflow. The agent runs independently and returns results to you.
+    source: file://delegate_to_agent.lua
+    modules:
+      - json
+      - uuid
+      - ctx
+    imports:
+      agent_registry: wippy.agent.discovery:registry
+      client: userspace.dataflow:client
+      consts: userspace.dataflow:consts
+    method: handler
+    
+  # keeper.agents.manager:delete_agent
+  - name: delete_agent
+    kind: function.lua
+    meta:
+      type: tool
+      title: Delete Agent
+      comment: Safely deletes an agent with dependency checking
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "pattern": "^[^:]+:[^:]+$",
+              "description": "Agent ID to delete"
+            },
+            "force": {
+              "type": "boolean",
+              "default": false,
+              "description": "Force deletion even if other agents depend on this one"
+            }
+          },
+          "required": ["agent_id"],
+          "additionalProperties": false
+        }
+      llm_alias: DeleteAgent
+      llm_description: Safely deletes an agent after checking for dependencies. Can force delete agents that others depend on.
+    source: file://delete_agent.lua
+    modules:
+      - registry
+      - json
+    imports:
+      governance_client: keeper.gov:client
+    method: handler
+    
+  # keeper.agents.manager:list_agents
+  - name: list_agents
+    kind: function.lua
+    meta:
+      type: tool
+      title: List Agents
+      comment: Lists agents with filtering and visibility status
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "namespace": {
+              "type": "string",
+              "description": "Filter by namespace"
+            },
+            "class": {
+              "type": "string",
+              "description": "Filter by class"
+            },
+            "model": {
+              "type": "string",
+              "description": "Filter by model"
+            },
+            "has_tools": {
+              "type": "boolean",
+              "description": "Filter agents with/without tools"
+            },
+            "has_delegates": {
+              "type": "boolean",
+              "description": "Filter agents with/without delegates"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100,
+              "description": "Maximum results to return"
+            }
+          },
+          "additionalProperties": false
+        }
+      llm_alias: ListAgents
+      llm_description: Lists all agents with optional filtering and shows visibility status (whether agent has public class).
+    source: file://list_agents.lua
+    modules:
+      - registry
+      - json
+    method: handler
+    
+  # keeper.agents.manager:list_models
+  - name: list_models
+    kind: function.lua
+    meta:
+      type: tool
+      title: List Models
+      comment: Lists available LLM models with filtering
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "description": "Filter by provider"
+            },
+            "capabilities": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["tool_use", "vision", "thinking", "embed", "generate", "multilingual"]
+              },
+              "description": "Filter by capabilities"
+            },
+            "max_tokens_min": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Minimum token limit"
+            }
+          },
+          "additionalProperties": false
+        }
+      llm_alias: ListModels
+      llm_description: Lists available LLM models with optional filtering by provider, capabilities, and minimum token limit.
+    source: file://list_models.lua
+    modules:
+      - json
+    imports:
+      llm: wippy.llm:llm
+    method: handler
+    
+  # keeper.agents.manager:list_tools
+  - name: list_tools
+    kind: function.lua
+    meta:
+      type: tool
+      title: List Tools
+      comment: Lists available tools with filtering
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "namespace": {
+              "type": "string",
+              "description": "Filter by namespace"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 50,
+              "description": "Maximum results"
+            },
+            "include_schemas": {
+              "type": "boolean",
+              "default": false,
+              "description": "Include tool schemas in output"
+            }
+          },
+          "additionalProperties": false
+        }
+      llm_alias: ListTools
+      llm_description: Lists all available tools with optional namespace filtering and schema inclusion.
+    source: file://list_tools.lua
+    modules:
+      - registry
+      - json
+    method: handler
+    
+  # keeper.agents.manager:list_traits
+  - name: list_traits
+    kind: function.lua
+    meta:
+      type: tool
+      title: List Traits
+      comment: Lists all available traits
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      llm_alias: ListTraits
+      llm_description: Lists all available traits with their capabilities and descriptions.
+    source: file://list_traits.lua
+    modules:
+      - registry
+      - json
+    imports:
+      traits: wippy.agent.discovery:traits
+    method: handler
+    
+  # keeper.agents.manager:manager
+  - name: manager
+    kind: registry.entry
+    meta:
+      name: agent.manager
+      type: agent.gen1
+      title: Agent Manager
+      comment: Creates, configures, and manages AI agents with team orchestration capabilities
+      icon: tabler:robot
+      class:
+        - public
+    prompt: |-
+      You are the Agent Manager for the Wippy platform. You create, configure, and manage AI agents that users can interact with.
+    
+      ## Core Responsibilities
+    
+      **Agent Lifecycle Management:**
+      - Create new agents with proper configuration
+      - Update existing agents with tools, traits, or behavior changes
+      - Clone agents for variations
+      - Build and orchestrate agent teams
+      - Debug and fix agent issues
+    
+      **Discovery and Validation:**
+      - Search for existing agents and patterns
+      - List available tools, traits, and models
+      - Validate configurations before creation
+      - Ensure all references exist and work
+    
+      ## Key Principles
+    
+      **Agent Visibility:**
+      Every user-facing agent needs `class: [public]` to be accessible. Child agents in delegation chains don't need public class - only the root agent users talk to needs it.
+    
+      **Configuration Quality:**
+      Always validate that tools, traits, and models exist before using them. Check model compatibility with requested features (like thinking_effort).
+    
+      **Enhancement Strategy:**
+      When improving agents, prefer adding memories over rewriting prompts. Memories are quick to add and test. Consider delegation to child agents for new capability domains.
+    
+      **Team Architecture:**
+      Build teams when dealing with multiple services or complex workflows. Use appropriate model sizes - larger for orchestration, smaller for execution.
+    
+      ## Decision Framework
+    
+      **New Agent Request:**
+      - Assess if single agent or team needed
+      - Check what tools/traits required
+      - Verify they exist or need creation
+      - Design appropriate architecture
+    
+      **Enhancement Request:**
+      - Check if capability already exists
+      - Decide between memory, delegation, or prompt change
+      - Redirect to engineer if new platform capability needed
+    
+      **Problem Report:**
+      - Analyze session history for patterns
+      - Apply targeted fix (usually memory)
+      - Test with actual user scenario
+      - Consider structural change if issue persists
+    
+      ## Implementation Workflow
+    
+      **Step 1: Requirements Analysis**
+      Understand what the user actually needs. Ask clarifying questions if ambiguous.
+    
+      **Step 2: Resource Discovery**
+      Check what already exists - similar agents, available tools, existing patterns.
+    
+      **Step 3: Architecture Design**
+      Decide on single agent vs team. Plan delegation structure if team needed.
+    
+      **Step 4: Configuration**
+      Create agents with validated configuration. Ensure proper visibility settings.
+    
+      **Step 5: Validation**
+      Test that all components work together. Verify user can access what they need.
+    
+      ## Communication Style
+    
+      Be clear and direct about decisions and tradeoffs. Explain why certain approaches are better. Guide users to appropriate solutions, including redirecting to engineer when needed.
+    
+      Focus on solving the user's actual problem, not just executing their initial request. Sometimes a different approach works better.
+    model: claude-4-sonnet
+    temperature: 0.3
+    max_tokens: 8192
+    tools:
+      - keeper.agents.manager:*
+    memory:
+      - Always verify tools and traits exist before using them
+      - Check available models with list_models before selection
+      - Public class only for user-facing agents, not delegates
+      - Prefer memories for quick fixes over prompt rewrites
+      - Session analysis helps diagnose reported problems
+      - Teams are efficient for multi-domain workflows
+      - Redirect to engineer when platform capabilities missing
+      - I always prioritize trait usage over tools
+      - When I build new prompts related to platform or any other content I vastly relay on research team to give me proper examples of content and session behaviour
+    thinking_effort: 20
+    traits:
+      - keeper.agents.manager:agent_management_knowledge
+      - keeper.agents.manager:team_orchestration_knowledge
+      - keeper.agents.manager:debugging_knowledge
+      - keeper.agents.research.traits:researcher
+    
+  # keeper.agents.manager:redirect_to_agent
+  - name: redirect_to_agent
+    kind: function.lua
+    meta:
+      type: tool
+      title: Redirect to Agent
+      comment: Switch user to a different agent permanently
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "Target agent ID or name to redirect to"
+            },
+            "model": {
+              "type": "string",
+              "description": "Optional model to switch to"
+            }
+          },
+          "required": ["agent_id"],
+          "additionalProperties": false
+        }
+      llm_alias: RedirectToAgent
+      llm_description: Switch the user to a different agent permanently. Use only when user explicitly asks to switch agents.
+      private: true
+    source: file://redirect_to_agent.lua
+    modules:
+      - registry
+      - json
+    imports:
+      agent_registry: wippy.agent.discovery:registry
+    method: handler
+    
+  # keeper.agents.manager:search_agents
+  - name: search_agents
+    kind: function.lua
+    meta:
+      type: tool
+      title: Search Agents
+      comment: Intelligent agent discovery using semantic search and filtering
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Natural language description of what agent capabilities you need"
+            },
+            "filters": {
+              "type": "object",
+              "properties": {
+                "namespace": {"type": "string"},
+                "class": {"type": "string"},
+                "model": {"type": "string"},
+                "has_tools": {"type": "boolean"},
+                "has_delegates": {"type": "boolean"},
+                "has_traits": {"type": "boolean"}
+              },
+              "description": "Optional filters to narrow search scope"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 5,
+              "description": "Maximum number of results to return"
+            },
+            "include_scores": {
+              "type": "boolean",
+              "default": false,
+              "description": "Include relevance scores in results"
+            }
+          },
+          "required": ["query"],
+          "additionalProperties": false
+        }
+      llm_alias: SearchAgents
+      llm_description: Find agents using natural language queries and optional filters. Returns ranked results with relevance scores.
+    source: file://search_agents.lua
+    modules:
+      - registry
+      - json
+    imports:
+      agent_registry: wippy.agent.discovery:registry
+      llm: wippy.llm:llm
+    method: handler
+    
+  # keeper.agents.manager:team_orchestration_knowledge
+  - name: team_orchestration_knowledge
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Team Orchestration Patterns
+      comment: Understanding of multi-agent teams and delegation strategies
+      tags:
+        - knowledge
+        - teams
+        - orchestration
+      icon: tabler:users
+    prompt: |-
+      ## Team Orchestration Knowledge
+    
+      You understand when and how to build effective agent teams.
+    
+      ### Team vs Single Agent Decision
+    
+      **Build a Team When:**
+      - Multiple distinct services or domains involved
+      - Workflow has clearly separated stages
+      - Different expertise areas needed
+      - Context isolation would improve efficiency
+      - Parallel processing would help
+    
+      **Use Single Agent When:**
+      - Focused, coherent task
+      - All capabilities belong together
+      - Simple tool composition sufficient
+      - Shared context throughout workflow
+    
+      ### Team Architecture Patterns
+    
+      **Two-Level Teams (Common):**
+      - Root orchestrator handles user interaction and coordination
+      - Specialist agents handle specific domains
+      - Clear delegation rules for routing
+    
+      **Three-Level Teams (Complex):**
+      - Director level for high-level planning
+      - Coordinator level for domain management
+      - Worker level for specific task execution
+    
+      ### Delegation Best Practices
+    
+      **Context Management:**
+      - Pass necessary context to delegates
+      - Don't overload delegates with irrelevant information
+      - Return structured results up the chain
+    
+      **Model Optimization:**
+      - Larger models for complex orchestration
+      - Smaller models for focused execution
+      - Minimal models for simple tool calling
+    
+      ### Team Examples
+    
+      **CRM Integration Team:**
+      - Root: CRM Manager (orchestrates multiple systems)
+      - Children: Individual CRM specialists (Salesforce, HubSpot, etc.)
+    
+      **Research Team:**
+      - Root: Research Director (plans and synthesizes)
+      - Children: Web researcher, document analyst, data processor
+    
+      **Content Production Team:**
+      - Root: Content Orchestrator (manages workflow)
+      - Children: Writer, editor, SEO optimizer, publisher
+    
+  # keeper.agents.manager:update_agent
+  - name: update_agent
+    kind: function.lua
+    meta:
+      type: tool
+      title: Update Agent
+      comment: Updates an existing agent with comprehensive modification capabilities
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "pattern": "^[^:]+:[^:]+$",
+              "description": "Agent ID to update"
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Update system prompt"
+            },
+            "model": {
+              "type": "string",
+              "description": "Update LLM model (validated)"
+            },
+            "max_tokens": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000,
+              "description": "Update max tokens"
+            },
+            "temperature": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Update temperature"
+            },
+            "thinking_effort": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "description": "Update thinking effort (only for reasoning models)"
+            },
+            "add_memory": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Memory items to add"
+            },
+            "remove_memory": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Memory items to remove"
+            },
+            "set_memory": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Replace all memory items"
+            },
+            "add_tools": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string"},
+                  "alias": {"type": "string"},
+                  "context": {"type": "object"},
+                  "description": {"type": "string"}
+                },
+                "required": ["id"]
+              },
+              "description": "Tool objects to add"
+            },
+            "remove_tools": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Tool IDs to remove"
+            },
+            "set_tools": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string"},
+                  "alias": {"type": "string"},
+                  "context": {"type": "object"},
+                  "description": {"type": "string"}
+                },
+                "required": ["id"]
+              },
+              "description": "Replace all tools with new tool objects"
+            },
+            "add_traits": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string"},
+                  "context": {"type": "object"}
+                },
+                "required": ["id"]
+              },
+              "description": "Trait objects to add"
+            },
+            "remove_traits": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Trait IDs to remove"
+            },
+            "set_traits": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string"},
+                  "context": {"type": "object"}
+                },
+                "required": ["id"]
+              },
+              "description": "Replace all traits with new trait objects"
+            },
+            "add_delegates": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {"type": "string"},
+                  "id": {"type": "string"},
+                  "rule": {"type": "string"},
+                  "context": {"type": "object"}
+                },
+                "required": ["name", "id", "rule"]
+              },
+              "description": "Delegate workflows to add"
+            },
+            "remove_delegates": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Delegate names to remove"
+            },
+            "set_delegates": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {"type": "string"},
+                  "id": {"type": "string"},
+                  "rule": {"type": "string"},
+                  "context": {"type": "object"}
+                },
+                "required": ["name", "id", "rule"]
+              },
+              "description": "Replace all delegates with new delegate workflows"
+            },
+            "update_metadata": {
+              "type": "object",
+              "properties": {
+                "comment": {"type": "string"},
+                "title": {"type": "string"},
+                "icon": {"type": "string"},
+                "class": {"type": "array", "items": {"type": "string"}}
+              },
+              "additionalProperties": false,
+              "description": "Metadata fields to update"
+            }
+          },
+          "required": ["agent_id"],
+          "additionalProperties": false
+        }
+      llm_alias: UpdateAgent
+      llm_description: Updates an existing agent with any combination of configuration changes, tools, traits, memory, delegates, and metadata.
+    source: file://update_agent.lua
+    modules:
+      - registry
+      - json
+    imports:
+      governance_client: keeper.gov:client
+      llm: wippy.llm:llm
+      traits: wippy.agent.discovery:traits
+    method: handler
+    

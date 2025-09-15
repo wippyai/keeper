@@ -1,8 +1,8 @@
 version: "1.0"
-namespace: wippy.keeper.views.editors.trait
+namespace: keeper.views.editors.trait
 
 entries:
-  # wippy.keeper.views.editors.trait:editors
+  # keeper.views.editors.trait:editors
   - name: editors
     kind: registry.entry
     meta:
@@ -14,9 +14,9 @@ entries:
         icon: tabler:message-circle
         order: 1
         id: default
-        page_name: wippy.keeper.views.editors.trait:info
-
-  # wippy.keeper.views.editors.trait:info
+        page_name: keeper.views.editors.trait:info
+    
+  # keeper.views.editors.trait:info
   - name: info
     kind: template.jet
     meta:
@@ -28,6 +28,7 @@ entries:
       content_type: text/html
       secure: true
     source: file://info.jet
-    set: wippy.keeper.views.common:templates
+    set: keeper.views.common:templates
     resources:
-      - wippy.keeper.views.common:alpine.js
+      - keeper.views.common:alpine.js
+    

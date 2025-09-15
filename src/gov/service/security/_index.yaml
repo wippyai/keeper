@@ -1,0 +1,16 @@
+version: "1.0"
+namespace: keeper.gov.service.security
+
+entries:
+  # keeper.gov.service.security:full_access
+  - name: full_access
+    kind: security.policy
+    meta:
+      comment: Allow governance service to modify whole system
+    groups:
+      - keeper.gov.service.security:governance
+    policy:
+      resources: '*'
+      actions: '*'
+      effect: allow
+    

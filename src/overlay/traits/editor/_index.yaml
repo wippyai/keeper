@@ -1,0 +1,138 @@
+version: "1.0"
+namespace: keeper.overlay.traits.editor
+
+entries:
+  # keeper.overlay.traits.editor:edit
+  - name: edit
+    kind: function.lua
+    meta:
+      type: tool
+      title: Edit
+      comment: Text editor for virtual filesystem files through workspace overlay
+      claude:
+        type: text_editor_20250728
+        max_characters: 50000
+      input_schema: "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"command\": {\n      \"type\": \"string\",\n      \"enum\": [\"view\", \"str_replace\", \"create\", \"insert\"],\n      \"description\": \"Editor command to perform\"\n    },\n    \"path\": {\n      \"type\": \"string\",\n      \"description\": \"File path (namespace/filename format)\"\n    },\n    \"old_str\": {\n      \"type\": \"string\",\n      \"description\": \"Text to replace (for str_replace command)\"\n    },\n    \"new_str\": {\n      \"type\": \"string\", \n      \"description\": \"Replacement text (for str_replace and insert commands)\"\n    },\n    \"file_text\": {\n      \"type\": \"string\",\n      \"description\": \"File content (for create command)\"\n    },\n    \"insert_line\": {\n      \"type\": \"integer\",\n      \"description\": \"Line number to insert after (for insert command)\"\n    },\n    \"insert_text\": {\n      \"type\": \"string\",\n      \"description\": \"Text to insert (alternative to new_str for insert)\"\n    },\n    \"view_range\": {\n      \"type\": \"array\",\n      \"items\": {\"type\": \"integer\"},\n      \"minItems\": 2,\n      \"maxItems\": 2,\n      \"description\": \"Start and end line numbers for partial view\"\n    }\n  },\n  \"required\": [\"command\", \"path\"]\n}\n"
+      llm_alias: str_replace_based_edit_tool
+      llm_description: Edit virtual filesystem files through workspace overlay. Supports standard text editor operations - view files with line numbers, replace text, create files, insert text. Works with both _index.yaml and source files. Uses active workspace context.
+    source: file://edit.lua
+    modules:
+      - json
+      - security
+      - ctx
+      - text
+    imports:
+      ns: keeper.overlay.rfs:ns
+      ns_diff: keeper.overlay.rfs:ns_diff
+      renderer: keeper.overlay.rfs.util:renderer
+      rfs: keeper.overlay.rfs:rfs
+      snapshot: keeper.overlay.rfs:snapshot
+      workspace: keeper.overlay:workspace
+    method: handler
+    
+  # keeper.overlay.traits.editor:editor
+  - name: editor
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Code Editor
+      comment: File editing capabilities with virtual filesystem understanding
+      tags:
+        - editor
+        - files
+        - workspace
+        - rfs
+        - virtual-filesystem
+      icon: tabler:edit
+    prompt: |
+      File editing tools for Wippy's virtual filesystem:
+    
+      ## Virtual Filesystem Rules
+      - `_index.yaml` generated from registry entries, auto-sorted by name
+      - Source files owned by registry entries via `source: file://name.ext`
+      - Cannot create orphaned files - registry entry must exist first
+      - Entries map to files: `namespace.name` → `namespace/file.ext`
+    
+      ## Operations
+      **Exploration** (only if context missing):
+      ```json
+      {"operation": "tree", "root": "namespace", "depth": 2}
+      ```
+    
+      **View** (read once, minimize repeated reads):
+      ```json
+      {"command": "view", "path": "namespace/file.lua"}
+      ```
+    
+      **Replace** (target precise content, avoid whitespace):
+      ```json
+      {"command": "str_replace", "path": "namespace/file.lua", "old_str": "content", "new_str": "content"}
+      ```
+    
+      **Registry Management**:
+      ```json
+      {"action": "view|append|update|delete", "namespace": "ns", "entry_id": "ns:name", "entry_yaml": "yaml"}
+      ```
+    
+      ## Workflow
+      1. Use existing context if available, explore only when needed
+      2. Read files once at start
+      3. Create registry entries before source files
+      4. Make multiple non-overlapping changes simultaneously
+      5. Target minimal content boundaries in replacements
+    
+      ## Critical Rules
+      - Registry entries own source files
+      - Text replacement: precise content only, no leading/trailing whitespace
+      - Minimize file reads and change scope
+      - Verify ownership relationships
+    
+      Virtual filesystem abstracts registry as files with strict ownership rules.
+    tools:
+      - keeper.overlay.traits.editor:*
+    
+  # keeper.overlay.traits.editor:index
+  - name: index
+    kind: function.lua
+    meta:
+      type: tool
+      title: Index
+      comment: Programmatic namespace index management tool
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["view", "append", "delete", "update"],
+              "description": "Index action to perform"
+            },
+            "namespace": {
+              "type": "string",
+              "description": "Target namespace for index operations"
+            },
+            "entry_id": {
+              "type": "string",
+              "description": "Full entry ID (namespace:name) for append/delete/update operations"
+            },
+            "entry_yaml": {
+              "type": "string",
+              "description": "YAML representation of entry for append/update operations, my be single entry, not array with single element"
+            }
+          },
+          "required": ["action", "namespace"]
+        }
+      llm_alias: manage_index
+      llm_description: Programmatic namespace index management. View current index as YAML, append new entries, delete entries by ID, update entries with full overwrite. Avoids dynamic _index.yaml editing issues. Uses active workspace context.
+    source: file://index.lua
+    modules:
+      - json
+      - security
+      - ctx
+      - yaml
+    imports:
+      ns: keeper.overlay.rfs:ns
+      snapshot: keeper.overlay.rfs:snapshot
+      workspace: keeper.overlay:workspace
+    method: handler
+    

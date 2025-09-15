@@ -1,0 +1,26 @@
+version: "1.0"
+namespace: keeper.views.env
+
+entries:
+  # keeper.views.env:variables
+  - name: variables
+    kind: template.jet
+    meta:
+      name: env.variables
+      type: view.page
+      title: Environment Variables
+      group: Keeper
+      icon: tabler:variable
+      description: Manage environment variables and storages
+      order: 40
+      content_type: text/html
+      announced: true
+      group_icon: tabler:settings
+      group_order: 9999
+      group_placement: bottom
+      secure: true
+    source: file://variables.jet
+    set: keeper.views.common:templates
+    resources:
+      - keeper.views.common:alpine.js
+    

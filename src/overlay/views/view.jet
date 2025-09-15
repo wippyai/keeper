@@ -1,0 +1,3953 @@
+{{ extends "common/layout" }}
+
+{{ block title() }}Workspace Editor{{ end }}
+{{ block metaDescription() }}Edit workspace entries and manage overlay changes{{ end }}
+
+{{ block headScripts() }}
+<!-- CRITICAL: Load in exact sequence -->
+<!-- 1. Prism Core + Essential Plugins -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"
+        crossorigin="anonymous"></script>
+<!-- 2. Diff Library -->
+<script src="https://cdn.jsdelivr.net/npm/diff@5.1.0/dist/diff.min.js"
+        crossorigin="anonymous"></script>
+<!-- 3. Markdown Parser -->
+<script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"
+        crossorigin="anonymous"></script>
+
+<!-- Prism themes with dark/light mode -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css"
+      crossorigin="anonymous" id="prism-light">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-dark.min.css"
+      crossorigin="anonymous" id="prism-dark" disabled>
+
+<!-- 4. Prism Configuration (BEFORE Alpine.js loads) -->
+<script>
+    // Configure Prism immediately after load
+    if (typeof Prism !== 'undefined') {
+        Prism.manual = true; // Prevent auto-highlighting
+        Prism.plugins.autoloader.languages_path = 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/';
+
+        // Custom language definitions
+        // Ensure base language exists before extending
+        if (!Prism.languages.lua) {
+            Prism.languages.lua = {};
+        }
+
+        Prism.languages.wippy = Prism.languages.extend('lua', {
+            'registry-key': {
+                pattern: /[a-zA-Z_][a-zA-Z0-9_]*:[a-zA-Z_][a-zA-Z0-9_]*/,
+                alias: 'namespace'
+            },
+            'entry-kind': {
+                pattern: /\b(function\.lua|library\.lua|registry\.entry)\b/,
+                alias: 'builtin'
+            }
+        });
+
+        console.log('Prism.js configured successfully');
+        window.prismReady = true;
+    } else {
+        console.error('Prism.js failed to load');
+        window.prismReady = false;
+    }
+</script>
+
+<style>
+    .entry-card {
+        transition: all 0.2s ease-in-out;
+    }
+    .entry-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+    .code-editor {
+        font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+        tab-size: 2;
+        font-size: 13px;
+        line-height: 1.4;
+        padding: 0;
+        margin: 0;
+        width: 100%;
+        display: block;
+    }
+    .diff-created {
+        background-color: rgba(34, 197, 94, 0.1);
+        border-left: 3px solid #22c55e;
+    }
+    .diff-modified {
+        background-color: rgba(245, 158, 11, 0.1);
+        border-left: 3px solid #f59e0b;
+    }
+    .diff-deleted {
+        background-color: rgba(239, 68, 68, 0.1);
+        border-left: 3px solid #ef4444;
+    }
+    .source-code {
+        white-space: pre-wrap;
+        word-break: break-word;
+        padding: 0.75rem;
+        margin: 0;
+        border-radius: 0.5rem;
+        background: var(--bg-secondary);
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* Code Block Full-Width Fixes */
+    .code-block-container {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    /* Add minimal padding for non-code content in code containers */
+    .code-block-container:not(:has(pre)):not(:has(.code-editor)):not(:has(.source-code)) {
+        padding: 0.75rem !important;
+    }
+
+    /* Remove left padding from entry details code blocks */
+    .entry-details-code {
+        padding-left: 0 !important;
+        margin-left: 0 !important;
+    }
+
+    /* Remove bottom spacing after code blocks */
+    .code-container:last-child {
+        margin-bottom: 0 !important;
+    }
+
+    /* Override any p-4 padding on code containers */
+    .bg-surface-100.rounded-lg.p-4:has(pre.code-editor),
+    .bg-surface-800.rounded-lg.p-4:has(pre.code-editor) {
+        padding: 0 !important;
+    }
+
+    /* Remove pl-11 from entry detail containers with code */
+    .pl-11:has(.code-editor),
+    .pl-11:has(.source-code) {
+        padding-left: 0 !important;
+    }
+    .live-updating {
+        animation: livePulse 2s ease-in-out infinite;
+    }
+    @keyframes livePulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+        50% { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.1); }
+    }
+    .new-entry-animation {
+        animation: slideInFade 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards, newItemGlow 2s ease-out 0.6s forwards;
+        transform: translateY(-10px) scale(0.95);
+        opacity: 0;
+    }
+    @keyframes slideInFade {
+        0% { transform: translateY(-10px) scale(0.95); opacity: 0; }
+        60% { transform: translateY(0) scale(1.02); opacity: 0.8; }
+        100% { transform: translateY(0) scale(1); opacity: 1; }
+    }
+    @keyframes newItemGlow {
+        0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); background-color: rgba(59, 130, 246, 0.05); }
+        50% { box-shadow: 0 0 20px 4px rgba(59, 130, 246, 0.2); background-color: rgba(59, 130, 246, 0.1); }
+        100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); background-color: transparent; }
+    }
+    .danger-zone {
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        background-color: rgba(254, 242, 242, 0.5);
+    }
+    .dark .danger-zone {
+        background-color: rgba(127, 29, 29, 0.1);
+        border-color: rgba(239, 68, 68, 0.3);
+    }
+    .item-transition {
+        transition: all 0.3s ease-in-out;
+    }
+    details[open] .details-chevron {
+        transform: rotate(90deg);
+    }
+    .diff-line-added {
+        background-color: rgba(16, 185, 129, 0.1);
+        border-left: 2px solid rgba(16, 185, 129, 0.4);
+    }
+    .dark .diff-line-added {
+        background-color: rgba(16, 185, 129, 0.15);
+        border-left: 2px solid rgba(16, 185, 129, 0.5);
+    }
+    .diff-line-deleted {
+        background-color: rgba(239, 68, 68, 0.1);
+        border-left: 2px solid rgba(239, 68, 68, 0.4);
+    }
+    .dark .diff-line-deleted {
+        background-color: rgba(239, 68, 68, 0.15);
+        border-left: 2px solid rgba(239, 68, 68, 0.5);
+    }
+    .diff-line-context {
+        background-color: rgba(107, 114, 126, 0.05);
+    }
+    .dark .diff-line-context {
+        background-color: rgba(107, 114, 126, 0.1);
+    }
+
+    /* Enhanced metadata display */
+    .metadata-enhanced {
+        --border-color: #e2e8f0;
+        --bg-primary: #ffffff;
+        --bg-secondary: #f8fafc;
+        --text-primary: #1e293b;
+        --text-secondary: #64748b;
+        --accent-primary: #3b82f6;
+    }
+    .dark .metadata-enhanced {
+        --border-color: #475569;
+        --bg-primary: #1e293b;
+        --bg-secondary: #0f172a;
+        --text-primary: #f1f5f9;
+        --text-secondary: #94a3b8;
+        --accent-primary: #60a5fa;
+    }
+    .metadata-category {
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        overflow: hidden;
+    }
+    .metadata-category-header {
+        background: var(--bg-secondary);
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    .metadata-grid {
+        display: grid;
+        gap: 0;
+    }
+    .metadata-row {
+        display: grid;
+        grid-template-columns: minmax(120px, 1fr) 2fr auto;
+        gap: 0.75rem;
+        padding: 0.625rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+        align-items: start;
+    }
+    .metadata-row:last-child {
+        border-bottom: none;
+    }
+    .metadata-key {
+        font-weight: 500;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+    }
+    .metadata-value {
+        font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+        font-size: 0.8125rem;
+        color: var(--text-primary);
+        word-break: break-word;
+        white-space: pre-wrap;
+    }
+    .copy-value {
+        opacity: 0;
+        transition: opacity 0.2s;
+        padding: 0.25rem;
+        border-radius: 4px;
+        color: var(--text-secondary);
+        hover:color: var(--accent-primary);
+    }
+    .metadata-row:hover .copy-value {
+        opacity: 1;
+    }
+
+    /* Enhanced view controls */
+    .view-controls {
+        display: flex;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+    .view-controls button {
+        padding: 0.5rem 1rem;
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .view-controls button:hover {
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+    .view-controls button.active {
+        background: var(--accent-primary);
+        color: white;
+    }
+
+    /* Enhanced diff visualization */
+    .diff-enhanced {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        overflow: hidden;
+        background: var(--bg-primary);
+    }
+    .diff-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+    }
+    .diff-navigation {
+        display: flex;
+        gap: 0.5rem;
+    }
+    .diff-navigation button {
+        padding: 0.375rem 0.75rem;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        border-radius: 4px;
+        font-size: 0.875rem;
+        cursor: pointer;
+    }
+    .diff-navigation button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .change-counter {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        font-weight: 500;
+    }
+    .diff-content {
+        max-height: 600px;
+        overflow: auto;
+    }
+    .diff-line {
+        display: grid;
+        grid-template-columns: auto auto 1fr;
+        gap: 0.75rem;
+        padding: 0.25rem 1rem;
+        font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+        font-size: 0.8125rem;
+        line-height: 1.5;
+        border-left: 3px solid transparent;
+    }
+    .diff-line.added {
+        background: rgba(34, 197, 94, 0.1);
+        border-left-color: #22c55e;
+    }
+    .diff-line.deleted {
+        background: rgba(239, 68, 68, 0.1);
+        border-left-color: #ef4444;
+    }
+    .diff-line.context {
+        background: rgba(107, 114, 126, 0.05);
+    }
+    .dark .diff-line.added {
+        background: rgba(34, 197, 94, 0.15);
+    }
+    .dark .diff-line.deleted {
+        background: rgba(239, 68, 68, 0.15);
+    }
+    .dark .diff-line.context {
+        background: rgba(107, 114, 126, 0.1);
+    }
+    .line-marker {
+        width: 1ch;
+        color: var(--text-secondary);
+        text-align: center;
+    }
+    .line-number {
+        width: 4ch;
+        color: var(--text-secondary);
+        text-align: right;
+        user-select: none;
+    }
+
+    /* Syntax highlighting theme integration */
+    .language-lua .token.keyword { color: #8b5cf6; font-weight: 600; }
+    .language-lua .token.function { color: #06b6d4; }
+    .language-lua .token.string { color: #10b981; }
+    .language-lua .token.comment { color: #6b7280; font-style: italic; }
+    .language-lua .token.number { color: #f59e0b; }
+    .language-lua .token.operator { color: #64748b; }
+    .dark .language-lua .token.keyword { color: #a78bfa; }
+    .dark .language-lua .token.function { color: #22d3ee; }
+    .dark .language-lua .token.string { color: #34d399; }
+    .dark .language-lua .token.comment { color: #9ca3af; }
+    .dark .language-lua .token.number { color: #fbbf24; }
+    .dark .language-lua .token.operator { color: #94a3b8; }
+
+    /* Enhanced visual hierarchy */
+    .context-section {
+        border-radius: 8px;
+        border: 1px solid rgba(209, 213, 219, 0.5);
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.8), rgba(249, 250, 251, 0.9));
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+    .dark .context-section {
+        border: 1px solid rgba(75, 85, 99, 0.5);
+        background: linear-gradient(135deg, rgba(31, 41, 55, 0.8), rgba(17, 24, 39, 0.9));
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+
+    .comparison-panel {
+        border-radius: 6px;
+        border: 1px solid rgba(209, 213, 219, 0.3);
+        background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(4px);
+    }
+    .dark .comparison-panel {
+        border: 1px solid rgba(75, 85, 99, 0.3);
+        background: rgba(31, 41, 55, 0.7);
+        backdrop-filter: blur(4px);
+    }
+
+    .section-header {
+        background: linear-gradient(90deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1));
+        border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+    }
+    .dark .section-header {
+        background: linear-gradient(90deg, rgba(59, 130, 246, 0.15), rgba(147, 51, 234, 0.15));
+        border-bottom: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    /* Improved scrollbars */
+    .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+        background: rgba(156, 163, 175, 0.1);
+        border-radius: 3px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: rgba(156, 163, 175, 0.4);
+        border-radius: 3px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: rgba(156, 163, 175, 0.6);
+    }
+    .dark .custom-scrollbar::-webkit-scrollbar-track {
+        background: rgba(75, 85, 99, 0.2);
+    }
+    .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: rgba(75, 85, 99, 0.6);
+    }
+    .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: rgba(75, 85, 99, 0.8);
+    }
+
+    /* Comprehensive Markdown Styling */
+    .markdown-content {
+        line-height: 1.6;
+        color: #374151;
+        max-width: none;
+    }
+    .dark .markdown-content {
+        color: #d1d5db;
+    }
+
+    .markdown-content h1,
+    .markdown-content h2,
+    .markdown-content h3,
+    .markdown-content h4,
+    .markdown-content h5,
+    .markdown-content h6 {
+        font-weight: 600;
+        margin-top: 1.5em;
+        margin-bottom: 0.5em;
+        line-height: 1.25;
+        color: #111827;
+    }
+    .dark .markdown-content h1,
+    .dark .markdown-content h2,
+    .dark .markdown-content h3,
+    .dark .markdown-content h4,
+    .dark .markdown-content h5,
+    .dark .markdown-content h6 {
+        color: #f9fafb;
+    }
+
+    .markdown-content h1 { font-size: 1.875rem; border-bottom: 2px solid #e5e7eb; padding-bottom: 0.5rem; }
+    .markdown-content h2 { font-size: 1.5rem; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.25rem; }
+    .markdown-content h3 { font-size: 1.25rem; }
+    .markdown-content h4 { font-size: 1.125rem; }
+    .markdown-content h5 { font-size: 1rem; }
+    .markdown-content h6 { font-size: 0.875rem; }
+
+    .dark .markdown-content h1 { border-bottom-color: #374151; }
+    .dark .markdown-content h2 { border-bottom-color: #374151; }
+
+    .markdown-content p {
+        margin-bottom: 1em;
+    }
+
+    .markdown-content ul,
+    .markdown-content ol {
+        margin-bottom: 1em;
+        padding-left: 1.5em;
+    }
+
+    .markdown-content li {
+        margin-bottom: 0.25em;
+    }
+
+    .markdown-content li > ul,
+    .markdown-content li > ol {
+        margin-top: 0.25em;
+        margin-bottom: 0.25em;
+    }
+
+    .markdown-content blockquote {
+        border-left: 4px solid #d1d5db;
+        padding-left: 1rem;
+        margin: 1.5em 0;
+        font-style: italic;
+        color: #6b7280;
+        background-color: #f9fafb;
+        padding: 1rem;
+        border-radius: 0.375rem;
+    }
+    .dark .markdown-content blockquote {
+        border-left-color: #4b5563;
+        color: #9ca3af;
+        background-color: #1f2937;
+    }
+
+    .markdown-content code {
+        background-color: #f3f4f6;
+        padding: 0.125rem 0.25rem;
+        border-radius: 0.25rem;
+        font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+        font-size: 0.875em;
+        color: #dc2626;
+    }
+    .dark .markdown-content code {
+        background-color: #374151;
+        color: #fca5a5;
+    }
+
+    .markdown-content pre {
+        background-color: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        overflow-x: auto;
+        margin: 1.5em 0;
+        font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+        font-size: 0.875rem;
+        line-height: 1.5;
+    }
+    .dark .markdown-content pre {
+        background-color: #1e293b;
+        border-color: #475569;
+    }
+
+    .markdown-content pre code {
+        background: none;
+        padding: 0;
+        color: inherit;
+        font-size: inherit;
+    }
+
+    .markdown-content table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1.5em 0;
+        font-size: 0.875rem;
+    }
+
+    .markdown-content th,
+    .markdown-content td {
+        border: 1px solid #d1d5db;
+        padding: 0.5rem 0.75rem;
+        text-align: left;
+    }
+    .dark .markdown-content th,
+    .dark .markdown-content td {
+        border-color: #4b5563;
+    }
+
+    .markdown-content th {
+        background-color: #f9fafb;
+        font-weight: 600;
+        color: #111827;
+    }
+    .dark .markdown-content th {
+        background-color: #374151;
+        color: #f9fafb;
+    }
+
+    .markdown-content tr:nth-child(even) {
+        background-color: #f9fafb;
+    }
+    .dark .markdown-content tr:nth-child(even) {
+        background-color: #1f2937;
+    }
+
+    .markdown-content a {
+        color: #2563eb;
+        text-decoration: underline;
+        text-decoration-color: rgba(37, 99, 235, 0.3);
+        text-underline-offset: 2px;
+    }
+    .dark .markdown-content a {
+        color: #60a5fa;
+        text-decoration-color: rgba(96, 165, 250, 0.3);
+    }
+
+    .markdown-content a:hover {
+        text-decoration-color: currentColor;
+    }
+
+    .markdown-content img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 0.5rem;
+        margin: 1em 0;
+    }
+
+    .markdown-content hr {
+        border: none;
+        border-top: 2px solid #e5e7eb;
+        margin: 2em 0;
+    }
+    .dark .markdown-content hr {
+        border-top-color: #374151;
+    }
+
+    .markdown-content strong {
+        font-weight: 600;
+        color: #111827;
+    }
+    .dark .markdown-content strong {
+        color: #f9fafb;
+    }
+
+    .markdown-content em {
+        font-style: italic;
+    }
+
+    .markdown-content del {
+        text-decoration: line-through;
+        opacity: 0.7;
+    }
+
+    /* First element margin reset */
+    .markdown-content > *:first-child {
+        margin-top: 0;
+    }
+
+    /* Last element margin reset */
+    .markdown-content > *:last-child {
+        margin-bottom: 0;
+    }
+
+    /* Task lists */
+    .markdown-content .task-list-item {
+        list-style: none;
+        margin-left: -1.5em;
+    }
+
+    .markdown-content .task-list-item input[type="checkbox"] {
+        margin-right: 0.5em;
+    }
+
+    /* Responsive enhancements */
+    @media (max-width: 768px) {
+        .metadata-row {
+            grid-template-columns: 1fr;
+            gap: 0.5rem;
+        }
+
+        .metadata-key {
+            font-weight: 600;
+        }
+
+        .view-controls {
+            flex-direction: column;
+        }
+
+        .comparison-grid {
+            grid-template-columns: 1fr !important;
+            gap: 1rem;
+        }
+
+        .diff-line {
+            grid-template-columns: auto 1fr;
+            font-size: 0.75rem;
+        }
+
+        .line-number {
+            display: none;
+        }
+    }
+</style>
+
+
+
+{{ end }}
+
+{{ block mainContent() }}
+<div x-data="workspaceEditorApp" x-init="initialize()" class="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    {{ yield pageHeader() }}
+    {{ yield loadingStates() }}
+    {{ yield tabNavigation() }}
+    {{ yield tabContents() }}
+    {{ yield modals() }}
+</div>
+{{ end }}
+
+{{ block pageHeader() }}
+<div class="bg-surface-50 dark:bg-surface-700 shadow rounded-lg">
+    <div class="px-6 py-4 border-b border-surface-200 dark:border-surface-600">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center min-w-0 flex-1">
+                <div class="flex items-center min-w-0">
+                    <template x-if="workspace.title">
+                        <h1 class="text-xl font-medium text-surface-900 dark:text-surface-100 truncate mr-3"
+                            :title="workspace.title"
+                            x-text="workspace.title"></h1>
+                    </template>
+                    <template x-if="!workspace.title && workspaceId">
+                        <h1 class="text-xl font-medium text-surface-600 dark:text-surface-400 truncate font-mono mr-3"
+                            :title="workspaceId"
+                            x-text="workspaceId"></h1>
+                    </template>
+
+                    <!-- Status Badge -->
+                    <template x-if="workspace.status">
+                        <span :class="getStatusBadgeClasses(workspace.status)" class="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium flex-shrink-0">
+                            <span x-text="workspace.status"></span>
+                        </span>
+                    </template>
+
+                    <!-- Loading indicator -->
+                    <span x-show="isLoading || isUpdating" class="inline-block ml-3" :title="isLoading ? 'Loading...' : 'Live updating...'">
+                        <iconify-icon icon="tabler:loader-2" class="animate-spin transition-colors duration-300" width="20" height="20"
+                                      :class="isUpdating ? 'text-green-500 dark:text-green-400' : 'text-surface-500 dark:text-surface-400'"
+                                      alt="Loading indicator"></iconify-icon>
+                    </span>
+                </div>
+            </div>
+
+            <div class="flex gap-2 flex-shrink-0">
+                <button @click="toggleLiveUpdates()"
+                        :title="liveUpdatesEnabled ? 'Disable Live Updates' : 'Enable Live Updates'"
+                        class="inline-flex items-center px-3 py-2 border shadow-sm text-sm font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-all duration-300"
+                        :class="[
+                            liveUpdatesEnabled ?
+                                'bg-green-100 dark:bg-green-700 text-green-700 dark:text-green-100 border-green-300 dark:border-green-600 hover:bg-green-200 dark:hover:bg-green-600' :
+                                'bg-yellow-100 dark:bg-yellow-700 text-yellow-700 dark:text-yellow-100 border-yellow-300 dark:border-yellow-600 hover:bg-yellow-200 dark:hover:bg-yellow-600',
+                            isUpdating && liveUpdatesEnabled ? 'live-updating' : ''
+                        ]">
+                    <iconify-icon :icon="liveUpdatesEnabled ? 'tabler:player-pause' : 'tabler:player-play'" class="mr-2" width="16" height="16" alt="Live updates toggle"></iconify-icon>
+                    <span x-text="liveUpdatesEnabled ? 'Live' : 'Paused'"></span>
+                </button>
+                <button @click="goBackToList()"
+                        class="inline-flex items-center px-3 py-2 border border-surface-300 dark:border-surface-600 shadow-sm text-sm font-medium rounded-md text-surface-700 dark:text-surface-300 bg-white dark:bg-surface-800 hover:bg-surface-50 dark:hover:bg-surface-700">
+                    <iconify-icon icon="tabler:arrow-left" class="mr-2" width="16" height="16" alt="Back arrow"></iconify-icon>
+                    Back
+                </button>
+                <button @click="refreshWorkspace"
+                        :disabled="isLoading || isUpdating"
+                        class="inline-flex items-center px-3 py-2 border border-surface-300 dark:border-surface-600 shadow-sm text-sm font-medium rounded-md text-surface-700 dark:text-surface-300 bg-white dark:bg-surface-800 hover:bg-surface-50 dark:hover:bg-surface-700">
+                    <iconify-icon :icon="isLoading || isUpdating ? 'tabler:loader-2' : 'tabler:refresh'" :class="{'animate-spin': isLoading || isUpdating}" class="mr-2" width="16" height="16" alt="Refresh"></iconify-icon>
+                    Refresh
+                </button>
+            </div>
+        </div>
+
+        <!-- Subtitle with workspace details -->
+        <div class="mt-2">
+            <p class="text-sm text-surface-500 dark:text-surface-400">
+                <span class="font-mono text-xs" x-text="workspaceId || 'No workspace ID'"></span>
+                <template x-if="lastEventTime">
+                    <span class="ml-3">
+                        Last update: <span x-text="formatTime(lastEventTime)"></span>
+                        <span x-show="!liveUpdatesEnabled" class="text-yellow-600 dark:text-yellow-400 ml-1">(Updates Paused)</span>
+                    </span>
+                </template>
+            </p>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ block loadingStates() }}
+<div x-show="isLoading && !workspace.workspace_id" class="bg-surface-50 dark:bg-surface-700 shadow rounded-lg p-6 text-center">
+    <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-600 mx-auto"></div>
+    <p class="mt-4 text-surface-600 dark:text-surface-400">Loading workspace...</p>
+</div>
+
+<div x-show="error" class="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 p-4 rounded-lg">
+    <div class="flex">
+        <iconify-icon icon="tabler:alert-circle" class="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 mr-3" alt="Error"></iconify-icon>
+        <div>
+            <h3 class="text-sm font-medium text-red-800 dark:text-red-300">Error</h3>
+            <p class="mt-1 text-sm text-red-700 dark:text-red-400" x-text="error"></p>
+            <button @click="refreshWorkspace()" class="mt-2 text-sm text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200">
+                Try Again
+            </button>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ block tabNavigation() }}
+<div x-show="workspace.workspace_id" class="bg-surface-50 dark:bg-surface-700 shadow rounded-lg overflow-hidden">
+    <nav class="flex border-b border-surface-200 dark:border-surface-600" aria-label="Tabs">
+        <button
+                @click="activeTab = 'overview'"
+                class="flex-1 text-center whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm flex items-center justify-center group"
+                :class="activeTab === 'overview' ?
+                'border-primary-500 text-primary-600 dark:text-primary-400' :
+                'border-transparent text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-300 hover:border-surface-300 dark:hover:border-surface-600'"
+        >
+            <iconify-icon icon="tabler:dashboard" class="mr-1.5"
+                          :class="activeTab === 'overview' ? 'text-primary-500 dark:text-primary-400' : 'text-surface-400 dark:text-surface-500 group-hover:text-surface-500 dark:group-hover:text-surface-300'"
+                          width="16" height="16" alt="Overview"></iconify-icon>
+            <span>Overview</span>
+        </button>
+        <button
+                @click="activeTab = 'entries'"
+                class="flex-1 text-center whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm flex items-center justify-center group"
+                :class="activeTab === 'entries' ?
+                'border-primary-500 text-primary-600 dark:text-primary-400' :
+                'border-transparent text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-300 hover:border-surface-300 dark:hover:border-surface-600'"
+        >
+            <iconify-icon icon="tabler:files" class="mr-1.5"
+                          :class="activeTab === 'entries' ? 'text-primary-500 dark:text-primary-400' : 'text-surface-400 dark:text-surface-500 group-hover:text-surface-500 dark:group-hover:text-surface-300'"
+                          width="16" height="16" alt="Files"></iconify-icon>
+            <span>Entries (<span x-text="filteredEntries.length"></span>)</span>
+        </button>
+        <button
+                @click="activeTab = 'permissions'"
+                class="flex-1 text-center whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm flex items-center justify-center group"
+                :class="activeTab === 'permissions' ?
+                'border-primary-500 text-primary-600 dark:text-primary-400' :
+                'border-transparent text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-300 hover:border-surface-300 dark:hover:border-surface-600'"
+        >
+            <iconify-icon icon="tabler:shield" class="mr-1.5"
+                          :class="activeTab === 'permissions' ? 'text-primary-500 dark:text-primary-400' : 'text-surface-400 dark:text-surface-500 group-hover:text-surface-500 dark:group-hover:text-surface-300'"
+                          width="16" height="16" alt="Permissions"></iconify-icon>
+            <span>Permissions (<span x-text="(workspace.permissions || []).length"></span>)</span>
+        </button>
+        <button
+                @click="activeTab = 'reviews'"
+                class="flex-1 text-center whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm flex items-center justify-center group"
+                :class="activeTab === 'reviews' ?
+                'border-primary-500 text-primary-600 dark:text-primary-400' :
+                'border-transparent text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-300 hover:border-surface-300 dark:hover:border-surface-600'"
+        >
+            <iconify-icon icon="tabler:git-branch" class="mr-1.5"
+                          :class="activeTab === 'reviews' ? 'text-primary-500 dark:text-primary-400' : 'text-surface-400 dark:text-surface-500 group-hover:text-surface-500 dark:group-hover:text-surface-300'"
+                          width="16" height="16" alt="Reviews"></iconify-icon>
+            <span>Reviews (<span x-text="(workspace.reviews || []).length"></span>)</span>
+        </button>
+        <button
+                @click="activeTab = 'context'"
+                class="flex-1 text-center whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm flex items-center justify-center group"
+                :class="activeTab === 'context' ?
+                'border-primary-500 text-primary-600 dark:text-primary-400' :
+                'border-transparent text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-300 hover:border-surface-300 dark:hover:border-surface-600'"
+        >
+            <iconify-icon icon="tabler:notebook" class="mr-1.5"
+                          :class="activeTab === 'context' ? 'text-primary-500 dark:text-primary-400' : 'text-surface-400 dark:text-surface-500 group-hover:text-surface-500 dark:group-hover:text-surface-300'"
+                          width="16" height="16" alt="Context"></iconify-icon>
+            <span>Context (<span x-text="(contexts || []).length"></span>)</span>
+        </button>
+        <button
+                @click="activeTab = 'history'"
+                class="flex-1 text-center whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm flex items-center justify-center group"
+                :class="activeTab === 'history' ?
+                'border-primary-500 text-primary-600 dark:text-primary-400' :
+                'border-transparent text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-300 hover:border-surface-300 dark:hover:border-surface-600'"
+        >
+            <iconify-icon icon="tabler:history" class="mr-1.5"
+                          :class="activeTab === 'history' ? 'text-primary-500 dark:text-primary-400' : 'text-surface-400 dark:text-surface-500 group-hover:text-surface-500 dark:group-hover:text-surface-300'"
+                          width="16" height="16" alt="History"></iconify-icon>
+            <span>History</span>
+        </button>
+    </nav>
+</div>
+{{ end }}
+
+{{ block tabContents() }}
+<div x-show="workspace.workspace_id">
+    {{ yield overviewTab() }}
+    {{ yield entriesTab() }}
+    {{ yield permissionsTab() }}
+    {{ yield reviewsTab() }}
+    {{ yield contextTab() }}
+    {{ yield historyTab() }}
+</div>
+{{ end }}
+
+{{ block overviewTab() }}
+<div x-show="activeTab === 'overview'" class="space-y-6">
+    <!-- Main Workspace Details -->
+    <div class="bg-white dark:bg-surface-700 shadow rounded-lg p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-medium text-surface-900 dark:text-surface-100">Workspace Details</h2>
+            <div class="flex items-center gap-2">
+                <span :class="getStatusBadgeClasses(workspace.status)" class="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium">
+                    <span x-text="workspace.status || 'unknown'"></span>
+                </span>
+                <template x-if="(workspace.entries || []).length > 0">
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                        <iconify-icon icon="tabler:file-text" class="mr-1" width="12" height="12" alt="Files"></iconify-icon>
+                        <span x-text="(workspace.entries || []).length + ' entries'"></span>
+                    </span>
+                </template>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-surface-700 dark:text-surface-300">Title</label>
+                <input type="text" x-model="editableWorkspace.title" @input="markWorkspaceDirty()"
+                       class="mt-1 block w-full border border-surface-300 dark:border-surface-600 rounded-md shadow-sm px-3 py-2 bg-white dark:bg-surface-800 text-surface-900 dark:text-surface-100">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-surface-700 dark:text-surface-300">Status</label>
+                <select x-model="editableWorkspace.status" @change="markWorkspaceDirty()"
+                        class="mt-1 block w-full border border-surface-300 dark:border-surface-600 rounded-md shadow-sm px-3 py-2 bg-white dark:bg-surface-800 text-surface-900 dark:text-surface-100">
+                    <option value="draft">Draft</option>
+                    <option value="active">Active</option>
+                    <option value="reviewed">Reviewed</option>
+                    <option value="approved">Approved</option>
+                    <option value="committed">Committed</option>
+                    <option value="integrated">Integrated</option>
+                    <option value="failed">Failed</option>
+                    <option value="archived">Archived</option>
+                </select>
+            </div>
+            <div class="md:col-span-2">
+                <label class="block text-sm font-medium text-surface-700 dark:text-surface-300">Description</label>
+                <textarea x-model="editableWorkspace.description" @input="markWorkspaceDirty()" rows="3"
+                          class="mt-1 block w-full border border-surface-300 dark:border-surface-600 rounded-md shadow-sm px-3 py-2 bg-white dark:bg-surface-800 text-surface-900 dark:text-surface-100"></textarea>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-surface-700 dark:text-surface-300">Created</label>
+                <p class="mt-1 text-sm text-surface-600 dark:text-surface-400" x-text="formatDate(workspace.created_at)"></p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-surface-700 dark:text-surface-300">Updated</label>
+                <p class="mt-1 text-sm text-surface-600 dark:text-surface-400" x-text="formatDate(workspace.updated_at)"></p>
+            </div>
+        </div>
+
+        <div x-show="workspaceDirty" class="mt-4 flex gap-2">
+            <button @click="saveWorkspace()" :disabled="isSaving"
+                    class="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50">
+                <iconify-icon :icon="isSaving ? 'tabler:loader-2' : 'tabler:device-floppy'" :class="{'animate-spin': isSaving}" class="mr-2" width="16" height="16" alt="Save"></iconify-icon>
+                Save Changes
+            </button>
+            <button @click="resetWorkspaceChanges()"
+                    class="inline-flex items-center px-3 py-2 border border-surface-300 dark:border-surface-600 text-sm font-medium rounded-md text-surface-700 dark:text-surface-300 bg-white dark:bg-surface-800 hover:bg-surface-50 dark:hover:bg-surface-700">
+                Reset
+            </button>
+        </div>
+    </div>
+
+    <!-- Danger Zone -->
+    <div class="bg-white dark:bg-surface-700 shadow rounded-lg p-6 danger-zone">
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h2 class="text-lg font-medium text-red-800 dark:text-red-300">Danger Zone</h2>
+                <p class="text-sm text-red-600 dark:text-red-400">These actions cannot be undone.</p>
+            </div>
+        </div>
+
+        <div class="flex gap-2">
+            <button @click="deleteWorkspace()"
+                    :disabled="isSaving"
+                    class="inline-flex items-center px-3 py-2 border border-red-600 dark:border-red-500 text-sm font-medium rounded-md text-red-700 dark:text-red-400 bg-white dark:bg-surface-800 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50">
+                <iconify-icon icon="tabler:trash" class="mr-2" width="16" height="16" alt="Delete"></iconify-icon>
+                Delete Workspace
+            </button>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ block entriesTab() }}
+<div x-show="activeTab === 'entries'" class="bg-white dark:bg-surface-700 shadow rounded-lg overflow-hidden">
+    <div class="px-6 py-4 border-b border-surface-200 dark:border-surface-600">
+        <div class="flex items-center justify-between">
+            <h2 class="text-lg font-medium text-surface-900 dark:text-surface-100">Entries</h2>
+            <div class="flex items-center gap-2">
+                <div class="relative w-48">
+                    <input type="text" x-model="entrySearchTerm" @input="filterEntries()"
+                           placeholder="Search entries..."
+                           class="block w-full pl-10 pr-3 py-2 border border-surface-300 dark:border-surface-600 rounded-md shadow-sm bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 text-sm">
+                    <iconify-icon icon="tabler:search" class="absolute left-3 top-2.5 h-4 w-4 text-surface-400" alt="Search"></iconify-icon>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div x-show="filteredEntries.length === 0 && !isLoading" class="py-12 text-center">
+        <iconify-icon icon="tabler:file-off" class="w-12 h-12 mx-auto text-surface-400 dark:text-surface-600" width="48" height="48" alt="No files"></iconify-icon>
+        <h3 class="mt-4 text-sm font-medium text-surface-900 dark:text-surface-100">No entries found</h3>
+        <p class="mt-1 text-sm text-surface-500 dark:text-surface-400">
+            <template x-if="entrySearchTerm">
+                <span>Try adjusting your search term.</span>
+            </template>
+            <template x-if="!entrySearchTerm">
+                <span>No entries in this workspace.</span>
+            </template>
+        </p>
+    </div>
+
+    <div x-show="filteredEntries.length > 0">
+        <template x-for="(entry, index) in filteredEntries" :key="entry.entry_id">
+            <div :class="{
+                'bg-surface-50 dark:bg-surface-800': index % 2 === 0,
+                'bg-white dark:bg-surface-700': index % 2 === 1,
+                'new-entry-animation': newEntryIds.has(entry.entry_id),
+                'item-transition': !newEntryIds.has(entry.entry_id),
+                'diff-created': entry.operation_type === 'create',
+                'diff-modified': entry.operation_type === 'update',
+                'diff-deleted': entry.operation_type === 'delete'
+            }">
+                <div class="px-4 py-3 border-t border-surface-200 dark:border-surface-600 first:border-t-0">
+                    <div class="flex items-center cursor-pointer" @click="toggleEntryDetails(entry.entry_id)">
+                        <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center mr-3">
+                            <iconify-icon :icon="getOperationIcon(entry.operation_type)" class="text-blue-600 dark:text-blue-400" width="16" height="16"></iconify-icon>
+                        </div>
+
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center flex-wrap gap-x-2 gap-y-1">
+                                <span class="text-sm font-medium text-surface-900 dark:text-surface-100 font-mono" x-text="entry.entry_id"></span>
+                                <span :class="getOperationBadgeClasses(entry.operation_type)" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium">
+                                    <iconify-icon :icon="getOperationIcon(entry.operation_type)" class="mr-1" width="12" height="12"></iconify-icon>
+                                    <span x-text="entry.operation_type"></span>
+                                </span>
+                                <template x-if="entryViews[entry.entry_id]?.has_override">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                                        <iconify-icon icon="tabler:edit" class="mr-1" width="12" height="12" alt="Modified"></iconify-icon>
+                                        Modified
+                                    </span>
+                                </template>
+                                <span class="text-xs text-surface-500 dark:text-surface-400" x-text="formatDate(entry.updated_at)"></span>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            <button @click.stop="editEntry(entry.entry_id)"
+                                    class="text-surface-400 hover:text-primary-600 dark:hover:text-primary-400 p-1"
+                                    title="Edit entry">
+                                <iconify-icon icon="tabler:edit" width="16" height="16" alt="Edit"></iconify-icon>
+                            </button>
+                            <button @click.stop="resetEntry(entry.entry_id)"
+                                    class="text-surface-400 hover:text-yellow-600 dark:hover:text-yellow-400 p-1"
+                                    title="Reset to main registry version">
+                                <iconify-icon icon="tabler:restore" width="16" height="16" alt="Reset"></iconify-icon>
+                            </button>
+                            <button @click.stop="deleteEntry(entry.entry_id)"
+                                    class="text-surface-400 hover:text-red-600 dark:hover:text-red-400 p-1"
+                                    title="Delete entry">
+                                <iconify-icon icon="tabler:trash" width="16" height="16" alt="Delete"></iconify-icon>
+                            </button>
+                            <button class="text-surface-400 hover:text-surface-600 dark:hover:text-surface-300"
+                                    :title="expandedEntries[entry.entry_id] ? 'Collapse' : 'Expand'">
+                                <iconify-icon :icon="expandedEntries[entry.entry_id] ? 'tabler:chevron-up' : 'tabler:chevron-down'" width="18" height="18" alt="Toggle"></iconify-icon>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Enhanced Entry Details -->
+                    <div x-show="expandedEntries[entry.entry_id]" x-collapse>
+                        <div class="mt-4 entry-details-code">
+                            <template x-if="entry.operation_type === 'delete'">
+                                <div class="text-center py-8">
+                                    <iconify-icon icon="tabler:trash" class="w-12 h-12 mx-auto text-red-500 dark:text-red-400" width="48" height="48" alt="Deleted"></iconify-icon>
+                                    <p class="mt-2 text-red-600 dark:text-red-400 font-medium">Entry marked for deletion</p>
+                                </div>
+                            </template>
+
+                            <template x-if="entry.operation_type !== 'delete'">
+                                <div class="space-y-4">
+                                    <!-- View Controls -->
+                                    <div class="view-controls">
+                                        <button :class="entryViewModes[entry.entry_id] === 'current' ? 'active' : ''"
+                                                @click="setEntryViewMode(entry.entry_id, 'current')">Current</button>
+                                        <button :class="entryViewModes[entry.entry_id] === 'compare' ? 'active' : ''"
+                                                @click="setEntryViewMode(entry.entry_id, 'compare')"
+                                                x-show="entryViews[entry.entry_id]?.original">Compare</button>
+                                        <button :class="entryViewModes[entry.entry_id] === 'diff' ? 'active' : ''"
+                                                @click="setEntryViewMode(entry.entry_id, 'diff')"
+                                                x-show="enhancedDiffs[entry.entry_id]">Diff</button>
+                                        <button :class="entryViewModes[entry.entry_id] === 'metadata' ? 'active' : ''"
+                                                @click="setEntryViewMode(entry.entry_id, 'metadata')">Metadata</button>
+                                    </div>
+
+                                    <!-- Current View -->
+                                    <div x-show="entryViewModes[entry.entry_id] === 'current'" class="view-current">
+                                        <div class="bg-surface-100 dark:bg-surface-800 rounded-lg code-block-container">
+                                            <h4 class="text-sm font-medium text-surface-700 dark:text-surface-300 mb-3 flex items-center">
+                                                <iconify-icon icon="tabler:eye" class="mr-2" width="16" height="16" alt="Current"></iconify-icon>
+                                                Current Content
+                                            </h4>
+                                            <div class="max-h-80 overflow-auto custom-scrollbar">
+                                                <template x-if="entryViews[entry.entry_id]?.merged?.source">
+                                                    <pre class="code-editor source-code text-sm"><code x-text="entryViews[entry.entry_id].merged.source"
+                                                                                                       x-ref="codeBlock"
+                                                                                                       :data-entry-id="entry.entry_id"
+                                                                                                       x-init="scheduleHighlighting($el, detectLanguage(entryViews[entry.entry_id].merged))"></code></pre>
+                                                </template>
+                                                <template x-if="entryViews[entry.entry_id]?.merged && !entryViews[entry.entry_id]?.merged?.source">
+                                                    <div class="metadata-enhanced">
+                                                        <template x-for="category in processedMetadata[entry.entry_id]?.current || []" :key="category.name">
+                                                            <div class="metadata-category" x-show="category.items.length > 0">
+                                                                <div class="metadata-category-header">
+                                                                    <iconify-icon :icon="getCategoryIcon(category.name)" width="16" height="16"></iconify-icon>
+                                                                    <span x-text="formatCategoryName(category.name)"></span>
+                                                                </div>
+                                                                <div class="metadata-grid">
+                                                                    <template x-for="[key, value] in category.items" :key="key">
+                                                                        <div class="metadata-row">
+                                                                            <div class="metadata-key" x-text="key"></div>
+                                                                            <div class="metadata-value" x-text="formatMetadataValue(value, key)"></div>
+                                                                            <button class="copy-value" @click="copyToClipboard(formatMetadataValue(value, key))" title="Copy value">
+                                                                                <iconify-icon icon="tabler:copy" width="14" height="14"></iconify-icon>
+                                                                            </button>
+                                                                        </div>
+                                                                    </template>
+                                                                </div>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                </template>
+                                                <template x-if="!entryViews[entry.entry_id]?.merged">
+                                                    <div class="text-surface-500 dark:text-surface-400 italic">No content available</div>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Compare View -->
+                                    <div x-show="entryViewModes[entry.entry_id] === 'compare'" class="view-compare">
+                                        <div class="comparison-grid grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                            <!-- Original -->
+                                            <template x-if="entryViews[entry.entry_id]?.original">
+                                                <div class="comparison-panel bg-blue-50 dark:bg-blue-900/20 rounded-lg code-block-container border border-blue-200 dark:border-blue-800">
+                                                    <h4 class="text-sm font-medium text-blue-700 dark:text-blue-300 mb-3 flex items-center">
+                                                        <iconify-icon icon="tabler:file-code" class="mr-2" width="16" height="16" alt="Original"></iconify-icon>
+                                                        Registry Version
+                                                    </h4>
+                                                    <div class="max-h-64 overflow-auto custom-scrollbar">
+                                                        <template x-if="entryViews[entry.entry_id].original.source">
+                                                            <pre class="code-editor source-code text-xs"><code x-text="entryViews[entry.entry_id].original.source"
+                                                                                                               :data-entry-id="entry.entry_id"
+                                                                                                               x-init="scheduleHighlighting($el, detectLanguage(entryViews[entry.entry_id].original), 'original')"></code></pre>
+                                                        </template>
+                                                        <template x-if="!entryViews[entry.entry_id].original.source">
+                                                            <pre class="code-editor text-xs"><code x-text="formatJson(entryViews[entry.entry_id].original)"></code></pre>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                            </template>
+
+                                            <!-- Workspace Override -->
+                                            <template x-if="entryViews[entry.entry_id]?.workspace || entryViews[entry.entry_id]?.merged">
+                                                <div class="comparison-panel bg-amber-50 dark:bg-amber-900/20 rounded-lg code-block-container border border-amber-200 dark:border-amber-800">
+                                                    <h4 class="text-sm font-medium text-amber-700 dark:text-amber-300 mb-3 flex items-center">
+                                                        <iconify-icon icon="tabler:edit" class="mr-2" width="16" height="16" alt="Override"></iconify-icon>
+                                                        Workspace Version
+                                                    </h4>
+                                                    <div class="max-h-64 overflow-auto custom-scrollbar">
+                                                        <template x-if="(entryViews[entry.entry_id].workspace || entryViews[entry.entry_id].merged)?.source">
+                                                            <pre class="code-editor source-code text-xs"><code x-text="(entryViews[entry.entry_id].workspace || entryViews[entry.entry_id].merged).source"
+                                                                                                               :data-entry-id="entry.entry_id"
+                                                                                                               x-init="scheduleHighlighting($el, detectLanguage(entryViews[entry.entry_id].workspace || entryViews[entry.entry_id].merged), 'workspace')"></code></pre>
+                                                        </template>
+                                                        <template x-if="!(entryViews[entry.entry_id].workspace || entryViews[entry.entry_id].merged)?.source">
+                                                            <pre class="code-editor text-xs"><code x-text="formatJson(entryViews[entry.entry_id].workspace || entryViews[entry.entry_id].merged)"></code></pre>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                    <!-- Enhanced Diff View -->
+                                    <div x-show="entryViewModes[entry.entry_id] === 'diff'" class="view-diff">
+                                        <template x-if="enhancedDiffs[entry.entry_id]">
+                                            <div class="diff-enhanced">
+                                                <div class="diff-controls">
+                                                    <div class="diff-navigation">
+                                                        <button @click="navigateDiff(entry.entry_id, -1)" :disabled="!canNavigateDiff(entry.entry_id, -1)">
+                                                            <iconify-icon icon="tabler:chevron-up" width="16" height="16"></iconify-icon> Previous
+                                                        </button>
+                                                        <button @click="navigateDiff(entry.entry_id, 1)" :disabled="!canNavigateDiff(entry.entry_id, 1)">
+                                                            <iconify-icon icon="tabler:chevron-down" width="16" height="16"></iconify-icon> Next
+                                                        </button>
+                                                    </div>
+                                                    <div class="change-counter">
+                                                        <span x-text="enhancedDiffs[entry.entry_id]?.totalChanges || 0"></span> changes
+                                                    </div>
+                                                </div>
+                                                <div class="diff-content custom-scrollbar">
+                                                    <template x-for="(chunk, chunkIndex) in enhancedDiffs[entry.entry_id]?.chunks || []" :key="chunkIndex">
+                                                        <div class="diff-chunk">
+                                                            <template x-for="(line, lineIndex) in chunk.lines" :key="lineIndex">
+                                                                <div class="diff-line" :class="line.type">
+                                                                    <span class="line-marker" x-text="line.marker"></span>
+                                                                    <span class="line-number" x-text="line.number || ''"></span>
+                                                                    <pre class="flex-1 whitespace-pre-wrap"><code x-text="line.content"
+                                                                                                                  :data-entry-id="entry.entry_id"
+                                                                                                                  x-init="scheduleHighlighting($el, currentLanguageMap[entry.entry_id] || 'text', 'diff')"></code></pre>
+                                                                </div>
+                                                            </template>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </template>
+                                        <template x-if="!enhancedDiffs[entry.entry_id]">
+                                            <div class="text-center py-8 text-surface-500 dark:text-surface-400">
+                                                <iconify-icon icon="tabler:git-diff" class="w-12 h-12 mx-auto mb-4" width="48" height="48"></iconify-icon>
+                                                <p>No differences detected</p>
+                                            </div>
+                                        </template>
+                                    </div>
+
+                                    <!-- Metadata View -->
+                                    <div x-show="entryViewModes[entry.entry_id] === 'metadata'" class="view-metadata">
+                                        <div class="metadata-enhanced">
+                                            <template x-for="category in processedMetadata[entry.entry_id]?.current || []" :key="category.name">
+                                                <div class="metadata-category" x-show="category.items.length > 0">
+                                                    <div class="metadata-category-header">
+                                                        <iconify-icon :icon="getCategoryIcon(category.name)" width="16" height="16"></iconify-icon>
+                                                        <span x-text="formatCategoryName(category.name)"></span>
+                                                    </div>
+                                                    <div class="metadata-grid">
+                                                        <template x-for="[key, value] in category.items" :key="key">
+                                                            <div class="metadata-row">
+                                                                <div class="metadata-key" x-text="key"></div>
+                                                                <div class="metadata-value" x-text="formatMetadataValue(value, key)"></div>
+                                                                <button class="copy-value" @click="copyToClipboard(formatMetadataValue(value, key))" title="Copy value">
+                                                                    <iconify-icon icon="tabler:copy" width="14" height="14"></iconify-icon>
+                                                                </button>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+{{ end }}
+
+{{ block permissionsTab() }}
+<div x-show="activeTab === 'permissions'" class="bg-white dark:bg-surface-700 shadow rounded-lg overflow-hidden">
+    <div class="px-6 py-4 border-b border-surface-200 dark:border-surface-600">
+        <div class="flex items-center justify-between">
+            <div>
+                <h2 class="text-lg font-medium text-surface-900 dark:text-surface-100">Permissions</h2>
+                <p class="text-sm text-surface-500 dark:text-surface-400">Manage namespace access permissions for this workspace</p>
+            </div>
+            <button @click="showCreatePermissionModal = true"
+                    class="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700">
+                <iconify-icon icon="tabler:plus" class="mr-2" width="16" height="16" alt="Add"></iconify-icon>
+                Add Permission
+            </button>
+        </div>
+    </div>
+
+    <div x-show="(workspace.permissions || []).length === 0" class="py-12 text-center">
+        <iconify-icon icon="tabler:shield-off" class="w-12 h-12 mx-auto text-surface-400 dark:text-surface-600 mb-4" width="48" height="48" alt="No permissions"></iconify-icon>
+        <h3 class="text-sm font-medium text-surface-900 dark:text-surface-100">No permissions configured</h3>
+        <p class="mt-1 text-sm text-surface-500 dark:text-surface-400">Add namespace permissions to control workspace access</p>
+    </div>
+
+    <div x-show="(workspace.permissions || []).length > 0">
+        <template x-for="(permission, index) in (workspace.permissions || [])" :key="permission.permission_id">
+            <div :class="{
+                'bg-surface-50 dark:bg-surface-800': index % 2 === 0,
+                'bg-white dark:bg-surface-700': index % 2 === 1,
+                'item-transition': true
+            }">
+                <div class="px-4 py-3 border-t border-surface-200 dark:border-surface-600 first:border-t-0">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0 w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center mr-3">
+                            <iconify-icon icon="tabler:shield-check" class="text-purple-600 dark:text-purple-400" width="16" height="16"></iconify-icon>
+                        </div>
+
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center flex-wrap gap-x-2 gap-y-1">
+                                <span class="text-sm font-medium text-surface-900 dark:text-surface-100" x-text="permission.namespace_pattern"></span>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                                    <span class="capitalize" x-text="permission.permission_type"></span>
+                                </span>
+                                <span class="text-xs text-surface-500 dark:text-surface-400" x-text="formatDate(permission.created_at)"></span>
+                            </div>
+                        </div>
+
+                        <div class="flex-shrink-0">
+                            <button @click="deletePermission(permission.permission_id)"
+                                    class="text-surface-400 hover:text-red-600 dark:hover:text-red-400 p-2 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20">
+                                <iconify-icon icon="tabler:trash" width="16" height="16" alt="Delete"></iconify-icon>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+{{ end }}
+
+{{ block reviewsTab() }}
+<div x-show="activeTab === 'reviews'" class="bg-white dark:bg-surface-700 shadow rounded-lg overflow-hidden">
+    <div class="px-6 py-4 border-b border-surface-200 dark:border-surface-600">
+        <div class="flex items-center justify-between">
+            <div>
+                <h2 class="text-lg font-medium text-surface-900 dark:text-surface-100">Reviews</h2>
+                <p class="text-sm text-surface-500 dark:text-surface-400">Manage workspace reviews and snapshots</p>
+            </div>
+            <button @click="showCreateReviewModal = true"
+                    class="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-emerald-600 hover:bg-emerald-700">
+                <iconify-icon icon="tabler:plus" class="mr-2" width="16" height="16" alt="Add"></iconify-icon>
+                Create Review
+            </button>
+        </div>
+    </div>
+
+    <div x-show="(workspace.reviews || []).length === 0" class="py-12 text-center">
+        <iconify-icon icon="tabler:git-branch" class="w-12 h-12 mx-auto text-surface-400 dark:text-surface-600 mb-4" width="48" height="48" alt="No reviews"></iconify-icon>
+        <h3 class="text-sm font-medium text-surface-900 dark:text-surface-100">No reviews created</h3>
+        <p class="mt-1 text-sm text-surface-500 dark:text-surface-400">Create reviews to track workspace changes over time</p>
+    </div>
+
+    <div x-show="(workspace.reviews || []).length > 0">
+        <template x-for="(review, index) in (workspace.reviews || [])" :key="review.review_id">
+            <div :class="{
+                'bg-surface-50 dark:bg-surface-800': index % 2 === 0,
+                'bg-white dark:bg-surface-700': index % 2 === 1,
+                'item-transition': true
+            }">
+                <div class="px-4 py-3 border-t border-surface-200 dark:border-surface-600 first:border-t-0">
+                    <div class="flex items-center cursor-pointer" @click="toggleReviewDetails(review.review_id)">
+                        <div class="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center mr-3">
+                            <iconify-icon icon="tabler:git-commit" class="text-emerald-600 dark:text-emerald-400" width="16" height="16"></iconify-icon>
+                        </div>
+
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center flex-wrap gap-x-2 gap-y-1">
+                                <span class="text-sm font-medium text-surface-900 dark:text-surface-100" x-text="review.name"></span>
+                                <span :class="getStatusBadgeClasses(review.status)" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium">
+                                    <span x-text="review.status"></span>
+                                </span>
+                                <template x-if="review.content_type">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200">
+                                        <span x-text="review.content_type"></span>
+                                    </span>
+                                </template>
+                                <span class="text-xs text-surface-500 dark:text-surface-400" x-text="formatDate(review.created_at)"></span>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            <button @click.stop="editReview(review)"
+                                    class="text-surface-400 hover:text-blue-600 dark:hover:text-blue-400 p-1"
+                                    title="Edit review">
+                                <iconify-icon icon="tabler:edit" width="16" height="16" alt="Edit"></iconify-icon>
+                            </button>
+                            <button @click.stop="deleteReview(review.review_id)"
+                                    class="text-surface-400 hover:text-red-600 dark:hover:text-red-400 p-1"
+                                    title="Delete review">
+                                <iconify-icon icon="tabler:trash" width="16" height="16" alt="Delete"></iconify-icon>
+                            </button>
+                            <button class="text-surface-400 hover:text-surface-600 dark:hover:text-surface-300"
+                                    :title="expandedReviews[review.review_id] ? 'Collapse' : 'Expand'">
+                                <iconify-icon :icon="expandedReviews[review.review_id] ? 'tabler:chevron-up' : 'tabler:chevron-down'" width="18" height="18" alt="Toggle"></iconify-icon>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Review Details -->
+                    <div x-show="expandedReviews[review.review_id]" x-collapse>
+                        <div class="mt-4 pl-11">
+                            <template x-if="review.content">
+                                <div class="bg-surface-100 dark:bg-surface-800 rounded-lg p-4">
+                                    <h4 class="text-sm font-medium text-surface-700 dark:text-surface-300 mb-3">Content</h4>
+                                    <div class="max-h-64 overflow-auto">
+                                        <pre class="code-editor text-xs" x-text="review.content"></pre>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+{{ end }}
+
+{{ block contextTab() }}
+<div x-show="activeTab === 'context'" class="bg-white dark:bg-surface-700 shadow rounded-lg overflow-hidden">
+    <div class="px-6 py-4 border-b border-surface-200 dark:border-surface-600">
+        <div class="flex items-center justify-between">
+            <div>
+                <h2 class="text-lg font-medium text-surface-900 dark:text-surface-100">Context Entries</h2>
+                <p class="text-sm text-surface-500 dark:text-surface-400">Manage workspace context and documentation</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="relative w-48">
+                    <input type="text" x-model="contextSearchTerm" @input="filterContexts()"
+                           placeholder="Search contexts..."
+                           class="block w-full pl-10 pr-3 py-2 border border-surface-300 dark:border-surface-600 rounded-md shadow-sm bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 text-sm">
+                    <iconify-icon icon="tabler:search" class="absolute left-3 top-2.5 h-4 w-4 text-surface-400" alt="Search"></iconify-icon>
+                </div>
+                <button @click="showCreateContextModal = true"
+                        class="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
+                    <iconify-icon icon="tabler:plus" class="mr-2" width="16" height="16" alt="Add"></iconify-icon>
+                    Add Context
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div x-show="filteredContexts.length === 0 && !isLoading" class="py-12 text-center">
+        <iconify-icon icon="tabler:notebook-off" class="w-12 h-12 mx-auto text-surface-400 dark:text-surface-600" width="48" height="48" alt="No contexts"></iconify-icon>
+        <h3 class="mt-4 text-sm font-medium text-surface-900 dark:text-surface-100">No context entries found</h3>
+        <p class="mt-1 text-sm text-surface-500 dark:text-surface-400">
+            <template x-if="contextSearchTerm">
+                <span>Try adjusting your search term.</span>
+            </template>
+            <template x-if="!contextSearchTerm">
+                <span>Add context entries to document workspace knowledge.</span>
+            </template>
+        </p>
+    </div>
+
+    <div x-show="filteredContexts.length > 0">
+        <template x-for="(context, index) in filteredContexts" :key="context.context_id">
+            <div :class="{
+                'bg-surface-50 dark:bg-surface-800': index % 2 === 0,
+                'bg-white dark:bg-surface-700': index % 2 === 1,
+                'item-transition': true
+            }">
+                <div class="px-4 py-3 border-t border-surface-200 dark:border-surface-600 first:border-t-0">
+                    <div class="flex items-center cursor-pointer" @click="toggleContextDetails(context.context_id)">
+                        <div class="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center mr-3">
+                            <iconify-icon icon="tabler:notebook" class="text-indigo-600 dark:text-indigo-400" width="16" height="16"></iconify-icon>
+                        </div>
+
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center flex-wrap gap-x-2 gap-y-1">
+                                <span class="text-sm font-medium text-surface-900 dark:text-surface-100" x-text="context.label || 'Untitled Context'"></span>
+                                <template x-if="context.content_type">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+                                        <iconify-icon :icon="getContentTypeIcon(context.content_type)" class="mr-1" width="12" height="12"></iconify-icon>
+                                        <span x-text="context.content_type"></span>
+                                    </span>
+                                </template>
+                                <span class="text-xs text-surface-500 dark:text-surface-400" x-text="formatDate(context.created_at)"></span>
+                            </div>
+                            <template x-if="context.content && context.content.length > 100">
+                                <p class="text-xs text-surface-500 dark:text-surface-400 mt-1 truncate" x-text="context.content.substring(0, 100) + '...'"></p>
+                            </template>
+                        </div>
+
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            <button @click.stop="editContext(context)"
+                                    class="text-surface-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1"
+                                    title="Edit context">
+                                <iconify-icon icon="tabler:edit" width="16" height="16" alt="Edit"></iconify-icon>
+                            </button>
+                            <button @click.stop="deleteContext(context.context_id)"
+                                    class="text-surface-400 hover:text-red-600 dark:hover:text-red-400 p-1"
+                                    title="Delete context">
+                                <iconify-icon icon="tabler:trash" width="16" height="16" alt="Delete"></iconify-icon>
+                            </button>
+                            <button class="text-surface-400 hover:text-surface-600 dark:hover:text-surface-300"
+                                    :title="expandedContexts[context.context_id] ? 'Collapse' : 'Expand'">
+                                <iconify-icon :icon="expandedContexts[context.context_id] ? 'tabler:chevron-up' : 'tabler:chevron-down'" width="18" height="18" alt="Toggle"></iconify-icon>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Context Details -->
+                    <div x-show="expandedContexts[context.context_id]" x-collapse>
+                        <div class="mt-4 entry-details-code">
+                            <div class="context-section code-block-container">
+                                <template x-if="context.content_type === 'text/markdown'">
+                                    <div class="markdown-content custom-scrollbar max-h-96 overflow-auto" x-html="renderMarkdown(context.content)"></div>
+                                </template>
+                                <template x-if="context.content_type === 'application/json'">
+                                    <div class="bg-surface-100 dark:bg-surface-800 rounded-lg code-block-container max-h-96 overflow-auto">
+                                        <pre class="code-editor text-sm"><code x-text="formatJson(JSON.parse(context.content || '{}'))"></code></pre>
+                                    </div>
+                                </template>
+                                <template x-if="context.content_type === 'text/plain' || !context.content_type">
+                                    <div class="bg-surface-100 dark:bg-surface-800 rounded-lg code-block-container max-h-96 overflow-auto">
+                                        <pre class="whitespace-pre-wrap text-sm text-surface-900 dark:text-surface-100" x-text="context.content"></pre>
+                                    </div>
+                                </template>
+                                <template x-if="context.content_type && !['text/markdown', 'application/json', 'text/plain'].includes(context.content_type)">
+                                    <div class="bg-surface-100 dark:bg-surface-800 rounded-lg code-block-container max-h-96 overflow-auto">
+                                        <pre class="code-editor text-sm" x-text="context.content"></pre>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+{{ end }}
+
+{{ block historyTab() }}
+<div x-show="activeTab === 'history'" class="bg-white dark:bg-surface-700 shadow rounded-lg overflow-hidden">
+    <div class="px-6 py-4 border-b border-surface-200 dark:border-surface-600">
+        <h2 class="text-lg font-medium text-surface-900 dark:text-surface-100">Operations History</h2>
+        <p class="mt-1 text-sm text-surface-500 dark:text-surface-400">Complete audit trail of all workspace operations</p>
+    </div>
+
+    <div x-show="isLoadingHistory" class="px-6 py-12 text-center">
+        <iconify-icon icon="tabler:loader-2" class="animate-spin mx-auto h-8 w-8 text-surface-400 dark:text-surface-500 mb-4" width="32" height="32"></iconify-icon>
+        <p class="text-surface-600 dark:text-surface-400">Loading history...</p>
+    </div>
+
+    <template x-if="!isLoadingHistory && history.length === 0">
+        <div class="px-6 py-12 text-center">
+            <iconify-icon icon="tabler:history-off" class="mx-auto h-12 w-12 text-surface-400 dark:text-surface-500 mb-4" width="48" height="48"></iconify-icon>
+            <h3 class="text-lg font-medium text-surface-900 dark:text-surface-100 mb-2">No history available</h3>
+            <p class="text-sm text-surface-500 dark:text-surface-400">Operations history will appear here as changes are made.</p>
+        </div>
+    </template>
+
+    <div x-show="!isLoadingHistory && history.length > 0">
+        <template x-for="(item, index) in history" :key="item.op_id">
+            <div :class="{
+                'bg-surface-50 dark:bg-surface-800': index % 2 === 0,
+                'bg-white dark:bg-surface-700': index % 2 === 1,
+                'item-transition': true
+            }">
+                <div class="px-4 py-3 border-t border-surface-200 dark:border-surface-600 first:border-t-0">
+                    <div class="flex items-center cursor-pointer" @click="toggleHistoryDetails(item.op_id)">
+                        <div :class="getHistoryIconClass(item.operation_type)" class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mr-3">
+                            <iconify-icon :icon="getHistoryIcon(item.operation_type)" width="16" height="16"></iconify-icon>
+                        </div>
+
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center flex-wrap gap-x-2 gap-y-1">
+                                <span class="text-sm font-medium text-surface-900 dark:text-surface-100" x-text="getHistoryDescription(item)"></span>
+                                <span class="text-xs text-surface-500 dark:text-surface-400" x-text="formatDate(item.created_at)"></span>
+                                <template x-if="item.user_id">
+                                    <span class="text-xs text-surface-400 dark:text-surface-500" x-text="'by ' + item.user_id"></span>
+                                </template>
+                            </div>
+                        </div>
+
+                        <div class="flex-shrink-0">
+                            <button @click="toggleHistoryDetails(item.op_id)"
+                                    class="text-surface-400 hover:text-surface-600 dark:hover:text-surface-300"
+                                    :title="expandedHistory[item.op_id] ? 'Collapse' : 'Expand'">
+                                <iconify-icon :icon="expandedHistory[item.op_id] ? 'tabler:chevron-up' : 'tabler:chevron-down'" width="18" height="18" alt="Toggle"></iconify-icon>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- History Details -->
+                    <div x-show="expandedHistory[item.op_id]" x-collapse>
+                        <div class="mt-4 entry-details-code space-y-3">
+                            <!-- Technical Details -->
+                            <template x-if="getHistoryDetails(item)">
+                                <div>
+                                    <div class="text-xs font-medium text-surface-500 dark:text-surface-400 mb-2 flex items-center">
+                                        <iconify-icon icon="tabler:info-circle" class="mr-1" width="14" height="14"></iconify-icon>
+                                        Technical Details
+                                    </div>
+                                    <div class="bg-surface-100 dark:bg-surface-800 rounded-lg code-block-container">
+                                        <template x-for="detail in getHistoryDetails(item)" :key="detail">
+                                            <div class="text-xs text-surface-600 dark:text-surface-400 font-mono mb-1" x-text="detail"></div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- Raw Operation Data -->
+                            <div x-show="item.operation_data && Object.keys(JSON.parse(item.operation_data || '{}')).length > 0">
+                                <div class="text-xs font-medium text-surface-500 dark:text-surface-400 mb-2 flex items-center">
+                                    <iconify-icon icon="tabler:code" class="mr-1" width="14" height="14"></iconify-icon>
+                                    Raw Operation Data
+                                </div>
+                                <div class="bg-surface-100 dark:bg-surface-800 rounded-lg code-block-container overflow-auto">
+                                    <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono" x-text="formatJson(JSON.parse(item.operation_data || '{}'))"></pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+{{ end }}
+
+{{ block modals() }}
+<!-- Create Permission Modal -->
+<div x-show="showCreatePermissionModal"
+     x-transition:enter="ease-out duration-300"
+     x-transition:enter-start="opacity-0"
+     x-transition:enter-end="opacity-100"
+     x-transition:leave="ease-in duration-200"
+     x-transition:leave-start="opacity-100"
+     x-transition:leave-end="opacity-0"
+     class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
+     @click.self="showCreatePermissionModal = false"
+     style="display: none;">
+    <div class="relative top-10 mx-auto p-5 border w-11/12 max-w-md shadow-lg rounded-md bg-white dark:bg-surface-800">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-medium text-surface-900 dark:text-surface-100">Add Permission</h3>
+            <button @click="showCreatePermissionModal = false" class="text-surface-400 hover:text-surface-600" title="Close">
+                <iconify-icon icon="tabler:x" width="24" height="24" alt="Close"></iconify-icon>
+            </button>
+        </div>
+
+        <form @submit.prevent="createPermission()">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-surface-700 dark:text-surface-300">Namespace Pattern</label>
+                    <input type="text" x-model="permissionForm.namespace_pattern" required
+                           placeholder="e.g., myapp.*, keeper.overlay.*"
+                           class="mt-1 block w-full border border-surface-300 dark:border-surface-600 rounded-md shadow-sm px-3 py-2 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-surface-700 dark:text-surface-300">Permission Type</label>
+                    <select x-model="permissionForm.permission_type" required
+                            class="mt-1 block w-full border border-surface-300 dark:border-surface-600 rounded-md shadow-sm px-3 py-2 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100">
+                        <option value="">Select permission type</option>
+                        <option value="read">Read</option>
+                        <option value="write">Write</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2 mt-6">
+                <button type="button" @click="showCreatePermissionModal = false"
+                        class="inline-flex items-center px-3 py-2 border border-surface-300 dark:border-surface-600 text-sm font-medium rounded-md text-surface-700 dark:text-surface-300 bg-white dark:bg-surface-800 hover:bg-surface-50 dark:hover:bg-surface-700">
+                    Cancel
+                </button>
+                <button type="submit" :disabled="isSaving"
+                        class="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50">
+                    <iconify-icon :icon="isSaving ? 'tabler:loader-2' : 'tabler:plus'" :class="{'animate-spin': isSaving}" class="mr-2" width="16" height="16" alt="Add"></iconify-icon>
+                    Add Permission
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Create/Edit Review Modal -->
+<div x-show="showCreateReviewModal || showEditReviewModal"
+     x-transition:enter="ease-out duration-300"
+     x-transition:enter-start="opacity-0"
+     x-transition:enter-end="opacity-100"
+     x-transition:leave="ease-in duration-200"
+     x-transition:leave-start="opacity-100"
+     x-transition:leave-end="opacity-0"
+     class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
+     @click.self="closeReviewModal()"
+     style="display: none;">
+    <div class="relative top-10 mx-auto p-5 border w-11/12 max-w-2xl shadow-lg rounded-md bg-white dark:bg-surface-800">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-medium text-surface-900 dark:text-surface-100">
+                <span x-show="showCreateReviewModal">Create Review</span>
+                <span x-show="showEditReviewModal">Edit Review</span>
+            </h3>
+            <button @click="closeReviewModal()" class="text-surface-400 hover:text-surface-600" title="Close">
+                <iconify-icon icon="tabler:x" width="24" height="24" alt="Close"></iconify-icon>
+            </button>
+        </div>
+
+        <form @submit.prevent="showCreateReviewModal ? createReview() : updateReview()">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-surface-700 dark:text-surface-300">Name</label>
+                    <input type="text" x-model="reviewForm.name" required
+                           placeholder="e.g., v1.0.0, snapshot-2024-01-15"
+                           class="mt-1 block w-full border border-surface-300 dark:border-surface-600 rounded-md shadow-sm px-3 py-2 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-surface-700 dark:text-surface-300">Content Type</label>
+                    <select x-model="reviewForm.content_type"
+                            class="mt-1 block w-full border border-surface-300 dark:border-surface-600 rounded-md shadow-sm px-3 py-2 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100">
+                        <option value="text/plain">Plain Text</option>
+                        <option value="application/json">JSON</option>
+                        <option value="text/markdown">Markdown</option>
+                        <option value="application/yaml">YAML</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-surface-700 dark:text-surface-300">Status</label>
+                    <select x-model="reviewForm.status"
+                            class="mt-1 block w-full border border-surface-300 dark:border-surface-600 rounded-md shadow-sm px-3 py-2 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100">
+                        <option value="draft">Draft</option>
+                        <option value="active">Active</option>
+                        <option value="archived">Archived</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-surface-700 dark:text-surface-300">Content</label>
+                    <textarea x-model="reviewForm.content" rows="8"
+                              placeholder="Enter review content..."
+                              class="mt-1 block w-full border border-surface-300 dark:border-surface-600 rounded-md shadow-sm px-3 py-2 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 font-mono text-sm resize-vertical"></textarea>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2 mt-6">
+                <button type="button" @click="closeReviewModal()"
+                        class="inline-flex items-center px-3 py-2 border border-surface-300 dark:border-surface-600 text-sm font-medium rounded-md text-surface-700 dark:text-surface-300 bg-white dark:bg-surface-800 hover:bg-surface-50 dark:hover:bg-surface-700">
+                    Cancel
+                </button>
+                <button type="submit" :disabled="isSaving"
+                        class="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50">
+                    <iconify-icon :icon="isSaving ? 'tabler:loader-2' : (showCreateReviewModal ? 'tabler:plus' : 'tabler:device-floppy')" :class="{'animate-spin': isSaving}" class="mr-2" width="16" height="16" alt="Save"></iconify-icon>
+                    <span x-text="showCreateReviewModal ? 'Create Review' : 'Save Changes'"></span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Entry Editor Modal -->
+<div x-show="showEntryEditor"
+     x-transition:enter="ease-out duration-300"
+     x-transition:enter-start="opacity-0"
+     x-transition:enter-end="opacity-100"
+     x-transition:leave="ease-in duration-200"
+     x-transition:leave-start="opacity-100"
+     x-transition:leave-end="opacity-0"
+     class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
+     @click.self="closeEntryEditor()"
+     style="display: none;">
+    <div class="relative top-10 mx-auto p-5 border w-11/12 max-w-6xl shadow-lg rounded-md bg-white dark:bg-surface-800">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-medium text-surface-900 dark:text-surface-100">
+                Edit Entry: <span class="font-mono text-surface-500" x-text="editingEntryId"></span>
+            </h3>
+            <button @click="closeEntryEditor()" class="text-surface-400 hover:text-surface-600" title="Close editor">
+                <iconify-icon icon="tabler:x" width="24" height="24" alt="Close"></iconify-icon>
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">Entry Data (JSON)</label>
+                <div class="border border-surface-300 dark:border-surface-600 rounded-md">
+                    <textarea x-model="entryEditorContent" rows="24"
+                              class="block w-full border-0 rounded-md px-3 py-2 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 code-editor resize-none"
+                              placeholder='{"source": "function example() {\n  return \"Hello World\";\n}"}'>
+                    </textarea>
+                </div>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <h4 class="text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">Preview</h4>
+                    <div class="bg-surface-100 dark:bg-surface-800 rounded code-block-container max-h-64 overflow-auto border border-surface-200 dark:border-surface-600">
+                        <template x-if="entryEditorPreview">
+                            <template x-if="entryEditorPreview.source">
+                                <pre class="code-editor source-code text-xs"><code x-text="entryEditorPreview.source"></code></pre>
+                            </template>
+                            <template x-if="!entryEditorPreview.source">
+                                <pre class="code-editor text-xs"><code x-text="formatJson(entryEditorPreview)"></code></pre>
+                            </template>
+                        </template>
+                        <template x-if="!entryEditorPreview">
+                            <div class="text-surface-500 dark:text-surface-400 italic text-xs">Invalid JSON</div>
+                        </template>
+                    </div>
+                </div>
+
+                <template x-if="editingEntryId && entryViews[editingEntryId]?.original">
+                    <div>
+                        <h4 class="text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">Registry Version</h4>
+                        <div class="bg-surface-100 dark:bg-surface-800 rounded code-block-container max-h-48 overflow-auto border border-surface-200 dark:border-surface-600">
+                            <template x-if="entryViews[editingEntryId].original.source">
+                                <pre class="code-editor source-code text-xs"><code x-text="entryViews[editingEntryId].original.source"></code></pre>
+                            </template>
+                            <template x-if="!entryViews[editingEntryId].original.source">
+                                <pre class="code-editor text-xs"><code x-text="formatJson(entryViews[editingEntryId].original)"></code></pre>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <div class="flex justify-end gap-2 mt-6">
+            <button @click="closeEntryEditor()"
+                    class="inline-flex items-center px-3 py-2 border border-surface-300 dark:border-surface-600 text-sm font-medium rounded-md text-surface-700 dark:text-surface-300 bg-white dark:bg-surface-800 hover:bg-surface-50 dark:hover:bg-surface-700">
+                Cancel
+            </button>
+            <button @click="saveEntry()" :disabled="isSaving || !entryEditorPreview"
+                    class="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50">
+                <iconify-icon :icon="isSaving ? 'tabler:loader-2' : 'tabler:device-floppy'" :class="{'animate-spin': isSaving}" class="mr-2" width="16" height="16" alt="Save"></iconify-icon>
+                Update Entry
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Create/Edit Context Modal -->
+<div x-show="showCreateContextModal || showEditContextModal"
+     x-transition:enter="ease-out duration-300"
+     x-transition:enter-start="opacity-0"
+     x-transition:enter-end="opacity-100"
+     x-transition:leave="ease-in duration-200"
+     x-transition:leave-start="opacity-100"
+     x-transition:leave-end="opacity-0"
+     class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
+     @click.self="closeContextModal()"
+     style="display: none;">
+    <div class="relative top-10 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white dark:bg-surface-800">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-medium text-surface-900 dark:text-surface-100">
+                <span x-show="showCreateContextModal">Create Context Entry</span>
+                <span x-show="showEditContextModal">Edit Context Entry</span>
+            </h3>
+            <button @click="closeContextModal()" class="text-surface-400 hover:text-surface-600" title="Close">
+                <iconify-icon icon="tabler:x" width="24" height="24" alt="Close"></iconify-icon>
+            </button>
+        </div>
+
+        <form @submit.prevent="showCreateContextModal ? createContext() : updateContext()">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-surface-700 dark:text-surface-300">Label</label>
+                        <input type="text" x-model="contextForm.label" required
+                               placeholder="e.g., Project Overview, API Documentation"
+                               class="mt-1 block w-full border border-surface-300 dark:border-surface-600 rounded-md shadow-sm px-3 py-2 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-surface-700 dark:text-surface-300">Content Type</label>
+                        <select x-model="contextForm.content_type"
+                                class="mt-1 block w-full border border-surface-300 dark:border-surface-600 rounded-md shadow-sm px-3 py-2 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100">
+                            <option value="text/plain">Plain Text</option>
+                            <option value="text/markdown">Markdown</option>
+                            <option value="application/json">JSON</option>
+                            <option value="application/yaml">YAML</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-surface-700 dark:text-surface-300">Content</label>
+                        <textarea x-model="contextForm.content" rows="12"
+                                  placeholder="Enter context content..."
+                                  class="mt-1 block w-full border border-surface-300 dark:border-surface-600 rounded-md shadow-sm px-3 py-2 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 font-mono text-sm resize-vertical"></textarea>
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <div>
+                        <h4 class="text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">Preview</h4>
+                        <div class="bg-surface-100 dark:bg-surface-800 rounded code-block-container max-h-96 overflow-auto border border-surface-200 dark:border-surface-600">
+                            <template x-if="contextForm.content_type === 'text/markdown' && contextForm.content">
+                                <div class="markdown-content" x-html="renderMarkdown(contextForm.content)"></div>
+                            </template>
+                            <template x-if="contextForm.content_type === 'application/json' && contextForm.content">
+                                <pre class="code-editor text-xs"><code x-text="(() => { try { return formatJson(JSON.parse(contextForm.content)); } catch(e) { return contextForm.content; } })()"></code></pre>
+                            </template>
+                            <template x-if="(contextForm.content_type === 'text/plain' || contextForm.content_type === 'application/yaml') && contextForm.content">
+                                <pre class="whitespace-pre-wrap text-xs text-surface-900 dark:text-surface-100" x-text="contextForm.content"></pre>
+                            </template>
+                            <template x-if="!contextForm.content">
+                                <div class="text-surface-500 dark:text-surface-400 italic text-xs">Enter content to see preview</div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div class="text-xs text-surface-500 dark:text-surface-400 space-y-1">
+                        <p><strong>Content Types:</strong></p>
+                        <ul class="list-disc list-inside space-y-1 ml-2">
+                            <li><strong>Plain Text:</strong> Simple text content</li>
+                            <li><strong>Markdown:</strong> Rich text with formatting support</li>
+                            <li><strong>JSON:</strong> Structured data with syntax highlighting</li>
+                            <li><strong>YAML:</strong> Configuration or data in YAML format</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2 mt-6">
+                <button type="button" @click="closeContextModal()"
+                        class="inline-flex items-center px-3 py-2 border border-surface-300 dark:border-surface-600 text-sm font-medium rounded-md text-surface-700 dark:text-surface-300 bg-white dark:bg-surface-800 hover:bg-surface-50 dark:hover:bg-surface-700">
+                    Cancel
+                </button>
+                <button type="submit" :disabled="isSaving"
+                        class="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+                    <iconify-icon :icon="isSaving ? 'tabler:loader-2' : (showCreateContextModal ? 'tabler:plus' : 'tabler:device-floppy')" :class="{'animate-spin': isSaving}" class="mr-2" width="16" height="16" alt="Save"></iconify-icon>
+                    <span x-text="showCreateContextModal ? 'Create Context' : 'Save Changes'"></span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{{ end }}
+
+{{ block customJs() }}
+<script>
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('workspaceEditorApp', () => ({
+            workspaceId: '',
+            workspace: {},
+            editableWorkspace: {},
+            workspaceDirty: false,
+            entries: [],
+            filteredEntries: [],
+            entryViews: {},
+            entryDiffs: {},
+            entrySearchTerm: '',
+            expandedEntries: {},
+            contexts: [],
+            filteredContexts: [],
+            contextSearchTerm: '',
+            expandedContexts: {},
+            expandedHistory: {},
+            history: [],
+            isLoading: true,
+            isUpdating: false,
+            isSaving: false,
+            isLoadingHistory: false,
+            error: null,
+            wippyApi: null,
+            activeTab: 'overview',
+
+            // Live updates
+            eventsSubscribed: false,
+            liveUpdatesEnabled: true,
+            lastEventTime: null,
+            currentScrollY: 0,
+            newEntryIds: new Set(),
+
+            // Enhanced diff and syntax highlighting
+            enhancedDiffs: {},
+            syntaxHighlighting: true,
+            currentLanguageMap: {},
+
+            // Syntax highlighting state
+            highlightingQueue: new Set(),
+            highlightingInProgress: false,
+            prismReady: false,
+            themeReady: false,
+
+            // View state management
+            entryViewModes: {}, // entryId -> 'current'|'compare'|'diff'|'metadata'
+
+            // Metadata processing
+            processedMetadata: {},
+
+            // Entry editor
+            showEntryEditor: false,
+            editingEntryId: null,
+            entryEditorContent: '',
+            entryEditorPreview: null,
+
+            // Permission management
+            showCreatePermissionModal: false,
+            permissionForm: {
+                namespace_pattern: '',
+                permission_type: ''
+            },
+
+            // Review management
+            showCreateReviewModal: false,
+            showEditReviewModal: false,
+            editingReviewId: null,
+            expandedReviews: {},
+            reviewForm: {
+                name: '',
+                content: '',
+                content_type: 'text/plain',
+                status: 'draft'
+            },
+
+            // Context management
+            showCreateContextModal: false,
+            showEditContextModal: false,
+            editingContextId: null,
+            contextForm: {
+                label: '',
+                content: '',
+                content_type: 'text/plain'
+            },
+
+            // Context management
+            showCreateContextModal: false,
+            showEditContextModal: false,
+            editingContextId: null,
+            contextForm: {
+                label: '',
+                content: '',
+                content_type: 'text/plain'
+            },
+
+            async initialize() {
+                try {
+                    this.wippyApi = await window.getWippyApi();
+
+                    // Extract workspace ID from URL path
+                    if (this.wippyApi?.config?.path) {
+                        this.workspaceId = this.wippyApi.config.path.split('/').pop();
+                    } else {
+                        const pathSegments = window.location.pathname.split('/');
+                        this.workspaceId = pathSegments[pathSegments.length - 1];
+                    }
+
+                    if (!this.workspaceId) {
+                        throw new Error("No workspace ID found in URL");
+                    }
+
+                    // Wait for all external resources
+                    await this.waitForDependencies();
+
+                    // Initialize syntax highlighting system
+                    this.initializeSyntaxHighlighting();
+
+                    // Set up theme management
+                    this.setupThemeManagement();
+
+                    await this.loadWorkspace();
+                    this.setupLiveUpdates();
+
+                    // Set up observers for dynamic content
+                    this.setupContentObservers();
+
+                    // Watch for entry editor content changes to update preview
+                    this.$watch('entryEditorContent', () => {
+                        this.updateEntryEditorPreview();
+                    });
+
+                    // Watch for tab changes to load data
+                    this.$watch('activeTab', (newTab) => {
+                        if (newTab === 'history' && this.history.length === 0) {
+                            this.loadHistory();
+                        }
+                    });
+
+                } catch (err) {
+                    console.error('Initialization error:', err);
+                    this.error = err.message;
+                    this.isLoading = false;
+                }
+
+                window.addEventListener('beforeunload', () => this.unsubscribeFromWorkspaceEvents());
+            },
+
+            async loadWorkspace(triggeredByEvent = false) {
+                if (!triggeredByEvent && !this.workspace.workspace_id) {
+                    this.isLoading = true;
+                } else if (triggeredByEvent) {
+                    this.isUpdating = true;
+                    this.currentScrollY = window.scrollY;
+                } else {
+                    this.isLoading = true;
+                }
+
+                this.error = null;
+
+                try {
+                    const response = await this.wippyApi.api.get(`/api/v1/workspaces/${this.workspaceId}?include_entries=true&include_permissions=true&include_reviews=true&include_context=true`);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to load workspace');
+                    }
+
+                    this.workspace = response.data.workspace;
+
+                    const oldEntryIds = new Set((this.entries || []).map(e => e.entry_id));
+
+                    // De-duplicate entries to prevent rendering issues with duplicate keys
+                    const rawEntries = this.workspace.entries || [];
+                    const uniqueEntriesMap = new Map();
+                    for (const entry of rawEntries) {
+                        uniqueEntriesMap.set(entry.entry_id, entry);
+                    }
+                    this.workspace.entries = Array.from(uniqueEntriesMap.values());
+
+                    // De-duplicate permissions
+                    const rawPermissions = this.workspace.permissions || [];
+                    const uniquePermissionsMap = new Map();
+                    for (const permission of rawPermissions) {
+                        uniquePermissionsMap.set(permission.permission_id, permission);
+                    }
+                    this.workspace.permissions = Array.from(uniquePermissionsMap.values());
+
+                    // De-duplicate reviews
+                    const rawReviews = this.workspace.reviews || [];
+                    const uniqueReviewsMap = new Map();
+                    for (const review of rawReviews) {
+                        uniqueReviewsMap.set(review.review_id, review);
+                    }
+                    this.workspace.reviews = Array.from(uniqueReviewsMap.values());
+
+                    // De-duplicate contexts from top-level response
+                    if (response.data.contexts) {
+                        const rawContexts = response.data.contexts;
+                        const uniqueContextsMap = new Map();
+                        for (const context of rawContexts) {
+                            uniqueContextsMap.set(context.context_id, context);
+                        }
+                        this.contexts = Array.from(uniqueContextsMap.values());
+                    } else {
+                        this.contexts = [];
+                    }
+
+                    if (!this.workspaceDirty) {
+                        this.editableWorkspace = { ...this.workspace };
+                    }
+                    this.entries = this.workspace.entries || [];
+                    // contexts already set from response.data.contexts above
+                    this.filterEntries();
+                    this.filterContexts();
+
+                    // Track new entries for animation
+                    if (triggeredByEvent) {
+                        this.newEntryIds = new Set();
+                        this.entries.forEach(entry => {
+                            if (!oldEntryIds.has(entry.entry_id)) {
+                                this.newEntryIds.add(entry.entry_id);
+                            }
+                        });
+
+                        // Clear animation classes after delay
+                        setTimeout(() => {
+                            this.newEntryIds.clear();
+                            this.newEntryIds = new Set();
+                        }, 3500);
+                    }
+
+                    await this.loadEntryViews();
+
+                    if (triggeredByEvent) {
+                        this.$nextTick(() => {
+                            window.scrollTo(0, this.currentScrollY);
+                        });
+                    }
+
+                } catch (err) {
+                    console.error('Error loading workspace:', err);
+                    this.error = err.message;
+                } finally {
+                    this.isLoading = false;
+                    this.isUpdating = false;
+                }
+            },
+
+            async loadHistory() {
+                this.isLoadingHistory = true;
+                try {
+                    const response = await this.wippyApi.api.get(`/api/v1/workspaces/${this.workspaceId}/ops?limit=100`);
+                    if (response.data.success) {
+                        this.history = response.data.ops || [];
+                    }
+                } catch (err) {
+                    console.error('Failed to load history:', err);
+                } finally {
+                    this.isLoadingHistory = false;
+                }
+            },
+
+            async loadEntryViews() {
+                for (const entry of this.entries) {
+                    try {
+                        const response = await this.wippyApi.api.get(`/api/v1/workspaces/${this.workspaceId}/entries/${entry.entry_id}`);
+                        if (response.data.success) {
+                            this.entryViews[entry.entry_id] = response.data.views;
+                            this.entryViews[entry.entry_id].has_override = response.data.has_override;
+
+                            // Process metadata for consistent display
+                            this.processedMetadata[entry.entry_id] = this.processEntryMetadata(
+                                response.data.views
+                            );
+
+                            // Generate enhanced diff if needed
+                            if (response.data.has_override) {
+                                this.enhancedDiffs[entry.entry_id] = await this.generateEnhancedDiff(
+                                    response.data.views.original,
+                                    response.data.views.workspace || response.data.views.merged
+                                );
+                            }
+
+                            // Set default view mode
+                            this.entryViewModes[entry.entry_id] = 'current';
+                        }
+                    } catch (err) {
+                        console.warn(`Failed to load views for entry ${entry.entry_id}:`, err);
+                    }
+                }
+
+                // Update reactive properties
+                this.entryViews = { ...this.entryViews };
+                this.processedMetadata = { ...this.processedMetadata };
+                this.enhancedDiffs = { ...this.enhancedDiffs };
+            },
+
+            // Live updates
+            setupLiveUpdates() {
+                if (!this.workspaceId) return;
+
+                const topic = `workspace:${this.workspaceId}`;
+
+                try {
+                    this.wippyApi.on(topic, (event) => {
+                        this.handleWorkspaceEvent(event.data);
+                    });
+                    this.eventsSubscribed = true;
+                    console.log(`Subscribed to ${topic}`);
+                } catch (error) {
+                    console.error(`Failed to subscribe to ${topic}:`, error);
+                }
+            },
+
+            toggleLiveUpdates(forceState) {
+                if (typeof forceState === 'boolean') {
+                    this.liveUpdatesEnabled = forceState;
+                } else {
+                    this.liveUpdatesEnabled = !this.liveUpdatesEnabled;
+                }
+
+                if (this.liveUpdatesEnabled) {
+                    this.showUpdateNotification("Live updates enabled");
+                } else {
+                    this.showUpdateNotification("Live updates paused");
+                }
+            },
+
+            handleWorkspaceEvent(message) {
+                console.log('Workspace event received:', message);
+                this.lastEventTime = new Date();
+
+                if (!this.liveUpdatesEnabled) {
+                    console.log('Live updates paused. Event noted:', message);
+                    this.showUpdateNotification("Workspace updated (updates paused). Refresh or enable live updates.");
+                    return;
+                }
+
+                const eventType = message?.type || message?.event_type;
+                const workspaceId = message?.workspace_id;
+
+                if (eventType && workspaceId === this.workspaceId) {
+                    console.log(`Processing ${eventType} event for workspace ${workspaceId}`);
+                    setTimeout(() => {
+                        this.loadWorkspace(true);
+                    }, 300);
+                } else {
+                    console.log('Event ignored - missing type or workspace ID mismatch:', { eventType, workspaceId, expected: this.workspaceId });
+                }
+            },
+
+            unsubscribeFromWorkspaceEvents() {
+                if (this.eventsSubscribed) {
+                    this.eventsSubscribed = false;
+                    console.log(`Unsubscribed from workspace:${this.workspaceId}`);
+                }
+            },
+
+            showUpdateNotification(message) {
+                console.info("Update:", message);
+                try {
+                    this.wippyApi.iframe.toast({
+                        severity: 'info',
+                        summary: 'Workspace Update',
+                        detail: message,
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.log(message);
+                }
+            },
+
+            filterEntries() {
+                if (!this.entrySearchTerm) {
+                    this.filteredEntries = [...this.entries];
+                    return;
+                }
+                const term = this.entrySearchTerm.toLowerCase();
+                this.filteredEntries = this.entries.filter(entry =>
+                    entry.entry_id.toLowerCase().includes(term)
+                );
+            },
+
+            markWorkspaceDirty() {
+                this.workspaceDirty = true;
+            },
+
+            async saveWorkspace() {
+                this.isSaving = true;
+                try {
+                    const updates = {};
+                    if (this.editableWorkspace.title !== this.workspace.title) {
+                        updates.title = this.editableWorkspace.title;
+                    }
+                    if (this.editableWorkspace.description !== this.workspace.description) {
+                        updates.description = this.editableWorkspace.description;
+                    }
+                    if (this.editableWorkspace.status !== this.workspace.status) {
+                        updates.status = this.editableWorkspace.status;
+                    }
+
+                    if (Object.keys(updates).length === 0) {
+                        this.workspaceDirty = false;
+                        return;
+                    }
+
+                    const response = await this.wippyApi.api.put(`/api/v1/workspaces/${this.workspaceId}`, updates);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to update workspace');
+                    }
+
+                    this.workspace = { ...this.workspace, ...updates };
+                    this.workspaceDirty = false;
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Workspace Updated',
+                        detail: 'Changes saved successfully',
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.error('Error saving workspace:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Save Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                } finally {
+                    this.isSaving = false;
+                }
+            },
+
+            resetWorkspaceChanges() {
+                this.editableWorkspace = { ...this.workspace };
+                this.workspaceDirty = false;
+            },
+
+            async deleteWorkspace() {
+                try {
+                    const confirmed = await this.wippyApi.iframe.confirm({
+                        message: `Are you sure you want to delete the entire workspace "${this.workspace.title || this.workspaceId}"? This will permanently delete all entries and cannot be undone.`,
+                        header: 'Delete Workspace',
+                        icon: 'tabler:trash',
+                        acceptLabel: 'Yes, Delete Permanently',
+                        rejectLabel: 'Cancel',
+                        acceptClass: 'p-button-danger',
+                        rejectClass: 'p-button-secondary',
+                    });
+
+                    if (!confirmed) return;
+
+                    this.isSaving = true;
+                    const response = await this.wippyApi.api.delete(`/api/v1/workspaces/${this.workspaceId}`);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to delete workspace');
+                    }
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Workspace Deleted',
+                        detail: `Workspace "${this.workspace.title || this.workspaceId}" has been permanently deleted`,
+                        life: 3000
+                    });
+
+                    setTimeout(() => {
+                        this.goBackToList();
+                    }, 1000);
+
+                } catch (err) {
+                    console.error('Error deleting workspace:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Delete Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                } finally {
+                    this.isSaving = false;
+                }
+            },
+
+            // Permission methods
+            async createPermission() {
+                this.isSaving = true;
+                try {
+                    const response = await this.wippyApi.api.post(`/api/v1/workspaces/${this.workspaceId}/permissions`, this.permissionForm);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to create permission');
+                    }
+
+                    this.showCreatePermissionModal = false;
+                    this.permissionForm = { namespace_pattern: '', permission_type: '' };
+                    await this.loadWorkspace();
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Permission Created',
+                        detail: 'Permission added successfully',
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.error('Error creating permission:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Create Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                } finally {
+                    this.isSaving = false;
+                }
+            },
+
+            async deletePermission(permissionId) {
+                try {
+                    const confirmed = await this.wippyApi.iframe.confirm({
+                        message: 'Are you sure you want to delete this permission? This action cannot be undone.',
+                        header: 'Delete Permission',
+                        icon: 'tabler:trash',
+                        acceptLabel: 'Delete',
+                        rejectLabel: 'Cancel',
+                        acceptClass: 'p-button-danger'
+                    });
+
+                    if (!confirmed) return;
+
+                    const response = await this.wippyApi.api.delete(`/api/v1/workspaces/${this.workspaceId}/permissions/${permissionId}`);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to delete permission');
+                    }
+
+                    await this.loadWorkspace();
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Permission Deleted',
+                        detail: 'Permission removed successfully',
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.error('Error deleting permission:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Delete Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                }
+            },
+
+            // Review methods
+            async createReview() {
+                this.isSaving = true;
+                try {
+                    const response = await this.wippyApi.api.post(`/api/v1/workspaces/${this.workspaceId}/reviews`, this.reviewForm);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to create review');
+                    }
+
+                    this.closeReviewModal();
+                    await this.loadWorkspace();
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Review Created',
+                        detail: 'Review created successfully',
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.error('Error creating review:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Create Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                } finally {
+                    this.isSaving = false;
+                }
+            },
+
+            async updateReview() {
+                this.isSaving = true;
+                try {
+                    const response = await this.wippyApi.api.put(`/api/v1/workspaces/${this.workspaceId}/reviews/${this.editingReviewId}`, this.reviewForm);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to update review');
+                    }
+
+                    this.closeReviewModal();
+                    await this.loadWorkspace();
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Review Updated',
+                        detail: 'Review updated successfully',
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.error('Error updating review:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Update Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                } finally {
+                    this.isSaving = false;
+                }
+            },
+
+            editReview(review) {
+                this.editingReviewId = review.review_id;
+                this.reviewForm = {
+                    name: review.name,
+                    content: review.content || '',
+                    content_type: review.content_type || 'text/plain',
+                    status: review.status || 'draft'
+                };
+                this.showEditReviewModal = true;
+            },
+
+            async deleteReview(reviewId) {
+                try {
+                    const confirmed = await this.wippyApi.iframe.confirm({
+                        message: 'Are you sure you want to delete this review? This action cannot be undone.',
+                        header: 'Delete Review',
+                        icon: 'tabler:trash',
+                        acceptLabel: 'Delete',
+                        rejectLabel: 'Cancel',
+                        acceptClass: 'p-button-danger'
+                    });
+
+                    if (!confirmed) return;
+
+                    const response = await this.wippyApi.api.delete(`/api/v1/workspaces/${this.workspaceId}/reviews/${reviewId}`);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to delete review');
+                    }
+
+                    await this.loadWorkspace();
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Review Deleted',
+                        detail: 'Review deleted successfully',
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.error('Error deleting review:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Delete Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                }
+            },
+
+            closeReviewModal() {
+                this.showCreateReviewModal = false;
+                this.showEditReviewModal = false;
+                this.editingReviewId = null;
+                this.reviewForm = {
+                    name: '',
+                    content: '',
+                    content_type: 'text/plain',
+                    status: 'draft'
+                };
+            },
+
+
+
+            toggleReviewDetails(reviewId) {
+                this.expandedReviews[reviewId] = !this.expandedReviews[reviewId];
+                this.expandedReviews = { ...this.expandedReviews };
+            },
+
+            toggleHistoryDetails(opId) {
+                this.expandedHistory[opId] = !this.expandedHistory[opId];
+                this.expandedHistory = { ...this.expandedHistory };
+            },
+
+            // Entry methods
+            generateDiff(original, modified) {
+                const originalLines = original ? original.split('\n') : [];
+                const modifiedLines = modified ? modified.split('\n') : [];
+                const diff = [];
+                const modifiedLineMap = new Map();
+                modifiedLines.forEach((line, i) => {
+                    if (!modifiedLineMap.has(line)) modifiedLineMap.set(line, []);
+                    modifiedLineMap.get(line).push(i);
+                });
+
+                let lastMatchOriginal = -1;
+                let lastMatchModified = -1;
+
+                originalLines.forEach((line, i) => {
+                    const matchesInModified = modifiedLineMap.get(line) || [];
+                    const nextMatchIndex = matchesInModified.find(m => m > lastMatchModified);
+
+                    if (nextMatchIndex !== undefined) {
+                        for (let j = lastMatchOriginal + 1; j < i; j++) {
+                            diff.push({ type: 'deleted', content: originalLines[j] });
+                        }
+                        for (let j = lastMatchModified + 1; j < nextMatchIndex; j++) {
+                            diff.push({ type: 'added', content: modifiedLines[j] });
+                        }
+                        diff.push({ type: 'common', content: line });
+                        lastMatchOriginal = i;
+                        lastMatchModified = nextMatchIndex;
+                    }
+                });
+
+                for (let i = lastMatchOriginal + 1; i < originalLines.length; i++) {
+                    diff.push({ type: 'deleted', content: originalLines[i] });
+                }
+                for (let i = lastMatchModified + 1; i < modifiedLines.length; i++) {
+                    diff.push({ type: 'added', content: modifiedLines[i] });
+                }
+
+                return diff;
+            },
+
+
+
+            editEntry(entryId) {
+                this.editingEntryId = entryId;
+                const entryData = this.entryViews[entryId]?.merged || this.entryViews[entryId]?.workspace || {};
+                this.entryEditorContent = this.formatJson(entryData);
+                this.updateEntryEditorPreview();
+                this.showEntryEditor = true;
+            },
+
+            updateEntryEditorPreview() {
+                try {
+                    this.entryEditorPreview = JSON.parse(this.entryEditorContent);
+                } catch (err) {
+                    this.entryEditorPreview = null;
+                }
+            },
+
+            async saveEntry() {
+                this.isSaving = true;
+                try {
+                    if (!this.entryEditorPreview) {
+                        throw new Error('Invalid JSON content');
+                    }
+
+                    const response = await this.wippyApi.api.put(`/api/v1/workspaces/${this.workspaceId}/entries/${this.editingEntryId}`, this.entryEditorPreview);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to save entry');
+                    }
+
+                    this.closeEntryEditor();
+                    await this.loadWorkspace();
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Entry Saved',
+                        detail: `Entry ${this.editingEntryId} saved successfully`,
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.error('Error saving entry:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Save Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                } finally {
+                    this.isSaving = false;
+                }
+            },
+
+            async resetEntry(entryId) {
+                try {
+                    const confirmed = await this.wippyApi.iframe.confirm({
+                        message: `Are you sure you want to reset entry "${entryId}" to the main registry version? This will remove any workspace-specific changes.`,
+                        header: 'Reset Entry',
+                        icon: 'tabler:restore',
+                        acceptLabel: 'Yes, Reset',
+                        rejectLabel: 'Cancel',
+                        acceptClass: 'p-button-warning',
+                        rejectClass: 'p-button-secondary',
+                    });
+
+                    if (!confirmed) return;
+
+                    const response = await this.wippyApi.api.post(`/api/v1/workspaces/${this.workspaceId}/entries/${entryId}/reset`);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to reset entry');
+                    }
+
+                    await this.loadWorkspace();
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Entry Reset',
+                        detail: `Entry ${entryId} reset to main registry version`,
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.error('Error resetting entry:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Reset Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                }
+            },
+
+            async deleteEntry(entryId) {
+                try {
+                    const confirmed = await this.wippyApi.iframe.confirm({
+                        message: `Are you sure you want to delete entry "${entryId}" from this workspace? This will mark the entry for deletion in the workspace overlay.`,
+                        header: 'Delete Entry',
+                        icon: 'tabler:trash',
+                        acceptLabel: 'Yes, Delete',
+                        rejectLabel: 'Cancel',
+                        acceptClass: 'p-button-danger',
+                        rejectClass: 'p-button-secondary',
+                    });
+
+                    if (!confirmed) return;
+
+                    const response = await this.wippyApi.api.delete(`/api/v1/workspaces/${this.workspaceId}/entries/${entryId}`);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to delete entry');
+                    }
+
+                    await this.loadWorkspace();
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Entry Deleted',
+                        detail: `Entry ${entryId} marked for deletion`,
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.error('Error deleting entry:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Delete Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                }
+            },
+
+            closeEntryEditor() {
+                this.showEntryEditor = false;
+                this.editingEntryId = null;
+                this.entryEditorContent = '';
+                this.entryEditorPreview = null;
+            },
+
+            refreshWorkspace() {
+                this.loadWorkspace();
+            },
+
+            goBackToList() {
+                if (this.wippyApi?.iframe?.navigate) {
+                    this.wippyApi.iframe.navigate('/c/keeper.views.overlay:list');
+                } else {
+                    window.location.href = '/workspaces';
+                }
+            },
+
+            // Enhanced functionality methods
+            async waitForDependencies() {
+                // Wait for Prism.js
+                let attempts = 0;
+                while (!window.prismReady && attempts < 50) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    attempts++;
+                }
+
+                if (!window.prismReady) {
+                    console.error('Prism.js failed to initialize within timeout');
+                    return;
+                }
+
+                this.prismReady = true;
+                console.log('All dependencies ready');
+            },
+
+            initializeSyntaxHighlighting() {
+                // Configure Prism for better performance
+                if (typeof Prism !== 'undefined') {
+                    Prism.manual = true;
+                    Prism.plugins.autoloader.languages_path =
+                        'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/';
+
+                    // Define custom Wippy-specific language mappings
+                    if (Prism.languages) {
+                        // Ensure base language exists before extending
+                        if (!Prism.languages.lua) {
+                            Prism.languages.lua = {};
+                        }
+
+                        Prism.languages.wippy = Prism.languages.extend('lua', {
+                            'registry-key': {
+                                pattern: /[a-zA-Z_][a-zA-Z0-9_]*:[a-zA-Z_][a-zA-Z0-9_]*/,
+                                alias: 'namespace'
+                            },
+                            'entry-kind': {
+                                pattern: /\b(function\.lua|library\.lua|registry\.entry|contract\.(definition|binding))\b/,
+                                alias: 'builtin'
+                            }
+                        });
+                    }
+
+                    console.log('Syntax highlighting initialized');
+                }
+            },
+
+            setupThemeManagement() {
+                // Initialize theme state
+                this.updatePrismTheme();
+
+                // Watch for theme changes
+                this.$watch('isDarkMode', (isDark) => {
+                    this.updatePrismTheme(isDark);
+                });
+
+                // Listen for system theme changes
+                const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+                mediaQuery.addListener(() => {
+                    if (!this.hasExplicitTheme) {
+                        this.updatePrismTheme();
+                    }
+                });
+            },
+
+            updatePrismTheme(isDark = null) {
+                if (isDark === null) {
+                    isDark = document.documentElement.classList.contains('dark');
+                }
+
+                const lightTheme = document.getElementById('prism-light');
+                const darkTheme = document.getElementById('prism-dark');
+
+                if (lightTheme && darkTheme) {
+                    lightTheme.disabled = isDark;
+                    darkTheme.disabled = !isDark;
+
+                    // Re-highlight visible content with new theme
+                    setTimeout(() => {
+                        this.highlightVisibleContent(true);
+                    }, 100);
+                }
+            },
+
+            setupContentObservers() {
+                // Use Intersection Observer for visibility
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting && !entry.target.dataset.highlighted) {
+                            this.scheduleHighlighting(entry.target);
+                        }
+                    });
+                }, { threshold: 0.1 });
+
+                // Observe code elements
+                const codeElements = document.querySelectorAll('pre code');
+                codeElements.forEach(el => observer.observe(el));
+
+                // Mutation observer for dynamic content
+                const mutationObserver = new MutationObserver((mutations) => {
+                    mutations.forEach(mutation => {
+                        if (mutation.type === 'childList') {
+                            const newCodeElements = mutation.target.querySelectorAll('pre code:not([data-observed])');
+                            newCodeElements.forEach(el => {
+                                el.dataset.observed = 'true';
+                                observer.observe(el);
+                            });
+                        }
+                    });
+                });
+
+                mutationObserver.observe(document.body, {
+                    childList: true,
+                    subtree: true
+                });
+            },
+
+            scheduleHighlighting(element, language = null, context = '') {
+                // Debounced highlighting
+                clearTimeout(element.highlightTimeout);
+                element.highlightTimeout = setTimeout(() => {
+                    this.highlightElement(element, language);
+                }, 150);
+            },
+
+            async highlightElement(element, language = null, forceRefresh = false) {
+                if (!this.prismReady || !element) return;
+
+                // Prevent duplicate highlighting
+                const elementId = element.dataset.highlightId || this.generateElementId();
+                element.dataset.highlightId = elementId;
+
+                if (this.highlightingQueue.has(elementId) && !forceRefresh) {
+                    return;
+                }
+
+                this.highlightingQueue.add(elementId);
+
+                try {
+                    // Wait for content to be stable
+                    await this.$nextTick();
+                    await new Promise(resolve => setTimeout(resolve, 50));
+
+                    // Detect language if not provided
+                    const detectedLanguage = language || this.detectLanguage({ source: element.textContent });
+
+                    // Clean previous highlighting
+                    this.cleanHighlighting(element);
+
+                    // Apply new highlighting
+                    element.className = `language-${detectedLanguage}`;
+
+                    // Use Prism with error handling
+                    if (typeof Prism !== 'undefined' && Prism.highlightElement) {
+                        Prism.highlightElement(element);
+                    }
+
+                    // Mark as highlighted
+                    element.dataset.highlighted = 'true';
+                    element.dataset.highlightLanguage = detectedLanguage;
+
+                } catch (error) {
+                    console.warn('Syntax highlighting failed for element:', error);
+                    this.handleHighlightingError(element, error);
+                } finally {
+                    this.highlightingQueue.delete(elementId);
+                }
+            },
+
+            cleanHighlighting(element) {
+                // Remove Prism-generated content
+                const tokens = element.querySelectorAll('.token');
+                tokens.forEach(token => {
+                    token.replaceWith(document.createTextNode(token.textContent));
+                });
+
+                // Reset classes
+                element.className = element.className.replace(/language-\w+/g, '');
+                delete element.dataset.highlighted;
+                delete element.dataset.highlightLanguage;
+            },
+
+            async highlightVisibleContent(force = false) {
+                if (this.highlightingInProgress && !force) return;
+
+                this.highlightingInProgress = true;
+
+                try {
+                    const codeElements = document.querySelectorAll('pre code');
+                    const visibleElements = Array.from(codeElements).filter(el =>
+                        this.isElementVisible(el) && (!el.dataset.highlighted || force)
+                    );
+
+                    // Process in batches to avoid blocking UI
+                    const batchSize = 5;
+                    for (let i = 0; i < visibleElements.length; i += batchSize) {
+                        const batch = visibleElements.slice(i, i + batchSize);
+
+                        await Promise.all(batch.map(element =>
+                            this.highlightElement(element)
+                        ));
+
+                        // Allow UI breathing room
+                        await new Promise(resolve => setTimeout(resolve, 10));
+                    }
+
+                } finally {
+                    this.highlightingInProgress = false;
+                }
+            },
+
+            generateElementId() {
+                return 'highlight_' + Math.random().toString(36).substr(2, 9);
+            },
+
+            handleHighlightingError(element, error) {
+                console.warn('Highlighting failed:', error);
+
+                // Apply basic syntax classes as fallback
+                if (element.textContent.includes('function')) {
+                    element.classList.add('language-lua', 'fallback-highlight');
+                } else if (element.textContent.includes('{')) {
+                    element.classList.add('language-json', 'fallback-highlight');
+                }
+
+                // Report error for debugging
+                this.reportHighlightingError(error, element);
+            },
+
+            reportHighlightingError(error, element) {
+                // Optional: Report to monitoring system
+                console.debug('Highlighting error details:', {
+                    error: error.message,
+                    elementContent: element.textContent.substring(0, 100),
+                    elementClasses: element.className
+                });
+            },
+
+            // Enhanced metadata processing
+            processEntryMetadata(views) {
+                const processed = {
+                    current: this.sortedMetadata(views.merged || views.workspace || {}),
+                    original: views.original ? this.sortedMetadata(views.original) : null,
+                    workspace: views.workspace ? this.sortedMetadata(views.workspace) : null
+                };
+
+                return processed;
+            },
+
+            sortedMetadata(metadata) {
+                if (!metadata || typeof metadata !== 'object') return [];
+
+                const systemKeys = ['name', 'kind', 'version', 'created_at', 'updated_at'];
+                const entryKeys = ['source', 'method', 'modules', 'imports', 'pool', 'meta'];
+
+                const result = {
+                    system: { name: 'system', items: [] },
+                    entry: { name: 'entry', items: [] },
+                    custom: { name: 'custom', items: [] },
+                    technical: { name: 'technical', items: [] }
+                };
+
+                Object.keys(metadata).forEach(key => {
+                    const value = metadata[key];
+
+                    // Skip problematic or internal keys
+                    if (this.shouldSkipMetadataKey(key, value)) return;
+
+                    if (systemKeys.includes(key)) {
+                        result.system.items.push([key, value]);
+                    } else if (entryKeys.includes(key)) {
+                        result.entry.items.push([key, value]);
+                    } else if (key.startsWith('_') || key.includes('internal') || key.includes('entry_meta')) {
+                        result.technical.items.push([key, value]);
+                    } else {
+                        result.custom.items.push([key, value]);
+                    }
+                });
+
+                // Sort each category
+                result.system.items.sort(([a], [b]) => systemKeys.indexOf(a) - systemKeys.indexOf(b));
+                result.entry.items.sort(([a], [b]) => entryKeys.indexOf(a) - entryKeys.indexOf(b));
+                result.custom.items.sort(([a], [b]) => a.localeCompare(b));
+                result.technical.items.sort(([a], [b]) => a.localeCompare(b));
+
+                return Object.values(result).filter(category => category.items.length > 0);
+            },
+
+            shouldSkipMetadataKey(key, value) {
+                // Skip null/undefined values
+                if (value === null || value === undefined) return true;
+
+                // Skip weird entry_meta keys mentioned in requirements
+                if (key.includes('entry_meta') || key.startsWith('__weird')) return true;
+
+                // Skip empty objects/arrays
+                if (typeof value === 'object' && Object.keys(value).length === 0) return true;
+
+                return false;
+            },
+
+            // Enhanced diff generation
+            async generateEnhancedDiff(original, modified) {
+                if (!original || !modified) return null;
+
+                const originalText = this.extractTextForDiff(original);
+                const modifiedText = this.extractTextForDiff(modified);
+
+                if (originalText === modifiedText) return null;
+
+                // Use diff library for unified diff
+                if (typeof Diff !== 'undefined') {
+                    const diffResult = Diff.createTwoFilesPatch(
+                        'original', 'modified',
+                        originalText, modifiedText,
+                        '', '',
+                        { context: 3 }
+                    );
+
+                    // Parse and enhance the diff
+                    return this.parseDiffResult(diffResult);
+                }
+
+                return null;
+            },
+
+            extractTextForDiff(content) {
+                if (content.source) return content.source;
+
+                // For non-source content, create a readable representation
+                const entries = [];
+                Object.keys(content).sort().forEach(key => {
+                    if (!this.shouldSkipMetadataKey(key, content[key])) {
+                        entries.push(`${key}: ${JSON.stringify(content[key], null, 2)}`);
+                    }
+                });
+
+                return entries.join('\n');
+            },
+
+            parseDiffResult(diffText) {
+                const lines = diffText.split('\n');
+                const chunks = [];
+                let currentChunk = null;
+
+                lines.forEach(line => {
+                    if (line.startsWith('@@')) {
+                        // New chunk header
+                        if (currentChunk) chunks.push(currentChunk);
+                        currentChunk = {
+                            type: 'change',
+                            header: line,
+                            lines: [],
+                            statistics: { added: 0, deleted: 0, modified: 0 }
+                        };
+                    } else if (currentChunk) {
+                        const type = line.startsWith('+') ? 'added' :
+                            line.startsWith('-') ? 'deleted' : 'context';
+
+                        currentChunk.lines.push({
+                            type,
+                            content: line.substring(1), // Remove +/- prefix
+                            marker: line.charAt(0)
+                        });
+
+                        if (type !== 'context') {
+                            currentChunk.statistics[type]++;
+                        }
+                    }
+                });
+
+                if (currentChunk) chunks.push(currentChunk);
+
+                return {
+                    chunks,
+                    totalChanges: chunks.reduce((sum, chunk) =>
+                        sum + chunk.statistics.added + chunk.statistics.deleted, 0)
+                };
+            },
+
+            // View mode management
+            async setEntryViewMode(entryId, mode) {
+                this.entryViewModes[entryId] = mode;
+                this.entryViewModes = { ...this.entryViewModes };
+
+                // Clear highlighting queue for this entry
+                this.clearEntryHighlighting(entryId);
+
+                // Wait for DOM updates
+                await this.$nextTick();
+
+                // Re-highlight new content
+                setTimeout(() => {
+                    this.highlightEntryContent(entryId);
+                }, 100);
+            },
+
+            async highlightEntryContent(entryId) {
+                const entryElements = document.querySelectorAll(
+                    `[data-entry-id="${entryId}"] pre code`
+                );
+
+                for (const element of entryElements) {
+                    await this.highlightElement(element);
+                }
+            },
+
+            clearEntryHighlighting(entryId) {
+                const entryElements = document.querySelectorAll(
+                    `[data-entry-id="${entryId}"] pre code[data-highlighted]`
+                );
+
+                entryElements.forEach(element => {
+                    this.cleanHighlighting(element);
+                });
+            },
+
+            // Syntax highlighting utilities
+            detectLanguage(content) {
+                if (!content) return 'text';
+
+                if (content.source) {
+                    const source = content.source;
+
+                    // Lua detection
+                    if (source.includes('function') && source.includes('end')) return 'lua';
+                    if (source.includes('local ') || source.includes('require(')) return 'lua';
+
+                    // YAML detection
+                    if (source.includes('version:') || source.includes('entries:')) return 'yaml';
+                    if (source.match(/^[a-zA-Z_][a-zA-Z0-9_]*:\s/m)) return 'yaml';
+
+                    // JSON detection
+                    if (source.trim().startsWith('{') && source.trim().endsWith('}')) return 'json';
+
+                    // Shell/Bash detection
+                    if (source.includes('#!/bin/bash') || source.includes('#!/bin/sh')) return 'bash';
+                }
+
+                // Check for kind-based language mapping
+                if (content.kind) {
+                    if (content.kind.includes('lua')) return 'lua';
+                    if (content.kind.includes('yaml')) return 'yaml';
+                    if (content.kind.includes('json')) return 'json';
+                }
+
+                return 'text';
+            },
+
+            // Legacy method - redirects to enhanced version
+            highlightCode(element, language = null) {
+                return this.highlightElement(element, language);
+            },
+
+            // Legacy method - redirects to enhanced version
+            highlightVisibleCode() {
+                return this.highlightVisibleContent();
+            },
+
+            isElementVisible(element) {
+                const rect = element.getBoundingClientRect();
+                return rect.top < window.innerHeight && rect.bottom > 0;
+            },
+
+            getContentFromElement(element) {
+                // Helper to extract content for language detection
+                return { source: element.textContent };
+            },
+
+            // Enhanced utility methods
+            formatMetadataValue(value, key) {
+                if (value === null || value === undefined) return 'null';
+
+                // Special formatting for specific keys
+                if (key.includes('_at') && typeof value === 'string') {
+                    return this.formatDate(value);
+                }
+
+                if (typeof value === 'object') {
+                    if (Array.isArray(value)) {
+                        return value.length === 0 ? '[]' :
+                            value.length === 1 ? `[${JSON.stringify(value[0])}]` :
+                                `[${value.length} items]`;
+                    }
+                    return JSON.stringify(value, null, 2);
+                }
+
+                if (typeof value === 'string' && value.length > 50) {
+                    return value.substring(0, 50) + '...';
+                }
+
+                return String(value);
+            },
+
+            copyToClipboard(text) {
+                navigator.clipboard.writeText(text).then(() => {
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Copied',
+                        detail: 'Content copied to clipboard',
+                        life: 2000
+                    });
+                }).catch(err => {
+                    console.warn('Copy failed:', err);
+                });
+            },
+
+            getCategoryIcon(categoryName) {
+                switch(categoryName) {
+                    case 'system': return 'tabler:info-circle';
+                    case 'entry': return 'tabler:settings';
+                    case 'custom': return 'tabler:tag';
+                    case 'technical': return 'tabler:code';
+                    default: return 'tabler:file';
+                }
+            },
+
+            formatCategoryName(categoryName) {
+                switch(categoryName) {
+                    case 'system': return 'System Information';
+                    case 'entry': return 'Entry Configuration';
+                    case 'custom': return 'Custom Properties';
+                    case 'technical': return 'Technical Details';
+                    default: return categoryName;
+                }
+            },
+
+            // Diff navigation
+            navigateDiff(entryId, direction) {
+                // Implementation for navigating between diff changes
+                console.log(`Navigate diff for ${entryId} in direction ${direction}`);
+            },
+
+            canNavigateDiff(entryId, direction) {
+                // Implementation to check if navigation is possible
+                return false; // Placeholder
+            },
+
+            // Enhanced existing methods
+            toggleEntryDetails(entryId) {
+                this.expandedEntries[entryId] = !this.expandedEntries[entryId];
+                this.expandedEntries = { ...this.expandedEntries };
+
+                // Set default view mode for newly expanded entries
+                if (this.expandedEntries[entryId] && !this.entryViewModes[entryId]) {
+                    this.entryViewModes[entryId] = 'current';
+                }
+
+                // Trigger syntax highlighting after expansion
+                this.$nextTick(() => {
+                    this.highlightVisibleCode();
+                });
+            },
+
+            // Helper methods
+            getStatusBadgeClasses(status) {
+                const baseClasses = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium';
+                switch(status) {
+                    case 'draft': return `${baseClasses} bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200`;
+                    case 'active': return `${baseClasses} bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200`;
+                    case 'reviewed': return `${baseClasses} bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200`;
+                    case 'approved': return `${baseClasses} bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200`;
+                    case 'committed': return `${baseClasses} bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200`;
+                    case 'integrated': return `${baseClasses} bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200`;
+                    case 'failed': return `${baseClasses} bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200`;
+                    case 'archived': return `${baseClasses} bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200`;
+                    default: return `${baseClasses} bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200`;
+                }
+            },
+
+            getOperationBadgeClasses(operation) {
+                const baseClasses = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium';
+                switch(operation) {
+                    case 'create': return `${baseClasses} bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200`;
+                    case 'update': return `${baseClasses} bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200`;
+                    case 'delete': return `${baseClasses} bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200`;
+                    default: return `${baseClasses} bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200`;
+                }
+            },
+
+            getOperationIcon(operation) {
+                switch(operation) {
+                    case 'create': return 'tabler:plus';
+                    case 'update': return 'tabler:edit';
+                    case 'delete': return 'tabler:trash';
+                    default: return 'tabler:question-mark';
+                }
+            },
+
+            getHistoryIcon(operation) {
+                switch(operation) {
+                    case 'CREATE_WORKSPACE': return 'tabler:plus';
+                    case 'UPDATE_WORKSPACE': return 'tabler:edit';
+                    case 'DELETE_WORKSPACE': return 'tabler:trash';
+                    case 'CREATE_WORKSPACE_ENTRY': return 'tabler:file-plus';
+                    case 'UPDATE_WORKSPACE_ENTRY': return 'tabler:file-edit';
+                    case 'DELETE_WORKSPACE_ENTRY': return 'tabler:file-minus';
+                    case 'CREATE_WORKSPACE_PERMISSION': return 'tabler:shield-plus';
+                    case 'DELETE_WORKSPACE_PERMISSION': return 'tabler:shield-minus';
+                    case 'CREATE_WORKSPACE_REVIEW': return 'tabler:git-commit';
+                    case 'UPDATE_WORKSPACE_REVIEW': return 'tabler:git-merge';
+                    case 'DELETE_WORKSPACE_REVIEW': return 'tabler:git-branch-delete';
+                    default: return 'tabler:history';
+                }
+            },
+
+            getHistoryIconClass(operation) {
+                const baseClasses = 'bg-surface-100 text-surface-600 dark:bg-surface-900/30 dark:text-surface-400';
+                if (operation.includes('CREATE')) {
+                    return 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400';
+                } else if (operation.includes('UPDATE')) {
+                    return 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400';
+                } else if (operation.includes('DELETE')) {
+                    return 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400';
+                }
+                return baseClasses;
+            },
+
+            getHistoryDescription(item) {
+                const operationType = item.operation_type;
+                let operationData = {};
+
+                // Safely parse operation_data
+                try {
+                    if (item.operation_data) {
+                        if (typeof item.operation_data === 'string') {
+                            if (item.operation_data.startsWith('{') || item.operation_data.startsWith('[')) {
+                                operationData = JSON.parse(item.operation_data);
+                            }
+                        } else if (typeof item.operation_data === 'object') {
+                            operationData = item.operation_data;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Failed to parse operation_data:', e);
+                    operationData = {};
+                }
+
+                switch(operationType) {
+                    case 'CREATE_WORKSPACE':
+                        const workspaceCreated = operationData.workspace_created;
+                        return `Created workspace${workspaceCreated?.title ? ` "${workspaceCreated.title}"` : ''}${workspaceCreated?.workspace_id ? ` (ID: ${workspaceCreated.workspace_id.slice(-8)})` : ''}`;
+
+                    case 'UPDATE_WORKSPACE':
+                        const workspaceUpdated = operationData.workspace_updated;
+                        if (workspaceUpdated?.fields_updated) {
+                            const fields = Object.keys(workspaceUpdated.fields_updated);
+                            const rowsAffected = workspaceUpdated.rows_affected ? ` (${workspaceUpdated.rows_affected} row affected)` : '';
+
+                            if (fields.length === 1 && fields[0] === 'title') {
+                                return `Updated workspace title to "${workspaceUpdated.fields_updated.title}"${rowsAffected}`;
+                            } else if (fields.length === 1 && fields[0] === 'status') {
+                                return `Changed workspace status to "${workspaceUpdated.fields_updated.status}"${rowsAffected}`;
+                            } else if (fields.length === 1 && fields[0] === 'description') {
+                                return `Updated workspace description${rowsAffected}`;
+                            } else {
+                                return `Updated workspace fields: ${fields.join(', ')}${rowsAffected}`;
+                            }
+                        }
+                        return 'Updated workspace';
+
+                    case 'DELETE_WORKSPACE':
+                        return 'Deleted workspace';
+
+                    case 'CREATE_WORKSPACE_ENTRY':
+                        const entryCreated = operationData.entry_created;
+                        return `Created entry${entryCreated?.entry_id ? ` "${entryCreated.entry_id}"` : ''}`;
+
+                    case 'UPDATE_WORKSPACE_ENTRY':
+                        const entryUpdated = operationData.entry_updated;
+                        return `Updated entry${entryUpdated?.entry_id ? ` "${entryUpdated.entry_id}"` : ''}`;
+
+                    case 'DELETE_WORKSPACE_ENTRY':
+                        const entryDeleted = operationData.entry_deleted;
+                        return `Deleted entry${entryDeleted?.entry_id ? ` "${entryDeleted.entry_id}"` : ''}`;
+
+                    case 'CREATE_WORKSPACE_PERMISSION':
+                        const permCreated = operationData.permission_created;
+                        if (permCreated?.namespace_pattern && permCreated?.permission_type) {
+                            const permId = permCreated.permission_id ? ` (ID: ${permCreated.permission_id.slice(-8)})` : '';
+                            return `Added ${permCreated.permission_type} permission for "${permCreated.namespace_pattern}"${permId}`;
+                        }
+                        return 'Created permission';
+
+                    case 'DELETE_WORKSPACE_PERMISSION':
+                        const permDeleted = operationData.permission_deleted;
+                        if (permDeleted?.namespace_pattern && permDeleted?.permission_type) {
+                            const permId = permDeleted.permission_id ? ` (ID: ${permDeleted.permission_id.slice(-8)})` : '';
+                            const rowsAffected = permDeleted.rows_affected ? ` - ${permDeleted.rows_affected} row affected` : '';
+                            return `Removed ${permDeleted.permission_type} permission for "${permDeleted.namespace_pattern}"${permId}${rowsAffected}`;
+                        }
+                        return 'Deleted permission';
+
+                    case 'CREATE_WORKSPACE_REVIEW':
+                        const revCreated = operationData.review_created;
+                        if (revCreated) {
+                            const details = [];
+                            if (revCreated.name) details.push(`"${revCreated.name}"`);
+                            if (revCreated.content_type) details.push(`type: ${revCreated.content_type}`);
+                            if (revCreated.status) details.push(`status: ${revCreated.status}`);
+                            const revId = revCreated.review_id ? ` (ID: ${revCreated.review_id.slice(-8)})` : '';
+                            return `Created review ${details.join(', ')}${revId}`;
+                        }
+                        return 'Created review';
+
+                    case 'UPDATE_WORKSPACE_REVIEW':
+                        const revUpdated = operationData.review_updated;
+                        if (revUpdated) {
+                            const revId = revUpdated.review_id ? ` (ID: ${revUpdated.review_id.slice(-8)})` : '';
+                            const rowsAffected = revUpdated.rows_affected ? ` - ${revUpdated.rows_affected} row affected` : '';
+                            return `Updated review${revId}${rowsAffected}`;
+                        }
+                        return 'Updated review';
+
+                    case 'DELETE_WORKSPACE_REVIEW':
+                        const revDeleted = operationData.review_deleted;
+                        if (revDeleted) {
+                            const revId = revDeleted.review_id ? ` (ID: ${revDeleted.review_id.slice(-8)})` : '';
+                            const rowsAffected = revDeleted.rows_affected ? ` - ${revDeleted.rows_affected} row affected` : '';
+                            return `Deleted review${revDeleted.name ? ` "${revDeleted.name}"` : ''}${revId}${rowsAffected}`;
+                        }
+                        return 'Deleted review';
+
+                    default:
+                        return operationType.replace(/_/g, ' ').toLowerCase().replace(/^\w/, c => c.toUpperCase());
+                }
+            },
+
+            getHistoryDetails(item) {
+                let operationData = {};
+                try {
+                    if (item.operation_data) {
+                        if (typeof item.operation_data === 'string') {
+                            if (item.operation_data.startsWith('{') || item.operation_data.startsWith('[')) {
+                                operationData = JSON.parse(item.operation_data);
+                            }
+                        } else if (typeof item.operation_data === 'object') {
+                            operationData = item.operation_data;
+                        }
+                    }
+                } catch (e) {
+                    return null;
+                }
+
+                const details = [];
+
+                // Extract relevant details based on operation type
+                switch(item.operation_type) {
+                    case 'CREATE_WORKSPACE':
+                        if (operationData.workspace_created?.workspace_id) {
+                            details.push(`Workspace ID: ${operationData.workspace_created.workspace_id}`);
+                        }
+                        if (operationData.operation_result?.success) {
+                            details.push(`Success: ${operationData.operation_result.success}`);
+                        }
+                        break;
+
+                    case 'UPDATE_WORKSPACE':
+                        if (operationData.workspace_updated?.workspace_id) {
+                            details.push(`Workspace ID: ${operationData.workspace_updated.workspace_id}`);
+                        }
+                        if (operationData.workspace_updated?.fields_updated) {
+                            details.push('Updated fields:');
+                            Object.entries(operationData.workspace_updated.fields_updated).forEach(([key, value]) => {
+                                details.push(`  ${key}: "${value}"`);
+                            });
+                        }
+                        break;
+
+                    case 'CREATE_WORKSPACE_PERMISSION':
+                    case 'DELETE_WORKSPACE_PERMISSION':
+                        const permData = operationData.permission_created || operationData.permission_deleted;
+                        if (permData?.permission_id) {
+                            details.push(`Permission ID: ${permData.permission_id}`);
+                        }
+                        break;
+
+                    case 'CREATE_WORKSPACE_REVIEW':
+                    case 'UPDATE_WORKSPACE_REVIEW':
+                    case 'DELETE_WORKSPACE_REVIEW':
+                        const revData = operationData.review_created || operationData.review_updated || operationData.review_deleted;
+                        if (revData?.review_id) {
+                            details.push(`Review ID: ${revData.review_id}`);
+                        }
+                        if (revData?.content_type) {
+                            details.push(`Content Type: ${revData.content_type}`);
+                        }
+                        if (revData?.status) {
+                            details.push(`Status: ${revData.status}`);
+                        }
+                        break;
+                }
+
+                // Add operation ID if available
+                if (item.op_id) {
+                    details.push(`Operation ID: ${item.op_id}`);
+                }
+
+                return details.length > 0 ? details : null;
+            },
+
+            // Context methods
+            filterContexts() {
+                if (!this.contextSearchTerm) {
+                    this.filteredContexts = [...this.contexts];
+                    return;
+                }
+                const term = this.contextSearchTerm.toLowerCase();
+                this.filteredContexts = this.contexts.filter(context =>
+                    (context.label || '').toLowerCase().includes(term) ||
+                    (context.content || '').toLowerCase().includes(term)
+                );
+            },
+
+            toggleContextDetails(contextId) {
+                this.expandedContexts[contextId] = !this.expandedContexts[contextId];
+                this.expandedContexts = { ...this.expandedContexts };
+            },
+
+            async createContext() {
+                this.isSaving = true;
+                try {
+                    const response = await this.wippyApi.api.post(`/api/v1/workspaces/${this.workspaceId}/context`, this.contextForm);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to create context');
+                    }
+
+                    this.closeContextModal();
+                    await this.loadWorkspace();
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Context Created',
+                        detail: 'Context entry created successfully',
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.error('Error creating context:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Create Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                } finally {
+                    this.isSaving = false;
+                }
+            },
+
+            async updateContext() {
+                this.isSaving = true;
+                try {
+                    const response = await this.wippyApi.api.put(`/api/v1/workspaces/${this.workspaceId}/context/${this.editingContextId}`, this.contextForm);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to update context');
+                    }
+
+                    this.closeContextModal();
+                    await this.loadWorkspace();
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Context Updated',
+                        detail: 'Context entry updated successfully',
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.error('Error updating context:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Update Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                } finally {
+                    this.isSaving = false;
+                }
+            },
+
+            editContext(context) {
+                this.editingContextId = context.context_id;
+                this.contextForm = {
+                    label: context.label || '',
+                    content: context.content || '',
+                    content_type: context.content_type || 'text/plain'
+                };
+                this.showEditContextModal = true;
+            },
+
+            async deleteContext(contextId) {
+                try {
+                    const confirmed = await this.wippyApi.iframe.confirm({
+                        message: 'Are you sure you want to delete this context entry? This action cannot be undone.',
+                        header: 'Delete Context',
+                        icon: 'tabler:trash',
+                        acceptLabel: 'Delete',
+                        rejectLabel: 'Cancel',
+                        acceptClass: 'p-button-danger'
+                    });
+
+                    if (!confirmed) return;
+
+                    const response = await this.wippyApi.api.delete(`/api/v1/workspaces/${this.workspaceId}/context/${contextId}`);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to delete context');
+                    }
+
+                    await this.loadWorkspace();
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Context Deleted',
+                        detail: 'Context entry deleted successfully',
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.error('Error deleting context:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Delete Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                }
+            },
+
+            closeContextModal() {
+                this.showCreateContextModal = false;
+                this.showEditContextModal = false;
+                this.editingContextId = null;
+                this.contextForm = {
+                    label: '',
+                    content: '',
+                    content_type: 'text/plain'
+                };
+            },
+
+            getContentTypeIcon(contentType) {
+                switch(contentType) {
+                    case 'text/markdown': return 'tabler:markdown';
+                    case 'application/json': return 'tabler:braces';
+                    case 'text/plain': return 'tabler:file-text';
+                    case 'application/yaml': return 'tabler:file-code';
+                    default: return 'tabler:file';
+                }
+            },
+
+            renderMarkdown(content) {
+                if (!content) return '';
+                try {
+                    return marked.parse(content);
+                } catch (err) {
+                    console.error('Markdown parsing error:', err);
+                    return `<pre>${content}</pre>`;
+                }
+            },
+
+            // Context methods
+            filterContexts() {
+                if (!this.contextSearchTerm) {
+                    this.filteredContexts = [...this.contexts];
+                    return;
+                }
+                const term = this.contextSearchTerm.toLowerCase();
+                this.filteredContexts = this.contexts.filter(context =>
+                    (context.label || '').toLowerCase().includes(term) ||
+                    (context.content || '').toLowerCase().includes(term)
+                );
+            },
+
+            toggleContextDetails(contextId) {
+                this.expandedContexts[contextId] = !this.expandedContexts[contextId];
+                this.expandedContexts = { ...this.expandedContexts };
+            },
+
+            async createContext() {
+                this.isSaving = true;
+                try {
+                    const response = await this.wippyApi.api.post(`/api/v1/workspaces/${this.workspaceId}/context`, this.contextForm);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to create context');
+                    }
+
+                    this.closeContextModal();
+                    await this.loadWorkspace();
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Context Created',
+                        detail: 'Context entry created successfully',
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.error('Error creating context:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Create Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                } finally {
+                    this.isSaving = false;
+                }
+            },
+
+            async updateContext() {
+                this.isSaving = true;
+                try {
+                    const response = await this.wippyApi.api.put(`/api/v1/workspaces/${this.workspaceId}/context/${this.editingContextId}`, this.contextForm);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to update context');
+                    }
+
+                    this.closeContextModal();
+                    await this.loadWorkspace();
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Context Updated',
+                        detail: 'Context entry updated successfully',
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.error('Error updating context:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Update Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                } finally {
+                    this.isSaving = false;
+                }
+            },
+
+            editContext(context) {
+                this.editingContextId = context.context_id;
+                this.contextForm = {
+                    label: context.label || '',
+                    content: context.content || '',
+                    content_type: context.content_type || 'text/plain'
+                };
+                this.showEditContextModal = true;
+            },
+
+            async deleteContext(contextId) {
+                try {
+                    const confirmed = await this.wippyApi.iframe.confirm({
+                        message: 'Are you sure you want to delete this context entry? This action cannot be undone.',
+                        header: 'Delete Context',
+                        icon: 'tabler:trash',
+                        acceptLabel: 'Delete',
+                        rejectLabel: 'Cancel',
+                        acceptClass: 'p-button-danger'
+                    });
+
+                    if (!confirmed) return;
+
+                    const response = await this.wippyApi.api.delete(`/api/v1/workspaces/${this.workspaceId}/context/${contextId}`);
+
+                    if (!response.data.success) {
+                        throw new Error(response.data.error || 'Failed to delete context');
+                    }
+
+                    await this.loadWorkspace();
+
+                    this.wippyApi.iframe.toast({
+                        severity: 'success',
+                        summary: 'Context Deleted',
+                        detail: 'Context entry deleted successfully',
+                        life: 3000
+                    });
+                } catch (err) {
+                    console.error('Error deleting context:', err);
+                    this.wippyApi.iframe.toast({
+                        severity: 'error',
+                        summary: 'Delete Failed',
+                        detail: err.message,
+                        life: 5000
+                    });
+                }
+            },
+
+            closeContextModal() {
+                this.showCreateContextModal = false;
+                this.showEditContextModal = false;
+                this.editingContextId = null;
+                this.contextForm = {
+                    label: '',
+                    content: '',
+                    content_type: 'text/plain'
+                };
+            },
+
+            getContentTypeIcon(contentType) {
+                switch(contentType) {
+                    case 'text/markdown': return 'tabler:markdown';
+                    case 'application/json': return 'tabler:braces';
+                    case 'text/plain': return 'tabler:file-text';
+                    case 'application/yaml': return 'tabler:file-code';
+                    default: return 'tabler:file';
+                }
+            },
+
+            renderMarkdown(content) {
+                if (!content) return '';
+                try {
+                    return marked.parse(content);
+                } catch (err) {
+                    console.error('Markdown parsing error:', err);
+                    return `<pre>${content}</pre>`;
+                }
+            },
+
+            formatTime(dateString) {
+                if (!dateString) return 'N/A';
+                try {
+                    return new Date(dateString).toLocaleTimeString();
+                } catch (e) {
+                    return dateString;
+                }
+            },
+
+            formatDate(dateString) {
+                if (!dateString) return 'N/A';
+                try {
+                    const date = new Date(dateString);
+                    return date.toLocaleString(undefined, {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                } catch {
+                    return dateString || 'N/A';
+                }
+            },
+
+            formatJson(data) {
+                if (data === undefined || data === null) return 'null';
+                try {
+                    return JSON.stringify(data, null, 2);
+                } catch (e) {
+                    return String(data);
+                }
+            }
+        }));
+    });
+</script>
+{{ end }}

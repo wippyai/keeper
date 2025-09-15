@@ -1,12 +1,12 @@
 version: "1.0"
-namespace: wippy.keeper.views.dataflow
+namespace: keeper.views.dataflow
 
 entries:
-  # wippy.keeper.views.dataflow:list
+  # keeper.views.dataflow:list
   - name: list
     kind: template.jet
     meta:
-      name: views.dataflow.list
+      name: keeper.views.dataflow.list
       type: view.page
       title: Workflows
       group: Keeper
@@ -19,13 +19,13 @@ entries:
       group_placement: bottom
       secure: true
     source: file://list.jet
-    set: wippy.keeper.views.common:templates
-
-  # wippy.keeper.views.dataflow:view
+    set: keeper.views.common:templates
+    
+  # keeper.views.dataflow:view
   - name: view
     kind: template.jet
     meta:
-      name: views.dataflow.view
+      name: keeper.views.dataflow.view
       type: view.page
       title: Workflow Debug
       group: Keeper
@@ -34,4 +34,5 @@ entries:
       content_type: text/html
       secure: true
     source: file://view.jet
-    set: wippy.keeper.views.common:templates
+    set: keeper.views.common:templates
+    

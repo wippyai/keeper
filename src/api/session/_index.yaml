@@ -1,15 +1,12 @@
 version: "1.0"
-namespace: wippy.keeper.api.session
+namespace: keeper.api.session
 
 entries:
-  # wippy.keeper.api.session:get_session_details
+  # keeper.api.session:get_session_details
   - name: get_session_details
     kind: function.lua
     meta:
       comment: Get complete session details for the authenticated admin user
-      depends_on:
-        - ns:app
-        - ns:wippy.session.persist
       router: app:api
     source: file://get_session_details.lua
     modules:
@@ -24,8 +21,8 @@ entries:
     method: handler
     pool:
       size: 2
-
-  # wippy.keeper.api.session:get_session_details.endpoint
+    
+  # keeper.api.session:get_session_details.endpoint
   - name: get_session_details.endpoint
     kind: http.endpoint
     meta:
@@ -36,8 +33,8 @@ entries:
     method: GET
     func: get_session_details
     path: /keeper/sessions/{id}
-
-  # wippy.keeper.api.session:list_own_sessions
+    
+  # keeper.api.session:list_own_sessions
   - name: list_own_sessions
     kind: function.lua
     meta:
@@ -55,8 +52,8 @@ entries:
     method: handler
     pool:
       size: 2
-
-  # wippy.keeper.api.session:list_own_sessions.endpoint
+    
+  # keeper.api.session:list_own_sessions.endpoint
   - name: list_own_sessions.endpoint
     kind: http.endpoint
     meta:
@@ -67,3 +64,4 @@ entries:
     method: GET
     func: list_own_sessions
     path: /keeper/sessions
+    

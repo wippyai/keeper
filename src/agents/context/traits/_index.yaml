@@ -1,0 +1,175 @@
+version: "1.0"
+namespace: keeper.agents.context.traits
+
+entries:
+  # keeper.agents.context.traits:context_reader
+  - name: context_reader
+    kind: function.lua
+    meta:
+      type: tool
+      title: Context Reader
+      comment: Command-based workspace context reader with list and get operations
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "enum": ["list", "get"],
+              "description": "Context operation to perform"
+            },
+            "context_id": {
+              "type": "string",
+              "description": "[get] Context ID to retrieve"
+            },
+            "label": {
+              "type": "string",
+              "description": "[get] Context label to retrieve (alternative to context_id)"
+            },
+            "labels": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "[list] Filter by specific labels"
+            },
+            "content_types": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "[list] Filter by content types"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "[list] Maximum number of results to return"
+            },
+            "include_content": {
+              "type": "boolean",
+              "default": false,
+              "description": "[list] Include full content in list output"
+            }
+          },
+          "required": ["command"],
+          "additionalProperties": false
+        }
+      llm_alias: ContextReader
+      llm_description: Read workspace context entries. Use 'list' to browse context or 'get' to read specific entries by ID or label. Context-locked to active workspace.
+    source: file://context_reader.lua
+    modules:
+      - json
+      - security
+      - ctx
+    imports:
+      reader: keeper.overlay.persist:reader
+    method: handler
+    
+  # keeper.agents.context.traits:context_writer
+  - name: context_writer
+    kind: function.lua
+    meta:
+      type: tool
+      title: Context Writer
+      comment: Command-based workspace context management with full CRUD operations
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "enum": ["list", "get", "create", "update", "delete"],
+              "description": "Context operation to perform"
+            },
+            "context_id": {
+              "type": "string",
+              "description": "[get,update,delete] Context ID to operate on"
+            },
+            "label": {
+              "type": "string",
+              "description": "[get] Context label to retrieve (alternative to context_id), [create] Label for new context"
+            },
+            "content": {
+              "type": "string",
+              "description": "[create] Content for new context entry"
+            },
+            "content_type": {
+              "type": "string",
+              "description": "[create] Content type (default: text/plain)"
+            },
+            "metadata": {
+              "type": "object",
+              "description": "[create] Additional metadata for context entry"
+            },
+            "updates": {
+              "type": "object",
+              "description": "[update] Updates object with fields to modify"
+            },
+            "confirm": {
+              "type": "boolean",
+              "description": "[delete] Confirmation flag - must be true to delete"
+            },
+            "labels": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "[list] Filter by specific labels"
+            },
+            "content_types": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "[list] Filter by content types"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "[list] Maximum number of results to return"
+            },
+            "include_content": {
+              "type": "boolean",
+              "default": false,
+              "description": "[list] Include full content in list output"
+            }
+          },
+          "required": ["command"],
+          "additionalProperties": false
+        }
+      llm_alias: ContextWriter
+      llm_description: 'Full workspace context management. Commands: list/get (read), create (new), update (modify), delete (remove). Context-locked to active workspace.'
+    source: file://context_writer.lua
+    modules:
+      - json
+      - security
+      - ctx
+    imports:
+      reader: keeper.overlay.persist:reader
+      writer: keeper.overlay.persist:writer
+    method: handler
+    
+  # keeper.agents.context.traits:reader
+  - name: reader
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Workspace Context Reader
+      comment: Read-only access to workspace context for understanding project requirements
+      tags:
+        - context
+        - workspace
+        - reading
+        - knowledge
+      icon: tabler:book-2
+    prompt: "You have read-only access to workspace context - shared knowledge that persists across sessions.\n\n## Context Reader Commands\n\n**List Context** - Browse all context entries:\n```json\n{\"command\": \"list\", \"labels\": [\"requirements\"], \"limit\": 10, \"include_content\": true}\n```\n\n**Get Context** - Read specific entry:\n```json\n{\"command\": \"get\", \"context_id\": \"uuid\"}\n```\nor by label:\n```json\n{\"command\": \"get\", \"label\": \"project-requirements\"}\n```\n\n## Usage Patterns\n\n- Check requirements before starting work\n- Read specifications for technical constraints  \n- Access shared documentation and patterns\n- Understand project context and decisions\n\n**Context-locked** to active workspace only. Always check relevant context before beginning tasks.\n"
+    tools:
+      - keeper.agents.context.traits:context_reader
+    
+  # keeper.agents.context.traits:writer
+  - name: writer
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Workspace Context Writer
+      comment: Full context management for maintaining shared workspace knowledge
+      tags:
+        - context
+        - workspace
+        - writing
+        - management
+      icon: tabler:edit
+    prompt: "You have full workspace context management for maintaining shared knowledge and requirements.\n\n## Context Writer Commands\n\n**List/Get** - Same as reader:\n```json\n{\"command\": \"list\", \"include_content\": true}\n{\"command\": \"get\", \"label\": \"requirements\"}\n```\n\n**Create** - Add new shared knowledge:\n```json\n{\n  \"command\": \"create\",\n  \"label\": \"project-requirements\", \n  \"content\": \"## Requirements\\n- Feature A\\n- Feature B\",\n  \"content_type\": \"text/markdown\"\n}\n```\n\n**Update** - Modify existing:\n```json\n{\n  \"command\": \"update\",\n  \"context_id\": \"uuid\",\n  \"updates\": {\"content\": \"Updated requirements...\"}\n}\n```\n\n**Delete** - Remove outdated:\n```json\n{\"command\": \"delete\", \"context_id\": \"uuid\", \"confirm\": true}\n```\n\n## Management Strategy\n\n- Document requirements and specifications\n- Capture architectural decisions\n- Record integration details and patterns\n- Maintain troubleshooting guides\n\n**Context-locked** to active workspace. Use for persistent knowledge that survives sessions.\n"
+    tools:
+      - keeper.agents.context.traits:context_writer
+    

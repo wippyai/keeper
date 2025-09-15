@@ -1,8 +1,8 @@
 version: "1.0"
-namespace: wippy.keeper.views.editors.library
+namespace: keeper.views.editors.library
 
 entries:
-  # wippy.keeper.views.editors.library:editors
+  # keeper.views.editors.library:editors
   - name: editors
     kind: registry.entry
     meta:
@@ -14,15 +14,15 @@ entries:
         icon: tabler:library
         order: 1
         id: default
-        page_name: wippy.keeper.views.editors.library:info
+        page_name: keeper.views.editors.library:info
       - title: Source
         icon: tabler:code
         order: 2
         field: source
         id: source
         language: lua
-
-  # wippy.keeper.views.editors.library:info
+    
+  # keeper.views.editors.library:info
   - name: info
     kind: template.jet
     meta:
@@ -34,6 +34,7 @@ entries:
       content_type: text/html
       secure: true
     source: file://info.jet
-    set: wippy.keeper.views.common:templates
+    set: keeper.views.common:templates
     resources:
-      - wippy.keeper.views.common:alpine.js
+      - keeper.views.common:alpine.js
+    

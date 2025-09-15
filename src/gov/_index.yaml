@@ -1,0 +1,69 @@
+version: "1.0"
+namespace: keeper.gov
+
+entries:
+  # keeper.gov:client
+  - name: client
+    kind: library.lua
+    meta:
+      comment: Registry governance client library
+      description: Client interface for interacting with the registry governance process
+    source: file://client.lua
+    modules:
+      - json
+      - time
+      - uuid
+      - security
+      - logger
+    imports:
+      gov_consts: keeper.gov:consts
+    
+  # keeper.gov:consts
+  - name: consts
+    kind: library.lua
+    meta:
+      comment: Governance system constants and configuration management
+      description: Environment variable handling, operation types, error codes, validation constants, and configuration defaults for registry governance
+    source: file://consts.lua
+    modules:
+      - env
+    
+  # keeper.gov:gov.spec
+  - name: gov.spec
+    kind: registry.entry
+    meta:
+      type: module.spec
+      comment: Registry governance system for managing registry operations with validation, processing pipelines, and extension points
+      tags:
+        - registry
+        - governance
+        - validation
+        - processing
+        - extensions
+    source: file://gov.spec.md
+    
+  # keeper.gov:processes
+  - name: processes
+    kind: process.host
+    meta:
+      comment: Governance process execution host
+      description: Dedicated process host for all governance service operations
+    host:
+      max_processes: 5
+      workers: 2
+    lifecycle:
+      auto_start: true
+      security:
+        groups:
+          - keeper.gov.service.security:governance
+    
+  # keeper.gov:source_fs
+  - name: source_fs
+    kind: fs.directory
+    meta:
+      comment: Managed source filesystem for sync operations
+      description: Dedicated filesystem for governance-managed source files and sync operations
+    auto_init: true
+    directory: ./src/
+    mode: "0755"
+    
