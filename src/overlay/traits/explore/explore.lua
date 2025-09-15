@@ -23,7 +23,7 @@ local function safe_workspace_id_to_string(workspace_id)
     if not workspace_id then
         return nil
     end
-    
+
     local id_type = type(workspace_id)
     if id_type == "string" then
         return workspace_id
@@ -184,9 +184,9 @@ function search_operation(params, session, show_original)
     end
 
     -- Build search index automatically when needed
-    local build_err = text_scanner:build_index()
+    local scanner_instance, build_err = text_scanner:build_index()
     if build_err then
-        return nil, "Failed to build search index: " .. build_err
+        return nil, "Failed to build search index: " .. tostring(build_err)
     end
 
     -- Prepare queries
