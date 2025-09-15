@@ -1,0 +1,22 @@
+version: "1.0"
+namespace: keeper.gov.discovery
+
+entries:
+  # keeper.gov.discovery:observers
+  - name: observers
+    kind: library.lua
+    meta:
+      comment: Observer discovery library for governance changeset post-processing
+      tags:
+        - governance
+        - observers
+        - discovery
+        - post-processing
+      description: Discovers and manages registry observers that react to changeset operations, replacing the legacy listener registry approach
+    source: file://observers.lua
+    modules:
+      - registry
+      - json
+      - logger
+      - funcs
+    

@@ -4,6 +4,145 @@
 {{ block title() }}Session Viewer{{ end }}
 {{ block metaDescription() }}View details for sessions, messages, artifacts and contexts{{ end }}
 
+{{ block headScripts() }}
+<style>
+    /* Markdown content styles */
+    .markdown-content {
+        line-height: 1.7;
+    }
+
+    .markdown-content h1,
+    .markdown-content h2,
+    .markdown-content h3,
+    .markdown-content h4,
+    .markdown-content h5,
+    .markdown-content h6 {
+        font-weight: 600;
+        margin-top: 1em;
+        margin-bottom: 0.5em;
+    }
+
+    .markdown-content h1 { font-size: 1.875em; }
+    .markdown-content h2 { font-size: 1.5em; }
+    .markdown-content h3 { font-size: 1.25em; }
+    .markdown-content h4 { font-size: 1.125em; }
+
+    .markdown-content p {
+        margin-bottom: 1em;
+    }
+
+    .markdown-content ul,
+    .markdown-content ol {
+        margin-bottom: 1em;
+        padding-left: 1.5em;
+    }
+
+    .markdown-content ul {
+        list-style-type: disc;
+    }
+
+    .markdown-content ol {
+        list-style-type: decimal;
+    }
+
+    .markdown-content li {
+        margin-bottom: 0.25em;
+    }
+
+    .markdown-content code {
+        background-color: rgb(243 244 246);
+        padding: 0.125rem 0.25rem;
+        border-radius: 0.25rem;
+        font-size: 0.875em;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        color: rgb(17 24 39);
+    }
+
+    .dark .markdown-content code {
+        background-color: rgb(41 37 36);
+        color: rgb(245 245 244);
+    }
+
+    .markdown-content pre {
+        background-color: rgb(243 244 246);
+        padding: 1rem;
+        border-radius: 0.5rem;
+        overflow-x: auto;
+        margin-bottom: 1em;
+    }
+
+    .dark .markdown-content pre {
+        background-color: rgb(28 25 23);
+    }
+
+    .markdown-content pre code {
+        background: none;
+        padding: 0;
+        color: inherit;
+    }
+
+    .markdown-content blockquote {
+        border-left: 4px solid rgb(209 213 219);
+        padding-left: 1rem;
+        margin: 1em 0;
+        font-style: italic;
+        color: rgb(107 114 128);
+    }
+
+    .dark .markdown-content blockquote {
+        border-color: rgb(75 85 99);
+        color: rgb(156 163 175);
+    }
+
+    .markdown-content a {
+        color: rgb(59 130 246);
+        text-decoration: underline;
+    }
+
+    .dark .markdown-content a {
+        color: rgb(96 165 250);
+    }
+
+    .markdown-content table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1em;
+    }
+
+    .markdown-content th,
+    .markdown-content td {
+        border: 1px solid rgb(209 213 219);
+        padding: 0.5rem;
+        text-align: left;
+    }
+
+    .dark .markdown-content th,
+    .dark .markdown-content td {
+        border-color: rgb(75 85 99);
+    }
+
+    .markdown-content th {
+        background-color: rgb(249 250 251);
+        font-weight: 600;
+    }
+
+    .dark .markdown-content th {
+        background-color: rgb(31 41 55);
+    }
+
+    .markdown-content hr {
+        border: 0;
+        height: 1px;
+        background: rgb(229 231 235);
+        margin: 2em 0;
+    }
+
+    .dark .markdown-content hr {
+        background: rgb(75 85 99);
+    }
+</style>
+{{ end }}
+
 {{ block mainContent() }}
 <div x-data="sessionViewerApp"
      x-init="initialize()"
@@ -151,7 +290,7 @@
             <iconify-icon icon="tabler:message-circle" class="mr-1.5"
                           :class="activeTab === 'messages' ? 'text-primary-500 dark:text-primary-400' : 'text-surface-400 dark:text-surface-500 group-hover:text-surface-500 dark:group-hover:text-surface-300'"
                           width="16" height="16"></iconify-icon>
-            <span>Messages</span>
+            <span>Messages (<span x-text="messages.length"></span>)</span>
         </button>
         <button
                 @click="activeTab = 'artifacts'"
@@ -163,7 +302,7 @@
             <iconify-icon icon="tabler:photo" class="mr-1.5"
                           :class="activeTab === 'artifacts' ? 'text-primary-500 dark:text-primary-400' : 'text-surface-400 dark:text-surface-500 group-hover:text-surface-500 dark:group-hover:text-surface-300'"
                           width="16" height="16"></iconify-icon>
-            <span>Artifacts</span>
+            <span>Artifacts (<span x-text="artifacts.length"></span>)</span>
         </button>
         <button
                 @click="activeTab = 'contexts'"
@@ -175,7 +314,7 @@
             <iconify-icon icon="tabler:brain" class="mr-1.5"
                           :class="activeTab === 'contexts' ? 'text-primary-500 dark:text-primary-400' : 'text-surface-400 dark:text-surface-500 group-hover:text-surface-500 dark:group-hover:text-surface-300'"
                           width="16" height="16"></iconify-icon>
-            <span>Contexts</span>
+            <span>Contexts (<span x-text="contexts.length"></span>)</span>
         </button>
     </nav>
 </div>
@@ -204,20 +343,24 @@
                 <h4 class="text-xs font-medium text-surface-500 dark:text-surface-400 mb-3">Token Usage</h4>
                 <div class="grid grid-cols-2 gap-3">
                     <div class="flex flex-col">
-                        <span class="text-xs text-surface-500 dark:text-surface-400">Total</span>
-                        <span class="text-base font-semibold text-surface-900 dark:text-surface-100" x-text="formatNumber(sessionData?.stats?.token_usage?.total_tokens || 0)"></span>
-                    </div>
-                    <div class="flex flex-col">
                         <span class="text-xs text-surface-500 dark:text-surface-400">Prompt</span>
-                        <span class="text-base font-semibold text-indigo-600 dark:text-indigo-400" x-text="formatNumber(sessionData?.stats?.token_usage?.prompt_tokens || 0)"></span>
+                        <span class="text-base font-semibold text-indigo-600 dark:text-indigo-400" x-text="formatNumber(sessionStats.token_usage.prompt_tokens)"></span>
                     </div>
                     <div class="flex flex-col">
                         <span class="text-xs text-surface-500 dark:text-surface-400">Completion</span>
-                        <span class="text-base font-semibold text-purple-600 dark:text-purple-400" x-text="formatNumber(sessionData?.stats?.token_usage?.completion_tokens || 0)"></span>
+                        <span class="text-base font-semibold text-purple-600 dark:text-purple-400" x-text="formatNumber(sessionStats.token_usage.completion_tokens)"></span>
+                    </div>
+                    <div class="flex flex-col">
+                        <span class="text-xs text-surface-500 dark:text-surface-400">Cache Read</span>
+                        <span class="text-base font-semibold text-green-600 dark:text-green-400" x-text="formatNumber(sessionStats.token_usage.cache_read_tokens)"></span>
+                    </div>
+                    <div class="flex flex-col">
+                        <span class="text-xs text-surface-500 dark:text-surface-400">Cache Write</span>
+                        <span class="text-base font-semibold text-cyan-600 dark:text-cyan-400" x-text="formatNumber(sessionStats.token_usage.cache_write_tokens)"></span>
                     </div>
                     <div class="flex flex-col">
                         <span class="text-xs text-surface-500 dark:text-surface-400">Thinking</span>
-                        <span class="text-base font-semibold text-amber-600 dark:text-amber-400" x-text="formatNumber(sessionData?.stats?.token_usage?.thinking_tokens || 0)"></span>
+                        <span class="text-base font-semibold text-amber-600 dark:text-amber-400" x-text="formatNumber(sessionStats.token_usage.thinking_tokens)"></span>
                     </div>
                 </div>
             </div>
@@ -228,30 +371,117 @@
                 <div class="grid grid-cols-3 gap-3">
                     <div class="flex flex-col">
                         <span class="text-xs text-surface-500 dark:text-surface-400">Total</span>
-                        <span class="text-base font-semibold text-surface-900 dark:text-surface-100" x-text="sessionData?.stats?.message_count || 0"></span>
+                        <span class="text-base font-semibold text-surface-900 dark:text-surface-100" x-text="sessionStats.message_count"></span>
                     </div>
                     <div class="flex flex-col">
                         <span class="text-xs text-surface-500 dark:text-surface-400">User</span>
-                        <span class="text-base font-semibold text-blue-600 dark:text-blue-400" x-text="sessionData?.stats?.message_counts_by_type?.user || 0"></span>
+                        <span class="text-base font-semibold text-blue-600 dark:text-blue-400" x-text="sessionStats.message_counts_by_type.user"></span>
                     </div>
                     <div class="flex flex-col">
                         <span class="text-xs text-surface-500 dark:text-surface-400">Assistant</span>
-                        <span class="text-base font-semibold text-purple-600 dark:text-purple-400" x-text="sessionData?.stats?.message_counts_by_type?.assistant || 0"></span>
+                        <span class="text-base font-semibold text-purple-600 dark:text-purple-400" x-text="sessionStats.message_counts_by_type.assistant"></span>
                     </div>
                     <div class="flex flex-col">
                         <span class="text-xs text-surface-500 dark:text-surface-400">Function</span>
-                        <span class="text-base font-semibold text-green-600 dark:text-green-400" x-text="sessionData?.stats?.message_counts_by_type?.function || 0"></span>
+                        <span class="text-base font-semibold text-green-600 dark:text-green-400" x-text="sessionStats.message_counts_by_type.function"></span>
                     </div>
                     <div class="flex flex-col">
                         <span class="text-xs text-surface-500 dark:text-surface-400">System</span>
-                        <span class="text-base font-semibold text-gray-600 dark:text-gray-400" x-text="sessionData?.stats?.message_counts_by_type?.system || 0"></span>
+                        <span class="text-base font-semibold text-gray-600 dark:text-gray-400" x-text="sessionStats.message_counts_by_type.system"></span>
+                    </div>
+                    <div class="flex flex-col">
+                        <span class="text-xs text-surface-500 dark:text-surface-400">Delegation</span>
+                        <span class="text-base font-semibold text-orange-600 dark:text-orange-400" x-text="sessionStats.message_counts_by_type.delegation"></span>
                     </div>
                     <div class="flex flex-col">
                         <span class="text-xs text-surface-500 dark:text-surface-400">Artifacts</span>
-                        <span class="text-base font-semibold text-indigo-600 dark:text-indigo-400" x-text="sessionData?.stats?.artifact_count || 0"></span>
+                        <span class="text-base font-semibold text-indigo-600 dark:text-indigo-400" x-text="sessionStats.artifact_count"></span>
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Checkpoints -->
+    <div class="mb-6">
+        <h3 class="text-sm font-medium text-surface-500 dark:text-surface-400 mb-2">Checkpoints (<span x-text="session?.meta?.checkpoints?.length || 0"></span>)</h3>
+        <div class="bg-surface-100 dark:bg-surface-800 rounded-lg p-4 max-h-96 overflow-y-auto">
+            <template x-if="!session?.meta?.checkpoints || session.meta.checkpoints.length === 0">
+                <p class="text-sm text-surface-500 dark:text-surface-400">No checkpoints found for this session.</p>
+            </template>
+            <ul role="list" class="divide-y divide-surface-200 dark:divide-surface-700">
+                <template x-for="checkpoint in session?.meta?.checkpoints || []" :key="checkpoint.checkpoint_id">
+                    <li class="py-3">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-medium text-surface-900 dark:text-surface-100 truncate" x-text="checkpoint.checkpoint_id"></p>
+                                <p class="text-xs text-surface-500 dark:text-surface-400" x-text="`Created at: ${formatDate(checkpoint.created_at)}`"></p>
+                            </div>
+                            <div class="text-right text-xs text-surface-500 dark:text-surface-400">
+                                <p>Prompt: <span class="font-semibold text-indigo-600 dark:text-indigo-400" x-text="formatNumber(checkpoint.checkpoint_tokens.prompt_tokens || 0)"></span></p>
+                                <p>Completion: <span class="font-semibold text-purple-600 dark:text-purple-400" x-text="formatNumber(checkpoint.checkpoint_tokens.completion_tokens || 0)"></span></p>
+                            </div>
+                        </div>
+                    </li>
+                </template>
+            </ul>
+        </div>
+    </div>
+
+
+    <!-- Session Configuration -->
+    <div class="mb-6">
+        <h3 class="text-sm font-medium text-surface-500 dark:text-surface-400 mb-2">Session Configuration</h3>
+        <div class="bg-surface-100 dark:bg-surface-800 rounded-lg p-4">
+            <template x-if="session?.config">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <h4 class="text-xs font-medium text-surface-600 dark:text-surface-400">Agent ID</h4>
+                        <p class="mt-1 text-sm text-surface-900 dark:text-surface-100 font-mono" x-text="session.config.agent_id || 'Not set'"></p>
+                    </div>
+                    <div>
+                        <h4 class="text-xs font-medium text-surface-600 dark:text-surface-400">Model</h4>
+                        <p class="mt-1 text-sm text-surface-900 dark:text-surface-100" x-text="session.config.model || 'Not set'"></p>
+                    </div>
+                    <div>
+                        <h4 class="text-xs font-medium text-surface-600 dark:text-surface-400">Token Checkpoint Threshold</h4>
+                        <p class="mt-1 text-sm text-surface-900 dark:text-surface-100" x-text="formatNumber(session.config.token_checkpoint_threshold || 0)"></p>
+                    </div>
+                    <div>
+                        <h4 class="text-xs font-medium text-surface-600 dark:text-surface-400">Max Message Limit</h4>
+                        <p class="mt-1 text-sm text-surface-900 dark:text-surface-100" x-text="formatNumber(session.config.max_message_limit || 0)"></p>
+                    </div>
+                    <div>
+                        <h4 class="text-xs font-medium text-surface-600 dark:text-surface-400">Agent Cache</h4>
+                        <p class="mt-1 text-sm text-surface-900 dark:text-surface-100" x-text="session.config.enable_agent_cache ? 'Enabled' : 'Disabled'"></p>
+                    </div>
+                    <div>
+                        <h4 class="text-xs font-medium text-surface-600 dark:text-surface-400">Min Conversation Exchanges</h4>
+                        <p class="mt-1 text-sm text-surface-900 dark:text-surface-100" x-text="session.config.min_conversation_exchanges || 'Not set'"></p>
+                    </div>
+                    <div class="md:col-span-2">
+                        <h4 class="text-xs font-medium text-surface-600 dark:text-surface-400">Title Function ID</h4>
+                        <p class="mt-1 text-sm text-surface-900 dark:text-surface-100 font-mono break-all" x-text="session.config.title_function_id || 'Not set'"></p>
+                    </div>
+                    <div class="md:col-span-2">
+                        <h4 class="text-xs font-medium text-surface-600 dark:text-surface-400">Delegation Function ID</h4>
+                        <p class="mt-1 text-sm text-surface-900 dark:text-surface-100 font-mono break-all" x-text="session.config.delegation_func_id || 'Not set'"></p>
+                    </div>
+                    <div class="md:col-span-2">
+                        <h4 class="text-xs font-medium text-surface-600 dark:text-surface-400">Checkpoint Function ID</h4>
+                        <p class="mt-1 text-sm text-surface-900 dark:text-surface-100 font-mono break-all" x-text="session.config.checkpoint_function_id || 'Not set'"></p>
+                    </div>
+                    <template x-if="session.config.delegation_description_suffix">
+                        <div class="md:col-span-2">
+                            <h4 class="text-xs font-medium text-surface-600 dark:text-surface-400">Delegation Description Suffix</h4>
+                            <p class="mt-1 text-sm text-surface-900 dark:text-surface-100" x-text="session.config.delegation_description_suffix"></p>
+                        </div>
+                    </template>
+                </div>
+            </template>
+            <template x-if="!session?.config">
+                <p class="text-sm text-surface-500 dark:text-surface-400">No configuration data available</p>
+            </template>
         </div>
     </div>
 
@@ -292,14 +522,6 @@
             </p>
         </div>
         <div>
-            <h3 class="text-sm font-medium text-surface-500 dark:text-surface-400">Current Agent</h3>
-            <p class="mt-1 text-sm text-surface-900 dark:text-surface-100" x-text="session?.current_agent || 'None'"></p>
-        </div>
-        <div>
-            <h3 class="text-sm font-medium text-surface-500 dark:text-surface-400">Current Model</h3>
-            <p class="mt-1 text-sm text-surface-900 dark:text-surface-100" x-text="session?.current_model || 'None'"></p>
-        </div>
-        <div>
             <h3 class="text-sm font-medium text-surface-500 dark:text-surface-400">Start Date</h3>
             <p class="mt-1 text-sm text-surface-900 dark:text-surface-100" x-text="formatDate(session?.start_date)"></p>
         </div>
@@ -316,23 +538,15 @@
             <pre class="text-sm text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(sessionData?.primary_context?.data)"></code></pre>
         </div>
     </div>
-
-    <!-- Public Metadata -->
-    <div>
-        <h3 class="text-sm font-medium text-surface-500 dark:text-surface-400 mb-2">Public Metadata</h3>
-        <div class="bg-surface-100 dark:bg-surface-800 rounded p-4 overflow-auto max-h-80">
-            <pre class="text-sm text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(session?.public_meta)"></code></pre>
-        </div>
-    </div>
 </div>
 {{ end }}
 
-{* Messages Tab Panel *}
+{* Messages Tab Panel - Enhanced version with checkpoint context indicators *}
 {{ block messagesTabPanel() }}
 <!-- Tab: Messages -->
 <div x-show="activeTab === 'messages'" class="bg-white dark:bg-surface-700 shadow rounded-lg overflow-hidden">
     <div class="border-b border-surface-200 dark:border-surface-600 px-4 py-3 flex items-center justify-between">
-        <h2 class="text-lg font-medium text-surface-900 dark:text-surface-100">Message Log</h2>
+        <h2 class="text-lg font-medium text-surface-900 dark:text-surface-100">Message Timeline</h2>
         <div class="flex items-center space-x-4">
             <div class="flex items-center">
                 <select
@@ -345,15 +559,15 @@
                     <option value="assistant">Assistant</option>
                     <option value="function">Function</option>
                     <option value="system">System</option>
-                    <option value="agent_change">Agent Change</option>
-                    <option value="model_change">Model Change</option>
+                    <option value="delegation">Delegation</option>
+                    <option value="artifact">Artifact</option>
                 </select>
             </div>
         </div>
     </div>
 
-    <!-- Message View -->
-    <div>
+    <!-- Message Timeline -->
+    <div class="divide-y divide-surface-200 dark:divide-surface-600">
         <template x-if="filteredMessages.length === 0">
             <div class="flex flex-col items-center justify-center py-8 text-surface-500 dark:text-surface-400">
                 <iconify-icon icon="tabler:messages" class="w-12 h-12 mb-4" width="48" height="48"></iconify-icon>
@@ -361,236 +575,296 @@
             </div>
         </template>
 
-        <div x-show="filteredMessages.length > 0">
-            <template x-for="(message, index) in filteredMessages" :key="message.message_id">
-                <div :class="{
-                    'bg-surface-50 dark:bg-surface-800': index % 2 === 0,
-                    'bg-white dark:bg-surface-700': index % 2 === 1
-                }">
-                    <div class="px-4 py-3 relative group">
-                        <div class="flex items-start">
-                            <!-- Message Type Icon -->
-                            <div :class="{
-                                'flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center mr-3': true,
-                                'bg-blue-100 dark:bg-blue-900': message.type === 'user',
-                                'bg-purple-100 dark:bg-purple-900': message.type === 'assistant',
-                                'bg-green-100 dark:bg-green-900': message.type === 'function',
-                                'bg-gray-100 dark:bg-gray-900': message.type === 'system',
-                                'bg-amber-100 dark:bg-amber-900': message.type === 'agent_change',
-                                'bg-teal-100 dark:bg-teal-900': message.type === 'model_change'
-                            }">
-                                <iconify-icon :icon="{
-                                    'user': 'tabler:user',
-                                    'assistant': 'tabler:robot',
-                                    'function': 'tabler:code',
-                                    'system': 'tabler:info-circle',
-                                    'agent_change': 'tabler:replace',
-                                    'model_change': 'tabler:exchange'
-                                }[message.type] || 'tabler:message'" :class="{
-                                    'text-blue-600 dark:text-blue-400': message.type === 'user',
-                                    'text-purple-600 dark:text-purple-400': message.type === 'assistant',
-                                    'text-green-600 dark:text-green-400': message.type === 'function',
-                                    'text-gray-600 dark:text-gray-400': message.type === 'system',
-                                    'text-amber-600 dark:text-amber-400': message.type === 'agent_change',
-                                    'text-teal-600 dark:text-teal-400': message.type === 'model_change'
-                                }" width="24" height="24"></iconify-icon>
-                            </div>
-
-                            <!-- Message Content -->
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-center flex-wrap gap-2 mb-1">
-                                    <span :class="{
-                                        'inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium': true,
-                                        'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200': message.type === 'user',
-                                        'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200': message.type === 'assistant',
-                                        'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200': message.type === 'function',
-                                        'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200': message.type === 'system',
-                                        'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200': message.type === 'agent_change',
-                                        'bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200': message.type === 'model_change'
-                                    }" x-text="formatMessageType(message.type)"></span>
-                                    <span class="text-sm text-surface-500 dark:text-surface-400" x-text="formatDate(message.date)"></span>
-
-                                    <!-- Agent name - purple badge -->
-                                    <template x-if="message.metadata && message.metadata.agent_name">
-                                        <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200" x-text="message.metadata.agent_name"></span>
-                                    </template>
-
-                                    <!-- Model name - blue badge -->
-                                    <template x-if="message.metadata && message.metadata.model">
-                                        <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200" x-text="message.metadata.model"></span>
-                                    </template>
-
-                                    <!-- Function name - for function calls -->
-                                    <template x-if="message.type === 'function' && message.metadata && message.metadata.function_name">
-                                        <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200" x-text="message.metadata.function_name"></span>
-                                    </template>
-
-                                    <!-- Status badge if applicable -->
-                                    <template x-if="message.metadata && message.metadata.status">
-                                        <span :class="{
-                                            'inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium': true,
-                                            'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200': message.metadata.status === 'success',
-                                            'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200': message.metadata.status === 'error',
-                                            'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200': message.metadata.status === 'pending',
-                                        }" x-text="message.metadata.status"></span>
-                                    </template>
-                                </div>
-
-                                <!-- Special message content for agent_change and model_change -->
-                                <template x-if="message.type === 'agent_change'">
-                                    <div class="text-lg text-surface-700 dark:text-surface-300">
-                                        Agent changed to <span class="font-medium text-surface-900 dark:text-surface-100" x-text="message.metadata?.to_agent || 'unknown'"></span>
-                                    </div>
-                                </template>
-
-                                <template x-if="message.type === 'model_change'">
-                                    <div class="text-lg text-surface-700 dark:text-surface-300">
-                                        Model changed to <span class="font-medium text-surface-900 dark:text-surface-100" x-text="message.metadata?.to_model || 'unknown'"></span>
-                                    </div>
-                                </template>
-
-                                <!-- Regular message content -->
-                                <template x-if="message.type !== 'agent_change' && message.type !== 'model_change'">
-                                    <div class="whitespace-pre-wrap text-surface-800 dark:text-surface-200 pr-16" x-text="getMessageContentPreview(message)"></div>
-                                </template>
-                            </div>
-                        </div>
-
-                        <!-- Action buttons (copy, view details) -->
-                        <div class="absolute top-3 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button @click="copyMessageContent(message)" class="text-surface-400 hover:text-surface-600 dark:hover:text-surface-300 p-1 rounded-md" title="Copy content">
-                                <iconify-icon icon="tabler:copy" width="16" height="16"></iconify-icon>
-                            </button>
-                            <button @click="viewMessageDetails(message)" class="text-surface-400 hover:text-surface-600 dark:hover:text-surface-300 p-1 rounded-md ml-1" title="View details">
-                                <iconify-icon icon="tabler:info-circle" width="16" height="16"></iconify-icon>
-                            </button>
-                        </div>
+        <template x-for="(message, index) in filteredMessages" :key="message.message_id">
+            <div class="p-4 transition-colors"
+                 :class="{
+                    'hover:bg-surface-50 dark:hover:bg-surface-800': true,
+                    'bg-amber-50 dark:bg-amber-900/10 border-l-4 border-amber-500': isCheckpointMessage(message),
+                    'bg-blue-50 dark:bg-blue-900/10': message.type === 'user',
+                    'bg-purple-50/50 dark:bg-purple-900/5': message.type === 'assistant'
+                 }">
+                <!-- Message Header -->
+                <div class="flex items-start space-x-3 mb-3">
+                    <!-- Message Type Icon -->
+                    <div :class="{
+                        'flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center': true,
+                        'bg-blue-100 dark:bg-blue-900': message.type === 'user',
+                        'bg-purple-100 dark:bg-purple-900': message.type === 'assistant',
+                        'bg-green-100 dark:bg-green-900': message.type === 'function',
+                        'bg-gray-100 dark:bg-gray-900': message.type === 'system',
+                        'bg-orange-100 dark:bg-orange-900': message.type === 'delegation',
+                        'bg-indigo-100 dark:bg-indigo-900': message.type === 'artifact'
+                    }">
+                        <iconify-icon :icon="getMessageIcon(message)" :class="{
+                            'text-blue-600 dark:text-blue-400': message.type === 'user',
+                            'text-purple-600 dark:text-purple-400': message.type === 'assistant',
+                            'text-green-600 dark:text-green-400': message.type === 'function',
+                            'text-gray-600 dark:text-gray-400': message.type === 'system',
+                            'text-orange-600 dark:text-orange-400': message.type === 'delegation',
+                            'text-indigo-600 dark:text-indigo-400': message.type === 'artifact'
+                        }" width="24" height="24"></iconify-icon>
                     </div>
-                </div>
-            </template>
-        </div>
-    </div>
 
-    <!-- Message Detail Modal -->
-    <div x-show="showMessageDetailModal" class="fixed inset-0 z-50 overflow-y-auto"
-         x-transition:enter="transition ease-out duration-300"
-         x-transition:enter-start="opacity-0"
-         x-transition:enter-end="opacity-100"
-         x-transition:leave="transition ease-in duration-200"
-         x-transition:leave-start="opacity-100"
-         x-transition:leave-end="opacity-0">
-        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div @click="showMessageDetailModal = false" class="fixed inset-0 bg-surface-800 bg-opacity-75 transition-opacity"></div>
-            <div class="inline-block align-bottom bg-surface-50 dark:bg-surface-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-3xl sm:w-full"
-                 x-transition:enter="transition ease-out duration-300"
-                 x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-                 x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
-                 x-transition:leave="transition ease-in duration-200"
-                 x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
-                 x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95">
-                <div class="p-4 border-b border-surface-200 dark:border-surface-700 flex justify-between items-center">
-                    <h3 class="text-lg font-medium text-surface-900 dark:text-surface-100" x-text="formatMessageType(currentDetailMessage?.type || '') + ' Message Details'"></h3>
-                    <button @click="showMessageDetailModal = false" class="text-surface-500 hover:text-surface-700 dark:hover:text-surface-300">
-                        <iconify-icon icon="tabler:x" width="20" height="20"></iconify-icon>
-                    </button>
-                </div>
-                <div class="p-4">
-                    <div class="space-y-4">
-                        <!-- Message ID -->
-                        <div class="mb-4">
-                            <h4 class="text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">ID</h4>
-                            <div class="flex items-center bg-surface-200 dark:bg-surface-700 rounded p-2">
-                                <span class="font-mono text-surface-800 dark:text-surface-200 text-sm break-all" x-text="currentDetailMessage?.message_id || ''"></span>
-                                <button @click="copyToClipboard(currentDetailMessage?.message_id)" class="ml-2 text-surface-500 hover:text-surface-700 dark:hover:text-surface-300">
-                                    <iconify-icon icon="tabler:copy" width="16" height="16"></iconify-icon>
-                                </button>
-                            </div>
+                    <!-- Message Info -->
+                    <div class="flex-1">
+                        <div class="flex items-center flex-wrap gap-2 mb-2">
+                            <span :class="{
+                                'inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium': true,
+                                'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200': message.type === 'user',
+                                'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200': message.type === 'assistant',
+                                'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200': message.type === 'function',
+                                'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200': message.type === 'system',
+                                'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200': message.type === 'delegation',
+                                'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200': message.type === 'artifact'
+                            }" x-text="formatMessageType(message.type)"></span>
+
+                            <span class="text-xs text-surface-500 dark:text-surface-400" x-text="formatDate(message.date)"></span>
+
+                            <!-- Checkpoint indicator - only for messages that ARE checkpoints -->
+                            <template x-if="isCheckpointMessage(message)">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200">
+                                    <iconify-icon icon="tabler:camera" class="mr-1" width="12" height="12"></iconify-icon>
+                                    <span>Checkpoint</span>
+                                </span>
+                            </template>
+
+                            <!-- Checkpoint context indicator - for assistant messages using checkpoints -->
+                            <template x-if="message.type === 'assistant' && message.metadata && message.metadata.checkpoint_id && !isCheckpointMessage(message)">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-teal-100 dark:bg-teal-900 text-teal-800 dark:text-teal-200">
+                                    <iconify-icon icon="tabler:link" class="mr-1" width="12" height="12"></iconify-icon>
+                                    <span>Uses checkpoint</span>
+                                </span>
+                            </template>
+
+                            <!-- Agent/Model badges -->
+                            <template x-if="message.metadata && message.metadata.agent_id">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200">
+                                    <iconify-icon icon="tabler:robot" class="mr-1" width="12" height="12"></iconify-icon>
+                                    <span x-text="message.metadata.agent_id"></span>
+                                </span>
+                            </template>
+
+                            <template x-if="message.metadata && message.metadata.model">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200">
+                                    <iconify-icon icon="tabler:cpu" class="mr-1" width="12" height="12"></iconify-icon>
+                                    <span x-text="message.metadata.model"></span>
+                                </span>
+                            </template>
+
+                            <!-- Inline Token Usage for assistant messages -->
+                            <template x-if="message.type === 'assistant' && message.metadata && message.metadata.tokens">
+                                <span class="text-xs text-surface-500 dark:text-surface-400">
+                                    P: <span class="text-indigo-600 dark:text-indigo-400 font-semibold" x-text="formatNumber(message.metadata.tokens.prompt_tokens || 0)"></span>
+                                    C: <span class="text-purple-600 dark:text-purple-400 font-semibold" x-text="formatNumber(message.metadata.tokens.completion_tokens || 0)"></span>
+                                    <template x-if="message.metadata.tokens.cache_read_tokens">
+                                        <span>CR: <span class="text-green-600 dark:text-green-400 font-semibold" x-text="formatNumber(message.metadata.tokens.cache_read_tokens)"></span></span>
+                                    </template>
+                                    <template x-if="message.metadata.tokens.cache_write_tokens">
+                                        <span>CW: <span class="text-cyan-600 dark:text-cyan-400 font-semibold" x-text="formatNumber(message.metadata.tokens.cache_write_tokens)"></span></span>
+                                    </template>
+                                    <template x-if="message.metadata.tokens.thinking_tokens">
+                                        <span>T: <span class="text-amber-600 dark:text-amber-400 font-semibold" x-text="formatNumber(message.metadata.tokens.thinking_tokens)"></span></span>
+                                    </template>
+                                </span>
+                            </template>
+
+                            <template x-if="message.type === 'function' && message.metadata && message.metadata.function_name">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200">
+                                    <iconify-icon icon="tabler:function" class="mr-1" width="12" height="12"></iconify-icon>
+                                    <span x-text="message.metadata.function_name"></span>
+                                </span>
+                            </template>
+
+                            <template x-if="message.metadata && message.metadata.status">
+                                <span :class="{
+                                    'inline-flex items-center px-2 py-0.5 rounded text-xs': true,
+                                    'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200': message.metadata.status === 'success',
+                                    'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200': message.metadata.status === 'error',
+                                    'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200': message.metadata.status === 'pending',
+                                }">
+                                    <iconify-icon :icon="{
+                                        'success': 'tabler:check',
+                                        'error': 'tabler:x',
+                                        'pending': 'tabler:loader-2'
+                                    }[message.metadata.status] || 'tabler:circle'" class="mr-1" width="12" height="12"></iconify-icon>
+                                    <span x-text="message.metadata.status"></span>
+                                </span>
+                            </template>
                         </div>
 
-                        <!-- Message Type & Time -->
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                                <h4 class="text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">Type</h4>
-                                <p :class="{
-                                    'inline-flex items-center px-2.5 py-0.5 rounded text-sm font-medium': true,
-                                    'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200': currentDetailMessage?.type === 'user',
-                                    'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200': currentDetailMessage?.type === 'assistant',
-                                    'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200': currentDetailMessage?.type === 'function',
-                                    'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200': currentDetailMessage?.type === 'system',
-                                    'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200': currentDetailMessage?.type === 'agent_change',
-                                    'bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200': currentDetailMessage?.type === 'model_change'
-                                }" x-text="formatMessageType(currentDetailMessage?.type || '')"></p>
+                        <!-- Thinking Block (for assistant messages) -->
+                        <template x-if="message.type === 'assistant' && hasThinkingContent(message)">
+                            <div class="mt-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-3">
+                                <div class="flex items-center mb-2">
+                                    <iconify-icon icon="tabler:brain" class="text-blue-600 dark:text-blue-400 mr-2" width="16" height="16"></iconify-icon>
+                                    <span class="text-sm font-medium text-blue-800 dark:text-blue-200">Thinking</span>
+                                </div>
+                                <div class="text-sm text-blue-700 dark:text-blue-300 font-mono whitespace-pre-wrap" x-text="getThinkingContent(message)"></div>
                             </div>
-                            <div>
-                                <h4 class="text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">Timestamp</h4>
-                                <p class="text-surface-800 dark:text-surface-200" x-text="formatDate(currentDetailMessage?.date)"></p>
-                            </div>
-                        </div>
+                        </template>
 
                         <!-- Message Content -->
-                        <div>
-                            <div class="flex items-center justify-between">
-                                <h4 class="text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">Content</h4>
-                                <button @click="copyMessageContent(currentDetailMessage)" class="text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 text-xs">
-                                    <iconify-icon icon="tabler:copy" class="mr-1" width="14" height="14"></iconify-icon>
-                                    Copy Content
+                        <template x-if="!(message.type === 'artifact' && (!message.data || message.data === ''))">
+                            <div class="bg-surface-50 dark:bg-surface-900 rounded-lg p-3">
+                                <!-- Empty assistant response indicator -->
+                                <template x-if="message.type === 'assistant' && (!message.data || message.data === '')">
+                                    <div class="flex items-center space-x-2 text-surface-500 dark:text-surface-400 italic">
+                                        <iconify-icon icon="tabler:message-off" width="16" height="16"></iconify-icon>
+                                        <span class="text-sm">(Empty response - likely continued with tool calls)</span>
+                                    </div>
+                                </template>
+
+                                <!-- System message special handling -->
+                                <template x-if="message.type === 'system' && message.metadata && message.metadata.system_action">
+                                    <div class="text-sm">
+                                        <template x-if="message.metadata.system_action === 'model_change'">
+                                            <div class="flex items-center space-x-2">
+                                                <iconify-icon icon="tabler:exchange" class="text-teal-600 dark:text-teal-400" width="16" height="16"></iconify-icon>
+                                                <span class="text-surface-700 dark:text-surface-300">
+                                                    Model changed from
+                                                    <span class="font-medium text-surface-900 dark:text-surface-100" x-text="message.metadata.from_model"></span>
+                                                    to
+                                                    <span class="font-medium text-surface-900 dark:text-surface-100" x-text="message.metadata.to_model"></span>
+                                                </span>
+                                            </div>
+                                        </template>
+                                        <template x-if="message.metadata.system_action === 'agent_change'">
+                                            <div class="flex items-center space-x-2">
+                                                <iconify-icon icon="tabler:robot" class="text-purple-600 dark:text-purple-400" width="16" height="16"></iconify-icon>
+                                                <span class="text-surface-700 dark:text-surface-300">
+                                                    Agent changed
+                                                    <template x-if="message.metadata.from_agent">
+                                                        <span>from <span class="font-medium text-surface-900 dark:text-surface-100" x-text="message.metadata.from_agent"></span></span>
+                                                    </template>
+                                                    to
+                                                    <span class="font-medium text-surface-900 dark:text-surface-100" x-text="message.metadata.to_agent"></span>
+                                                </span>
+                                            </div>
+                                        </template>
+                                        <template x-if="message.metadata.system_action === 'title_generated'">
+                                            <div class="flex items-center space-x-2">
+                                                <iconify-icon icon="tabler:tag" class="text-green-600 dark:text-green-400" width="16" height="16"></iconify-icon>
+                                                <span class="text-surface-700 dark:text-surface-300">
+                                                    Session title generated:
+                                                    <span class="font-medium text-surface-900 dark:text-surface-100" x-text="message.metadata.title"></span>
+                                                </span>
+                                            </div>
+                                        </template>
+                                        <template x-if="message.metadata.system_action === 'session_init'">
+                                            <div class="flex items-center space-x-2">
+                                                <iconify-icon icon="tabler:rocket" class="text-green-600 dark:text-green-400" width="16" height="16"></iconify-icon>
+                                                <span class="text-surface-700 dark:text-surface-300" x-text="message.data || 'Session initialized'"></span>
+                                            </div>
+                                        </template>
+                                        <template x-if="!['model_change', 'agent_change', 'title_generated', 'session_init'].includes(message.metadata.system_action)">
+                                            <div class="text-surface-700 dark:text-surface-300" x-text="message.data"></div>
+                                        </template>
+                                    </div>
+                                </template>
+
+                                <!-- Function message with arguments and results -->
+                                <template x-if="message.type === 'function'">
+                                    <div class="space-y-3">
+                                        <!-- Function Arguments -->
+                                        <div>
+                                            <div class="text-xs font-medium text-surface-600 dark:text-surface-400 mb-1">Arguments:</div>
+                                            <div class="bg-surface-100 dark:bg-surface-800 rounded p-2 overflow-auto max-h-40">
+                                                <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(safeJsonParse(message.data))"></code></pre>
+                                            </div>
+                                        </div>
+
+                                        <!-- Function Result (if available) -->
+                                        <template x-if="message.metadata && message.metadata.result">
+                                            <div>
+                                                <div class="text-xs font-medium text-surface-600 dark:text-surface-400 mb-1">Result:</div>
+                                                <div class="bg-surface-100 dark:bg-surface-800 rounded p-2 overflow-auto max-h-60">
+                                                    <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(message.metadata.result)"></code></pre>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+
+                                <!-- Delegation message -->
+                                <template x-if="message.type === 'delegation'">
+                                    <div class="space-y-3">
+                                        <div>
+                                            <div class="text-xs font-medium text-surface-600 dark:text-surface-400 mb-1">Delegation Request:</div>
+                                            <div class="bg-surface-100 dark:bg-surface-800 rounded p-2 overflow-auto max-h-40">
+                                                <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(safeJsonParse(message.data))"></code></pre>
+                                            </div>
+                                        </div>
+
+                                        <template x-if="message.metadata && message.metadata.result">
+                                            <div>
+                                                <div class="text-xs font-medium text-surface-600 dark:text-surface-400 mb-1">Result:</div>
+                                                <div class="bg-surface-100 dark:bg-surface-800 rounded p-2 overflow-auto max-h-60">
+                                                    <template x-if="typeof message.metadata.result.data === 'string'">
+                                                        <div class="markdown-content text-sm text-surface-900 dark:text-surface-100" x-html="renderMarkdown(message.metadata.result.data)"></div>
+                                                    </template>
+                                                    <template x-if="typeof message.metadata.result.data !== 'string'">
+                                                        <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(message.metadata.result)"></code></pre>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+
+                                <!-- Regular message content with markdown support -->
+                                <template x-if="!['function', 'delegation'].includes(message.type) && !(message.type === 'system' && message.metadata && message.metadata.system_action) && message.data && message.data !== ''">
+                                    <div class="markdown-content text-sm text-surface-800 dark:text-surface-200" x-html="renderMarkdown(message.data)"></div>
+                                </template>
+                            </div>
+                        </template>
+
+                        <!-- Checkpoint Summary (if this is a checkpoint message) -->
+                        <template x-if="isCheckpointMessage(message) && message.metadata.checkpoint_summary">
+                            <div class="mt-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                                <div class="flex items-center mb-2">
+                                    <iconify-icon icon="tabler:file-text" class="text-amber-600 dark:text-amber-400 mr-2" width="16" height="16"></iconify-icon>
+                                    <span class="text-sm font-medium text-amber-800 dark:text-amber-200">Checkpoint Summary</span>
+                                </div>
+                                <div class="markdown-content text-sm text-amber-700 dark:text-amber-300" x-html="renderMarkdown(message.metadata.checkpoint_summary)"></div>
+                            </div>
+                        </template>
+
+                        <!-- Full Metadata Display -->
+                        <template x-if="message.metadata && Object.keys(message.metadata).length > 0">
+                            <div class="mt-3">
+                                <button @click="toggleMessageMetadata(message.message_id)"
+                                        class="text-xs text-surface-500 hover:text-surface-700 dark:text-surface-400 dark:hover:text-surface-200 flex items-center">
+                                    <iconify-icon :icon="expandedMetadata[message.message_id] ? 'tabler:chevron-down' : 'tabler:chevron-right'" width="14" height="14"></iconify-icon>
+                                    <span class="ml-1">Metadata (<span x-text="Object.keys(message.metadata).length"></span> fields)</span>
+                                </button>
+                                <div x-show="expandedMetadata[message.message_id]" x-collapse class="mt-2 bg-surface-100 dark:bg-surface-800 rounded p-3 overflow-auto max-h-60">
+                                    <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(message.metadata)"></code></pre>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- Message ID and Actions -->
+                        <div class="mt-3 flex items-center justify-between">
+                            <div class="text-xs text-surface-400 dark:text-surface-500 font-mono">
+                                ID: <span x-text="message.message_id"></span>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <button @click="copyMessageContent(message)"
+                                        class="text-surface-400 hover:text-surface-600 dark:hover:text-surface-300 p-1 rounded-md"
+                                        title="Copy content">
+                                    <iconify-icon icon="tabler:copy" width="14" height="14"></iconify-icon>
+                                </button>
+                                <button @click="copyToClipboard(JSON.stringify(message, null, 2))"
+                                        class="text-surface-400 hover:text-surface-600 dark:hover:text-surface-300 p-1 rounded-md"
+                                        title="Copy full message JSON">
+                                    <iconify-icon icon="tabler:code" width="14" height="14"></iconify-icon>
                                 </button>
                             </div>
-                            <div class="bg-surface-100 dark:bg-surface-800 rounded p-3 overflow-auto max-h-60">
-                                <template x-if="isJsonString(currentDetailMessage?.data)">
-                                    <pre class="text-sm text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(safeJsonParse(currentDetailMessage?.data))"></code></pre>
-                                </template>
-                                <template x-if="!isJsonString(currentDetailMessage?.data)">
-                                    <div class="text-sm text-surface-900 dark:text-surface-100 whitespace-pre-wrap" x-text="currentDetailMessage?.data"></div>
-                                </template>
-                            </div>
                         </div>
-
-                        <!-- Metadata (if available) -->
-                        <template x-if="currentDetailMessage?.metadata && Object.keys(currentDetailMessage?.metadata).length > 0">
-                            <div>
-                                <div class="flex items-center justify-between">
-                                    <h4 class="text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">Metadata</h4>
-                                    <button @click="copyToClipboard(JSON.stringify(currentDetailMessage?.metadata, null, 2))" class="text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 text-xs">
-                                        <iconify-icon icon="tabler:copy" class="mr-1" width="14" height="14"></iconify-icon>
-                                        Copy Metadata
-                                    </button>
-                                </div>
-                                <div class="bg-surface-100 dark:bg-surface-800 rounded p-3 overflow-auto max-h-60">
-                                    <pre class="text-sm text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(currentDetailMessage?.metadata)"></code></pre>
-                                </div>
-                            </div>
-                        </template>
-
-                        <!-- Token Stats (if assistant message) -->
-                        <template x-if="currentDetailMessage?.type === 'assistant' && currentDetailMessage?.metadata?.tokens">
-                            <div>
-                                <h4 class="text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">Token Usage</h4>
-                                <div class="grid grid-cols-3 gap-4 bg-surface-100 dark:bg-surface-800 rounded p-3">
-                                    <div>
-                                        <span class="text-xs text-surface-500 dark:text-surface-400">Prompt</span>
-                                        <p class="font-semibold text-indigo-600 dark:text-indigo-400" x-text="formatNumber(currentDetailMessage?.metadata?.tokens?.prompt_tokens || 0)"></p>
-                                    </div>
-                                    <div>
-                                        <span class="text-xs text-surface-500 dark:text-surface-400">Completion</span>
-                                        <p class="font-semibold text-purple-600 dark:text-purple-400" x-text="formatNumber(currentDetailMessage?.metadata?.tokens?.completion_tokens || 0)"></p>
-                                    </div>
-                                    <div>
-                                        <span class="text-xs text-surface-500 dark:text-surface-400">Thinking</span>
-                                        <p class="font-semibold text-amber-600 dark:text-amber-400" x-text="formatNumber(currentDetailMessage?.metadata?.tokens?.thinking_tokens || 0)"></p>
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
                     </div>
                 </div>
-                <div class="px-4 py-3 bg-surface-100 dark:bg-surface-900 sm:px-6 sm:flex sm:flex-row-reverse">
-                    <button @click="showMessageDetailModal = false" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary-600 text-base font-medium text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 sm:ml-3 sm:w-auto sm:text-sm">
-                        Close
-                    </button>
-                </div>
             </div>
-        </div>
+        </template>
     </div>
 </div>
 {{ end }}
@@ -622,87 +896,68 @@
     </template>
     <div class="divide-y divide-surface-200 dark:divide-surface-700">
         <template x-for="(artifact, index) in filteredArtifacts" :key="artifact.artifact_id">
-            <div :class="{
-                'hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors': true,
-                'bg-surface-50 dark:bg-surface-800': index % 2 === 0,
-                'bg-white dark:bg-surface-700': index % 2 === 1
-            }">
-                <!-- Artifact entry -->
-                <div class="px-4 py-3">
-                    <!-- Artifact header -->
-                    <div class="flex items-start justify-between cursor-pointer" @click="toggleArtifactExpand(artifact.artifact_id)">
-                        <div class="flex items-start space-x-3">
-                            <!-- Artifact icon -->
-                            <div :class="{
-                                'flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center': true,
-                                'bg-purple-100 dark:bg-purple-900': artifact.kind === 'inline',
-                                'bg-blue-100 dark:bg-blue-900': artifact.kind === 'standalone',
-                                'bg-amber-100 dark:bg-amber-900': artifact.kind === 'view_ref',
-                            }">
-                                <iconify-icon :icon="{
-                                    'inline': 'tabler:align-left',
-                                    'standalone': 'tabler:layout',
-                                    'view_ref': 'tabler:external-link'
-                                }[artifact.kind] || 'tabler:photo'" :class="{
-                                    'text-purple-600 dark:text-purple-400': artifact.kind === 'inline',
-                                    'text-blue-600 dark:text-blue-400': artifact.kind === 'standalone',
-                                    'text-amber-600 dark:text-amber-400': artifact.kind === 'view_ref'
-                                }" width="24" height="24"></iconify-icon>
-                            </div>
-                            <!-- Artifact info -->
-                            <div>
-                                <div class="flex items-center">
-                                    <span class="text-sm font-medium text-surface-900 dark:text-surface-100" x-text="artifact.title || 'Untitled Artifact'"></span>
-                                    <!-- Kind badge with consistent styling -->
-                                    <span :class="{
-                                        'ml-2 inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium': true,
-                                        'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200': artifact.kind === 'inline',
-                                        'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200': artifact.kind === 'standalone',
-                                        'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200': artifact.kind === 'view_ref'
-                                    }" x-text="artifact.kind"></span>
-                                    <span class="ml-2 text-xs text-surface-500 dark:text-surface-400" x-text="formatDate(artifact.created_at)"></span>
-                                    <template x-if="artifact.meta && artifact.meta.content_type">
-                                        <span class="ml-2 text-xs bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 px-2 py-0.5 rounded-md" x-text="artifact.meta.content_type"></span>
-                                    </template>
-                                </div>
-                                <div class="mt-1 text-sm text-surface-600 dark:text-surface-300 line-clamp-1" x-text="getArtifactPreview(artifact)"></div>
-                            </div>
-                        </div>
-                        <!-- Expand/collapse button -->
-                        <button class="text-surface-400 hover:text-surface-600 dark:hover:text-surface-200">
-                            <iconify-icon :icon="expandedArtifacts[artifact.artifact_id] ? 'tabler:chevron-up' : 'tabler:chevron-down'" width="20" height="20"></iconify-icon>
-                        </button>
+            <div class="p-4 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors">
+                <div class="flex items-start space-x-3">
+                    <!-- Artifact icon -->
+                    <div :class="{
+                        'flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center': true,
+                        'bg-purple-100 dark:bg-purple-900': artifact.kind === 'inline',
+                        'bg-blue-100 dark:bg-blue-900': artifact.kind === 'standalone',
+                        'bg-amber-100 dark:bg-amber-900': artifact.kind === 'view_ref',
+                    }">
+                        <iconify-icon :icon="{
+                            'inline': 'tabler:align-left',
+                            'standalone': 'tabler:layout',
+                            'view_ref': 'tabler:external-link'
+                        }[artifact.kind] || 'tabler:photo'" :class="{
+                            'text-purple-600 dark:text-purple-400': artifact.kind === 'inline',
+                            'text-blue-600 dark:text-blue-400': artifact.kind === 'standalone',
+                            'text-amber-600 dark:text-amber-400': artifact.kind === 'view_ref'
+                        }" width="24" height="24"></iconify-icon>
                     </div>
-                    <!-- Artifact content (expandable) -->
-                    <div x-show="expandedArtifacts[artifact.artifact_id]" x-collapse>
-                        <div class="mt-3 pl-11 space-y-3">
-                            <!-- Artifact content -->
-                            <div>
-                                <div class="text-xs font-medium text-surface-500 dark:text-surface-400">Content:</div>
-                                <div class="mt-1 bg-surface-100 dark:bg-surface-800 rounded p-2 overflow-auto max-h-80">
-                                    <template x-if="isJsonString(artifact.content)">
-                                        <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(safeJsonParse(artifact.content))"></code></pre>
-                                    </template>
-                                    <template x-if="!isJsonString(artifact.content)">
-                                        <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono"><code x-text="artifact.content"></code></pre>
-                                    </template>
-                                </div>
-                            </div>
-                            <!-- Artifact metadata -->
-                            <template x-if="artifact.meta && Object.keys(artifact.meta).length > 0">
-                                <div>
-                                    <div class="text-xs font-medium text-surface-500 dark:text-surface-400">Metadata:</div>
-                                    <div class="mt-1 bg-surface-100 dark:bg-surface-800 rounded p-2 overflow-auto max-h-60">
-                                        <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(artifact.meta)"></code></pre>
-                                    </div>
-                                </div>
+
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-sm font-medium text-surface-900 dark:text-surface-100" x-text="artifact.title || 'Untitled Artifact'"></span>
+                            <span :class="{
+                                'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium': true,
+                                'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200': artifact.kind === 'inline',
+                                'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200': artifact.kind === 'standalone',
+                                'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200': artifact.kind === 'view_ref'
+                            }" x-text="artifact.kind"></span>
+                            <template x-if="artifact.meta && artifact.meta.content_type">
+                                <span class="text-xs bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 px-2 py-0.5 rounded" x-text="artifact.meta.content_type"></span>
                             </template>
                         </div>
-                    </div>
-                    <!-- Unified ID footer - same style as messages -->
-                    <div x-show="expandedArtifacts[artifact.artifact_id]" class="mt-3 px-4 py-2 bg-surface-50 dark:bg-surface-900 text-xs rounded flex justify-between items-center">
-                        <span class="font-mono text-surface-500 dark:text-surface-400">ID: <span x-text="artifact.artifact_id"></span></span>
-                        <span class="text-surface-500 dark:text-surface-400">Updated: <span x-text="formatDate(artifact.updated_at)"></span></span>
+
+                        <div class="text-xs text-surface-500 dark:text-surface-400 mb-2">
+                            Created: <span x-text="formatDate(artifact.created_at)"></span> |
+                            Updated: <span x-text="formatDate(artifact.updated_at)"></span>
+                        </div>
+
+                        <!-- Content -->
+                        <div class="bg-surface-100 dark:bg-surface-800 rounded p-3 overflow-auto max-h-80 mb-3">
+                            <template x-if="isJsonString(artifact.content)">
+                                <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(safeJsonParse(artifact.content))"></code></pre>
+                            </template>
+                            <template x-if="!isJsonString(artifact.content)">
+                                <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono"><code x-text="artifact.content"></code></pre>
+                            </template>
+                        </div>
+
+                        <!-- Metadata -->
+                        <template x-if="artifact.meta && Object.keys(artifact.meta).length > 0">
+                            <div>
+                                <div class="text-xs font-medium text-surface-600 dark:text-surface-400 mb-1">Metadata:</div>
+                                <div class="bg-surface-100 dark:bg-surface-800 rounded p-2 overflow-auto max-h-40">
+                                    <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(artifact.meta)"></code></pre>
+                                </div>
+                            </div>
+                        </template>
+
+                        <div class="mt-3 text-xs text-surface-400 dark:text-surface-500 font-mono">
+                            ID: <span x-text="artifact.artifact_id"></span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -715,7 +970,7 @@
 {{ block contextsTabPanel() }}
 <!-- Tab: Contexts -->
 <div x-show="activeTab === 'contexts'" class="bg-white dark:bg-surface-700 shadow rounded-lg overflow-hidden">
-    <div class="border-b border-surface-200 dark:border-surface-600 px-4 py-3 flex items-center justify-between">
+    <div class="border-b border-surface-200 dark:border-surface-600 px-4 py-3">
         <h2 class="text-lg font-medium text-surface-900 dark:text-surface-100">Contexts</h2>
     </div>
     <template x-if="contexts.length === 0">
@@ -726,55 +981,38 @@
     </template>
     <div class="divide-y divide-surface-200 dark:divide-surface-700">
         <template x-for="(context, index) in contexts" :key="context.id || context.context_id">
-            <div :class="{
-                'hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors': true,
-                'bg-surface-50 dark:bg-surface-800': index % 2 === 0,
-                'bg-white dark:bg-surface-700': index % 2 === 1
-            }">
-                <!-- Context entry -->
-                <div class="px-4 py-3">
-                    <!-- Context header -->
-                    <div class="flex items-start justify-between cursor-pointer" @click="toggleContextExpand(context.id || context.context_id)">
-                        <div class="flex items-start space-x-3">
-                            <!-- Context icon -->
-                            <div class="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
-                                <iconify-icon icon="tabler:brain" class="text-blue-600 dark:text-blue-400" width="24" height="24"></iconify-icon>
+            <div class="p-4">
+                <div class="flex items-start space-x-3">
+                    <!-- Context icon -->
+                    <div class="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
+                        <iconify-icon icon="tabler:brain" class="text-blue-600 dark:text-blue-400" width="24" height="24"></iconify-icon>
+                    </div>
+
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" x-text="context.type || 'data'"></span>
+                            <span class="text-xs text-surface-500 dark:text-surface-400" x-text="context.id || context.context_id"></span>
+                        </div>
+
+                        <!-- Context Time (if available) -->
+                        <template x-if="context.time">
+                            <div class="text-xs text-surface-500 dark:text-surface-400 mb-2">
+                                Time: <span x-text="formatDate(context.time)"></span>
                             </div>
-                            <!-- Context info -->
-                            <div>
-                                <div class="flex items-center">
-                                    <!-- Type badge with consistent styling -->
-                                    <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" x-text="context.type || 'data'"></span>
-                                    <span class="ml-2 text-xs text-surface-500 dark:text-surface-400" x-text="formatContextId(context.id || context.context_id)"></span>
-                                </div>
-                                <div class="mt-1 text-sm text-surface-600 dark:text-surface-300 line-clamp-1" x-text="getContextPreview(context)"></div>
+                        </template>
+
+                        <!-- Full Context Content with markdown support -->
+                        <div>
+                            <div class="text-xs font-medium text-surface-600 dark:text-surface-400 mb-1">Content:</div>
+                            <div class="bg-surface-100 dark:bg-surface-800 rounded p-3 overflow-auto">
+                                <template x-if="isJsonString(context.data || context.text)">
+                                    <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono whitespace-pre-wrap"><code x-text="formatJson(safeJsonParse(context.data || context.text))"></code></pre>
+                                </template>
+                                <template x-if="!isJsonString(context.data || context.text)">
+                                    <div class="markdown-content text-sm text-surface-900 dark:text-surface-100" x-html="renderMarkdown(context.data || context.text)"></div>
+                                </template>
                             </div>
                         </div>
-                        <!-- Expand/collapse button -->
-                        <button class="text-surface-400 hover:text-surface-600 dark:hover:text-surface-200">
-                            <iconify-icon :icon="expandedContexts[context.id || context.context_id] ? 'tabler:chevron-up' : 'tabler:chevron-down'" width="20" height="20"></iconify-icon>
-                        </button>
-                    </div>
-                    <!-- Context content (expandable) -->
-                    <div x-show="expandedContexts[context.id || context.context_id]" x-collapse>
-                        <div class="mt-3 pl-11 space-y-3">
-                            <!-- Context content -->
-                            <div>
-                                <div class="text-xs font-medium text-surface-500 dark:text-surface-400">Content:</div>
-                                <div class="mt-1 bg-surface-100 dark:bg-surface-800 rounded p-2 overflow-auto max-h-80">
-                                    <template x-if="isJsonString(context.data || context.text)">
-                                        <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(safeJsonParse(context.data || context.text))"></code></pre>
-                                    </template>
-                                    <template x-if="!isJsonString(context.data || context.text)">
-                                        <div class="text-sm text-surface-900 dark:text-surface-100 whitespace-pre-wrap" x-text="context.data || context.text"></div>
-                                    </template>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- Unified ID footer - same style as messages -->
-                    <div x-show="expandedContexts[context.id || context.context_id]" class="mt-3 px-4 py-2 bg-surface-50 dark:bg-surface-900 text-xs rounded">
-                        <span class="font-mono text-surface-500 dark:text-surface-400">ID: <span x-text="context.id || context.context_id"></span></span>
                     </div>
                 </div>
             </div>
@@ -784,6 +1022,7 @@
 {{ end }}
 
 {{ block customJs() }}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
     document.addEventListener('alpine:init', () => {
         Alpine.data('sessionViewerApp', () => ({
@@ -801,11 +1040,7 @@
             activeTab: 'info',
             messageFilter: 'all',
             artifactFilter: 'all',
-            expandedMessages: {},
-            expandedArtifacts: {},
-            expandedContexts: {},
-            showMessageDetailModal: false,
-            currentDetailMessage: null,
+            expandedMetadata: {},
             jsonInput: '',
 
             async initialize() {
@@ -821,7 +1056,6 @@
                     this.wippyApi = wippyInit.iframe;
                     this.apiConfig = wippyInit.config;
 
-                    // Store navigation API for back button
                     if (this.wippyApi) {
                         this.navigateApi = this.wippyApi;
                     }
@@ -829,14 +1063,28 @@
                     if (this.apiConfig?.path) {
                         this.sessionId = this.apiConfig.path;
                         await this.loadSessionData();
+                        // Defer WebSocket setup to prevent race condition
+                        setTimeout(() => this.setupWebSocketListener(), 100);
                     } else {
-                        // No session ID found - we'll show the JSON paste area
                         this.isLoading = false;
                     }
                 } catch (err) {
                     console.error("Initialization error:", err);
                     this.error = err.message || "Failed to initialize";
                     this.isLoading = false;
+                }
+            },
+
+            setupWebSocketListener() {
+                if (this.wippyApi && typeof this.wippyApi.on === 'function' && this.sessionId) {
+                    const topic = `session:${this.sessionId}`;
+                    this.wippyApi.on(topic, (message) => {
+                        console.log(`WebSocket update for topic ${topic}:`, message);
+                        // Reload data on any update for this session
+                        this.loadSessionData();
+                    });
+                } else {
+                    console.warn("WebSocket listener could not be set up. API not ready or session ID missing.");
                 }
             },
 
@@ -899,7 +1147,6 @@
                 try {
                     const data = JSON.parse(this.jsonInput);
 
-                    // Make sure to set sessionId from the data for consistency
                     if (data.session && data.session.session_id) {
                         this.sessionId = data.session.session_id;
                     } else if (data.sessionId) {
@@ -921,12 +1168,10 @@
                 this.sessionData = data;
                 this.session = this.sessionData.session || {};
 
-                // Ensure the sessionId is consistently displayed
                 if (!this.sessionId && this.session.session_id) {
                     this.sessionId = this.session.session_id;
                 }
 
-                // Sort messages by date if available
                 this.messages = (this.sessionData.messages || []).sort((a, b) => {
                     if (!a.date || !b.date) return 0;
                     return new Date(a.date) - new Date(b.date);
@@ -935,20 +1180,16 @@
                 this.artifacts = this.sessionData.artifacts || [];
                 this.contexts = this.getContextsList();
 
-                // Initialize expanded state
-                this.expandedArtifacts = {};
-                this.expandedContexts = {};
+                this.expandedMetadata = {};
             },
 
             getContextsList() {
                 const contexts = [];
 
-                // Add primary context if it exists
                 if (this.sessionData?.primary_context) {
                     contexts.push(this.sessionData.primary_context);
                 }
 
-                // Add any additional contexts if they exist
                 if (this.sessionData?.contexts && Array.isArray(this.sessionData.contexts)) {
                     contexts.push(...this.sessionData.contexts);
                 }
@@ -960,6 +1201,48 @@
                 this.loadSessionData();
             },
 
+            get sessionStats() {
+                const defaultStats = {
+                    token_usage: {
+                        prompt_tokens: 0,
+                        completion_tokens: 0,
+                        cache_read_tokens: 0,
+                        cache_write_tokens: 0,
+                        thinking_tokens: 0,
+                    },
+                    message_count: 0,
+                    artifact_count: 0,
+                    message_counts_by_type: {
+                        user: 0,
+                        assistant: 0,
+                        function: 0,
+                        system: 0,
+                        delegation: 0,
+                    },
+                };
+
+                if (!this.sessionData) return defaultStats;
+
+                // Use session.meta.tokens for accurate token counts
+                const token_usage = {
+                    ...defaultStats.token_usage,
+                    ...(this.session.meta?.tokens || this.sessionData.stats?.token_usage),
+                };
+
+                // Dynamically count messages by type
+                const message_counts_by_type = this.messages.reduce((acc, msg) => {
+                    acc[msg.type] = (acc[msg.type] || 0) + 1;
+                    return acc;
+                }, { ...defaultStats.message_counts_by_type });
+
+                return {
+                    token_usage,
+                    message_count: this.messages.length,
+                    artifact_count: this.artifacts.length,
+                    message_counts_by_type
+                };
+            },
+
             exportSessionJson() {
                 if (!this.sessionData) {
                     alert("No session data to export");
@@ -969,14 +1252,12 @@
                 try {
                     const dataStr = JSON.stringify(this.sessionData, null, 2);
 
-                    // First, copy to clipboard
                     navigator.clipboard.writeText(dataStr).then(() => {
                         console.log("Session data copied to clipboard");
                     }).catch(err => {
                         console.error("Failed to copy to clipboard:", err);
                     });
 
-                    // Then, create download
                     const blob = new Blob([dataStr], {type: 'application/json'});
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
@@ -987,7 +1268,6 @@
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
 
-                    // Show a brief notification
                     const notification = document.createElement('div');
                     notification.textContent = "Session data exported and copied to clipboard";
                     notification.className = "fixed top-4 right-4 bg-surface-800 dark:bg-surface-700 text-white px-6 py-4 rounded-lg shadow-lg z-50";
@@ -1032,9 +1312,9 @@
                 return this.artifacts.filter(artifact => artifact.kind === this.artifactFilter);
             },
 
-            viewMessageDetails(message) {
-                this.currentDetailMessage = message;
-                this.showMessageDetailModal = true;
+            toggleMessageMetadata(messageId) {
+                this.expandedMetadata[messageId] = !this.expandedMetadata[messageId];
+                this.expandedMetadata = {...this.expandedMetadata};
             },
 
             copyMessageContent(message) {
@@ -1045,7 +1325,6 @@
 
                 let content = message.data;
 
-                // If it's JSON, pretty-print it
                 if (this.isJsonString(content)) {
                     try {
                         content = JSON.stringify(JSON.parse(content), null, 2);
@@ -1065,7 +1344,6 @@
 
                 try {
                     navigator.clipboard.writeText(text).then(() => {
-                        // Show a brief notification
                         const notification = document.createElement('div');
                         notification.textContent = "Copied to clipboard";
                         notification.className = "fixed top-4 right-4 bg-surface-800 dark:bg-surface-700 text-white px-6 py-4 rounded-lg shadow-lg z-50";
@@ -1084,104 +1362,79 @@
                 }
             },
 
-            getMessageContentPreview(message) {
-                if (!message || !message.data) return '';
+            getMessageIcon(message) {
+                const iconMap = {
+                    'user': 'tabler:user',
+                    'assistant': 'tabler:robot',
+                    'function': 'tabler:code',
+                    'system': 'tabler:settings',
+                    'delegation': 'tabler:send',
+                    'artifact': 'tabler:photo'
+                };
 
-                // For user and assistant messages, just return the content directly
-                if (message.type === 'user' || message.type === 'assistant') {
-                    // Truncate if too long
-                    const content = String(message.data);
-                    if (content.length > 1000) {
-                        return content.substring(0, 1000) + '...';
-                    }
-                    return content;
+                // Special handling for system messages
+                if (message.type === 'system' && message.metadata && message.metadata.system_action) {
+                    const systemActionIcons = {
+                        'model_change': 'tabler:exchange',
+                        'agent_change': 'tabler:robot',
+                        'title_generated': 'tabler:tag',
+                        'session_init': 'tabler:rocket'
+                    };
+                    return systemActionIcons[message.metadata.system_action] || 'tabler:settings';
                 }
 
-                // For function messages, format JSON nicely
-                if (message.type === 'function') {
-                    if (this.isJsonString(message.data)) {
-                        try {
-                            const data = JSON.parse(message.data);
-                            const str = JSON.stringify(data);
-                            return str.length > 200 ? str.substring(0, 200) + '...' : str;
-                        } catch (e) {
-                            return message.data;
-                        }
-                    }
-                    return message.data;
-                }
-
-                return message.data;
+                return iconMap[message.type] || 'tabler:message';
             },
 
-            toggleArtifactExpand(artifactId) {
-                this.expandedArtifacts[artifactId] = !this.expandedArtifacts[artifactId];
-                this.expandedArtifacts = {...this.expandedArtifacts}; // Trigger reactivity
+            renderMarkdown(content) {
+                if (!content) return '';
+
+                if (typeof marked !== 'undefined') {
+                    try {
+                        marked.setOptions({
+                            breaks: true,
+                            gfm: true,
+                            headerIds: false,
+                            mangle: false
+                        });
+                        return marked.parse(content);
+                    } catch (e) {
+                        console.error('Marked parsing error:', e);
+                        return this.escapeHtml(content);
+                    }
+                }
+
+                return this.escapeHtml(content);
             },
 
-            toggleContextExpand(contextId) {
-                this.expandedContexts[contextId] = !this.expandedContexts[contextId];
-                this.expandedContexts = {...this.expandedContexts}; // Trigger reactivity
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
             },
 
-            getArtifactPreview(artifact) {
-                if (!artifact) return '';
-
-                if (artifact.kind === 'view_ref' && artifact.meta?.page_id) {
-                    return `View Reference: ${artifact.meta.page_id}`;
-                }
-
-                if (artifact.meta?.description) {
-                    return artifact.meta.description;
-                }
-
-                if (artifact.meta?.content_type) {
-                    return `Type: ${artifact.meta.content_type}`;
-                }
-
-                if (artifact.content) {
-                    const preview = typeof artifact.content === 'string'
-                        ? artifact.content
-                        : JSON.stringify(artifact.content);
-
-                    if (preview.length > 100) {
-                        return preview.substring(0, 100) + '...';
-                    }
-                    return preview;
-                }
-
-                return 'No preview available';
+            isCheckpointMessage(message) {
+                return message.metadata && message.metadata.checkpoint_summary;
             },
 
-            getContextPreview(context) {
-                if (!context) return '';
+            hasThinkingContent(message) {
+                return message.metadata && (
+                    (message.metadata.thinking && message.metadata.thinking.trim()) ||
+                    (message.metadata.thinking_blocks && message.metadata.thinking_blocks.length > 0)
+                );
+            },
 
-                const contentField = context.data || context.text;
+            getThinkingContent(message) {
+                if (!message.metadata) return '';
 
-                if (!contentField) {
-                    return 'No content available';
+                if (message.metadata.thinking_blocks && message.metadata.thinking_blocks.length > 0) {
+                    return message.metadata.thinking_blocks
+                        .map(block => block.thinking || '')
+                        .filter(thinking => thinking.trim())
+                        .join('\n\n---\n\n');
                 }
 
-                if (typeof contentField === 'string') {
-                    // Try to parse JSON if it looks like one
-                    if (this.isJsonString(contentField)) {
-                        try {
-                            const jsonObj = JSON.parse(contentField);
-                            const jsonStr = JSON.stringify(jsonObj).substring(0, 100);
-                            return jsonStr + (jsonStr.length > 100 ? '...' : '');
-                        } catch (e) {
-                            // If parsing fails, just use the string itself
-                        }
-                    }
-
-                    if (contentField.length > 100) {
-                        return contentField.substring(0, 100) + '...';
-                    }
-                    return contentField;
-                }
-
-                // Handle non-string content
-                return 'Complex data structure';
+                return message.metadata.thinking || '';
             },
 
             formatDate(dateString) {
@@ -1197,29 +1450,15 @@
 
             formatNumber(num) {
                 if (num === undefined || num === null) return '0';
-
                 return new Intl.NumberFormat().format(num);
             },
 
             formatMessageType(type) {
                 if (!type) return 'Unknown';
-
-                // Convert snake_case to Title Case
                 return type
                     .split('_')
                     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
                     .join(' ');
-            },
-
-            formatContextId(id) {
-                if (!id) return '';
-
-                // Show a shortened version if too long
-                if (id.length > 20) {
-                    return id.substring(0, 8) + '...' + id.substring(id.length - 8);
-                }
-
-                return id;
             },
 
             formatJson(data) {
@@ -1227,12 +1466,10 @@
 
                 try {
                     if (typeof data === 'string') {
-                        // Try to parse it if it's a JSON string
                         try {
                             const obj = JSON.parse(data);
                             return JSON.stringify(obj, null, 2);
                         } catch (e) {
-                            // If it's not valid JSON, return as is
                             return data;
                         }
                     }
@@ -1247,7 +1484,6 @@
             isJsonString(str) {
                 if (typeof str !== 'string') return false;
 
-                // Quick check for likely JSON strings
                 str = str.trim();
                 if (!(str.startsWith('{') && str.endsWith('}')) &&
                     !(str.startsWith('[') && str.endsWith(']'))) {

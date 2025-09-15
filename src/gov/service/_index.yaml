@@ -1,0 +1,90 @@
+version: "1.0"
+namespace: keeper.gov.service
+
+entries:
+  # keeper.gov.service:central
+  - name: central
+    kind: process.lua
+    meta:
+      comment: Registry governance central coordinator process
+      description: Main process that coordinates all governance operations and manages child processes
+    source: file://central.lua
+    modules:
+      - registry
+      - json
+      - time
+      - uuid
+      - logger
+    imports:
+      actor: wippy.actor:actor
+      consts: keeper.gov:consts
+    method: run
+    
+  # keeper.gov.service:central.service
+  - name: central.service
+    kind: process.service
+    meta:
+      comment: Registry governance service
+      description: Always-running service for registry governance operations
+    host: keeper.gov:processes
+    lifecycle:
+      auto_start: true
+      security:
+        actor:
+          id: registry.governance
+        groups:
+          - keeper.gov.service.security:governance
+    process: central
+    
+  # keeper.gov.service:changeset
+  - name: changeset
+    kind: process.lua
+    meta:
+      comment: Registry changeset processor
+      description: Single process that validates, executes, and notifies observers for registry changesets
+    source: file://changeset.lua
+    modules:
+      - registry
+      - json
+      - time
+      - logger
+      - contract
+    imports:
+      consts: keeper.gov:consts
+      observers: keeper.gov.discovery:observers
+    method: run
+    
+  # keeper.gov.service:download
+  - name: download
+    kind: process.lua
+    meta:
+      comment: Registry download processor
+      description: Synchronizes registry entries to governance filesystem
+    source: file://download.lua
+    modules:
+      - registry
+      - json
+      - yaml
+      - logger
+      - fs
+    imports:
+      consts: keeper.gov:consts
+    method: run
+    
+  # keeper.gov.service:upload
+  - name: upload
+    kind: process.lua
+    meta:
+      comment: Registry upload processor
+      description: Builds changesets from governance filesystem for registry updates
+    source: file://upload.lua
+    modules:
+      - registry
+      - json
+      - loader
+      - logger
+      - fs
+    imports:
+      consts: keeper.gov:consts
+    method: run
+    

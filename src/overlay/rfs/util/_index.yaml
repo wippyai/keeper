@@ -1,0 +1,24 @@
+version: "1.0"
+namespace: keeper.overlay.rfs.util
+
+entries:
+  # keeper.overlay.rfs.util:renderer
+  - name: renderer
+    kind: library.lua
+    meta:
+      comment: Clean rendering utilities for namespace trees and file listings
+      tags:
+        - render
+        - format
+        - tree
+        - namespace
+        - display
+      description: |-
+        Reusable formatting functions for namespace trees, file listings, and search results.
+        Provides consistent output formatting for both edit and explore operations with
+        status indicators, entry grouping, and workspace context display.
+    source: file://renderer.lua
+    imports:
+      consts: keeper.overlay:consts
+      ns: keeper.overlay.rfs:ns
+    

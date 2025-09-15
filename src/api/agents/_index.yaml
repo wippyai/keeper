@@ -1,0 +1,28 @@
+version: "1.0"
+namespace: keeper.api.agents
+
+entries:
+  # keeper.api.agents:list_agents
+  - name: list_agents
+    kind: function.lua
+    meta:
+      comment: Lists all agents with optional filtering and pagination
+    source: file://list_agents.lua
+    modules:
+      - http
+      - json
+      - registry
+      - security
+    method: handler
+    pool:
+      size: 1
+    
+  # keeper.api.agents:list_agents.endpoint
+  - name: list_agents.endpoint
+    kind: http.endpoint
+    meta:
+      comment: Endpoint that lists all agents
+    method: GET
+    func: list_agents
+    path: /keeper/agents/list
+    

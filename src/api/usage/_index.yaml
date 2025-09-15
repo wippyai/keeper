@@ -1,8 +1,8 @@
 version: "1.0"
-namespace: wippy.keeper.api.usage
+namespace: keeper.api.usage
 
 entries:
-  # wippy.keeper.api.usage:get_summary
+  # keeper.api.usage:get_summary
   - name: get_summary
     kind: function.lua
     meta:
@@ -10,7 +10,6 @@ entries:
       depends_on:
         - ns:app
         - ns:wippy.usage
-      router: app:api
     source: file://get_summary.lua
     modules:
       - http
@@ -22,20 +21,19 @@ entries:
     method: handler
     pool:
       size: 2
-
-  # wippy.keeper.api.usage:get_summary.endpoint
+    
+  # keeper.api.usage:get_summary.endpoint
   - name: get_summary.endpoint
     kind: http.endpoint
     meta:
       comment: Endpoint that returns token usage summary
       depends_on:
         - ns:app
-      router: app:api
     method: GET
     func: get_summary
     path: /keeper/usage/summary
-
-  # wippy.keeper.api.usage:get_usage_by_model
+    
+  # keeper.api.usage:get_usage_by_model
   - name: get_usage_by_model
     kind: function.lua
     meta:
@@ -43,7 +41,6 @@ entries:
       depends_on:
         - ns:app
         - ns:wippy.usage
-      router: app:api
     source: file://get_usage_by_model.lua
     modules:
       - http
@@ -55,20 +52,19 @@ entries:
     method: handler
     pool:
       size: 2
-
-  # wippy.keeper.api.usage:get_usage_by_model.endpoint
+    
+  # keeper.api.usage:get_usage_by_model.endpoint
   - name: get_usage_by_model.endpoint
     kind: http.endpoint
     meta:
       comment: Endpoint that returns token usage by model
       depends_on:
         - ns:app
-      router: app:api
     method: GET
     func: get_usage_by_model
     path: /keeper/usage/by-model
-
-  # wippy.keeper.api.usage:get_usage_by_time
+    
+  # keeper.api.usage:get_usage_by_time
   - name: get_usage_by_time
     kind: function.lua
     meta:
@@ -76,7 +72,6 @@ entries:
       depends_on:
         - ns:app
         - ns:wippy.usage
-      router: app:api
     source: file://get_usage_by_time.lua
     modules:
       - http
@@ -88,15 +83,15 @@ entries:
     method: handler
     pool:
       size: 2
-
-  # wippy.keeper.api.usage:get_usage_by_time.endpoint
+    
+  # keeper.api.usage:get_usage_by_time.endpoint
   - name: get_usage_by_time.endpoint
     kind: http.endpoint
     meta:
       comment: Endpoint that returns token usage over time
       depends_on:
         - ns:app
-      router: app:api
     method: GET
     func: get_usage_by_time
     path: /keeper/usage/by-time
+    

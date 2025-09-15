@@ -1,0 +1,124 @@
+version: "1.0"
+namespace: keeper.linters
+
+entries:
+  # keeper.linters:execute
+  - name: execute
+    kind: function.lua
+    meta:
+      comment: Linter pipeline executor function
+      tags:
+        - linting
+        - pipeline
+        - executor
+      description: Executes linter chains using funcs with context inheritance
+    source: file://execute.lua
+    modules:
+      - funcs
+      - json
+      - logger
+      - ctx
+    imports:
+      discovery: keeper.linters.discovery:linters
+    method: handle
+    
+  # keeper.linters:pipeline
+  - name: pipeline
+    kind: contract.definition
+    meta:
+      comment: Universal linting pipeline contract for registry changesets
+      tags:
+        - linting
+        - pipeline
+        - validation
+        - changeset
+      description: Processes changesets and returns filtered results with issues
+    methods:
+      - name: lint
+        description: |
+          Process a changeset and return filtered/modified changeset with issues.
+          Context is available via ctx module. Calling: lint(request_dto)
+        input_schemas:
+          - definition: "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"changeset\": {\n      \"type\": \"array\",\n      \"description\": \"Registry changeset operations\",\n      \"items\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"kind\": {\n            \"type\": \"string\",\n            \"enum\": [\"entry.create\", \"entry.update\", \"entry.delete\"]\n          },\n          \"entry\": {\n            \"type\": \"object\",\n            \"properties\": {\n              \"id\": {\"type\": \"string\"},\n              \"kind\": {\"type\": \"string\"},\n              \"meta\": {\"type\": \"object\"},\n              \"data\": {\"type\": \"object\"}\n            },\n            \"required\": [\"id\"]\n          }\n        },\n        \"required\": [\"kind\", \"entry\"]\n      }\n    },\n    \"options\": {\n      \"type\": \"object\",\n      \"description\": \"Pipeline options and configuration\",\n      \"properties\": {\n        \"level\": {\n          \"type\": \"integer\",\n          \"description\": \"Linting strictness level (higher = stricter)\",\n          \"minimum\": 0\n        },\n        \"halt_on_error\": {\n          \"type\": \"boolean\",\n          \"default\": true\n        },\n        \"halt_on_warning\": {\n          \"type\": \"boolean\", \n          \"default\": false\n        }\n      },\n      \"additionalProperties\": true\n    }\n  },\n  \"required\": [\"changeset\", \"options\"]\n}\n"
+            format: application/schema+json
+        output_schemas:
+          - definition: |
+              {
+                "type": "object",
+                "properties": {
+                  "success": {
+                    "type": "boolean",
+                    "description": "True if pipeline completed (may have warnings)"
+                  },
+                  "changeset": {
+                    "type": "array",
+                    "description": "Modified/filtered changeset",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": ["entry.create", "entry.update", "entry.delete"]
+                        },
+                        "entry": {
+                          "type": "object",
+                          "properties": {
+                            "id": {"type": "string"},
+                            "kind": {"type": "string"},
+                            "meta": {"type": "object"},
+                            "data": {"type": "object"}
+                          },
+                          "required": ["id"]
+                        }
+                      },
+                      "required": ["kind", "entry"]
+                    }
+                  },
+                  "issues": {
+                    "type": "array",
+                    "description": "Pipeline issues found",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "level": {
+                          "type": "string",
+                          "enum": ["error", "warning", "info"],
+                          "description": "Issue severity"
+                        },
+                        "code": {
+                          "type": "string",
+                          "description": "Machine-readable issue code"
+                        },
+                        "message": {
+                          "type": "string",
+                          "description": "Human-readable issue description"
+                        },
+                        "entry_id": {
+                          "type": "string",
+                          "description": "ID of affected entry (if applicable)"
+                        }
+                      },
+                      "required": ["level", "code", "message"]
+                    }
+                  }
+                },
+                "required": ["success", "changeset", "issues"]
+              }
+            format: application/schema+json
+    
+  # keeper.linters:pipeline_binding
+  - name: pipeline_binding
+    kind: contract.binding
+    meta:
+      comment: Default pipeline executor binding
+      tags:
+        - linting
+        - pipeline
+        - binding
+      description: Default implementation of the linter pipeline contract
+    contracts:
+      - contract: keeper.linters:pipeline
+        default: true
+        methods:
+          lint: keeper.linters:execute
+    

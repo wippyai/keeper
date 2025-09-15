@@ -67,7 +67,7 @@ local function handler()
     end
 
     -- Get all messages for the session (no pagination for complete data)
-    local messages_result, messages_err = message_repo.list_by_session(session_id)
+    local messages_result, messages_err = message_repo.list_by_session(session_id, 500)
     if messages_err then
         res:set_status(http.STATUS.INTERNAL_ERROR)
         res:write_json({

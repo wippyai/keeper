@@ -10,13 +10,16 @@
     <!-- Page Header -->
     <div class="px-4 py-5 border-b border-surface-200 dark:border-surface-600 sm:px-6 flex justify-between items-center">
         <div class="flex items-center">
-            <iconify-icon icon="tabler:function" class="text-3xl text-primary-600 dark:text-primary-400 mr-3 flex-shrink-0"></iconify-icon>
+            <iconify-icon icon="tabler:function"
+                          class="text-3xl text-primary-600 dark:text-primary-400 mr-3 flex-shrink-0"></iconify-icon>
             <div>
-                <h3 class="text-lg leading-6 font-medium text-surface-900 dark:text-surface-100">Function Information</h3>
+                <h3 class="text-lg leading-6 font-medium text-surface-900 dark:text-surface-100">Function
+                    Information</h3>
                 <p class="mt-1 text-sm text-surface-500 dark:text-surface-400"
                    x-show="functionData?.id">
                     <!-- Safely access id properties for display -->
-                    <span x-text="functionData?.id ? getNamespace(functionData.id) : ''"></span>:<span x-text="functionData?.id ? getName(functionData.id) : ''"></span>
+                    <span x-text="functionData?.id ? getNamespace(functionData.id) : ''"></span>:<span
+                        x-text="functionData?.id ? getName(functionData.id) : ''"></span>
                     <span class="ml-1">(Lua Function)</span>
                 </p>
             </div>
@@ -72,7 +75,8 @@
                         'border-primary-500 text-primary-600 dark:text-primary-400' :
                         'border-transparent text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-300 hover:border-surface-300 dark:hover:border-surface-600'"
                         @click="activeTab = tab.id">
-                    <iconify-icon :icon="tab.icon" class="mr-1.5" :class="getTabIconColor(tab.id)" width="16" height="16"></iconify-icon>
+                    <iconify-icon :icon="tab.icon" class="mr-1.5" :class="getTabIconColor(tab.id)" width="16"
+                                  height="16"></iconify-icon>
                     <span x-text="tab.label"></span>
                 </button>
             </template>
@@ -85,10 +89,13 @@
                 <!-- Description Section -->
                 <div class="bg-surface-100 dark:bg-surface-800 rounded-lg p-4 border border-surface-200 dark:border-surface-700">
                     <div class="flex items-start mb-3">
-                        <iconify-icon icon="tabler:file-description" class="mt-1 mr-3 text-primary-600 dark:text-primary-500 flex-shrink-0" width="20" height="20"></iconify-icon>
+                        <iconify-icon icon="tabler:file-description"
+                                      class="mt-1 mr-3 text-primary-600 dark:text-primary-500 flex-shrink-0" width="20"
+                                      height="20"></iconify-icon>
                         <div class="flex-grow">
                             <h4 class="text-base font-semibold text-surface-900 dark:text-white">Description</h4>
-                            <p class="mt-1 text-xs text-surface-600 dark:text-surface-400">Details and purpose of this Lua function. Changes are saved with the "Save Changes" button above.</p>
+                            <p class="mt-1 text-xs text-surface-600 dark:text-surface-400">Details and purpose of this
+                                Lua function. Changes are saved with the "Save Changes" button above.</p>
                         </div>
                     </div>
                     <div class="mt-2 space-y-2">
@@ -103,34 +110,45 @@
                 </div>
 
                 <!-- Method Section: Check functionData.data exists -->
-                <div class="bg-surface-100 dark:bg-surface-800 rounded-lg p-4 border border-surface-200 dark:border-surface-700" x-show="functionData.data?.method">
+                <div class="bg-surface-100 dark:bg-surface-800 rounded-lg p-4 border border-surface-200 dark:border-surface-700"
+                     x-show="functionData.data?.method">
                     <div class="flex items-start">
-                        <iconify-icon icon="tabler:terminal-2" class="mt-1 mr-3 text-primary-600 dark:text-primary-500 flex-shrink-0" width="20" height="20"></iconify-icon>
+                        <iconify-icon icon="tabler:terminal-2"
+                                      class="mt-1 mr-3 text-primary-600 dark:text-primary-500 flex-shrink-0" width="20"
+                                      height="20"></iconify-icon>
                         <div>
                             <h4 class="text-base font-semibold text-surface-900 dark:text-white">Execution Method</h4>
-                            <p class="mt-1 text-sm text-surface-700 dark:text-surface-300" x-text="functionData.data.method || 'Default method'"></p>
+                            <p class="mt-1 text-sm text-surface-700 dark:text-surface-300"
+                               x-text="functionData.data.method || 'Default method'"></p>
                         </div>
                     </div>
                 </div>
 
                 <!-- Dependencies & Modules Section: Check functionData.data exists -->
-                <div class="bg-surface-100 dark:bg-surface-800 rounded-lg p-4 border border-surface-200 dark:border-surface-700" x-show="(functionData.data?.imports && Object.keys(functionData.data.imports || {}).length > 0) || (functionData.data?.modules && functionData.data.modules.length > 0)">
+                <div class="bg-surface-100 dark:bg-surface-800 rounded-lg p-4 border border-surface-200 dark:border-surface-700"
+                     x-show="(functionData.data?.imports && Object.keys(functionData.data.imports || {}).length > 0) || (functionData.data?.modules && functionData.data.modules.length > 0)">
                     <div class="flex items-start mb-3">
-                        <iconify-icon icon="tabler:puzzle" class="mt-1 mr-3 text-primary-600 dark:text-primary-500 flex-shrink-0" width="20" height="20"></iconify-icon>
+                        <iconify-icon icon="tabler:puzzle"
+                                      class="mt-1 mr-3 text-primary-600 dark:text-primary-500 flex-shrink-0" width="20"
+                                      height="20"></iconify-icon>
                         <div>
-                            <h4 class="text-base font-semibold text-surface-900 dark:text-white">Dependencies & Modules</h4>
-                            <p class="mt-1 text-xs text-surface-600 dark:text-surface-400">Registry entries and Lua modules this function relies on.</p>
+                            <h4 class="text-base font-semibold text-surface-900 dark:text-white">Dependencies &
+                                Modules</h4>
+                            <p class="mt-1 text-xs text-surface-600 dark:text-surface-400">Registry entries and Lua
+                                modules this function relies on.</p>
                         </div>
                     </div>
                     <div x-show="functionData.data?.imports && Object.keys(functionData.data.imports || {}).length > 0">
-                        <h5 class="text-sm font-medium text-surface-700 dark:text-surface-300 mt-2 mb-1.5">Registry Dependencies:</h5>
+                        <h5 class="text-sm font-medium text-surface-700 dark:text-surface-300 mt-2 mb-1.5">Registry
+                            Dependencies:</h5>
                         <div class="flex flex-wrap gap-2">
                             <!-- Use safe defaults for looping -->
                             <template x-for="(path, name) in functionData.data.imports || {}" :key="name">
                                 <a :href="getKeeperLink(path)"
                                    @click.prevent="navigateToKeeper(path)"
                                    class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-surface-200 dark:bg-surface-600 hover:bg-surface-300 dark:hover:bg-surface-500 text-surface-700 dark:text-surface-200 cursor-pointer">
-                                    <iconify-icon icon="tabler:external-link" class="mr-1.5" width="14" height="14"></iconify-icon>
+                                    <iconify-icon icon="tabler:external-link" class="mr-1.5" width="14"
+                                                  height="14"></iconify-icon>
                                     <span x-text="name"></span>
                                 </a>
                             </template>
@@ -138,12 +156,14 @@
                     </div>
                     <div x-show="functionData.data?.modules && functionData.data.modules.length > 0"
                          :class="{'mt-4 pt-4 border-t border-surface-200 dark:border-surface-700': functionData.data?.imports && Object.keys(functionData.data.imports || {}).length > 0}">
-                        <h5 class="text-sm font-medium text-surface-700 dark:text-surface-300 mb-1.5">Required Lua Modules:</h5>
+                        <h5 class="text-sm font-medium text-surface-700 dark:text-surface-300 mb-1.5">Required Lua
+                            Modules:</h5>
                         <div class="flex flex-wrap gap-2">
                             <!-- Use safe defaults for looping -->
                             <template x-for="module in functionData.data.modules || []" :key="module">
                                 <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-surface-200 dark:bg-surface-600 text-surface-700 dark:text-surface-200">
-                                    <iconify-icon icon="tabler:cube" class="mr-1.5" width="14" height="14"></iconify-icon>
+                                    <iconify-icon icon="tabler:cube" class="mr-1.5" width="14"
+                                                  height="14"></iconify-icon>
                                     <span x-text="module"></span>
                                 </span>
                             </template>
@@ -157,30 +177,38 @@
                 <!-- Pool Configuration Section: Check functionData.data exists -->
                 <div class="bg-surface-100 dark:bg-surface-800 rounded-lg p-4 border border-surface-200 dark:border-surface-700">
                     <div class="flex items-start mb-3">
-                        <iconify-icon icon="tabler:stack-2" class="mt-1 mr-3 text-primary-600 dark:text-primary-500 flex-shrink-0" width="20" height="20"></iconify-icon>
+                        <iconify-icon icon="tabler:stack-2"
+                                      class="mt-1 mr-3 text-primary-600 dark:text-primary-500 flex-shrink-0" width="20"
+                                      height="20"></iconify-icon>
                         <div class="flex-grow">
                             <h4 class="text-base font-semibold text-surface-900 dark:text-white">Pool Configuration</h4>
-                            <p class="mt-1 text-xs text-surface-600 dark:text-surface-400">Settings for the Lua instance execution pool.</p>
+                            <p class="mt-1 text-xs text-surface-600 dark:text-surface-400">Settings for the Lua instance
+                                execution pool.</p>
                         </div>
                         <div x-show="poolType" class="ml-auto flex-shrink-0">
                             <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium"
                                   :class="getPoolTypeBadgeClass(poolType)">
-                                  <iconify-icon :icon="getPoolTypeIcon(poolType)" class="mr-1.5 -ml-0.5" width="16" height="16"></iconify-icon>
+                                  <iconify-icon :icon="getPoolTypeIcon(poolType)" class="mr-1.5 -ml-0.5" width="16"
+                                                height="16"></iconify-icon>
                                   <span x-text="poolType + ' Pool'"></span>
                             </span>
                         </div>
                     </div>
                     <!-- Pool Type Information Alert -->
-                    <div x-show="poolTypeInfo[poolType]" class="mb-4 p-3 rounded-md text-xs" :class="getPoolTypeInfoAlertClass(poolType)">
+                    <div x-show="poolTypeInfo[poolType]" class="mb-4 p-3 rounded-md text-xs"
+                         :class="getPoolTypeInfoAlertClass(poolType)">
                         <p class="font-medium" x-text="poolTypeInfo[poolType]?.title || ''"></p>
                         <p class="mt-1" x-text="poolTypeInfo[poolType]?.description || ''"></p>
                     </div>
                     <!-- Pool Settings Form: Ensure pool object exists before binding inputs -->
-                    <div x-show="functionData.data?.pool" class="mt-2 space-y-5 p-3 bg-white dark:bg-surface-700 rounded-md border border-surface-200 dark:border-surface-600">
+                    <div x-show="functionData.data?.pool"
+                         class="mt-2 space-y-5 p-3 bg-white dark:bg-surface-700 rounded-md border border-surface-200 dark:border-surface-600">
                         <!-- Pool Size Slider -->
                         <div>
                             <div class="flex justify-between items-center mb-1">
-                                <label for="poolSize" class="block text-xs font-medium text-surface-700 dark:text-surface-300">Pool Size (VMs)</label>
+                                <label for="poolSize"
+                                       class="block text-xs font-medium text-surface-700 dark:text-surface-300">Pool
+                                    Size (VMs)</label>
                                 <span class="text-sm text-primary-600 dark:text-primary-400 font-medium bg-primary-100 dark:bg-primary-900 px-2 py-0.5 rounded min-w-[36px] text-center"
                                       x-text="functionData.data.pool.size || 0"></span>
                             </div>
@@ -188,12 +216,14 @@
                                    x-model.number="functionData.data.pool.size" @input="validatePoolConfig()"
                                    class="w-full h-2 bg-surface-200 dark:bg-surface-600 rounded-lg appearance-none cursor-pointer accent-primary-500"
                                    :disabled="isLoading || isSaving">
-                            <p class="mt-1 text-xs text-surface-500 dark:text-surface-400">Total VMs. For Fixed/Worker pools. Set to 0 for Flex pool if MaxSize is used.</p>
+                            <p class="mt-1 text-xs text-surface-500 dark:text-surface-400">Total VMs. For Fixed/Worker
+                                pools. Set to 0 for Flex pool if MaxSize is used.</p>
                         </div>
                         <!-- Workers Slider -->
                         <div>
                             <div class="flex justify-between items-center mb-1">
-                                <label for="poolWorkers" class="block text-xs font-medium text-surface-700 dark:text-surface-300">Workers</label>
+                                <label for="poolWorkers"
+                                       class="block text-xs font-medium text-surface-700 dark:text-surface-300">Workers</label>
                                 <span class="text-sm text-primary-600 dark:text-primary-400 font-medium bg-primary-100 dark:bg-primary-900 px-2 py-0.5 rounded min-w-[36px] text-center"
                                       x-text="functionData.data.pool.workers || 0"></span>
                             </div>
@@ -201,16 +231,20 @@
                                    x-model.number="functionData.data.pool.workers" @input="validatePoolConfig()"
                                    class="w-full h-2 bg-surface-200 dark:bg-surface-600 rounded-lg appearance-none cursor-pointer accent-primary-500"
                                    :disabled="isLoading || isSaving">
-                            <p class="mt-1 text-xs text-surface-500 dark:text-surface-400">Number of worker threads. 0 means no dedicated workers.</p>
+                            <p class="mt-1 text-xs text-surface-500 dark:text-surface-400">Number of worker threads. 0
+                                means no dedicated workers.</p>
                         </div>
                         <!-- Max Size Input -->
                         <div>
-                            <label for="poolMaxSize" class="block text-xs font-medium text-surface-700 dark:text-surface-300">Max Size (Flex Pool Concurrency)</label>
+                            <label for="poolMaxSize"
+                                   class="block text-xs font-medium text-surface-700 dark:text-surface-300">Max Size
+                                (Flex Pool Concurrency)</label>
                             <input type="number" id="poolMaxSize" name="poolMaxSize" min="0" placeholder="e.g., 100"
                                    x-model.number="functionData.data.pool.max_size" @input="validatePoolConfig()"
                                    class="mt-1 block w-full border border-surface-300 dark:border-surface-600 rounded-md shadow-sm py-2 px-3 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
                                    :disabled="isLoading || isSaving">
-                            <p class="mt-1 text-xs text-surface-500 dark:text-surface-400">Max concurrent executions for Flex pools. If > 0 and Size=0, implies Flex Pool.</p>
+                            <p class="mt-1 text-xs text-surface-500 dark:text-surface-400">Max concurrent executions for
+                                Flex pools. If > 0 and Size=0, implies Flex Pool.</p>
                         </div>
                         <!-- Warm Start Toggle -->
                         <div class="flex items-center pt-1">
@@ -218,16 +252,22 @@
                                    x-model="functionData.data.pool.warm_start"
                                    class="h-4 w-4 text-primary-600 border-surface-300 dark:border-surface-600 rounded focus:ring-primary-500"
                                    :disabled="isLoading || isSaving">
-                            <label for="poolWarmStart" class="ml-2 block text-sm text-surface-900 dark:text-surface-100">
+                            <label for="poolWarmStart"
+                                   class="ml-2 block text-sm text-surface-900 dark:text-surface-100">
                                 Warm Start <span class="text-xs text-surface-500 dark:text-surface-400">(Precompile Lua code)</span>
                             </label>
                         </div>
-                        <p x-show="poolValidationError" class="mt-2 text-xs text-red-600 dark:text-red-400" x-text="poolValidationError"></p>
+                        <p x-show="poolValidationError" class="mt-2 text-xs text-red-600 dark:text-red-400"
+                           x-text="poolValidationError"></p>
                     </div>
                     <!-- Show button to initialize if pool config doesn't exist -->
-                    <div x-show="!functionData.data?.pool" class="mt-2 text-sm text-surface-600 dark:text-surface-400 italic p-3">
+                    <div x-show="!functionData.data?.pool"
+                         class="mt-2 text-sm text-surface-600 dark:text-surface-400 italic p-3">
                         No specific pool configuration set. Default behavior will be used.
-                        <button @click="initializePoolConfig()" class="ml-2 text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 text-xs font-medium underline disabled:opacity-50" :disabled="isLoading || isSaving">Initialize Default Pool Config</button>
+                        <button @click="initializePoolConfig()"
+                                class="ml-2 text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 text-xs font-medium underline disabled:opacity-50"
+                                :disabled="isLoading || isSaving">Initialize Default Pool Config
+                        </button>
                     </div>
                 </div>
             </div>
@@ -311,7 +351,7 @@
             metadataChanged: false, // Track if only metadata.comment changed
 
             // Default pool config structure, used for comparison and initialization
-            defaultPoolConfig: { size: 0, workers: 0, warm_start: false, max_size: 0 },
+            defaultPoolConfig: {size: 0, workers: 0, warm_start: false, max_size: 0},
             // Using a more reasonable default than 100 if user initializes pool
             INITIAL_DEFAULT_MAX_SIZE: 10,
             // Pool type metadata for display
@@ -349,8 +389,8 @@
             // Tab management
             activeTab: 'general',
             tabs: [
-                { id: 'general', label: 'General', icon: 'tabler:id-badge' },
-                { id: 'pool', label: 'Pool Configuration', icon: 'tabler:stack-2' }
+                {id: 'general', label: 'General', icon: 'tabler:id-badge'},
+                {id: 'pool', label: 'Pool Configuration', icon: 'tabler:stack-2'}
             ],
 
             async initialize() {
@@ -363,13 +403,7 @@
                 this.functionData = null; // Reset data on retry
                 this.originalFunctionData = null;
                 try {
-                    // Initialize Wippy API or use fallback
-                    if (typeof initWippyApi !== 'function') {
-                        console.warn('Wippy API function not found. Using fallback for local testing.');
-                        this.wippyApi = this.createFallbackWippyApi();
-                    } else {
-                        this.wippyApi = await window.initWippyApi();
-                    }
+                    this.wippyApi = await window.initWippyApi();
                     const entryId = this.wippyApi?.config?.path;
                     if (!entryId) {
                         throw new Error('No function ID provided in configuration.');
@@ -385,69 +419,6 @@
                 } finally {
                     this.isLoading = false;
                 }
-            },
-            createFallbackWippyApi() {
-                // Extract ID from URL for fallback testing convenience
-                const fallbackId = new URLSearchParams(window.location.search).get('id') || 'fallback:my_function';
-                console.log(`Using Fallback API for ID: ${fallbackId}`);
-                return {
-                    config: { path: fallbackId, feature: { routePrefix: '/apps' }, auth: { token: 'fallback-token' } },
-                    iframe: {
-                        navigate: (v, p) => console.log(`Fallback Nav: ${v}`, p || ''),
-                        handleError: (type, err) => console.error(`Fallback Error Handler (${type}):`, err)
-                    },
-                    api: {
-                        get: async (url) => {
-                            console.log('Fallback API GET:', url);
-                            const urlParams = new URLSearchParams(url.split('?')[1]);
-                            const id = urlParams.get('id');
-                            await new Promise(resolve => setTimeout(resolve, 500)); // Simulate network latency
-                            let entryData = null;
-                            if (id === 'fallback:my_function') {
-                                entryData = {
-                                    id: id, kind: 'function.lua',
-                                    meta: { comment: `Function ${id} description.`, depends_on:['ns:app','ns:wippy.llm'], router:'app:api' },
-                                    data: { method: 'handler', imports: { 'models': 'wippy.llm:models' }, modules: ['http', 'json'], pool: { size: 2, workers: 0, max_size: 0, warm_start: false } }
-                                };
-                            } else if (id === 'fallback:flex_function') {
-                                entryData = {
-                                    id: id, kind: 'function.lua',
-                                    meta: { comment: 'Flex pool function example' },
-                                    data: { method: 'handleFlex', pool: { size: 0, workers: 0, warm_start: true, max_size: 50 } }
-                                };
-                            }  else if (id === 'fallback:worker_function') {
-                                entryData = {
-                                    id: id, kind: 'function.lua',
-                                    meta: { comment: 'Worker pool function example' },
-                                    data: { method: 'handleWorker', pool: { size: 4, workers: 2, warm_start: false, max_size: 0 } }
-                                };
-                            } else if (id === 'fallback:no_pool_function') {
-                                entryData = {
-                                    id: id, kind: 'function.lua',
-                                    meta: { comment: 'Function without explicit pool config' },
-                                    data: { method: 'handleSimple' } // No pool key
-                                };
-                            }
-                            if (entryData) {
-                                return { data: { success: true, entry: entryData } };
-                            } else {
-                                return { data: { success: false, error: `Fallback: Function ID '${id}' Not Found` } };
-                            }
-                        },
-                        put: async (url, payload) => {
-                            console.log('Fallback API PUT:', url, payload);
-                            await new Promise(resolve => setTimeout(resolve, 300));
-                            // Simulate updating the data based on payload
-                            const currentData = JSON.parse(JSON.stringify(this.functionData || { id: payload.id, kind: payload.kind }));
-                            currentData.meta = { ...(currentData.meta || {}), ...payload.meta };
-                            currentData.data = { ...(currentData.data || {}), ...payload.data };
-                            // Ensure pool structure is maintained even if original was null
-                            currentData.data.pool = payload.data?.pool || this.defaultPoolConfig;
-                            console.log('Fallback updated data:', currentData);
-                            return { data: { success: true, entry: currentData } };
-                        }
-                    }
-                };
             },
             commentChanged() {
                 // Mark that comment metadata has changed
@@ -520,9 +491,15 @@
                 return 'Default';
             },
             // Pool type display helpers
-            getPoolTypeIcon(type) { return this.poolTypeInfo[type]?.icon || 'tabler:question-mark'; },
-            getPoolTypeBadgeClass(type) { return this.poolTypeInfo[type]?.badgeClass || this.poolTypeInfo['Default'].badgeClass; },
-            getPoolTypeInfoAlertClass(type) { return this.poolTypeInfo[type]?.alertClass || this.poolTypeInfo['Default'].alertClass; },
+            getPoolTypeIcon(type) {
+                return this.poolTypeInfo[type]?.icon || 'tabler:question-mark';
+            },
+            getPoolTypeBadgeClass(type) {
+                return this.poolTypeInfo[type]?.badgeClass || this.poolTypeInfo['Default'].badgeClass;
+            },
+            getPoolTypeInfoAlertClass(type) {
+                return this.poolTypeInfo[type]?.alertClass || this.poolTypeInfo['Default'].alertClass;
+            },
             initializePoolConfig() {
                 // Create a default pool config if none exists
                 if (this.functionData && this.functionData.data && !this.functionData.data.pool) {
@@ -668,7 +645,7 @@
                         },
                         data: {
                             // Send only pool data under 'data', let backend merge with existing non-pool data
-                            ...(poolToSave ? { pool: poolToSave } : {})
+                            ...(poolToSave ? {pool: poolToSave} : {})
                         },
                         merge: true // Tell backend to merge this with existing entry data
                     };
@@ -728,7 +705,7 @@
             // --- UI Feedback ---
             showNotification(type, message) {
                 // Dispatch event for the toast component to catch
-                window.dispatchEvent(new CustomEvent('shownotification', { detail: { type, message } }));
+                window.dispatchEvent(new CustomEvent('shownotification', {detail: {type, message}}));
             },
             // --- Tab Helpers ---
             getTabIconColor(tabId) {

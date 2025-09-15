@@ -1,0 +1,25 @@
+version: "1.0"
+namespace: keeper.gov.observers
+
+entries:
+  # keeper.gov.observers:changeset_observer
+  - name: changeset_observer
+    kind: function.lua
+    meta:
+      type: registry.observer
+      comment: Combined registry changeset observer and notification system
+      description: Logs changeset summaries and publishes entity change notifications to wippy.central for specific entry types
+      depends_on:
+        - ns:registry
+        - ns:logger
+        - ns:json
+        - ns:time
+      priority: 50
+    source: file://changeset_observer.lua
+    modules:
+      - registry
+      - json
+      - time
+      - logger
+    method: run
+    

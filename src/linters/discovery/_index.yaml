@@ -1,0 +1,19 @@
+version: "1.0"
+namespace: keeper.linters.discovery
+
+entries:
+  # keeper.linters.discovery:linters
+  - name: linters
+    kind: library.lua
+    meta:
+      comment: Linter discovery library
+      tags:
+        - linting
+        - discovery
+      description: Discovers and organizes available linters by type, level, and priority
+    source: file://linters.lua
+    modules:
+      - registry
+      - json
+      - logger
+    

@@ -1,0 +1,33 @@
+version: "1.0"
+namespace: keeper.hil
+
+entries:
+  # keeper.hil:linter
+  - name: linter
+    kind: function.lua
+    meta:
+      name: Human-In-Loop Approval Linter
+      type: linter
+      comment: Human-in-loop linter for registry changes requiring approval
+      tags:
+        - linting
+        - hil
+        - human-approval
+        - validation
+        - governance
+      description: Intercepts registry changes that require human approval and creates HIL workflow with session artifacts
+      level: 100
+      priority: 5000
+    source: file://linter.lua
+    modules:
+      - json
+      - uuid
+      - ctx
+      - logger
+      - process
+      - channel
+      - time
+    imports:
+      artifact_repo: wippy.session.persist:artifact_repo
+    method: handle
+    

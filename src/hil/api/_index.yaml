@@ -1,0 +1,50 @@
+version: "1.0"
+namespace: keeper.hil.api
+
+entries:
+  # keeper.hil.api:approve
+  - name: approve
+    kind: function.lua
+    meta:
+      comment: Approve HIL request
+    source: file://approve.lua
+    modules:
+      - http
+      - security
+      - json
+    imports:
+      hil_linter: keeper.hil:linter
+    method: handler
+    
+  # keeper.hil.api:approve.endpoint
+  - name: approve.endpoint
+    kind: http.endpoint
+    meta:
+      comment: Approve HIL request endpoint
+    method: POST
+    func: approve
+    path: /hil/{request_id}/approve
+    
+  # keeper.hil.api:reject
+  - name: reject
+    kind: function.lua
+    meta:
+      comment: Reject HIL request
+    source: file://reject.lua
+    modules:
+      - http
+      - security
+      - json
+    imports:
+      hil_linter: keeper.hil:linter
+    method: handler
+    
+  # keeper.hil.api:reject.endpoint
+  - name: reject.endpoint
+    kind: http.endpoint
+    meta:
+      comment: Reject HIL request endpoint
+    method: POST
+    func: reject
+    path: /hil/{request_id}/reject
+    

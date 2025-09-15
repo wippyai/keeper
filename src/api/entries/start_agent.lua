@@ -1,7 +1,6 @@
--- Function to generate a start token for a specific agent
 local http = require("http")
 local json = require("json")
-local registry = require("registry")
+local agent_registry = require("agent_registry")
 local security = require("security")
 local start_tokens = require("start_tokens")
 
@@ -22,51 +21,38 @@ local function handler()
     end
 
     -- Get agent name/ID from path parameter 'id' or query parameter 'agent'
-    local agent_name = req:param("id") or req:query("agent")
-    if not agent_name or agent_name == "" then
+    local agent_identifier = req:param("id") or req:query("agent")
+    if not agent_identifier or agent_identifier == "" then
         res:set_status(http.STATUS.BAD_REQUEST)
         res:write_json({ success = false, error = "Agent name/ID is required (use path param 'id' or query param 'agent')" })
         return
     end
 
-    -- Find the agent entry in the registry by its meta.name
-    -- This searches across namespaces for agent definitions
-    local agent_entries, find_err = registry.find({
-        [".kind"] = "registry.entry",
-        ["meta.type"] = "agent.gen1",
-        ["meta.name"] = agent_name
-    })
-
-    if find_err then
-        res:set_status(http.STATUS.INTERNAL_ERROR)
-        res:write_json({ success = false, error = "Error searching for agent: " .. find_err })
-        return
+    -- Determine if it's an ID (contains ':') or a name
+    local agent_spec, spec_err
+    if agent_identifier:find(":") then
+        -- It's an ID in ns:name format
+        agent_spec, spec_err = agent_registry.get_by_id(agent_identifier)
+    else
+        -- It's a name
+        agent_spec, spec_err = agent_registry.get_by_name(agent_identifier)
     end
 
-    if not agent_entries or #agent_entries == 0 then
+    if not agent_spec then
         res:set_status(http.STATUS.NOT_FOUND)
-        res:write_json({ success = false, error = "Agent not found: " .. agent_name })
+        res:write_json({ success = false, error = spec_err or ("Agent not found: " .. agent_identifier) })
         return
     end
 
-    -- Use the first found agent entry (names should ideally be unique)
-    local entry = agent_entries[1]
-    if not entry.meta then
-         res:set_status(http.STATUS.INTERNAL_ERROR)
-         res:write_json({ success = false, error = "Agent entry is missing metadata: " .. agent_name })
-         return
-    end
-
-    -- Determine model and kind: Use query params > agent meta > defaults
-    local model = req:query("model") or entry.meta.model or entry.data.model or "gpt-4o"
-    local kind = req:query("kind") or entry.meta.session_kind or "default"
+    -- Determine model and kind: Use query params > agent spec > defaults
+    local model = req:query("model") or agent_spec.model or "gpt-4o"
+    local kind = req:query("kind") or "default"
 
     -- Prepare parameters for the start token
     local token_params = {
-        agent = agent_name, -- Use the requested name
+        agent = agent_spec.id,
         model = model,
         kind = kind
-        -- Add other parameters if needed in the future (e.g., start_func)
     }
 
     -- Generate the start token

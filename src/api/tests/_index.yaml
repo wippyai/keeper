@@ -1,20 +1,17 @@
 version: "1.0"
-namespace: wippy.keeper.api.tests
+namespace: keeper.api.tests
 
 entries:
-  # wippy.keeper.api.tests:discover.endpoint
+  # keeper.api.tests:discover.endpoint
   - name: discover.endpoint
     kind: http.endpoint
     meta:
       comment: Discovers all available tests cases
-      depends_on:
-        - app:api
-      router: app:api
     method: GET
     func: discovery
     path: /keeper/tests/discover
-
-  # wippy.keeper.api.tests:discovery
+    
+  # keeper.api.tests:discovery
   - name: discovery
     kind: function.lua
     meta:
@@ -27,8 +24,8 @@ entries:
     imports:
       registry: wippy.test:registry
     method: discover_tests
-
-  # wippy.keeper.api.tests:run_specific
+    
+  # keeper.api.tests:run_specific
   - name: run_specific
     kind: function.lua
     meta:
@@ -42,15 +39,13 @@ entries:
     imports:
       registry: wippy.test:registry
     method: run_specific_test
-
-  # wippy.keeper.api.tests:run_specific.endpoint
+    
+  # keeper.api.tests:run_specific.endpoint
   - name: run_specific.endpoint
     kind: http.endpoint
     meta:
       comment: Runs specific test or test group
-      depends_on:
-        - app:api
-      router: app:api
     method: GET
     func: run_specific
     path: /keeper/tests/run
+    

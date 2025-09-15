@@ -1,6 +1,6 @@
 {{ extends "/common/layout" }}
 
-{ * Page title and description * }
+{* Page title and description *}
 {{ block title() }}Agent Configuration{{ end }}
 {{ block metaDescription() }}View and edit agent configuration and capabilities{{ end }}
 
@@ -17,7 +17,7 @@
 </div>
 {{ end }}
 
-{ * Page Header Block * }
+{* Page Header Block *}
 {{ block pageHeader() }}
 <div class="px-4 py-5 border-b border-surface-200 dark:border-surface-600 sm:px-6 flex justify-between items-center">
     <div class="flex items-center">
@@ -52,7 +52,7 @@
 </div>
 {{ end }}
 
-{ * Loading States Block * }
+{* Loading States Block *}
 {{ block loadingStates() }}
 <!-- Loading Indicator -->
 <div id="loadingIndicator" class="flex justify-center items-center py-12" x-show="isLoading">
@@ -75,7 +75,7 @@
 </div>
 {{ end }}
 
-{ * Tab Navigation Block * }
+{* Tab Navigation Block *}
 {{ block tabNavigation() }}
 <div x-show="!isLoading && !loadError && agentData?.id">
     <nav class="flex w-full border-b border-surface-200 dark:border-surface-600" aria-label="Tabs">
@@ -98,7 +98,7 @@
 </div>
 {{ end }}
 
-{ * Tab Contents Block * }
+{* Tab Contents Block *}
 {{ block tabContents() }}
 <div class="px-4 py-5 sm:p-6" x-show="!isLoading && !loadError && agentData?.id">
     {{ yield basicTabPanel() }}
@@ -111,7 +111,7 @@
 </div>
 {{ end }}
 
-{ * Basic Tab Panel * }
+{* Basic Tab Panel *}
 {{ block basicTabPanel() }}
 <!-- Basic Settings Tab Panel -->
 <div x-show="activeTab === 'basic'" class="space-y-6">
@@ -206,7 +206,7 @@
 </div>
 {{ end }}
 
-{ * Model Tab Panel * }
+{* Model Tab Panel *}
 {{ block modelTabPanel() }}
 <!-- Model Tab Panel -->
 <div x-show="activeTab === 'model'" class="space-y-6">
@@ -284,11 +284,28 @@
                 <span>0.0</span> <span>0.2</span> <span>0.4</span> <span>0.6</span> <span>0.8</span> <span>1.0</span>
             </div>
         </div>
+
+        <!-- Thinking Effort Slider -->
+        <div class="mt-4">
+            <div class="flex justify-between items-center mb-1">
+                <label for="thinkingEffortSlider" class="block text-sm font-medium text-surface-700 dark:text-surface-300">Thinking Effort</label>
+                <span class="text-sm text-primary-600 dark:text-primary-400 font-medium bg-primary-100 dark:bg-primary-900/30 px-2 py-0.5 rounded min-w-[40px] text-center"
+                      x-text="(agentData.data.thinking_effort || 0)"></span>
+            </div>
+            <input type="range" id="thinkingEffortSlider" min="0" max="100" step="5"
+                   x-model.number="agentData.data.thinking_effort" @input="setDirty('data')"
+                   class="w-full h-2 bg-surface-200 dark:bg-surface-600 rounded-lg appearance-none cursor-pointer accent-primary-500"
+                   :disabled="isLoading || isSaving">
+            <div class="flex justify-between text-xs text-surface-500 dark:text-surface-400 mt-1">
+                <span>0</span> <span>25</span> <span>50</span> <span>75</span> <span>100</span>
+            </div>
+            <p class="mt-1 text-xs text-surface-500 dark:text-surface-400">Thinking effort for reasoning-capable models</p>
+        </div>
     </div>
 </div>
 {{ end }}
 
-{ * Memory Tab Panel * }
+{* Memory Tab Panel *}
 {{ block memoryTabPanel() }}
 <!-- Memory Tab Panel -->
 <div x-show="activeTab === 'memory'" class="space-y-6">
@@ -429,7 +446,7 @@
 </div>
 {{ end }}
 
-{ * Start Prompts Tab Panel * }
+{* Start Prompts Tab Panel *}
 {{ block startPromptsTabPanel() }}
 <!-- Start Prompts Tab Panel -->
 <div x-show="activeTab === 'start_prompts'" class="space-y-6">
@@ -475,7 +492,7 @@
 </div>
 {{ end }}
 
-{ * Delegates Tab Panel * }
+{* Delegates Tab Panel *}
 {{ block delegatesTabPanel() }}
 <!-- Delegates Tab Panel -->
 <div x-show="activeTab === 'delegates'" class="space-y-6">
@@ -578,8 +595,8 @@
                         <label for="delegateToolNameInput"
                                class="block text-xs font-medium text-surface-700 dark:text-surface-300 mb-1">Tool Name
                             <span class="text-red-500">*</span></label>
-                        <input type="text" id="delegateToolNameInput" x-model="newDelegate.toolName"
-                               @input="generateDelegateNameAndRule()"
+                        <input type="text" id="delegateToolNameInput" x-model="newDelegate.name"
+                               @input="validateDelegateName()"
                                class="block w-full border-surface-300 dark:border-surface-600 rounded-md shadow-sm py-2 px-3 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
                                placeholder="call_selected_agent" :disabled="isLoading || isSaving || !newDelegate.id">
                         <p class="mt-1 text-xs text-surface-500 dark:text-surface-400">Snake_case name for the
@@ -595,6 +612,21 @@
                                   class="block w-full border-surface-300 dark:border-surface-600 rounded-md shadow-sm py-2 px-3 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
                                   rows="2" placeholder="When to delegate to this agent..."
                                   :disabled="isLoading || isSaving || !newDelegate.id"></textarea>
+                    </div>
+
+                    <!-- Context Field (Optional) -->
+                    <div class="mb-3">
+                        <label for="delegateContextInput"
+                               class="block text-xs font-medium text-surface-700 dark:text-surface-300 mb-1">Context (JSON)
+                            <span class="text-xs text-surface-500">- Optional</span></label>
+                        <textarea id="delegateContextInput" x-model="newDelegateContextString"
+                                  @input="validateDelegateContext()"
+                                  class="block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-none sm:text-sm font-mono"
+                                  :class="newDelegateContextError ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 focus:ring-primary-500 focus:border-primary-500'"
+                                  rows="3" placeholder='{"key": "value"}'
+                                  :disabled="isLoading || isSaving || !newDelegate.id"></textarea>
+                        <p class="mt-1 text-xs text-surface-500 dark:text-surface-400">Context passed to the delegate agent</p>
+                        <p class="mt-1 text-xs text-red-600 dark:text-red-400" x-show="newDelegateContextError" x-text="newDelegateContextError"></p>
                     </div>
 
                     <!-- Add Button -->
@@ -617,54 +649,84 @@
                         them.</p>
                 </div>
                 <div class="space-y-2" x-show="agentDelegates.length > 0">
-                    <template x-for="(delegate, index) in agentDelegates" :key="delegate.agentName"> <!-- key by agentName as it's the primary key in agentData.data.delegate -->
+                    <template x-for="(delegate, index) in agentDelegates" :key="delegate._uid">
                         <div class="rounded-md border group transition-all duration-200 ease-in-out overflow-hidden bg-surface-50 dark:bg-surface-900/70 border-surface-200 dark:border-surface-700 hover:border-surface-300 dark:hover:border-surface-600">
                             <div class="flex items-center justify-between p-3 cursor-pointer min-h-[4.5rem]"
-                                 @click="toggleItemExpansion(delegate.agentName, 'delegates')">
+                                 @click="toggleItemExpansion(delegate._uid, 'delegates')">
                                 <div class="flex items-center overflow-hidden min-w-0">
                                     <iconify-icon icon="tabler:share-3"
                                                   class="flex-shrink-0 mr-3 w-5 h-5 text-primary-600 dark:text-primary-500"></iconify-icon>
                                     <div class="overflow-hidden min-w-0">
-                                        <span class="text-sm font-medium text-surface-800 dark:text-surface-200 truncate block"
-                                              x-text="delegate.toolName" :title="delegate.toolName"></span>
+                                        <div class="flex items-center">
+                                            <span class="text-sm font-medium text-surface-800 dark:text-surface-200 truncate block"
+                                                  x-text="delegate.name" :title="delegate.name"></span>
+                                            <!-- Configuration Indicator -->
+                                            <span x-show="hasAdvancedDelegateConfig(delegate)"
+                                                  class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-100">
+                                                <iconify-icon icon="tabler:settings" class="mr-1" width="12" height="12"></iconify-icon>
+                                                Config
+                                            </span>
+                                        </div>
                                         <span class="text-xs text-primary-500 dark:text-primary-400 truncate block"
-                                              x-text="'→ ' + delegate.agentName"
-                                              :title="'Target Agent: ' + delegate.agentName + ' (ID: ' + delegate.agentId + ')'"></span>
+                                              x-text="'→ ' + (getItemName(delegate.id, 'delegates') || delegate.id)"
+                                              :title="'Target Agent: ' + (getItemName(delegate.id, 'delegates') || delegate.id) + ' (ID: ' + delegate.id + ')'"></span>
                                     </div>
                                 </div>
                                 <div class="flex items-center ml-2 flex-shrink-0">
-                                    <button @click.stop="removeDelegate(index)" title="Remove"
+                                    <button @click.stop="removeDelegate(delegate._uid)" title="Remove"
                                             class="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity text-surface-400 hover:text-red-600 dark:hover:text-red-400 p-1 mr-1 rounded-md focus:outline-none focus:ring-1 focus:ring-offset-1 focus:ring-red-500">
                                         <iconify-icon icon="tabler:trash" width="16" height="16"></iconify-icon>
                                     </button>
                                     <iconify-icon
-                                            :icon="expandedItems.delegates[delegate.agentName] ? 'tabler:chevron-up' : 'tabler:chevron-down'"
+                                            :icon="expandedItems.delegates[delegate._uid] ? 'tabler:chevron-up' : 'tabler:chevron-down'"
                                             class="w-5 h-5 text-surface-500 dark:text-surface-400"></iconify-icon>
                                 </div>
                             </div>
-                            <div x-show="expandedItems.delegates[delegate.agentName]" x-collapse
+                            <div x-show="expandedItems.delegates[delegate._uid]" x-collapse
                                  class="border-t border-surface-200 dark:border-surface-700">
-                                <div class="p-3 space-y-1.5 bg-white dark:bg-surface-800">
+                                <div class="p-4 space-y-4 bg-white dark:bg-surface-800">
+                                    <!-- Tool Name Field -->
+                                    <div>
+                                        <label :for="'delegate-name-' + delegate._uid" class="block text-xs font-medium text-surface-700 dark:text-surface-300 mb-1">Tool Name</label>
+                                        <input type="text" :id="'delegate-name-' + delegate._uid" x-model="delegate.name" @input="setDirty('data')"
+                                               class="block w-full text-xs border border-surface-300 dark:border-surface-600 rounded-md shadow-sm py-1.5 px-2 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                                               :disabled="isLoading || isSaving">
+                                    </div>
+
+                                    <!-- Target Agent ID (Read-only) -->
+                                    <p class="text-xs text-surface-600 dark:text-surface-300 pt-2"><strong
+                                            class="font-medium text-surface-700 dark:text-surface-200">Target Agent ID:</strong>
+                                        <a :href="getKeeperLink(delegate.id, 'agent')"
+                                           @click.prevent="navigateToKeeper(delegate.id, 'agent')"
+                                           class="text-primary-600 dark:text-primary-400 hover:underline ml-1 break-all"
+                                           x-text="delegate.id"></a>
+                                    </p>
+
+                                    <!-- Delegation Rule Field -->
+                                    <div>
+                                        <label :for="'delegate-rule-' + delegate._uid" class="block text-xs font-medium text-surface-700 dark:text-surface-300 mb-1">Delegation Rule</label>
+                                        <textarea :id="'delegate-rule-' + delegate._uid" x-model="delegate.rule" @input="setDirty('data')" rows="3"
+                                                  class="block w-full text-xs border border-surface-300 dark:border-surface-600 rounded-md shadow-sm py-1.5 px-2 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                                                  :disabled="isLoading || isSaving"></textarea>
+                                    </div>
+
+                                    <!-- Context JSON Field -->
+                                    <div>
+                                        <label :for="'delegate-context-' + delegate._uid" class="block text-xs font-medium text-surface-700 dark:text-surface-300 mb-1">Context (JSON)</label>
+                                        <textarea :id="'delegate-context-' + delegate._uid"
+                                                  x-model="editableDelegateContexts[delegate._uid]"
+                                                  @input="updateDelegateContext(delegate._uid, $event.target.value)"
+                                                  rows="4" placeholder='{"key": "value"}'
+                                                  class="block w-full text-xs border rounded-md shadow-sm py-1.5 px-2 font-mono focus:outline-none"
+                                                  :class="getDelegateContextInputClasses(delegate._uid)"
+                                                  :disabled="isLoading || isSaving"></textarea>
+                                        <p x-show="delegateContextErrors[delegate._uid]" class="mt-1 text-xs text-red-600 dark:text-red-400" x-text="delegateContextErrors[delegate._uid]"></p>
+                                    </div>
+
+                                    <!-- Target Agent Description (Read-only) -->
                                     <p class="text-xs text-surface-600 dark:text-surface-300"><strong
-                                            class="font-medium text-surface-700 dark:text-surface-200">Tool
-                                        Name:</strong> <span class="ml-1" x-text="delegate.toolName"></span></p>
-                                    <p class="text-xs text-surface-600 dark:text-surface-300"><strong
-                                            class="font-medium text-surface-700 dark:text-surface-200">Target Agent
-                                        Name:</strong> <span class="ml-1" x-text="delegate.agentName"></span></p>
-                                    <p class="text-xs text-surface-600 dark:text-surface-300"><strong
-                                            class="font-medium text-surface-700 dark:text-surface-200">Target Agent
-                                        ID:</strong> <a :href="getKeeperLink(delegate.agentId, 'agent')"
-                                                        @click.prevent="navigateToKeeper(delegate.agentId, 'agent')"
-                                                        class="text-primary-600 dark:text-primary-400 hover:underline ml-1 break-all"
-                                                        x-text="delegate.agentId"></a></p>
-                                    <p class="text-xs text-surface-600 dark:text-surface-300"><strong
-                                            class="font-medium text-surface-700 dark:text-surface-200">Delegation
-                                        Rule:</strong> <span class="ml-1"
-                                                             x-text="delegate.rule || 'Not specified.'"></span></p>
-                                    <p class="text-xs text-surface-600 dark:text-surface-300"><strong
-                                            class="font-medium text-surface-700 dark:text-surface-200">Target Agent
-                                        Desc:</strong> <span class="ml-1"
-                                                             x-text="getItemDescription(delegate.agentId, 'delegates')"></span>
+                                            class="font-medium text-surface-700 dark:text-surface-200">Target Agent Desc:</strong>
+                                        <span class="ml-1" x-text="getItemDescription(delegate.id, 'delegates')"></span>
                                     </p>
                                 </div>
                             </div>
@@ -677,7 +739,7 @@
 </div>
 {{ end }}
 
-{ * Traits Tab Panel * }
+{* Traits Tab Panel *}
 {{ block traitsTabPanel() }}
 <!-- Traits Tab Panel -->
 <div x-show="activeTab === 'traits'" class="space-y-6">
@@ -740,14 +802,14 @@
                                 </div>
                                 <div class="flex-shrink-0">
                                     <button type="button"
-                                            x-show="!isItemAdded(item.meta.name, 'traits')"
+                                            x-show="!isItemAdded(item.id, 'traits')"
                                             @click="addItem(item, 'traits')"
                                             class="px-2.5 py-1 border border-primary-500 text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/30 text-xs font-medium rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 flex items-center">
                                         <iconify-icon icon="tabler:plus" class="mr-1" width="12"
                                                       height="12"></iconify-icon>
                                         Add
                                     </button>
-                                    <span x-show="isItemAdded(item.meta.name, 'traits')"
+                                    <span x-show="isItemAdded(item.id, 'traits')"
                                           class="px-2.5 py-1 text-xs font-medium rounded-md text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-800/50 flex items-center">
                                         <iconify-icon icon="tabler:check" class="mr-1" width="12"
                                                       height="12"></iconify-icon>
@@ -772,7 +834,7 @@
 
             <!-- RIGHT SIDE: Current Traits List -->
             <div class="md:w-3/5">
-                <div x-show="!agentData.data.traits || agentData.data.traits.length === 0"
+                <div x-show="!agentTraits || agentTraits.length === 0"
                      class="bg-surface-50 dark:bg-surface-700 border border-surface-200 dark:border-surface-600 rounded-md p-4 text-center min-h-[15rem] flex items-center justify-center flex-col">
                     <iconify-icon icon="tabler:dna-off" class="text-surface-400 dark:text-surface-500" width="32"
                                   height="32"></iconify-icon>
@@ -781,20 +843,28 @@
                     <p class="text-xs text-surface-400 dark:text-surface-500 mt-1">Use the controls on the left to add
                         them.</p>
                 </div>
-                <div class="space-y-2" x-show="agentData.data.traits && agentData.data.traits.length > 0">
-                    <template x-for="(traitName, index) in agentData.data.traits" :key="traitName">
+                <div class="space-y-2" x-show="agentTraits && agentTraits.length > 0">
+                    <template x-for="(traitConfig, index) in agentTraits" :key="getTraitConfigId(traitConfig)">
                         <div class="rounded-md border group transition-all duration-200 ease-in-out overflow-hidden bg-surface-50 dark:bg-surface-900/70 border-surface-200 dark:border-surface-700 hover:border-surface-300 dark:hover:border-surface-600">
                             <div class="flex items-center justify-between p-3 cursor-pointer min-h-[4.5rem]"
-                                 @click="toggleItemExpansion(traitName, 'traits')">
+                                 @click="toggleItemExpansion(getTraitConfigId(traitConfig), 'traits')">
                                 <div class="flex items-center overflow-hidden min-w-0">
                                     <iconify-icon icon="tabler:dna"
                                                   class="flex-shrink-0 mr-3 w-5 h-5 text-primary-600 dark:text-primary-500"></iconify-icon>
                                     <div class="flex-grow overflow-hidden min-w-0">
-                                        <span class="text-sm font-medium text-surface-800 dark:text-surface-200 truncate block"
-                                              x-text="getItemName(traitName, 'traits')"
-                                              :title="getItemName(traitName, 'traits') + ' (' + (itemCache['agent.trait']?.[traitName]?.id || traitName) + ')'"></span>
+                                        <div class="flex items-center">
+                                            <span class="text-sm font-medium text-surface-800 dark:text-surface-200 truncate block"
+                                                  x-text="getTraitDisplayTitle(traitConfig)"
+                                                  :title="getTraitDisplayTitle(traitConfig) + ' (' + getTraitConfigId(traitConfig) + ')'"></span>
+                                            <!-- Configuration Indicator -->
+                                            <span x-show="hasAdvancedTraitConfig(traitConfig)"
+                                                  class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-100">
+                                                <iconify-icon icon="tabler:settings" class="mr-1" width="12" height="12"></iconify-icon>
+                                                Config
+                                            </span>
+                                        </div>
                                         <span class="text-xs text-surface-500 dark:text-surface-400 truncate block"
-                                              x-text="itemCache['agent.trait']?.[traitName]?.id || traitName" :title="itemCache['agent.trait']?.[traitName]?.id || traitName"></span>
+                                              x-text="getTraitConfigId(traitConfig)" :title="getTraitConfigId(traitConfig)"></span>
                                     </div>
                                 </div>
                                 <div class="flex items-center ml-2 flex-shrink-0">
@@ -803,22 +873,53 @@
                                         <iconify-icon icon="tabler:trash" width="16" height="16"></iconify-icon>
                                     </button>
                                     <iconify-icon
-                                            :icon="expandedItems.traits[traitName] ? 'tabler:chevron-up' : 'tabler:chevron-down'"
+                                            :icon="expandedItems.traits[getTraitConfigId(traitConfig)] ? 'tabler:chevron-up' : 'tabler:chevron-down'"
                                             class="w-5 h-5 text-surface-500 dark:text-surface-400"></iconify-icon>
                                 </div>
                             </div>
-                            <div x-show="expandedItems.traits[traitName]" x-collapse
+                            <div x-show="expandedItems.traits[getTraitConfigId(traitConfig)]" x-collapse
                                  class="border-t border-surface-200 dark:border-surface-700">
-                                <div class="p-3 space-y-1.5 bg-white dark:bg-surface-800">
-                                    <p class="text-xs text-surface-600 dark:text-surface-300"><strong
-                                            class="font-medium text-surface-700 dark:text-surface-200">ID:</strong> <a
-                                            :href="getKeeperLink(itemCache['agent.trait']?.[traitName]?.id, 'trait')"
-                                            @click.prevent="navigateToKeeper(itemCache['agent.trait']?.[traitName]?.id, 'trait')"
-                                            class="text-primary-600 dark:text-primary-400 hover:underline ml-1 break-all"
-                                            x-text="itemCache['agent.trait']?.[traitName]?.id || 'ID not available'"></a></p>
-                                    <p class="text-xs text-surface-600 dark:text-surface-300"><strong
-                                            class="font-medium text-surface-700 dark:text-surface-200">Description:</strong>
-                                        <span class="ml-1" x-text="getItemDescription(traitName, 'traits')"></span></p>
+                                <div class="p-3 space-y-3 bg-white dark:bg-surface-800">
+                                    <!-- Basic Trait Info -->
+                                    <div class="space-y-1.5">
+                                        <p class="text-xs text-surface-600 dark:text-surface-300"><strong
+                                                class="font-medium text-surface-700 dark:text-surface-200">ID:</strong> <a
+                                                :href="getKeeperLink(getTraitConfigId(traitConfig), 'trait')"
+                                                @click.prevent="navigateToKeeper(getTraitConfigId(traitConfig), 'trait')"
+                                                class="text-primary-600 dark:text-primary-400 hover:underline ml-1 break-all"
+                                                x-text="getTraitConfigId(traitConfig)"></a></p>
+                                        <p class="text-xs text-surface-600 dark:text-surface-300"><strong
+                                                class="font-medium text-surface-700 dark:text-surface-200">Description:</strong>
+                                            <span class="ml-1" x-text="getItemDescription(getTraitConfigId(traitConfig), 'traits')"></span></p>
+                                    </div>
+
+                                    <!-- Advanced Configuration Toggle -->
+                                    <div class="pt-2 border-t border-surface-100 dark:border-surface-600">
+                                        <button @click="toggleAdvancedTraitConfig(index)"
+                                                class="flex items-center text-xs font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300">
+                                            <iconify-icon :icon="showAdvancedTraitConfig[index] ? 'tabler:chevron-up' : 'tabler:chevron-down'" class="mr-1" width="14" height="14"></iconify-icon>
+                                            <span x-text="showAdvancedTraitConfig[index] ? 'Hide Advanced Configuration' : 'Show Advanced Configuration'"></span>
+                                        </button>
+                                    </div>
+
+                                    <!-- Advanced Configuration Panel -->
+                                    <div x-show="showAdvancedTraitConfig[index]" x-collapse class="space-y-3 pt-2">
+                                        <!-- Context JSON Field -->
+                                        <div>
+                                            <label :for="'trait-context-' + index" class="block text-xs font-medium text-surface-700 dark:text-surface-300 mb-1">
+                                                Context Override (JSON)
+                                            </label>
+                                            <textarea :id="'trait-context-' + index"
+                                                      x-model="getTraitConfigContextString(traitConfig)"
+                                                      @input="updateTraitConfigContext(index, $event.target.value)"
+                                                      rows="3"
+                                                      placeholder='{"key": "value"}'
+                                                      class="block w-full text-xs border rounded-md shadow-sm py-1.5 px-2 font-mono focus:outline-none"
+                                                      :class="getTraitContextInputClasses(index)"></textarea>
+                                            <p class="mt-1 text-xs text-surface-500 dark:text-surface-400">Context values that override trait defaults (must be valid JSON)</p>
+                                            <p x-show="traitContextErrors[index]" class="mt-1 text-xs text-red-600 dark:text-red-400" x-text="traitContextErrors[index]"></p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -830,7 +931,7 @@
 </div>
 {{ end }}
 
-{ * Tools Tab Panel * }
+{* Tools Tab Panel *}
 {{ block toolsTabPanel() }}
 <!-- Tools Tab Panel -->
 <div x-show="activeTab === 'tools'" class="space-y-6">
@@ -961,7 +1062,7 @@
 
             <!-- RIGHT SIDE: Current Tools List -->
             <div class="md:w-3/5">
-                <div x-show="!agentData.data.tools || agentData.data.tools.length === 0"
+                <div x-show="!agentTools || agentTools.length === 0"
                      class="bg-surface-50 dark:bg-surface-700 border border-surface-200 dark:border-surface-600 rounded-md p-4 text-center min-h-[15rem] flex items-center justify-center flex-col">
                     <iconify-icon icon="tabler:toolbox" class="text-surface-400 dark:text-surface-500" width="32"
                                   height="32"></iconify-icon>
@@ -971,35 +1072,43 @@
                         them.</p>
                 </div>
 
-                <div class="space-y-2" x-show="agentData.data.tools && agentData.data.tools.length > 0">
-                    <template x-for="(toolId, index) in agentData.data.tools" :key="toolId">
+                <div class="space-y-2" x-show="agentTools && agentTools.length > 0">
+                    <template x-for="(toolConfig, index) in agentTools" :key="getToolConfigId(toolConfig)">
                         <div class="rounded-md border group transition-all duration-200 ease-in-out overflow-hidden"
                              :class="{
-                                 'bg-purple-50 dark:bg-purple-900/30 border-purple-200 dark:border-purple-700 hover:border-purple-300 dark:hover:border-purple-600': toolId.endsWith(':*'),
-                                 'bg-surface-50 dark:bg-surface-900/70 border-surface-200 dark:border-surface-700 hover:border-surface-300 dark:hover:border-surface-600': !toolId.endsWith(':*')
+                                 'bg-purple-50 dark:bg-purple-900/30 border-purple-200 dark:border-purple-700 hover:border-purple-300 dark:hover:border-purple-600': isNamespaceWildcard(toolConfig),
+                                 'bg-surface-50 dark:bg-surface-900/70 border-surface-200 dark:border-surface-700 hover:border-surface-300 dark:hover:border-surface-600': !isNamespaceWildcard(toolConfig)
                              }">
                             <div class="flex items-center justify-between p-3 cursor-pointer min-h-[4.5rem]"
-                                 @click="toggleItemExpansion(toolId, 'tools')">
+                                 @click="toggleItemExpansion(getToolConfigId(toolConfig), 'tools')">
                                 <div class="flex items-center overflow-hidden min-w-0">
                                     <iconify-icon
-                                            :icon="toolId.endsWith(':*') ? 'tabler:folder-star' : 'tabler:tool'"
+                                            :icon="isNamespaceWildcard(toolConfig) ? 'tabler:folder-star' : 'tabler:tool'"
                                             class="flex-shrink-0 mr-3 w-5 h-5"
                                             :class="{
-                                            'text-purple-500 dark:text-purple-400': toolId.endsWith(':*'),
-                                            'text-primary-600 dark:text-primary-500': !toolId.endsWith(':*')
+                                            'text-purple-500 dark:text-purple-400': isNamespaceWildcard(toolConfig),
+                                            'text-primary-600 dark:text-primary-500': !isNamespaceWildcard(toolConfig)
                                         }"></iconify-icon>
                                     <div class="flex-grow overflow-hidden min-w-0">
-                                        <span class="text-sm font-medium truncate block"
-                                              :class="{
-                                                  'text-purple-700 dark:text-purple-300': toolId.endsWith(':*'),
-                                                  'text-surface-800 dark:text-surface-200': !toolId.endsWith(':*')
-                                              }"
-                                              x-text="toolId.endsWith(':*') ? toolId.replace(':*', '') + ' (Namespace Access)' : getItemName(toolId, 'tools')"
-                                              :title="toolId.endsWith(':*') ? (toolId.replace(':*', '') + ' (Namespace Access)') : (getItemName(toolId, 'tools') + ' (' + toolId + ')')">
-                                        </span>
-                                        <span x-show="!toolId.endsWith(':*')"
+                                        <div class="flex items-center">
+                                            <span class="text-sm font-medium truncate block"
+                                                  :class="{
+                                                      'text-purple-700 dark:text-purple-300': isNamespaceWildcard(toolConfig),
+                                                      'text-surface-800 dark:text-surface-200': !isNamespaceWildcard(toolConfig)
+                                                  }"
+                                                  x-text="getToolDisplayTitle(toolConfig)"
+                                                  :title="getToolDisplayTitle(toolConfig)">
+                                            </span>
+                                            <!-- Configuration Indicator -->
+                                            <span x-show="!isNamespaceWildcard(toolConfig) && hasAdvancedToolConfig(toolConfig)"
+                                                  class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-100">
+                                                <iconify-icon icon="tabler:settings" class="mr-1" width="12" height="12"></iconify-icon>
+                                                Config
+                                            </span>
+                                        </div>
+                                        <span x-show="!isNamespaceWildcard(toolConfig)"
                                               class="text-xs text-surface-500 dark:text-surface-400 truncate block"
-                                              x-text="toolId" :title="toolId">
+                                              x-text="getToolConfigId(toolConfig)" :title="getToolConfigId(toolConfig)">
                                         </span>
                                     </div>
                                 </div>
@@ -1010,60 +1119,118 @@
                                         <iconify-icon icon="tabler:trash" width="16" height="16"></iconify-icon>
                                     </button>
                                     <iconify-icon
-                                            :icon="expandedItems.tools[toolId] ? 'tabler:chevron-up' : 'tabler:chevron-down'"
+                                            :icon="expandedItems.tools[getToolConfigId(toolConfig)] ? 'tabler:chevron-up' : 'tabler:chevron-down'"
                                             class="w-5 h-5 text-surface-500 dark:text-surface-400">
                                     </iconify-icon>
                                 </div>
                             </div>
 
                             <!-- Expanded View Content for Specific Tool -->
-                            <div x-show="expandedItems.tools[toolId] && !toolId.endsWith(':*')" x-collapse
+                            <div x-show="expandedItems.tools[getToolConfigId(toolConfig)] && !isNamespaceWildcard(toolConfig)" x-collapse
                                  class="border-t border-surface-200 dark:border-surface-700">
-                                <div class="p-3 space-y-1.5 bg-white dark:bg-surface-800">
-                                    <p class="text-xs text-surface-600 dark:text-surface-300">
-                                        <strong class="font-medium text-surface-700 dark:text-surface-200">ID:</strong>
-                                        <a :href="getKeeperLink(toolId, 'tool')"
-                                           @click.prevent="navigateToKeeper(toolId, 'tool')"
-                                           class="text-primary-600 dark:text-primary-400 hover:underline ml-1 break-all"
-                                           x-text="toolId"></a>
-                                    </p>
-                                    <p class="text-xs text-surface-600 dark:text-surface-300">
-                                        <strong class="font-medium text-surface-700 dark:text-surface-200">Description:</strong>
-                                        <span class="ml-1" x-text="getItemDescription(toolId, 'tools')"></span>
-                                    </p>
+                                <div class="p-3 space-y-3 bg-white dark:bg-surface-800">
+                                    <!-- Basic Tool Info -->
+                                    <div class="space-y-1.5">
+                                        <p class="text-xs text-surface-600 dark:text-surface-300">
+                                            <strong class="font-medium text-surface-700 dark:text-surface-200">ID:</strong>
+                                            <a :href="getKeeperLink(getToolConfigId(toolConfig), 'tool')"
+                                               @click.prevent="navigateToKeeper(getToolConfigId(toolConfig), 'tool')"
+                                               class="text-primary-600 dark:text-primary-400 hover:underline ml-1 break-all"
+                                               x-text="getToolConfigId(toolConfig)"></a>
+                                        </p>
+                                        <p class="text-xs text-surface-600 dark:text-surface-300">
+                                            <strong class="font-medium text-surface-700 dark:text-surface-200">Description:</strong>
+                                            <span class="ml-1" x-text="getItemDescription(getToolConfigId(toolConfig), 'tools')"></span>
+                                        </p>
+                                    </div>
+
+                                    <!-- Advanced Configuration Toggle -->
+                                    <div class="pt-2 border-t border-surface-100 dark:border-surface-600">
+                                        <button @click="toggleAdvancedToolConfig(index)"
+                                                class="flex items-center text-xs font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300">
+                                            <iconify-icon :icon="showAdvancedToolConfig[index] ? 'tabler:chevron-up' : 'tabler:chevron-down'" class="mr-1" width="14" height="14"></iconify-icon>
+                                            <span x-text="showAdvancedToolConfig[index] ? 'Hide Advanced Configuration' : 'Show Advanced Configuration'"></span>
+                                        </button>
+                                    </div>
+
+                                    <!-- Advanced Configuration Panel -->
+                                    <div x-show="showAdvancedToolConfig[index]" x-collapse class="space-y-3 pt-2">
+                                        <!-- Alias Field -->
+                                        <div>
+                                            <label :for="'tool-alias-' + index" class="block text-xs font-medium text-surface-700 dark:text-surface-300 mb-1">
+                                                Custom Alias
+                                            </label>
+                                            <input :id="'tool-alias-' + index" type="text"
+                                                   x-model="getToolConfigProperty(toolConfig, 'alias')"
+                                                   @input="updateToolConfig(index, 'alias', $event.target.value)"
+                                                   placeholder="e.g., my_custom_tool"
+                                                   class="block w-full text-xs border border-surface-300 dark:border-surface-600 rounded-md shadow-sm py-1.5 px-2 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 focus:outline-none focus:ring-primary-500 focus:border-primary-500">
+                                            <p class="mt-1 text-xs text-surface-500 dark:text-surface-400">Custom name for this tool when used by the agent</p>
+                                        </div>
+
+                                        <!-- Description Override Field -->
+                                        <div>
+                                            <label :for="'tool-description-' + index" class="block text-xs font-medium text-surface-700 dark:text-surface-300 mb-1">
+                                                Custom Description
+                                            </label>
+                                            <textarea :id="'tool-description-' + index"
+                                                      x-model="getToolConfigProperty(toolConfig, 'description')"
+                                                      @input="updateToolConfig(index, 'description', $event.target.value)"
+                                                      rows="2"
+                                                      placeholder="Override the tool's default description..."
+                                                      class="block w-full text-xs border border-surface-300 dark:border-surface-600 rounded-md shadow-sm py-1.5 px-2 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 focus:outline-none focus:ring-primary-500 focus:border-primary-500"></textarea>
+                                            <p class="mt-1 text-xs text-surface-500 dark:text-surface-400">Custom description for this tool when used by the agent</p>
+                                        </div>
+
+                                        <!-- Context JSON Field -->
+                                        <div>
+                                            <label :for="'tool-context-' + index" class="block text-xs font-medium text-surface-700 dark:text-surface-300 mb-1">
+                                                Context (JSON)
+                                            </label>
+                                            <textarea :id="'tool-context-' + index"
+                                                      x-model="getToolConfigContextString(toolConfig)"
+                                                      @input="updateToolConfigContext(index, $event.target.value)"
+                                                      rows="3"
+                                                      placeholder='{"key": "value"}'
+                                                      class="block w-full text-xs border rounded-md shadow-sm py-1.5 px-2 font-mono focus:outline-none"
+                                                      :class="getToolContextInputClasses(index)"></textarea>
+                                            <p class="mt-1 text-xs text-surface-500 dark:text-surface-400">Context values passed to this tool (must be valid JSON)</p>
+                                            <p x-show="toolContextErrors[index]" class="mt-1 text-xs text-red-600 dark:text-red-400" x-text="toolContextErrors[index]"></p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
                             <!-- Expanded View Content for Namespace Wildcard -->
-                            <div x-show="expandedItems.tools[toolId] && toolId.endsWith(':*')" x-collapse
+                            <div x-show="expandedItems.tools[getToolConfigId(toolConfig)] && isNamespaceWildcard(toolConfig)" x-collapse
                                  class="border-t border-purple-200 dark:border-purple-700">
                                 <div class="p-3 bg-purple-50/50 dark:bg-purple-900/20">
-                                    <div x-show="loadingWildcards[toolId] === 'full' || (loadingWildcards[toolId] && (!(loadedWildcardTools[toolId] || {}).entries || (loadedWildcardTools[toolId] || {}).entries.length === 0 && (loadedWildcardTools[toolId] || {total:0}).total === 0))"
+                                    <div x-show="loadingWildcards[getToolConfigId(toolConfig)] === 'full' || (loadingWildcards[getToolConfigId(toolConfig)] && !(loadedWildcardTools[getToolConfigId(toolConfig)] || {}).entries || (loadedWildcardTools[getToolConfigId(toolConfig)] || {}).entries.length === 0 && (loadedWildcardTools[getToolConfigId(toolConfig)] || {total:0}).total === 0)"
                                          class="flex items-center justify-center py-4">
                                         <div class="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-purple-500"></div>
                                         <span class="ml-2 text-sm text-purple-600 dark:text-purple-400">Loading tools in namespace...</span>
                                     </div>
-                                    <div x-show="!loadingWildcards[toolId] && wildcardLoadError[toolId] && (!(loadedWildcardTools[toolId] || {}).entries || (loadedWildcardTools[toolId] || {}).entries.length === 0)"
+                                    <div x-show="!loadingWildcards[getToolConfigId(toolConfig)] && wildcardLoadError[getToolConfigId(toolConfig)] && (!(loadedWildcardTools[getToolConfigId(toolConfig)] || {}).entries || (loadedWildcardTools[getToolConfigId(toolConfig)] || {}).entries.length === 0)"
                                          class="text-center py-2 text-red-600 dark:text-red-400 text-xs">
                                         <iconify-icon icon="tabler:alert-circle"
                                                       class="inline-block mr-1 w-4 h-4"></iconify-icon>
-                                        Error loading tools: <span x-text="wildcardLoadError[toolId]"></span>
-                                        <button @click="loadWildcardTools(toolId, true, false)"
+                                        Error loading tools: <span x-text="wildcardLoadError[getToolConfigId(toolConfig)]"></span>
+                                        <button @click="loadWildcardTools(getToolConfigId(toolConfig), true, false)"
                                                 class="ml-2 text-primary-600 dark:text-primary-400 hover:underline text-xs font-medium">
                                             (Retry)
                                         </button>
                                     </div>
 
-                                    <div x-show="(loadedWildcardTools[toolId] || {}).entries && !loadingWildcards[toolId] && !wildcardLoadError[toolId]">
+                                    <div x-show="(loadedWildcardTools[getToolConfigId(toolConfig)] || {}).entries && !loadingWildcards[getToolConfigId(toolConfig)] && !wildcardLoadError[getToolConfigId(toolConfig)]">
                                         <template
-                                                x-if="!(loadedWildcardTools[toolId] || {}).entries || (loadedWildcardTools[toolId] || {}).entries.length === 0">
+                                                x-if="!(loadedWildcardTools[getToolConfigId(toolConfig)] || {}).entries || (loadedWildcardTools[getToolConfigId(toolConfig)] || {}).entries.length === 0">
                                             <p class="text-xs text-center py-2 text-surface-500 dark:text-surface-400">
                                                 No tools with type 'tool' found in this namespace.</p>
                                         </template>
                                         <template
-                                                x-if="(loadedWildcardTools[toolId] || {}).entries && (loadedWildcardTools[toolId] || {}).entries.length > 0">
+                                                x-if="(loadedWildcardTools[getToolConfigId(toolConfig)] || {}).entries && (loadedWildcardTools[getToolConfigId(toolConfig)] || {}).entries.length > 0">
                                             <ul class="space-y-2">
-                                                <template x-for="toolInNamespace in (loadedWildcardTools[toolId] || {}).entries"
+                                                <template x-for="toolInNamespace in (loadedWildcardTools[getToolConfigId(toolConfig)] || {}).entries"
                                                           :key="toolInNamespace.id">
                                                     <li class="text-xs group/sub-item p-2 rounded-md bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700 shadow-sm">
                                                         <div class="flex items-start justify-between">
@@ -1102,7 +1269,7 @@
 </div>
 {{ end }}
 
-{ * Status Notification Block * }
+{* Status Notification Block *}
 {{ block statusNotification() }}
 <div x-data="{ notification: { show: false, type: 'success', message: '', timeout: null } }"
      @shownotification.window="
@@ -1143,6 +1310,23 @@
 {{ end }}
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 {{ block customJs() }}
 <script>
     document.addEventListener('alpine:init', () => {
@@ -1156,9 +1340,9 @@
                 meta: {comment: '', title: '', name: '', icon: '', tags: [], group: [], class: []},
                 data: {
                     prompt: '', memory: [], start_prompts: [], tools: [],
-                    model: '', max_tokens: 8000, temperature: 0.7,
-                    traits: [], delegate: {},
-                    memory_contract: {} // Initialize as empty object for consistency with unlink
+                    model: '', max_tokens: 8000, temperature: 0.7, thinking_effort: 0,
+                    traits: [], delegates: [],
+                    memory_contract: {}
                 }
             },
             originalAgentData: null,
@@ -1181,6 +1365,22 @@
                 {id: 'tools', label: 'Tools', icon: 'tabler:tool'}
             ],
 
+            // Enhanced configuration state
+            agentTraits: [], // Holds trait configurations (both string and object formats)
+            agentTools: [], // Holds tool configurations (both string and object formats)
+            agentDelegates: [], // Holds delegate configurations
+
+            // Advanced configuration toggles (hidden by default)
+            showAdvancedTraitConfig: {},
+            showAdvancedToolConfig: {},
+
+            // Context validation errors
+            traitContextErrors: {},
+            toolContextErrors: {},
+            delegateContextErrors: {},
+            editableDelegateContexts: {},
+
+            // Item search and filtering
             itemSearchQueries: {tools: '', traits: '', delegates: ''},
             filteredAvailableItems: {tools: [], traits: [], delegates: []},
             isLoadingItems: {tools: false, traits: false, delegates: false},
@@ -1207,7 +1407,11 @@
             loadingWildcards: {},
             wildcardLoadError: {},
 
-            newDelegate: {id: '', agentName: '', toolName: '', rule: ''},
+            // Delegate form state
+            newDelegate: {id: '', agentName: '', name: '', rule: '', context: {}},
+            newDelegateContextString: '{}',
+            newDelegateContextError: '',
+
             classInputText: '',
 
             // Memory Contract specific state
@@ -1220,18 +1424,6 @@
                 return !!(this.agentData.data.memory_contract && this.agentData.data.memory_contract.implementation_id);
             },
 
-            get agentDelegates() {
-                if (!this.agentData || !this.agentData.data || !this.agentData.data.delegate) return [];
-                const delegates = [];
-                for (const [agentName, config] of Object.entries(this.agentData.data.delegate)) {
-                    delegates.push({
-                        agentName: agentName, toolName: config.name || '',
-                        rule: config.rule || '', agentId: config.id || ''
-                    });
-                }
-                return delegates.sort((a, b) => (a.toolName || '').localeCompare(b.toolName || ''));
-            },
-
             get isDirty() {
                 if (!this.originalAgentData || !this.agentData) return false;
                 if (this.metaDirty || this.dataDirty) return true;
@@ -1242,32 +1434,35 @@
 
                 const originalData = this.originalAgentData.data || {};
                 const currentData = this.agentData.data || {};
-                const fieldsToCompare = ['prompt', 'model', 'max_tokens', 'temperature'];
+                const fieldsToCompare = ['prompt', 'model', 'max_tokens', 'temperature', 'thinking_effort'];
                 for (const field of fieldsToCompare) {
                     if (JSON.stringify(originalData[field]) !== JSON.stringify(currentData[field])) return true;
                 }
-                const arrayFieldsToCompare = ['memory', 'start_prompts', 'tools', 'traits'];
+
+                const arrayFieldsToCompare = ['memory', 'start_prompts'];
                 for (const field of arrayFieldsToCompare) {
                     const originalArrayJSON = JSON.stringify((originalData[field] || []).sort());
                     const currentArrayJSON = JSON.stringify((currentData[field] || []).sort());
                     if (originalArrayJSON !== currentArrayJSON) return true;
                 }
-                const normalizeDelegates = (delegatesObj) => {
-                    if (!delegatesObj) return {};
-                    const sortedKeys = Object.keys(delegatesObj).sort();
-                    const normalized = {};
-                    sortedKeys.forEach(key => { normalized[key] = delegatesObj[key]; });
-                    return normalized;
-                };
-                const originalDelegatesJSON = JSON.stringify(normalizeDelegates(originalData.delegate));
-                const currentDelegatesJSON = JSON.stringify(normalizeDelegates(currentData.delegate));
-                if (originalDelegatesJSON !== currentDelegatesJSON) return true;
+
+                // Compare enhanced configurations
+                const originalTraits = this.normalizeConfigsForComparison(originalData.traits || []);
+                const currentTraits = this.normalizeConfigsForComparison(this.agentTraits);
+                if (JSON.stringify(originalTraits) !== JSON.stringify(currentTraits)) return true;
+
+                const originalTools = this.normalizeConfigsForComparison(originalData.tools || []);
+                const currentTools = this.normalizeConfigsForComparison(this.agentTools);
+                if (JSON.stringify(originalTools) !== JSON.stringify(currentTools)) return true;
+
+                const originalDelegates = this.normalizeConfigsForComparison(originalData.delegates || []);
+                const currentDelegates = this.normalizeConfigsForComparison(this.agentDelegates);
+                if (JSON.stringify(originalDelegates) !== JSON.stringify(currentDelegates)) return true;
 
                 // Memory contract comparison
-                // Normalize empty memory_contract to {} for comparison if original was null or undefined
                 const normalizeMc = (mc) => (!mc || Object.keys(mc).length === 0) ? {} : mc;
                 const originalMcNorm = normalizeMc(originalData.memory_contract);
-                const currentMcNorm = normalizeMc(currentData.memory_contract);
+                const currentMcNorm = normalizeMc(this.agentData.data.memory_contract);
 
                 if (JSON.stringify(originalMcNorm.implementation_id) !== JSON.stringify(currentMcNorm.implementation_id)) return true;
                 if (JSON.stringify(originalMcNorm.context_values || {}) !== JSON.stringify(currentMcNorm.context_values || {})) return true;
@@ -1275,13 +1470,86 @@
                 return false;
             },
 
-            setDirty(section) {
-                if (section === 'meta') this.metaDirty = true;
-                if (section === 'data') this.dataDirty = true;
+            get isValidNamespaceInput() { return this.namespaceInput && !this.namespaceError; },
+
+            // Configuration format handling methods
+            getTraitConfigId(traitConfig) {
+                return typeof traitConfig === 'string' ? traitConfig : traitConfig.id;
             },
 
-            get isValidNamespaceInput() { return this.namespaceInput && !this.namespaceError; },
-            canAddDelegate() { return this.newDelegate.id && this.newDelegate.agentName && this.newDelegate.toolName && !this.isLoading && !this.isSaving; },
+            getTraitDisplayTitle(traitConfig) {
+                const traitId = this.getTraitConfigId(traitConfig);
+                return this.getItemName(traitId, 'traits');
+            },
+
+            hasAdvancedTraitConfig(traitConfig) {
+                if (typeof traitConfig === 'string') return false;
+                return !!(traitConfig.context && Object.keys(traitConfig.context).length > 0);
+            },
+
+            getTraitConfigContextString(traitConfig) {
+                if (typeof traitConfig === 'string') return '{}';
+                return JSON.stringify(traitConfig.context || {}, null, 2);
+            },
+
+            getTraitContextInputClasses(index) {
+                if (this.traitContextErrors[index]) {
+                    return 'border-red-500 dark:border-red-400 bg-red-50 dark:bg-red-900/30 text-red-900 dark:text-red-100 focus:ring-red-500 focus:border-red-500';
+                }
+                return 'border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 focus:ring-primary-500 focus:border-primary-500';
+            },
+
+            getToolConfigId(toolConfig) {
+                return typeof toolConfig === 'string' ? toolConfig : toolConfig.id;
+            },
+
+            isNamespaceWildcard(toolConfig) {
+                return this.getToolConfigId(toolConfig).endsWith(':*');
+            },
+
+            hasAdvancedToolConfig(toolConfig) {
+                if (typeof toolConfig === 'string') return false;
+                return !!(toolConfig.alias || toolConfig.description ||
+                    (toolConfig.context && Object.keys(toolConfig.context).length > 0));
+            },
+
+            getToolDisplayTitle(toolConfig) {
+                const toolId = this.getToolConfigId(toolConfig);
+                if (this.isNamespaceWildcard(toolConfig)) {
+                    return toolId.replace(':*', '') + ' (Namespace Access)';
+                }
+
+                if (typeof toolConfig === 'object' && toolConfig.alias) {
+                    return toolConfig.alias;
+                }
+                return this.getItemName(toolId, 'tools');
+            },
+
+            getToolConfigProperty(toolConfig, property) {
+                if (typeof toolConfig === 'string') return '';
+                return toolConfig[property] || '';
+            },
+
+            getToolConfigContextString(toolConfig) {
+                if (typeof toolConfig === 'string') return '{}';
+                return JSON.stringify(toolConfig.context || {}, null, 2);
+            },
+
+            getToolContextInputClasses(index) {
+                if (this.toolContextErrors[index]) {
+                    return 'border-red-500 dark:border-red-400 bg-red-50 dark:bg-red-900/30 text-red-900 dark:text-red-100 focus:ring-red-500 focus:border-red-500';
+                }
+                return 'border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 focus:ring-primary-500 focus:border-primary-500';
+            },
+
+            hasAdvancedDelegateConfig(delegate) {
+                return !!(delegate.context && Object.keys(delegate.context).length > 0);
+            },
+
+            canAddDelegate() {
+                return this.newDelegate.id && this.newDelegate.agentName && this.newDelegate.name &&
+                    !this.isLoading && !this.isSaving && !this.newDelegateContextError;
+            },
 
             getKeeperTypeForTab(tabId) {
                 if (tabId === 'tools') return 'tool';
@@ -1290,17 +1558,192 @@
                 return null;
             },
 
+            normalizeConfigsForComparison(configs) {
+                return configs.map(config => {
+                    if (typeof config === 'string') {
+                        return { id: config };
+                    }
+                    const normalized = {
+                        id: config.id,
+                        alias: config.alias || undefined,
+                        description: config.description || undefined,
+                        context: config.context || undefined,
+                        name: config.name || undefined,
+                        rule: config.rule || undefined
+                    };
+                    // remove uid before comparison
+                    delete normalized._uid;
+                    return normalized;
+
+                }).sort((a, b) => (a.id || a.name).localeCompare(b.id || b.name));
+            },
+
+            setDirty(section) {
+                if (section === 'meta') this.metaDirty = true;
+                if (section === 'data') this.dataDirty = true;
+            },
+
+            // Enhanced configuration update methods
+            toggleAdvancedTraitConfig(index) {
+                this.showAdvancedTraitConfig[index] = !this.showAdvancedTraitConfig[index];
+                this.showAdvancedTraitConfig = {...this.showAdvancedTraitConfig};
+            },
+
+            updateTraitConfigContext(index, contextString) {
+                if (!this.agentTraits[index]) return;
+
+                try {
+                    const parsedContext = JSON.parse(contextString);
+                    if (typeof parsedContext !== 'object' || parsedContext === null) {
+                        throw new Error('Context must be a JSON object');
+                    }
+
+                    // Convert to object format if it's currently a string
+                    if (typeof this.agentTraits[index] === 'string') {
+                        this.agentTraits[index] = { id: this.agentTraits[index] };
+                    }
+
+                    // Update context
+                    if (Object.keys(parsedContext).length > 0) {
+                        this.agentTraits[index].context = parsedContext;
+                    } else {
+                        delete this.agentTraits[index].context;
+                    }
+
+                    this.traitContextErrors[index] = '';
+                    this.dataDirty = true;
+                    this.agentTraits = [...this.agentTraits]; // Trigger reactivity
+
+                } catch (error) {
+                    this.traitContextErrors[index] = error.message;
+                }
+
+                this.traitContextErrors = {...this.traitContextErrors};
+            },
+
+            toggleAdvancedToolConfig(index) {
+                this.showAdvancedToolConfig[index] = !this.showAdvancedToolConfig[index];
+                this.showAdvancedToolConfig = {...this.showAdvancedToolConfig};
+            },
+
+            updateToolConfig(index, property, value) {
+                if (!this.agentTools[index]) return;
+
+                // Convert to object format if it's currently a string
+                if (typeof this.agentTools[index] === 'string') {
+                    this.agentTools[index] = { id: this.agentTools[index] };
+                }
+
+                // Update property
+                if (value && value.trim()) {
+                    this.agentTools[index][property] = value.trim();
+                } else {
+                    delete this.agentTools[index][property];
+                }
+
+                this.dataDirty = true;
+                this.agentTools = [...this.agentTools]; // Trigger reactivity
+            },
+
+            updateToolConfigContext(index, contextString) {
+                if (!this.agentTools[index]) return;
+
+                try {
+                    const parsedContext = JSON.parse(contextString);
+                    if (typeof parsedContext !== 'object' || parsedContext === null) {
+                        throw new Error('Context must be a JSON object');
+                    }
+
+                    // Convert to object format if it's currently a string
+                    if (typeof this.agentTools[index] === 'string') {
+                        this.agentTools[index] = { id: this.agentTools[index] };
+                    }
+
+                    // Update context
+                    if (Object.keys(parsedContext).length > 0) {
+                        this.agentTools[index].context = parsedContext;
+                    } else {
+                        delete this.agentTools[index].context;
+                    }
+
+                    this.toolContextErrors[index] = '';
+                    this.dataDirty = true;
+                    this.agentTools = [...this.agentTools]; // Trigger reactivity
+
+                } catch (error) {
+                    this.toolContextErrors[index] = error.message;
+                }
+
+                this.toolContextErrors = {...this.toolContextErrors};
+            },
+
+            updateDelegateContext(uid, contextString) {
+                const delegate = this.agentDelegates.find(d => d._uid === uid);
+                if (!delegate) return;
+
+                this.editableDelegateContexts[uid] = contextString;
+                try {
+                    const parsedContext = contextString.trim() ? JSON.parse(contextString) : {};
+                    if (typeof parsedContext !== 'object' || parsedContext === null) {
+                        throw new Error('Context must be a JSON object.');
+                    }
+                    if (Object.keys(parsedContext).length > 0) {
+                        delegate.context = parsedContext;
+                    } else {
+                        delete delegate.context;
+                    }
+                    this.delegateContextErrors[uid] = '';
+                    this.setDirty('data');
+                } catch (e) {
+                    this.delegateContextErrors[uid] = e.message;
+                }
+                this.delegateContextErrors = {...this.delegateContextErrors};
+            },
+
+            getDelegateContextInputClasses(uid) {
+                if (this.delegateContextErrors[uid]) {
+                    return 'border-red-500 dark:border-red-400 bg-red-50 dark:bg-red-900/30 text-red-900 dark:text-red-100 focus:ring-red-500 focus:border-red-500';
+                }
+                return 'border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 focus:ring-primary-500 focus:border-primary-500';
+            },
+
+            validateDelegateName() {
+                // Basic validation for delegate name
+                if (this.newDelegate.name && !/^[a-z][a-z0-9_]*$/i.test(this.newDelegate.name)) {
+                    this.showNotification('warning', 'Tool name should be snake_case format (letters, numbers, underscores)');
+                }
+            },
+
+            validateDelegateContext() {
+                this.newDelegateContextError = '';
+                if (!this.newDelegateContextString.trim()) {
+                    this.newDelegateContextString = '{}';
+                    return;
+                }
+
+                try {
+                    const parsedContext = JSON.parse(this.newDelegateContextString);
+                    if (typeof parsedContext !== 'object' || parsedContext === null) {
+                        throw new Error('Context must be a JSON object');
+                    }
+                    this.newDelegate.context = parsedContext;
+                } catch (error) {
+                    this.newDelegateContextError = error.message;
+                }
+            },
+
             async initialize() {
                 this.isLoading = true;
                 this.loadError = null;
                 this.metaDirty = false;
                 this.dataDirty = false;
                 this.agentData = {
-                    id: null, meta: {comment: '', title: '', name: '', icon: '', tags: [], group: [], class: []},
+                    id: null,
+                    meta: {comment: '', title: '', name: '', icon: '', tags: [], group: [], class: []},
                     data: {
                         prompt: '', memory: [], start_prompts: [], tools: [],
-                        model: '', max_tokens: 8000, temperature: 0.7,
-                        traits: [], delegate: {}, memory_contract: {}
+                        model: '', max_tokens: 8000, temperature: 0.7, thinking_effort: 0,
+                        traits: [], delegates: [], memory_contract: {}
                     }
                 };
                 this.originalAgentData = null;
@@ -1309,6 +1752,17 @@
                 this.filteredAvailableItems = {tools: [], traits: [], delegates: []};
                 this.isLoadingItems = {tools: false, traits: false, delegates: false};
                 this.expandedItems = {tools: {}, traits: {}, delegates: {}};
+
+                // Reset enhanced configuration state
+                this.agentTraits = [];
+                this.agentTools = [];
+                this.agentDelegates = [];
+                this.showAdvancedTraitConfig = {};
+                this.showAdvancedToolConfig = {};
+                this.traitContextErrors = {};
+                this.toolContextErrors = {};
+                this.delegateContextErrors = {};
+                this.editableDelegateContexts = {};
 
                 this.availableRegistryItems = {'agent.gen1': undefined, 'tool': undefined, 'agent.trait': undefined};
                 this.isLoadingRegistryItems = {'agent.gen1': false, 'tool': false, 'agent.trait': false};
@@ -1319,7 +1773,9 @@
                 this.namespaceInput = ''; this.namespaceError = ''; this.isAddingNamespace = false;
                 this.availableNamespaces = []; this.isLoadingNamespaces = false;
                 this.loadedWildcardTools = {}; this.loadingWildcards = {}; this.wildcardLoadError = {};
-                this.newDelegate = {id: '', agentName: '', toolName: '', rule: ''};
+                this.newDelegate = {id: '', agentName: '', name: '', rule: '', context: {}};
+                this.newDelegateContextString = '{}';
+                this.newDelegateContextError = '';
                 this.classInputText = '';
 
                 this.memoryContractImplementationIdInput = '';
@@ -1332,14 +1788,13 @@
                         this.memoryContractContextString = JSON.stringify(newContract.context_values || {}, null, 2);
                         this.memoryContractContextError = '';
                     } else {
-                        // When unlinked (newContract is {} or null or undefined) or initially null,
                         this.memoryContractContextString = '{}';
                         this.memoryContractContextError = '';
                     }
-                }, { deep: true }); // Use deep watch if context_values might change internally without reassigning memory_contract
+                }, { deep: true });
 
                 try {
-                    this.wippyApi = await window.initWippyApi(); // Direct call, assumes Wippy AI environment
+                    this.wippyApi = await window.initWippyApi();
                     const agentId = this.wippyApi.config.path;
                     if (!agentId) throw new Error("Agent ID not found in Wippy configuration.");
 
@@ -1351,7 +1806,7 @@
                 } catch (error) {
                     console.error('Initialization error:', error);
                     this.loadError = `Initialization Failed: ${error.message || 'Unknown error'}`;
-                    if (this.wippyApi && this.wippyApi.iframe && this.isFatalError(error)) { // Check if iframe is available
+                    if (this.wippyApi && this.wippyApi.iframe && this.isFatalError(error)) {
                         this.wippyApi.iframe.handleError('other', error);
                     }
                 } finally { this.isLoading = false; }
@@ -1367,83 +1822,32 @@
                     this.agentData = response.data.entry;
                     this.ensureDataStructures();
 
-                    const serverTraitsField = this.agentData.data.traits || [];
-                    const agentTraitNames = [];
-                    const allAvailableTraitObjects = this.availableRegistryItems['agent.trait'] || [];
-                    if (serverTraitsField.length > 0 && allAvailableTraitObjects.length > 0) {
-                        for (const traitIdentifier of serverTraitsField) {
-                            let foundTraitObj = null;
-                            if (typeof traitIdentifier === 'string') {
-                                if (traitIdentifier.includes(':')) {
-                                    foundTraitObj = allAvailableTraitObjects.find(t => t.id === traitIdentifier);
-                                } else {
-                                    foundTraitObj = allAvailableTraitObjects.find(t => t.meta && t.meta.name === traitIdentifier);
-                                }
-                            }
-                            if (foundTraitObj && foundTraitObj.meta && foundTraitObj.meta.name) {
-                                agentTraitNames.push(foundTraitObj.meta.name);
-                                if (!this.itemCache['agent.trait']) this.itemCache['agent.trait'] = {};
-                                this.itemCache['agent.trait'][foundTraitObj.meta.name] = foundTraitObj;
-                            }
-                        }
-                    }
-                    this.agentData.data.traits = agentTraitNames;
+                    // Handle enhanced trait configurations
+                    this.agentTraits = [...(this.agentData.data.traits || [])];
 
-                    const serverDelegates = this.agentData.data.delegate || {};
-                    const normalizedDelegates = {};
-                    const allAvailableAgentObjects = this.availableRegistryItems['agent.gen1'] || [];
-                    for (const serverKey in serverDelegates) {
-                        const serverConfig = serverDelegates[serverKey];
-                        let targetAgentObj = allAvailableAgentObjects.find(agent => agent.id === serverKey || (agent.meta && agent.meta.name === serverKey));
-                        if (targetAgentObj && targetAgentObj.meta && targetAgentObj.meta.name) {
-                            const targetAgentName = targetAgentObj.meta.name;
-                            normalizedDelegates[targetAgentName] = { ...serverConfig, id: targetAgentObj.id };
-                            if (!this.itemCache['agent.gen1'][targetAgentObj.id] || this.itemCache['agent.gen1'][targetAgentObj.id].status !== 'loaded') {
-                                this.itemCache['agent.gen1'][targetAgentObj.id] = this.extractItemDetails(targetAgentObj, 'agent.gen1');
-                            }
-                        } else {
-                            normalizedDelegates[serverKey] = { ...serverConfig, id: serverKey.includes(':') ? serverKey : (serverConfig.id || serverKey) };
-                            if (serverKey.includes(':') && (!this.itemCache['agent.gen1'][serverKey] || this.itemCache['agent.gen1'][serverKey].status !== 'loaded') ) {
-                                this.fetchItemDetails(serverKey, 'delegates', true);
-                            }
-                        }
-                    }
-                    this.agentData.data.delegate = normalizedDelegates;
+                    // Handle enhanced tool configurations
+                    this.agentTools = [...(this.agentData.data.tools || [])];
 
-                    const itemDetailPromises = [];
-                    (this.agentData.data.tools || []).filter(toolId => toolId && !toolId.endsWith(':*')).forEach(toolId => {
-                        itemDetailPromises.push(this.fetchItemDetails(toolId, 'tools', true));
-                    });
-                    await Promise.all(itemDetailPromises);
+                    // Handle enhanced delegate configurations
+                    this.agentDelegates = [...(this.agentData.data.delegates || [])];
+                    this.agentDelegates.forEach(d => d._uid = d._uid || crypto.randomUUID());
 
-                    const wildcardLoadPromises = (this.agentData.data.tools || [])
-                        .filter(toolId => toolId && toolId.endsWith(':*'))
-                        .map(wildcardId => {
-                            if (!this.loadedWildcardTools[wildcardId]) this.loadedWildcardTools[wildcardId] = {entries: [], total: 0};
-                            return this.loadWildcardTools(wildcardId, false, true);
-                        });
+
+                    // Load item details
+                    await this.fetchItemDetails();
+
+                    // Load wildcards
+                    const wildcardLoadPromises = this.agentTools
+                        .filter(toolConfig => this.isNamespaceWildcard(toolConfig))
+                        .map(wildcardConfig => this.loadWildcardTools(this.getToolConfigId(wildcardConfig), false, true));
                     await Promise.all(wildcardLoadPromises);
-                    this.loadedWildcardTools = {...this.loadedWildcardTools};
-
-                    this.itemCache['agent.gen1'] = {...this.itemCache['agent.gen1']};
-                    this.itemCache['agent.trait'] = {...this.itemCache['agent.trait']};
-                    this.itemCache['tool'] = {...this.itemCache['tool']};
-                    this.itemCache = {...this.itemCache};
-
-                    // Initialize memoryContractContextString based on loaded data
-                    // This will also be handled by the watcher if memory_contract is an object
-                    if (this.agentData.data.memory_contract && this.agentData.data.memory_contract.implementation_id) {
-                        this.memoryContractContextString = JSON.stringify(this.agentData.data.memory_contract.context_values || {}, null, 2);
-                    } else {
-                        this.memoryContractContextString = '{}'; // Default for unlinked
-                    }
 
                     this.originalAgentData = JSON.parse(JSON.stringify(this.agentData));
                     this.metaDirty = false; this.dataDirty = false;
                 } catch (error) {
                     console.error('Error loading agent:', error);
                     this.loadError = `Failed to load agent: ${error.message || 'Unknown error'}`;
-                    if (this.wippyApi && this.wippyApi.iframe && (error.response?.status === 401 || error.response?.status === 403)) { // Check iframe
+                    if (this.wippyApi && this.wippyApi.iframe && (error.response?.status === 401 || error.response?.status === 403)) {
                         this.wippyApi.iframe.handleError('auth-expired', error);
                     }
                 }
@@ -1459,27 +1863,115 @@
                     prompt: data.prompt || '',
                     memory: Array.isArray(data.memory) ? data.memory.filter(item => typeof item === 'string') : [],
                     start_prompts: Array.isArray(data.start_prompts) ? data.start_prompts.filter(item => typeof item === 'string') : [],
-                    tools: Array.isArray(data.tools) ? data.tools.filter(item => typeof item === 'string') : [],
+                    tools: Array.isArray(data.tools) ? data.tools : [],
                     model: (typeof data.model === 'string' ? data.model.trim() : '') || '',
                     max_tokens: (typeof data.max_tokens === 'number' && !isNaN(data.max_tokens)) ? data.max_tokens : 8000,
                     temperature: (typeof data.temperature === 'number' && !isNaN(data.temperature)) ? data.temperature : 0.7,
-                    traits: Array.isArray(data.traits) ? data.traits.filter(item => typeof item === 'string') : [],
-                    delegate: (typeof data.delegate === 'object' && data.delegate !== null) ? data.delegate : {},
-                    memory_contract: (typeof data.memory_contract === 'object' && data.memory_contract !== null) ? data.memory_contract : {} // Ensure it's an object, or empty object
+                    thinking_effort: (typeof data.thinking_effort === 'number' && !isNaN(data.thinking_effort)) ? data.thinking_effort : 0,
+                    traits: Array.isArray(data.traits) ? data.traits : [],
+                    delegates: Array.isArray(data.delegates) ? data.delegates : [],
+                    memory_contract: (typeof data.memory_contract === 'object' && data.memory_contract !== null) ? data.memory_contract : {}
                 };
-                // Ensure context_values is an object if memory_contract has an implementation_id
+
                 if (this.agentData.data.memory_contract && this.agentData.data.memory_contract.implementation_id && typeof this.agentData.data.memory_contract.context_values !== 'object') {
                     this.agentData.data.memory_contract.context_values = {};
                 }
-                // If memory_contract is empty but not null (e.g. {} from unlink), ensure context_values is not present or is empty
+
                 if (this.agentData.data.memory_contract && !this.agentData.data.memory_contract.implementation_id) {
-                    this.agentData.data.memory_contract.context_values = {}; // or delete if preferred
+                    this.agentData.data.memory_contract.context_values = {};
                 }
+            },
+
+            async fetchItemDetails() {
+                const itemDetailPromises = [];
+
+                // Fetch trait details
+                this.agentTraits.forEach(traitConfig => {
+                    const traitId = this.getTraitConfigId(traitConfig);
+                    if (traitId && !traitId.endsWith(':*')) {
+                        itemDetailPromises.push(this.fetchItemDetailsForId(traitId, 'traits', true));
+                    }
+                });
+
+                // Fetch tool details
+                this.agentTools.forEach(toolConfig => {
+                    const toolId = this.getToolConfigId(toolConfig);
+                    if (toolId && !toolId.endsWith(':*')) {
+                        itemDetailPromises.push(this.fetchItemDetailsForId(toolId, 'tools', true));
+                    }
+                });
+
+                // Fetch delegate details
+                this.agentDelegates.forEach(delegateConfig => {
+                    if (delegateConfig.id) {
+                        itemDetailPromises.push(this.fetchItemDetailsForId(delegateConfig.id, 'delegates', true));
+                    }
+                });
+
+                await Promise.all(itemDetailPromises);
+            },
+
+            // Convert configurations to long format for saving
+            convertTraitsToLongFormat() {
+                return this.agentTraits.map(traitConfig => {
+                    if (typeof traitConfig === 'string') {
+                        return { id: traitConfig };
+                    }
+                    const cleaned = { id: traitConfig.id };
+                    if (traitConfig.context && Object.keys(traitConfig.context).length > 0) {
+                        cleaned.context = traitConfig.context;
+                    }
+                    return cleaned;
+                });
+            },
+
+            convertToolsToLongFormat() {
+                return this.agentTools.map(toolConfig => {
+                    if (typeof toolConfig === 'string') {
+                        return { id: toolConfig };
+                    }
+                    const cleaned = { id: toolConfig.id };
+                    if (toolConfig.alias && toolConfig.alias.trim()) {
+                        cleaned.alias = toolConfig.alias.trim();
+                    }
+                    if (toolConfig.description && toolConfig.description.trim()) {
+                        cleaned.description = toolConfig.description.trim();
+                    }
+                    if (toolConfig.context && Object.keys(toolConfig.context).length > 0) {
+                        cleaned.context = toolConfig.context;
+                    }
+                    return cleaned;
+                });
+            },
+
+            convertDelegatesToLongFormat() {
+                return this.agentDelegates.map(delegateConfig => {
+                    const cleaned = {
+                        name: delegateConfig.name,
+                        id: delegateConfig.id,
+                        rule: delegateConfig.rule || ''
+                    };
+                    if (delegateConfig.context && Object.keys(delegateConfig.context).length > 0) {
+                        cleaned.context = delegateConfig.context;
+                    }
+                    return cleaned;
+                });
             },
 
             async saveAgent() {
                 if (!this.agentData || !this.agentData.id) { this.showNotification('error', 'Agent data or ID is missing.'); return; }
                 if (this.memoryContractContextError) { this.showNotification('error', `Cannot save: ${this.memoryContractContextError}`); return; }
+
+                // Check for context errors
+                const hasTraitContextErrors = Object.values(this.traitContextErrors).some(error => error && error.trim());
+                const hasToolContextErrors = Object.values(this.toolContextErrors).some(error => error && error.trim());
+                const hasDelegateContextErrors = Object.values(this.delegateContextErrors).some(error => error && error.trim());
+
+                if (hasTraitContextErrors || hasToolContextErrors || hasDelegateContextErrors) {
+                    this.showNotification('error', 'Please fix JSON errors in contexts before saving.');
+                    return;
+                }
+
                 if (!this.isDirty) { this.showNotification('warning', 'No changes to save.'); return; }
 
                 this.isSaving = true;
@@ -1487,6 +1979,11 @@
                     const saveData = JSON.parse(JSON.stringify(this.agentData.data));
                     saveData.memory = saveData.memory.filter(item => item && item.trim() !== '');
                     saveData.start_prompts = saveData.start_prompts.filter(item => item && item.trim() !== '');
+
+                    // Convert to long format for saving
+                    saveData.traits = this.convertTraitsToLongFormat();
+                    saveData.tools = this.convertToolsToLongFormat();
+                    saveData.delegates = this.convertDelegatesToLongFormat();
 
                     if (saveData.memory_contract && saveData.memory_contract.implementation_id) {
                         try {
@@ -1496,11 +1993,8 @@
                             this.isSaving = false; return;
                         }
                     } else {
-                        // If not linked, ensure memory_contract is an empty object or not present
-                        // Backend will handle explicit empty {} to remove the field
                         saveData.memory_contract = {};
                     }
-
 
                     const saveMeta = JSON.parse(JSON.stringify(this.agentData.meta));
                     saveMeta.class = (saveMeta.class || []).filter(c => c && c.trim() !== '');
@@ -1509,16 +2003,13 @@
                     const response = await this.wippyApi.api.put(`/api/v1/keeper/registry/entry?id=${encodeURIComponent(this.agentData.id)}`, payload);
                     if (!response.data.success) { throw new Error(response.data.error || 'Failed to save agent.'); }
 
-                    // After successful save, reload the agent to get the canonical state from backend
-                    // This handles cases where backend might nullify memory_contract if it was {}
                     await this.loadAgent(this.agentData.id);
-                    // No need to set originalAgentData or dirty flags here, loadAgent will do it.
                     this.showNotification('success', response.data.message || 'Agent configuration saved.');
 
                 } catch (error) {
                     console.error('Error saving agent:', error);
                     this.showNotification('error', `Save Failed: ${error.message || 'Unknown error'}`);
-                    if (this.wippyApi && this.wippyApi.iframe) { // Check iframe
+                    if (this.wippyApi && this.wippyApi.iframe) {
                         if (error.response?.status === 401 || error.response?.status === 403) { this.wippyApi.iframe.handleError('auth-expired', error); }
                         else if (this.isFatalError(error)) { this.wippyApi.iframe.handleError('other', error); }
                     }
@@ -1533,17 +2024,19 @@
                 }
                 this.agentData.data.memory_contract = {
                     implementation_id: this.memoryContractImplementationIdInput.trim(),
-                    context_values: {} // Initialize with empty context
+                    context_values: {}
                 };
-                this.memoryContractImplementationIdInput = ''; // Clear input
+                this.memoryContractImplementationIdInput = '';
                 this.setDirty('data');
                 this.showNotification('success', 'Memory contract linked. You can now configure context values.');
             },
+
             unlinkMemoryContract() {
-                this.agentData.data.memory_contract = {}; // Set to empty object for backend merge logic
+                this.agentData.data.memory_contract = {};
                 this.setDirty('data');
                 this.showNotification('info', 'Memory contract unlinked. Save to apply changes.');
             },
+
             importMemoryContractFromBase64() {
                 if (!this.memoryContractBase64Input.trim()) {
                     this.showNotification('error', 'Base64 input cannot be empty.');
@@ -1557,7 +2050,6 @@
                         throw new Error('Decoded JSON must have an "id" (string) field.');
                     }
                     if (typeof contractData.context !== 'object' || contractData.context === null) {
-                        // Allow empty context object
                         contractData.context = {};
                     }
 
@@ -1565,7 +2057,7 @@
                         implementation_id: contractData.id,
                         context_values: contractData.context
                     };
-                    this.memoryContractBase64Input = ''; // Clear input
+                    this.memoryContractBase64Input = '';
                     this.setDirty('data');
                     this.showNotification('success', 'Memory contract imported successfully.');
 
@@ -1574,9 +2066,9 @@
                     this.showNotification('error', `Import failed: ${e.message}`);
                 }
             },
+
             handleMemoryContextChange(event) {
                 const newValue = event.target.value;
-                // x-model handles memoryContractContextString update
 
                 if (this.agentData.data.memory_contract && this.agentData.data.memory_contract.implementation_id) {
                     try {
@@ -1584,7 +2076,6 @@
                         if (typeof parsedContext !== 'object' || parsedContext === null) {
                             throw new Error("Context must be a JSON object.");
                         }
-                        // Update agentData directly only if JSON is valid
                         if (JSON.stringify(this.agentData.data.memory_contract.context_values || {}) !== JSON.stringify(parsedContext)) {
                             this.agentData.data.memory_contract.context_values = parsedContext;
                             this.setDirty('data');
@@ -1592,12 +2083,9 @@
                         this.memoryContractContextError = '';
                     } catch (e) {
                         this.memoryContractContextError = `Invalid JSON: ${e.message}`;
-                        // Do not update agentData.data.memory_contract.context_values, keep last valid state
-                        // This prevents saving invalid JSON to the agentData state that might affect isDirty
                     }
                 }
             },
-
 
             addMemory() { if (!this.agentData.data.memory) this.agentData.data.memory = []; this.agentData.data.memory.push(''); this.setDirty('data'); },
             removeMemory(index) { this.agentData.data.memory.splice(index, 1); this.setDirty('data'); },
@@ -1621,6 +2109,7 @@
                 }
                 this.classInputText = '';
             },
+
             removeClass(index) {
                 if (this.agentData.meta.class && this.agentData.meta.class.length > index) {
                     this.agentData.meta.class.splice(index, 1);
@@ -1639,6 +2128,7 @@
                 } catch (error) { console.error('Error loading available models:', error); this.showNotification('error', `Failed to load models: ${error.message||'Unknown error'}`); }
                 finally { this.isLoadingModels = false; }
             },
+
             syncModelSelection() {
                 this.$nextTick(() => {
                     const el = document.getElementById('modelSelect');
@@ -1651,36 +2141,60 @@
 
             selectAgentForDelegate(agentObject) {
                 if (agentObject && agentObject.id && agentObject.meta && agentObject.meta.name) {
-                    this.newDelegate.id = agentObject.id; this.newDelegate.agentName = agentObject.meta.name;
+                    this.newDelegate.id = agentObject.id;
+                    this.newDelegate.agentName = agentObject.meta.name;
                     this.generateDelegateNameAndRule();
                 }
             },
+
             generateDelegateNameAndRule() {
                 if (!this.newDelegate.agentName) return;
                 const baseName = this.newDelegate.agentName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-                if (!this.newDelegate.toolName || this.newDelegate.toolName.startsWith('call_agent_') || this.newDelegate.toolName === 'call_selected_agent') {
-                    this.newDelegate.toolName = `call_${baseName || 'agent'}`;
+                if (!this.newDelegate.name || this.newDelegate.name.startsWith('call_agent_') || this.newDelegate.name === 'call_selected_agent') {
+                    this.newDelegate.name = `call_${baseName || 'agent'}`;
                 }
-                if (!this.newDelegate.rule) { this.newDelegate.rule = `When the task is related to the capabilities of the '${this.newDelegate.agentName}' agent.`; }
+                if (!this.newDelegate.rule) {
+                    this.newDelegate.rule = `When the task is related to the capabilities of the '${this.newDelegate.agentName}' agent.`;
+                }
             },
+
             addDelegate() {
-                if (!this.canAddDelegate()) { this.showNotification('error', 'Target Agent, Agent Name, and Tool Name are required.'); return; }
+                if (!this.canAddDelegate()) { this.showNotification('error', 'Target Agent and Tool Name are required.'); return; }
                 if (!this.agentData) { this.showNotification('error', 'Agent data not loaded.'); return; }
                 if (this.newDelegate.id === this.agentData.id) { this.showNotification('error', 'Agent cannot delegate to itself.'); return; }
-                const targetAgentNameKey = this.newDelegate.agentName;
-                if (!this.agentData.data.delegate) this.agentData.data.delegate = {};
-                if (this.agentData.data.delegate[targetAgentNameKey]) { this.showNotification('warning', `Delegate for target agent '${targetAgentNameKey}' already exists.`); return; }
-                this.agentData.data.delegate[targetAgentNameKey] = { name: this.newDelegate.toolName, rule: this.newDelegate.rule, id: this.newDelegate.id };
-                this.agentData.data.delegate = {...this.agentData.data.delegate};
-                this.newDelegate = {id: '', agentName: '', toolName: '', rule: ''}; this.setDirty('data');
+
+                if (this.agentDelegates.some(d => d.name === this.newDelegate.name)) {
+                    this.showNotification('warning', `Delegate with tool name '${this.newDelegate.name}' already exists.`);
+                    return;
+                }
+
+                const newDelegateConfig = {
+                    name: this.newDelegate.name,
+                    id: this.newDelegate.id,
+                    rule: this.newDelegate.rule || '',
+                    _uid: crypto.randomUUID()
+                };
+
+                if (this.newDelegate.context && Object.keys(this.newDelegate.context).length > 0) {
+                    newDelegateConfig.context = this.newDelegate.context;
+                }
+
+                this.agentDelegates.push(newDelegateConfig);
+                this.newDelegate = {id: '', agentName: '', name: '', rule: '', context: {}};
+                this.newDelegateContextString = '{}';
+                this.newDelegateContextError = '';
+                this.setDirty('data');
             },
-            removeDelegate(index) {
-                if (!this.agentData || !this.agentData.data.delegate) return;
-                const delegateToRemove = this.agentDelegates[index]; const agentNameKey = delegateToRemove.agentName;
-                delete this.agentData.data.delegate[agentNameKey];
-                if (this.expandedItems.delegates) delete this.expandedItems.delegates[agentNameKey];
-                this.agentData.data.delegate = {...this.agentData.data.delegate};
-                this.expandedItems.delegates = {...(this.expandedItems.delegates || {})}; this.setDirty('data');
+
+            removeDelegate(uid) {
+                const index = this.agentDelegates.findIndex(d => d._uid === uid);
+                if (index !== -1) {
+                    this.agentDelegates.splice(index, 1);
+                    delete this.expandedItems.delegates[uid];
+                    delete this.editableDelegateContexts[uid];
+                    delete this.delegateContextErrors[uid];
+                    this.setDirty('data');
+                }
             },
 
             async loadNamespaces() {
@@ -1694,24 +2208,26 @@
                 } catch (error) { console.error('Error loading namespaces:', error); this.showNotification('error', `Failed to load namespaces: ${error.message||'Unknown error'}`); }
                 finally { this.isLoadingNamespaces = false; }
             },
+
             validateNamespaceInput() {
                 this.namespaceError = ''; if (!this.namespaceInput) return;
                 if (this.isItemAdded(`${this.namespaceInput}:*`, 'tools')) this.namespaceError = 'This namespace access rule is already added.';
             },
+
             async addNamespaceWildcard() {
                 if (!this.isValidNamespaceInput || this.isAddingNamespace) return;
                 if (!this.agentData || !this.agentData.data) { this.showNotification('error', 'Agent data not available.'); return; }
                 const wildcardId = `${this.namespaceInput}:*`;
                 if (!this.isItemAdded(wildcardId, 'tools')) {
                     this.isAddingNamespace = true;
-                    if (!this.agentData.data.tools) this.agentData.data.tools = [];
-                    this.agentData.data.tools.push(wildcardId);
+                    this.agentTools.push(wildcardId);
                     if (!this.loadedWildcardTools[wildcardId]) this.loadedWildcardTools[wildcardId] = {entries: [], total: 0};
                     this.loadedWildcardTools = {...this.loadedWildcardTools}; this.setDirty('data');
                     await this.loadWildcardTools(wildcardId, true, true);
                     this.namespaceInput = ''; this.namespaceError = ''; this.isAddingNamespace = false;
                 } else { this.showNotification('warning', 'This namespace access rule is already added.'); }
             },
+
             async loadWildcardTools(wildcardId, forceReload = false, countOnly = false) {
                 if (!wildcardId || !wildcardId.endsWith(':*')) return;
                 if (!this.loadedWildcardTools[wildcardId]) this.loadedWildcardTools[wildcardId] = {entries: [], total: 0};
@@ -1786,11 +2302,13 @@
                 if (tabId === 'model') { await this.loadAvailableModels(); }
                 if (tabId === 'tools') { await this.loadNamespaces(); }
             },
+
             getItemNameFromEntry(entry, keeperType) {
                 if (!entry) return 'unknown';
                 if (entry.meta) return entry.meta.title || entry.meta.name || this.getName(entry.id);
                 return this.getName(entry.id || 'unknown');
             },
+
             async loadAvailableRegistryItemsIfNeeded(keeperType) {
                 if (!keeperType) return;
                 if (this.isLoadingRegistryItems[keeperType]) return;
@@ -1809,16 +2327,15 @@
                     const data = response.data;
                     if (data.success && data.entries) {
                         this.availableRegistryItems[keeperType] = data.entries
-                            .filter(item => item && item.id && (!this.agentData || item.id !== this.agentData.id) && (keeperType !== 'agent.trait' || (item.meta && item.meta.name)))
+                            .filter(item => item && item.id && (!this.agentData || item.id !== this.agentData.id))
                             .sort((a,b) => (this.getItemNameFromEntry(a,keeperType)).localeCompare(this.getItemNameFromEntry(b,keeperType)));
 
                         if (!this.itemCache[keeperType]) this.itemCache[keeperType] = {};
                         this.availableRegistryItems[keeperType].forEach(item => {
-                            const cacheKey = (keeperType === 'agent.trait') ? item.meta.name : item.id;
+                            const cacheKey = item.id;
                             const existingCached = this.itemCache[keeperType][cacheKey];
                             if (!existingCached || existingCached.status !== 'loaded') {
-                                if (keeperType === 'agent.trait') this.itemCache[keeperType][cacheKey] = item;
-                                else this.itemCache[keeperType][cacheKey] = this.extractItemDetails(item, keeperType);
+                                this.itemCache[keeperType][cacheKey] = this.extractItemDetails(item, keeperType);
                             }
                         });
                         this.itemCache[keeperType] = {...this.itemCache[keeperType]}; this.itemCache = {...this.itemCache};
@@ -1841,6 +2358,7 @@
                     }
                 }
             },
+
             filterAvailableItems(tabId) {
                 const keeperType = this.getKeeperTypeForTab(tabId);
                 if (!keeperType || this.availableRegistryItems[keeperType] === undefined) {
@@ -1850,94 +2368,165 @@
                 const query = (this.itemSearchQueries[tabId] || '').toLowerCase().trim();
                 if (!query) { this.filteredAvailableItems[tabId] = [...sourceList]; return; }
                 this.filteredAvailableItems[tabId] = sourceList.filter(item => {
-                    if (!item || !item.id || (keeperType === 'agent.trait' && (!item.meta || !item.meta.name))) return false;
+                    if (!item || !item.id) return false;
                     const name = (this.getItemName(item,tabId,true)||'').toLowerCase();
                     const description = (this.getItemDescription(item,tabId,true)||'').toLowerCase();
                     const id = (item.id||'').toLowerCase();
                     return name.includes(query) || description.includes(query) || id.includes(query);
                 });
             },
+
             isItemAdded(identifier, tabId) {
                 if (!this.agentData || !this.agentData.data) return false;
-                if (tabId === 'tools') return (this.agentData.data.tools || []).includes(identifier);
-                if (tabId === 'traits') return (this.agentData.data.traits || []).includes(identifier);
-                if (tabId === 'delegates') return !!(this.agentData.data.delegate && this.agentData.data.delegate[identifier]);
+                if (tabId === 'tools') return this.agentTools.some(config => this.getToolConfigId(config) === identifier);
+                if (tabId === 'traits') return this.agentTraits.some(config => this.getTraitConfigId(config) === identifier);
+                if (tabId === 'delegates') return this.agentDelegates.some(config => config.id === identifier);
                 return false;
             },
+
             addItem(itemOrId, tabId) {
                 if (!this.agentData || !this.agentData.data) { this.showNotification('error', 'Agent data not available.'); return; }
+
                 if (tabId === 'traits') {
                     const traitObject = itemOrId;
-                    if (!traitObject || !traitObject.meta || !traitObject.meta.name) { this.showNotification('error', 'Invalid trait object.'); return; }
-                    const traitName = traitObject.meta.name;
-                    if (!this.isItemAdded(traitName, 'traits')) {
-                        if (!this.agentData.data.traits) this.agentData.data.traits = [];
-                        this.agentData.data.traits.push(traitName);
+                    if (!traitObject || !traitObject.id) { this.showNotification('error', 'Invalid trait object.'); return; }
+                    const traitId = traitObject.id;
+                    if (!this.isItemAdded(traitId, 'traits')) {
+                        this.agentTraits.push(traitId);
                         if (!this.itemCache['agent.trait']) this.itemCache['agent.trait'] = {};
-                        this.itemCache['agent.trait'][traitName] = traitObject;
-                        this.itemCache['agent.trait'] = {...this.itemCache['agent.trait']}; this.itemCache = {...this.itemCache};
+                        if (!this.itemCache['agent.trait'][traitId]) {
+                            this.itemCache['agent.trait'][traitId] = this.extractItemDetails(traitObject, 'agent.trait');
+                            this.itemCache['agent.trait'] = {...this.itemCache['agent.trait']};
+                            this.itemCache = {...this.itemCache};
+                        }
                         this.setDirty('data');
-                    } else { this.showNotification('warning', `Trait '${this.getItemName(traitName,'traits')}' already added.`); }
-                } else {
+                    } else { this.showNotification('warning', `Trait '${this.getItemName(traitId,'traits')}' already added.`); }
+                } else if (tabId === 'tools') {
                     const itemId = itemOrId;
                     if (!this.isItemAdded(itemId, tabId)) {
-                        const dataKey = tabId;
-                        if (!this.agentData.data[dataKey]) this.agentData.data[dataKey] = [];
-                        this.agentData.data[dataKey].push(itemId);
-                        this.fetchItemDetails(itemId, tabId); this.setDirty('data');
-                    } else { this.showNotification('warning', `${this.capitalize(tabId).slice(0,-1)} '${this.getItemName(itemId,tabId)}' already added.`); }
+                        this.agentTools.push(itemId); // Add as string initially
+                        this.fetchItemDetailsForId(itemId, tabId); this.setDirty('data');
+                    } else { this.showNotification('warning', `Tool '${this.getItemName(itemId,tabId)}' already added.`); }
                 }
             },
+
             removeItem(index, tabId) {
-                const dataKey = tabId;
-                if (!this.agentData || !this.agentData.data || (tabId !== 'traits' && !this.agentData.data[dataKey])) return;
                 if (tabId === 'traits') {
-                    const removedTraitName = this.agentData.data.traits[index];
-                    this.agentData.data.traits.splice(index, 1);
-                    if (removedTraitName && this.expandedItems.traits) delete this.expandedItems.traits[removedTraitName];
-                    this.expandedItems.traits = {...(this.expandedItems.traits || {})};
-                } else {
-                    const removedItemId = this.agentData.data[dataKey][index];
-                    this.agentData.data[dataKey].splice(index, 1);
-                    if (this.expandedItems[tabId]) delete this.expandedItems[tabId][removedItemId];
-                    this.expandedItems[tabId] = {...(this.expandedItems[tabId] || {})};
-                    if (tabId === 'tools' && removedItemId.endsWith(':*')) {
-                        delete this.loadedWildcardTools[removedItemId]; delete this.loadingWildcards[removedItemId]; delete this.wildcardLoadError[removedItemId];
-                        this.loadedWildcardTools = {...this.loadedWildcardTools}; this.loadingWildcards = {...this.loadingWildcards}; this.wildcardLoadError = {...this.wildcardLoadError};
+                    if (index >= 0 && index < this.agentTraits.length) {
+                        const removedConfig = this.agentTraits[index];
+                        const removedTraitId = this.getTraitConfigId(removedConfig);
+                        this.agentTraits.splice(index, 1);
+                        delete this.expandedItems.traits[removedTraitId];
+                        delete this.showAdvancedTraitConfig[index];
+                        delete this.traitContextErrors[index];
+
+                        // Reindex advanced config and context errors
+                        const newShowAdvanced = {};
+                        const newContextErrors = {};
+                        Object.keys(this.showAdvancedTraitConfig).forEach(key => {
+                            const idx = parseInt(key);
+                            if (idx > index) {
+                                newShowAdvanced[idx - 1] = this.showAdvancedTraitConfig[key];
+                            } else if (idx < index) {
+                                newShowAdvanced[idx] = this.showAdvancedTraitConfig[key];
+                            }
+                        });
+                        Object.keys(this.traitContextErrors).forEach(key => {
+                            const idx = parseInt(key);
+                            if (idx > index) {
+                                newContextErrors[idx - 1] = this.traitContextErrors[key];
+                            } else if (idx < index) {
+                                newContextErrors[idx] = this.traitContextErrors[key];
+                            }
+                        });
+
+                        this.showAdvancedTraitConfig = newShowAdvanced;
+                        this.traitContextErrors = newContextErrors;
+                        this.setDirty('data');
+                    }
+                } else if (tabId === 'tools') {
+                    if (index >= 0 && index < this.agentTools.length) {
+                        const removedConfig = this.agentTools[index];
+                        const removedToolId = this.getToolConfigId(removedConfig);
+                        this.agentTools.splice(index, 1);
+                        delete this.expandedItems.tools[removedToolId];
+                        delete this.showAdvancedToolConfig[index];
+                        delete this.toolContextErrors[index];
+
+                        // Reindex advanced config and context errors
+                        const newShowAdvanced = {};
+                        const newContextErrors = {};
+                        Object.keys(this.showAdvancedToolConfig).forEach(key => {
+                            const idx = parseInt(key);
+                            if (idx > index) {
+                                newShowAdvanced[idx - 1] = this.showAdvancedToolConfig[key];
+                            } else if (idx < index) {
+                                newShowAdvanced[idx] = this.showAdvancedToolConfig[key];
+                            }
+                        });
+                        Object.keys(this.toolContextErrors).forEach(key => {
+                            const idx = parseInt(key);
+                            if (idx > index) {
+                                newContextErrors[idx - 1] = this.toolContextErrors[key];
+                            } else if (idx < index) {
+                                newContextErrors[idx] = this.toolContextErrors[key];
+                            }
+                        });
+
+                        this.showAdvancedToolConfig = newShowAdvanced;
+                        this.toolContextErrors = newContextErrors;
+
+                        if (removedToolId.endsWith(':*')) {
+                            delete this.loadedWildcardTools[removedToolId];
+                            delete this.loadingWildcards[removedToolId];
+                            delete this.wildcardLoadError[removedToolId];
+                            this.loadedWildcardTools = {...this.loadedWildcardTools};
+                            this.loadingWildcards = {...this.loadingWildcards};
+                            this.wildcardLoadError = {...this.wildcardLoadError};
+                        }
+                        this.setDirty('data');
                     }
                 }
-                this.setDirty('data');
             },
-            toggleItemExpansion(itemIdOrName, tabId) {
-                if (!itemIdOrName) return;
+
+            toggleItemExpansion(itemId, tabId) {
+                if (!itemId) return;
                 if (!this.expandedItems[tabId]) this.expandedItems[tabId] = {};
-                this.expandedItems[tabId][itemIdOrName] = !this.expandedItems[tabId][itemIdOrName];
-                this.expandedItems[tabId] = {...this.expandedItems[tabId]}; this.expandedItems = {...this.expandedItems};
-                if (this.expandedItems[tabId][itemIdOrName]) {
-                    if (tabId === 'tools' && itemIdOrName.endsWith(':*')) {
-                        if (!this.loadedWildcardTools[itemIdOrName]) this.loadedWildcardTools[itemIdOrName] = {entries: [], total: 0};
+                this.expandedItems[tabId][itemId] = !this.expandedItems[tabId][itemId];
+                this.expandedItems[tabId] = {...this.expandedItems[tabId]};
+                this.expandedItems = {...this.expandedItems};
+
+                if (this.expandedItems[tabId][itemId]) {
+                    if (tabId === 'delegates') {
+                        const delegate = this.agentDelegates.find(d => d._uid === itemId);
+                        if (delegate) {
+                            this.editableDelegateContexts[itemId] = JSON.stringify(delegate.context || {}, null, 2);
+                            this.delegateContextErrors[itemId] = '';
+                            this.fetchItemDetailsForId(delegate.id, tabId, false);
+                        }
+                    } else if (tabId === 'tools' && itemId.endsWith(':*')) {
+                        if (!this.loadedWildcardTools[itemId]) this.loadedWildcardTools[itemId] = {entries: [], total: 0};
                         this.loadedWildcardTools = {...this.loadedWildcardTools};
-                        const isFullyLoaded = this.loadedWildcardTools[itemIdOrName].entries && this.loadedWildcardTools[itemIdOrName].entries.length > 0;
-                        const hasError = !!this.wildcardLoadError[itemIdOrName];
-                        if (!isFullyLoaded || hasError) this.loadWildcardTools(itemIdOrName, false, false);
-                    } else if (tabId !== 'traits' && tabId !== 'delegates') {
-                        this.fetchItemDetails(itemIdOrName, tabId);
-                    } else if (tabId === 'delegates') {
-                        const delegateConfig = this.agentData.data.delegate[itemIdOrName];
-                        if (delegateConfig && delegateConfig.id) { this.fetchItemDetails(delegateConfig.id, tabId, false); }
+                        const isFullyLoaded = this.loadedWildcardTools[itemId].entries && this.loadedWildcardTools[itemId].entries.length > 0;
+                        const hasError = !!this.wildcardLoadError[itemId];
+                        if (!isFullyLoaded || hasError) this.loadWildcardTools(itemId, false, false);
+                    } else {
+                        this.fetchItemDetailsForId(itemId, tabId);
                     }
                 }
             },
+
             extractItemDetails(entry, keeperType) {
                 if (!entry || !entry.id) return { id: entry?.id || 'unknown', name: 'Error', description: 'Invalid entry data', type: keeperType, status: 'error' };
                 const meta = entry.meta || {};
                 return { id: entry.id, name: meta.title || meta.name || this.getName(entry.id), description: meta.llm_description || meta.description || meta.comment || 'No description available.', type: keeperType, status: 'loaded', fullObject: entry };
             },
-            async fetchItemDetails(itemId, listType, isPrecache = false) {
+
+            async fetchItemDetailsForId(itemId, listType, isPrecache = false) {
                 if (!itemId) return;
                 const keeperType = this.getKeeperTypeForTab(listType);
                 if (!keeperType) { console.warn(`No keeperType for listType ${listType}`); return; }
-                const cacheKey = (keeperType === 'agent.trait') ? this.getName(itemId) : itemId;
+                const cacheKey = itemId;
                 const cachedItem = this.itemCache[keeperType]?.[cacheKey];
                 if (cachedItem && cachedItem.status === 'loaded' && !isPrecache) return;
                 if (cachedItem && cachedItem.status === 'loading' && !isPrecache) return;
@@ -1948,16 +2537,9 @@
                     const response = await this.wippyApi.api.get(`/api/v1/keeper/registry/entry?id=${encodeURIComponent(itemId)}`);
                     if (response.data.success && response.data.entry) {
                         const entryKeeperType = response.data.entry?.meta?.type || keeperType;
-                        const finalCacheKey = (entryKeeperType==='agent.trait' && response.data.entry.meta) ? response.data.entry.meta.name : itemId;
+                        const finalCacheKey = itemId;
                         if (!this.itemCache[entryKeeperType]) this.itemCache[entryKeeperType] = {};
-                        if (entryKeeperType==='agent.trait' && response.data.entry.meta && response.data.entry.meta.name) {
-                            this.itemCache[entryKeeperType][finalCacheKey] = response.data.entry;
-                        } else {
-                            this.itemCache[entryKeeperType][finalCacheKey] = this.extractItemDetails(response.data.entry, entryKeeperType);
-                        }
-                        if (finalCacheKey !== cacheKey && this.itemCache[keeperType]?.[cacheKey]?.status === 'loading') {
-                            delete this.itemCache[keeperType][cacheKey];
-                        }
+                        this.itemCache[entryKeeperType][finalCacheKey] = this.extractItemDetails(response.data.entry, entryKeeperType);
                     } else { throw new Error(response.data.error || `Entry ${itemId} not found.`); }
                 } catch (error) {
                     console.error(`Error fetching details for ${listType} ${itemId} (Keeper: ${keeperType}):`, error);
@@ -1972,54 +2554,58 @@
                     this.itemCache = {...this.itemCache};
                 }
             },
+
             getItemName(itemOrIdOrName, listType, fromAvailableList = false) {
-                const keeperType = this.getKeeperTypeForTab(listType); let itemId = ''; let itemName = '';
+                const keeperType = this.getKeeperTypeForTab(listType);
+                let itemId;
                 if (typeof itemOrIdOrName === 'string') {
-                    if (listType==='traits' || listType==='delegates') itemName = itemOrIdOrName; else itemId = itemOrIdOrName;
+                    itemId = itemOrIdOrName;
                 } else if (itemOrIdOrName && itemOrIdOrName.id) {
                     itemId = itemOrIdOrName.id;
-                    if (listType==='traits' && itemOrIdOrName.meta) itemName = itemOrIdOrName.meta.name;
-                    if (listType==='delegates' && itemOrIdOrName.meta) itemName = itemOrIdOrName.meta.name;
+                } else {
+                    return 'N/A';
                 }
-                if (!itemId && !itemName && !keeperType) return (typeof itemOrIdOrName==='string' && itemOrIdOrName) ? this.getName(itemOrIdOrName) : 'N/A';
-                if (fromAvailableList && typeof itemOrIdOrName==='object' && itemOrIdOrName!==null && itemOrIdOrName.meta) {
+
+                if (fromAvailableList && typeof itemOrIdOrName === 'object' && itemOrIdOrName !== null && itemOrIdOrName.meta) {
                     return itemOrIdOrName.meta.title || itemOrIdOrName.meta.name || this.getName(itemOrIdOrName.id);
                 }
-                const cacheKey = (listType==='traits' || (listType==='delegates' && itemName)) ? itemName : itemId;
+
+                const cacheKey = itemId;
                 const cached = this.itemCache[keeperType]?.[cacheKey];
                 if (cached) {
-                    if (listType==='traits' && cached.meta) return cached.meta.title || cached.meta.name;
-                    if (cached.status==='loaded' || (cached.name && cached.name!==this.getName(itemId) && !['Loading...','Failed to load details.'].some(s => cached.description?.startsWith(s)))) {
+                    if (cached.status === 'loaded' || (cached.name && cached.name !== this.getName(itemId) && !['Loading...','Failed to load details.'].some(s => cached.description?.startsWith(s)))) {
                         return cached.name;
                     }
                 }
-                if (typeof itemOrIdOrName==='object' && itemOrIdOrName!==null && itemOrIdOrName.meta) {
+                if (typeof itemOrIdOrName === 'object' && itemOrIdOrName !== null && itemOrIdOrName.meta) {
                     return itemOrIdOrName.meta.title || itemOrIdOrName.meta.name || this.getName(itemOrIdOrName.id);
                 }
-                return this.getName(itemId || itemName);
+                return this.getName(itemId);
             },
+
             getItemDescription(itemOrIdOrName, listType, fromAvailableList = false) {
-                const keeperType = this.getKeeperTypeForTab(listType); let itemId = ''; let itemName = '';
+                const keeperType = this.getKeeperTypeForTab(listType);
+                let itemId;
                 if (typeof itemOrIdOrName === 'string') {
-                    if (listType==='traits' || listType==='delegates') itemName = itemOrIdOrName; else itemId = itemOrIdOrName;
+                    itemId = itemOrIdOrName;
                 } else if (itemOrIdOrName && itemOrIdOrName.id) {
                     itemId = itemOrIdOrName.id;
-                    if (listType==='traits' && itemOrIdOrName.meta) itemName = itemOrIdOrName.meta.name;
-                    if (listType==='delegates' && itemOrIdOrName.meta) itemName = itemOrIdOrName.meta.name;
+                } else {
+                    return 'Details unavailable.';
                 }
-                if (!itemId && !itemName && !keeperType) return 'Details unavailable.';
-                if (fromAvailableList && typeof itemOrIdOrName==='object' && itemOrIdOrName!==null && itemOrIdOrName.meta) {
+
+                if (fromAvailableList && typeof itemOrIdOrName === 'object' && itemOrIdOrName !== null && itemOrIdOrName.meta) {
                     return itemOrIdOrName.meta.llm_description || itemOrIdOrName.meta.description || itemOrIdOrName.meta.comment || 'No description available.';
                 }
-                const cacheKey = (listType==='traits' || (listType==='delegates' && itemName)) ? itemName : itemId;
+
+                const cacheKey = itemId;
                 const cached = this.itemCache[keeperType]?.[cacheKey];
                 if (cached) {
-                    if (listType==='traits' && cached.meta) return cached.meta.llm_description || cached.meta.description || cached.meta.comment || 'No description available.';
-                    if (cached.status==='loaded') return cached.description;
-                    if (cached.status==='loading' || cached.status==='placeholder') return 'Loading description...';
-                    if (cached.status==='error') return cached.description;
+                    if (cached.status === 'loaded') return cached.description;
+                    if (cached.status === 'loading' || cached.status === 'placeholder') return 'Loading description...';
+                    if (cached.status === 'error') return cached.description;
                 }
-                if (typeof itemOrIdOrName==='object' && itemOrIdOrName!==null && itemOrIdOrName.meta) {
+                if (typeof itemOrIdOrName === 'object' && itemOrIdOrName !== null && itemOrIdOrName.meta) {
                     return itemOrIdOrName.meta.llm_description || itemOrIdOrName.meta.description || itemOrIdOrName.meta.comment || 'No description available.';
                 }
                 return 'Details not loaded or unavailable.';
@@ -2031,7 +2617,7 @@
             getKeeperLink(id, itemKeeperType = 'entry') { const prefix = this.wippyApi.config.feature.routePrefix || ''; return `${prefix}/keeper/${id}`; },
             navigateToKeeper(id, itemKeeperType = 'entry') {
                 const keeperPath = `/keeper/${id}`;
-                if (this.wippyApi.iframe && this.wippyApi.iframe.navigate) { // Check iframe
+                if (this.wippyApi.iframe && this.wippyApi.iframe.navigate) {
                     this.wippyApi.iframe.navigate(keeperPath);
                 } else {
                     const fullUrl = (this.wippyApi.config.feature.routePrefix || '') + keeperPath;

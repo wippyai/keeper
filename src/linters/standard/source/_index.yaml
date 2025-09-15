@@ -1,0 +1,128 @@
+version: "1.0"
+namespace: keeper.linters.standard.source
+
+entries:
+  # keeper.linters.standard.source:constants
+  - name: constants
+    kind: function.lua
+    meta:
+      name: Constants Organization Validator
+      type: linter
+      comment: Ensures proper constant organization and immutability in Lua source
+      tags:
+        - validation
+        - code-quality
+        - constants
+        - immutability
+        - organization
+        - style
+        - lua
+      description: Validates that constants use table.freeze() for immutability, detects long inline strings that should be extracted to constants, and enforces proper constant naming and organization patterns
+      level: 20
+      priority: 40
+    source: file://constants.lua
+    modules:
+      - logger
+      - json
+      - ctx
+      - treesitter
+    method: handle
+    
+  # keeper.linters.standard.source:error_handling
+  - name: error_handling
+    kind: function.lua
+    meta:
+      name: Error Handling Pattern Analyzer
+      type: linter
+      comment: Detects pcall usage and error() calls, warns about coroutine compatibility issues
+      tags:
+        - validation
+        - error-handling
+        - coroutines
+        - patterns
+        - compatibility
+        - lua
+      description: Identifies pcall usage that may be incompatible with coroutine environments and suggests data/err return patterns instead of error() calls for better error handling consistency
+      level: 12
+      priority: 33
+    source: file://error_handling.lua
+    modules:
+      - logger
+      - json
+      - ctx
+      - treesitter
+    method: handle
+    
+  # keeper.linters.standard.source:imports
+  - name: imports
+    kind: function.lua
+    meta:
+      name: Imports Validator
+      type: linter
+      comment: Validates and fixes imports and dependencies for function.lua entries
+      tags:
+        - validation
+        - imports
+        - dependencies
+        - cleanup
+        - function
+        - lua
+      description: Checks imports consistency, forbids process/channel modules, adds missing dependencies, removes unused dependencies, and provides warnings for manual dependency management
+      level: 5
+      priority: 25
+    source: file://imports.lua
+    modules:
+      - logger
+      - json
+      - ctx
+      - treesitter
+    method: handle
+    
+  # keeper.linters.standard.source:method
+  - name: method
+    kind: function.lua
+    meta:
+      name: Method Validator
+      type: linter
+      comment: Validates method field consistency for function.lua entries
+      tags:
+        - validation
+        - method
+        - function
+        - source-analysis
+        - lua
+      description: Ensures function.lua entries have proper method field declaration and validates against source code return statements
+      level: 5
+      priority: 20
+    source: file://method.lua
+    modules:
+      - logger
+      - json
+      - ctx
+      - treesitter
+    method: handle
+    
+  # keeper.linters.standard.source:syntax
+  - name: syntax
+    kind: function.lua
+    meta:
+      name: Syntax Validator
+      type: linter
+      comment: Validates Lua syntax for source code entries
+      tags:
+        - validation
+        - syntax
+        - lua
+        - parsing
+        - source-analysis
+      description: Parses Lua source code using treesitter and reports syntax errors with detailed location information
+      level: 2
+      priority: 15
+    source: file://syntax.lua
+    modules:
+      - logger
+      - json
+      - ctx
+      - treesitter
+    method: handle
+    

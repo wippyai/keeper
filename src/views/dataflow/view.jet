@@ -4,15 +4,12 @@
 {{ block metaDescription() }}View details for dataflow, nodes, executions and data{{ end }}
 
 {{ block headScripts() }}
-<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.10/dist/cdn.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.13.10/dist/cdn.min.js"></script>
 <style>
-    /* Sexy new item animations */
     .new-item-animation {
         animation: slideInFade 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards, newItemGlow 2s ease-out 0.6s forwards;
         transform: translateY(-10px) scale(0.95);
         opacity: 0;
-        /* Notification toast */
+
         .update-toast {
             animation: toastSlideIn 0.3s ease-out forwards, toastSlideOut 0.3s ease-in 2.7s forwards;
             transform: translateX(100%);
@@ -63,7 +60,6 @@
             }
         }
 
-        /* Dark mode glow */
         @media (prefers-color-scheme: dark) {
             @keyframes newItemGlow {
                 0% {
@@ -81,12 +77,10 @@
             }
         }
 
-        /* Smooth transitions for all items */
         .item-transition {
             transition: all 0.3s ease-in-out;
         }
 
-        /* Live update button pulse */
         .live-updating {
             animation: livePulse 2s ease-in-out infinite;
         }
@@ -128,10 +122,10 @@
                 </h1>
                 <p class="mt-1 text-sm text-surface-500 dark:text-surface-400">
                     <span x-text="dataflowId || 'No ID'"></span>
-                    <template x-if="dataflow.title || dataflow.metadata?.title">
+                    <template x-if="dataflow.metadata?.title">
                         <span>
                             <span class="mx-1">·</span>
-                            <span x-text="dataflow.title || dataflow.metadata?.title"></span>
+                            <span x-text="dataflow.metadata.title"></span>
                         </span>
                     </template>
                     <template x-if="lastEventTime">
@@ -257,18 +251,6 @@
             <span>Nodes</span>
         </button>
         <button
-                @click="activeTab = 'data'"
-                class="flex-1 text-center whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm flex items-center justify-center group"
-                :class="activeTab === 'data' ?
-                'border-primary-500 text-primary-600 dark:text-primary-400' :
-                'border-transparent text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-300 hover:border-surface-300 dark:hover:border-surface-600'"
-        >
-            <iconify-icon icon="tabler:database" class="mr-1.5"
-                          :class="activeTab === 'data' ? 'text-primary-500 dark:text-primary-400' : 'text-surface-400 dark:text-surface-500 group-hover:text-surface-500 dark:group-hover:text-surface-300'"
-                          width="16" height="16"></iconify-icon>
-            <span>Data</span>
-        </button>
-        <button
                 @click="activeTab = 'timelineData'"
                 class="flex-1 text-center whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm flex items-center justify-center group"
                 :class="activeTab === 'timelineData' ?
@@ -288,7 +270,6 @@
 <div x-show="!isLoading && !error && dataflowData">
     {{ yield infoTabPanel() }}
     {{ yield nodesTabPanel() }}
-    {{ yield dataTabPanel() }}
     {{ yield timelineDataTabPanel() }}
 </div>
 {{ end }}
@@ -306,11 +287,7 @@
         </div>
         <div>
             <h3 class="text-sm font-medium text-surface-500 dark:text-surface-400">Title</h3>
-            <p class="mt-1 text-sm text-surface-900 dark:text-surface-100" x-text="dataflow?.title || dataflow?.metadata?.title || 'Untitled'"></p>
-        </div>
-        <div>
-            <h3 class="text-sm font-medium text-surface-500 dark:text-surface-400">Dataflow Type</h3>
-            <p class="mt-1 text-sm text-surface-900 dark:text-surface-100" x-text="dataflow?.type || 'default'"></p>
+            <p class="mt-1 text-sm text-surface-900 dark:text-surface-100" x-text="dataflow?.metadata?.title || 'Untitled'"></p>
         </div>
         <div>
             <h3 class="text-sm font-medium text-surface-500 dark:text-surface-400">Parent Dataflow ID</h3>
@@ -367,20 +344,16 @@
     <div class="border-b border-surface-200 dark:border-surface-600 px-4 py-3 flex items-center justify-between">
         <h2 class="text-lg font-medium text-surface-900 dark:text-surface-100">Dataflow Nodes</h2>
         <div class="flex items-center space-x-4">
-            <div class="flex items-center">
+            <div class="relative w-64">
                 <select
                         id="node-filter"
                         x-model="nodeFilter"
-                        class="block pl-3 pr-10 py-1 text-sm border-surface-300 dark:border-surface-600 focus:outline-none focus:ring-primary-500 focus:border-primary-500 rounded-md bg-surface-50 dark:bg-surface-700 text-surface-900 dark:text-surface-100"
+                        class="block w-full pl-3 pr-10 py-2 border border-surface-300 dark:border-surface-600 rounded-md shadow-sm bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 focus:outline-none focus:ring-primary-400 focus:border-primary-400 sm:text-sm"
                 >
                     <option value="all">All Types</option>
-                    <option value="processor">processor</option>
-                    <option value="input">input</option>
-                    <option value="output">output</option>
-                    <option value="condition">condition</option>
-                    <option value="transformer">transformer</option>
-                    <option value="dataflow.agent:planner_node">dataflow.agent:planner_node</option>
-                    <option value="dataflow.agent:react_node">dataflow.agent:react_node</option>
+                    <template x-for="nodeType in availableNodeTypes" :key="nodeType.value">
+                        <option :value="nodeType.value" x-text="nodeType.label"></option>
+                    </template>
                 </select>
             </div>
         </div>
@@ -423,6 +396,12 @@
                             <div class="flex-1 min-w-0">
                                 <div class="mb-1">
                                     <span class="text-sm font-medium text-surface-900 dark:text-surface-100" x-text="formatNodeTitle(node.type, node.metadata)"></span>
+                                    <template x-if="isNodeTemplate(node)">
+                                        <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                                            <iconify-icon icon="tabler:template" class="mr-1" width="12" height="12"></iconify-icon>
+                                            Template
+                                        </span>
+                                    </template>
                                 </div>
                                 <div class="flex items-center flex-wrap gap-x-1.5 gap-y-1">
                                     <span :class="['inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium', getBadgeColorClasses().bgClass, getBadgeColorClasses().textClass]" :title="'Node Type: ' + node.type">
@@ -449,6 +428,15 @@
                                         <iconify-icon :icon="getNodeStatusIcon(node.status)" class="mr-1 opacity-75" width="12" height="12"></iconify-icon>
                                         <span x-text="node.status"></span>
                                     </span>
+
+                                    <!-- Node Relationships -->
+                                    <template x-if="getNodeTargets(node).length > 0">
+                                        <span :class="['inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium', getGenericBadgeColorClasses(4)]" :title="'Connects to: ' + getNodeTargets(node).join(', ')">
+                                            <iconify-icon icon="tabler:arrow-right" class="mr-1 opacity-75" width="12" height="12"></iconify-icon>
+                                            <span x-text="getNodeTargets(node).length + ' target(s)'"></span>
+                                        </span>
+                                    </template>
+
                                     <span class="text-xs text-surface-500 dark:text-surface-400" x-text="formatDate(node.created_at)"></span>
                                 </div>
                             </div>
@@ -470,6 +458,30 @@
                                     <div class="text-xs font-medium text-surface-500 dark:text-surface-400">Full Parent ID:</div>
                                     <div class="mt-1 text-sm font-mono text-surface-700 dark:text-surface-300 break-all" x-text="node.parent_node_id"></div>
                                 </div>
+
+                                <!-- Node Configuration -->
+                                <div x-show="node.config && Object.keys(node.config).length > 0">
+                                    <div class="text-xs font-medium text-surface-500 dark:text-surface-400">Configuration:</div>
+                                    <div class="mt-1 bg-surface-100 dark:bg-surface-800 rounded p-2 overflow-auto">
+                                        <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(node.config)"></code></pre>
+                                    </div>
+                                </div>
+
+                                <!-- Node Relationships Detail -->
+                                <div x-show="getNodeRelationships(node).length > 0">
+                                    <div class="text-xs font-medium text-surface-500 dark:text-surface-400">Node Connections:</div>
+                                    <div class="mt-1 space-y-1">
+                                        <template x-for="relationship in getNodeRelationships(node)" :key="relationship.type + relationship.target">
+                                            <div class="flex items-center text-xs text-surface-600 dark:text-surface-300">
+                                                <iconify-icon :icon="relationship.type === 'data_target' ? 'tabler:arrow-right' : 'tabler:alert-triangle'" class="mr-2" width="14" height="14"></iconify-icon>
+                                                <span x-text="relationship.type === 'data_target' ? 'Data flows to: ' : 'Errors route to: '"></span>
+                                                <span class="font-mono font-semibold ml-1" x-text="getUuidSegment(relationship.target)"></span>
+                                                <span class="ml-2 text-surface-500" x-text="'(' + getNodeTitle(relationship.target) + ')'"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+
                                 <div>
                                     <div class="text-xs font-medium text-surface-500 dark:text-surface-400">Metadata:</div>
                                     <div class="mt-1 bg-surface-100 dark:bg-surface-800 rounded p-2 overflow-auto">
@@ -497,150 +509,6 @@
                                                 </div>
                                             </div>
                                         </template>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </template>
-        </div>
-    </div>
-</div>
-{{ end }}
-
-{{ block dataTabPanel() }}
-<div x-show="activeTab === 'data'" class="bg-white dark:bg-surface-700 shadow rounded-lg overflow-hidden">
-    <div class="border-b border-surface-200 dark:border-surface-600 px-4 py-3 flex items-center justify-between flex-wrap gap-4">
-        <h2 class="text-lg font-medium text-surface-900 dark:text-surface-100">Dataflow Data</h2>
-        <div class="flex items-center space-x-4">
-            <div class="flex items-center">
-                <label for="data-node-filter" class="mr-2 text-sm text-surface-700 dark:text-surface-300">Node:</label>
-                <select
-                        id="data-node-filter"
-                        x-model="selectedNodeIdForDataFilter"
-                        class="block pl-3 pr-10 py-1 text-sm border-surface-300 dark:border-surface-600 focus:outline-none focus:ring-primary-500 focus:border-primary-500 rounded-md bg-surface-50 dark:bg-surface-700 text-surface-900 dark:text-surface-100"
-                >
-                    <option value="all">All Nodes</option>
-                    <template x-for="node_opt in nodes" :key="node_opt.node_id">
-                        <option :value="node_opt.node_id" x-text="`${formatNodeTitle(node_opt.type, node_opt.metadata)} (${getUuidSegment(node_opt.node_id)})`"></option>
-                    </template>
-                    <option value="dataflow_global">Dataflow Global (No Node)</option>
-                </select>
-            </div>
-        </div>
-    </div>
-
-    <div>
-        <template x-if="filteredData.length === 0">
-            <div class="flex flex-col items-center justify-center py-8 text-surface-500 dark:text-surface-400">
-                <iconify-icon icon="tabler:database-off" class="w-12 h-12 mb-4" width="48" height="48"></iconify-icon>
-                <p class="text-center">No data found matching your filters</p>
-            </div>
-        </template>
-
-        <div x-show="filteredData.length > 0">
-            <template x-for="(dataItem, index) in filteredData" :key="dataItem.data_id">
-                <div :style="getTypeHueStyle(dataItem.type)"
-                     :class="{
-                        'bg-surface-50 dark:bg-surface-800': index % 2 === 0,
-                        'bg-white dark:bg-surface-700': index % 2 === 1,
-                        'new-item-animation': newDataIds.has(dataItem.data_id),
-                        'item-transition': !newDataIds.has(dataItem.data_id)
-                     }"
-                >
-                    <div :class="['px-4 py-3 relative group', getLineShadeBorderClass()]">
-                        <div class="flex items-start cursor-pointer" @click="toggleDataExpand(dataItem.data_id)">
-                            <div :class="['flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center mr-3', getIconColorClasses().bgClass]">
-                                <iconify-icon :icon="getDataTypeIcon(dataItem.type, dataItem.content_type === 'dataflow/reference')"
-                                              :class="getIconColorClasses().textClass"
-                                              width="24" height="24"></iconify-icon>
-                            </div>
-
-                            <div class="flex-1 min-w-0">
-                                <div class="mb-1">
-                                    <span class="text-sm font-medium text-surface-900 dark:text-surface-100" x-text="formatDataTitle(dataItem)"></span>
-                                </div>
-                                <div class="flex justify-between items-start flex-wrap gap-y-1">
-                                    <div class="flex items-center flex-wrap gap-x-1.5 gap-y-1">
-                                        <span :class="['inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium', getBadgeColorClasses().bgClass, getBadgeColorClasses().textClass]" :title="'Data Type: ' + dataItem.type">
-                                            <iconify-icon :icon="getDataTypeIcon(dataItem.type, dataItem.content_type === 'dataflow/reference')" class="mr-1 opacity-75" width="12" height="12"></iconify-icon>
-                                            <span x-text="dataItem.type"></span>
-                                        </span>
-                                        <span :class="['inline-flex items-center px-2 py-0.5 rounded-md text-xs font-mono', getGenericBadgeColorClasses(4)]" :title="'Data ID: ' + dataItem.data_id">
-                                            <iconify-icon icon="tabler:id" class="mr-1 opacity-75" width="12" height="12"></iconify-icon>
-                                            <span x-text="getUuidSegment(dataItem.data_id)"></span>
-                                        </span>
-                                        <span :class="['inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium', getGenericBadgeColorClasses(0)]" :title="'Content Type: ' + dataItem.content_type">
-                                            <iconify-icon icon="tabler:file-code" class="mr-1 opacity-75" width="12" height="12"></iconify-icon>
-                                            <span x-text="dataItem.content_type"></span>
-                                        </span>
-                                        <template x-if="dataItem.node_id">
-                                            <span :class="['inline-flex items-center px-2 py-0.5 rounded-md text-xs font-mono', getGenericBadgeColorClasses(2)]" :title="'Associated Node ID: ' + dataItem.node_id">
-                                                <iconify-icon icon="tabler:sitemap" class="mr-1 opacity-75" width="12" height="12"></iconify-icon>
-                                                <span x-text="getUuidSegment(dataItem.node_id)"></span>
-                                            </span>
-                                        </template>
-                                        <template x-if="!dataItem.node_id">
-                                            <span :class="['inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium', getGenericBadgeColorClasses(7)]">
-                                                <iconify-icon icon="tabler:world" class="mr-1 opacity-75" width="12" height="12"></iconify-icon>
-                                                Dataflow Global
-                                            </span>
-                                        </template>
-                                        <span class="text-xs text-surface-500 dark:text-surface-400" x-text="formatDate(dataItem.created_at)"></span>
-                                    </div>
-                                    <div class="flex items-center flex-wrap gap-x-1.5 gap-y-1 ml-auto pl-2 flex-shrink-0" x-show="(dataItem.key && dataItem.key !== dataItem.data_id) || dataItem.discriminator">
-                                        <template x-if="dataItem.key && dataItem.key !== dataItem.data_id">
-                                            <span :class="['inline-flex items-center px-2 py-0.5 rounded-md text-xs font-mono', getGenericBadgeColorClasses(5)]" :title="'Key: ' + dataItem.key">
-                                                <iconify-icon icon="tabler:key" class="mr-1 opacity-75" width="12" height="12"></iconify-icon>
-                                                <span x-text="isUuid(dataItem.key) ? getUuidSegment(dataItem.key) : truncateText(dataItem.key, 20)"></span>
-                                            </span>
-                                        </template>
-                                        <template x-if="dataItem.discriminator">
-                                            <span :class="['inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium', getGenericBadgeColorClasses(6)]" :title="'Discriminator: ' + dataItem.discriminator">
-                                                <iconify-icon :icon="getDiscriminatorIcon(dataItem.discriminator)" class="mr-1 opacity-75" width="12" height="12"></iconify-icon>
-                                                <span x-text="dataItem.discriminator"></span>
-                                            </span>
-                                        </template>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="flex-shrink-0">
-                                <button class="text-surface-400 hover:text-surface-600 dark:hover:text-surface-300">
-                                    <iconify-icon :icon="expandedData[dataItem.data_id] ? 'tabler:chevron-up' : 'tabler:chevron-down'" width="20" height="20"></iconify-icon>
-                                </button>
-                            </div>
-                        </div>
-
-                        <div x-show="expandedData[dataItem.data_id]" x-collapse>
-                            <div class="mt-4 pl-12 space-y-4">
-                                <div>
-                                    <div class="text-xs font-medium text-surface-500 dark:text-surface-400">Full Data ID:</div>
-                                    <div class="mt-1 text-sm font-mono text-surface-700 dark:text-surface-300 break-all" x-text="dataItem.data_id"></div>
-                                </div>
-
-                                <template x-if="dataItem.content_type === 'dataflow/reference'">
-                                    <div>
-                                        <div class="text-xs font-medium text-surface-500 dark:text-surface-400">Reference Details:</div>
-                                        <div class="mt-1 bg-surface-100 dark:bg-surface-800 rounded p-2 space-y-1 text-xs text-surface-700 dark:text-surface-300">
-                                            <p>Referenced Data ID (from key): <span class="font-mono font-semibold" x-text="dataItem.key || 'N/A'"></span> (<span class="font-semibold" x-text="getUuidSegment(dataItem.key)"></span>)</p>
-                                            <p x-show="dataItem.ref_type">Original Type of Referenced Item: <span class="font-semibold" x-text="dataItem.ref_type || 'N/A'"></span></p>
-                                            <p x-show="dataItem.ref_content_type">Original Content Type of Referenced Item: <span class="font-semibold" x-text="dataItem.ref_content_type || 'N/A'"></span></p>
-                                        </div>
-                                    </div>
-                                </template>
-
-                                <div>
-                                    <div class="text-xs font-medium text-surface-500 dark:text-surface-400">Content:</div>
-                                    <div class="mt-1 bg-surface-100 dark:bg-surface-800 rounded p-2 overflow-auto">
-                                        <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono"><code x-text="getFormattedContent(dataItem)"></code></pre>
-                                    </div>
-                                </div>
-                                <div>
-                                    <div class="text-xs font-medium text-surface-500 dark:text-surface-400">Metadata:</div>
-                                    <div class="mt-1 bg-surface-100 dark:bg-surface-800 rounded p-2 overflow-auto">
-                                        <pre class="text-xs text-surface-900 dark:text-surface-100 font-mono"><code x-text="formatJson(dataItem.metadata)"></code></pre>
                                     </div>
                                 </div>
                             </div>
@@ -896,24 +764,29 @@
 <script>
     document.addEventListener('alpine:init', () => {
         Alpine.data('dataflowViewerApp', () => ({
+            // Core state
             dataflowId: '',
             dataflowData: null,
             dataflow: {},
-            nodes: [], // Holds the actual node objects
-            organizedNodes: [], // For hierarchical display, derived from this.nodes
-            data: [], // Holds the actual data item objects
+            nodes: [],
+            organizedNodes: [],
+            data: [],
             isLoading: true,
-            isUpdating: false, // Separate state for live updates that doesn't hide content
+            isUpdating: false,
             error: null,
+
+            // API and navigation
             wippyApi: null,
             apiConfig: null,
             navigateApi: null,
+
+            // UI state
             activeTab: 'info',
             nodeFilter: 'all',
-            selectedNodeIdForDataFilter: 'all',
             expandedNodes: {},
             expandedData: {},
 
+            // Live updates
             eventsSubscribed: false,
             liveUpdatesEnabled: true,
             lastEventTime: null,
@@ -922,7 +795,7 @@
             _boundHandleDataflowEvent: null,
             currentScrollY: 0,
 
-            // Keep track of new items for visual highlighting
+            // Visual effects
             newNodeIds: new Set(),
             newDataIds: new Set(),
 
@@ -931,25 +804,14 @@
                 this.error = null;
                 const urlParams = new URLSearchParams(window.location.search);
                 const tabParam = urlParams.get('tab');
-                if (tabParam && ['info', 'nodes', 'data', 'timelineData'].includes(tabParam)) {
+                if (tabParam && ['info', 'nodes', 'timelineData'].includes(tabParam)) {
                     this.activeTab = tabParam;
                 }
                 const nodeIdParam = urlParams.get('node_id');
                 const dataIdParam = urlParams.get('data_id');
 
                 try {
-                    if (typeof window.initWippyApi !== 'function') {
-                        console.warn("Wippy API (initWippyApi) not available. Real-time updates and full API integration will be disabled.");
-                        const pathSegments = window.location.pathname.split('/');
-                        const dfIdFromPath = pathSegments[pathSegments.length -1];
-                        this.dataflowId = dfIdFromPath || urlParams.get('dataflow_id');
-                        if (!this.dataflowId) {
-                            throw new Error("Wippy API not available and no Dataflow ID found in URL.");
-                        }
-                        await this.loadWorkflowData(false); // Initial load
-                        return; // Exits initialize early
-                    }
-
+                    // Initialize Wippy API once
                     const wippyInit = await window.initWippyApi();
                     this.wippyApi = wippyInit;
                     this.apiConfig = wippyInit.config;
@@ -965,8 +827,8 @@
 
                     if (!this.dataflowId) throw new Error("No dataflow ID could be determined.");
 
-                    await this.loadWorkflowData(false); // Initial load
-                    this.toggleLiveUpdates(this.liveUpdatesEnabled, true); // Initialize subscription based on default
+                    await this.loadWorkflowData(false);
+                    this.toggleLiveUpdates(this.liveUpdatesEnabled, true);
 
                     if (nodeIdParam) this.$nextTick(() => this.viewNodeDetails(nodeIdParam, true));
                     if (dataIdParam) this.$nextTick(() => this.viewDataDetails(dataIdParam, true));
@@ -975,8 +837,6 @@
                     console.error("Initialization error:", err);
                     this.error = err.message || "Failed to initialize";
                 } finally {
-                    // isLoading is set to false at the end of loadWorkflowData
-                    // This ensures it's false if an error occurs before loadWorkflowData completes fully.
                     if (this.isLoading) this.isLoading = false;
                 }
                 window.addEventListener('beforeunload', () => this.unsubscribeFromDataflowEvents() );
@@ -989,58 +849,44 @@
                     return;
                 }
 
-                // Only show loading state for initial loads or manual refreshes
                 if (!triggeredByEvent && !this.dataflowData) {
                     this.isLoading = true;
                 } else if (triggeredByEvent) {
-                    this.isUpdating = true; // Use separate updating state for live updates
+                    this.isUpdating = true;
                     this.currentScrollY = window.scrollY;
                 } else {
-                    this.isLoading = true; // Manual refresh
+                    this.isLoading = true;
                 }
 
                 this.isUpdatingFromEvent = triggeredByEvent;
 
                 if (!triggeredByEvent && this.dataflowData) {
-                    this.error = null; // Clear error only on manual refresh
+                    this.error = null;
                 }
 
                 try {
                     const apiUrl = `/api/v1/dataflows/${encodeURIComponent(this.dataflowId)}`;
-                    let response;
-                    if (this.wippyApi && typeof this.wippyApi.api?.get === 'function') {
-                        response = await this.wippyApi.api.get(apiUrl);
-                    } else if (this.apiConfig?.auth?.token) {
-                        const rawResponse = await fetch(apiUrl, { headers: { 'Authorization': `Bearer ${this.apiConfig.auth.token}` }});
-                        if (!rawResponse.ok) throw new Error(`API request failed: ${rawResponse.status} ${await rawResponse.text()}`);
-                        response = { data: await rawResponse.json() };
-                    } else {
-                        const rawResponse = await fetch(apiUrl);
-                        if (!rawResponse.ok) throw new Error(`API request failed: ${rawResponse.status} ${await rawResponse.text()}`);
-                        response = { data: await rawResponse.json() };
-                    }
+                    const response = await this.wippyApi.api.get(apiUrl);
 
                     if (!response.data) throw new Error("No data received from API");
                     if (!response.data.success) throw new Error(response.data.error || "API reported failure");
 
-                    this.processWorkflowData(response.data, triggeredByEvent); // Pass triggeredByEvent
+                    this.processWorkflowData(response.data, triggeredByEvent);
                     this.error = null;
 
                     if (triggeredByEvent) {
-                        // Restore scroll position
                         this.$nextTick(() => {
                             window.scrollTo(0, this.currentScrollY);
                             if (this.liveUpdatesEnabled) {
                                 this.showUpdateNotification("Dataflow updated.");
                             }
 
-                            // Clear new item highlights after animations complete
                             setTimeout(() => {
                                 this.newNodeIds.clear();
                                 this.newDataIds.clear();
-                                this.newNodeIds = new Set(); // Trigger reactivity
-                                this.newDataIds = new Set(); // Trigger reactivity
-                            }, 3500); // Give animations time to complete (slideIn: 0.6s + glow: 2s + buffer: 0.9s)
+                                this.newNodeIds = new Set();
+                                this.newDataIds = new Set();
+                            }, 3500);
                         });
                     }
                 } catch (err) {
@@ -1054,67 +900,55 @@
             },
 
             processWorkflowData(apiResponseData, isUpdate = false) {
-                // Update dataflow object directly
                 this.dataflow = { ...this.dataflow, ...(apiResponseData.dataflow || {}) };
-                this.dataflowData = apiResponseData; // Keep the raw response too
+                this.dataflowData = apiResponseData;
 
                 const newNodes = (apiResponseData.nodes || []).map(n => ({...n, status: n.status || 'unknown' }));
                 const newDataItems = (apiResponseData.data || []).map(d => ({...d, type: d.type || 'unknown' }));
 
                 if (!isUpdate || this.nodes.length === 0) {
-                    // Full replace for initial load or if current data is empty
                     this.nodes = newNodes;
                     this.data = newDataItems;
                 } else {
-                    // Smart incremental update for live updates
                     const existingNodeIds = new Set(this.nodes.map(n => n.node_id));
                     const existingDataIds = new Set(this.data.map(d => d.data_id));
 
-                    // Track new items for visual highlighting
                     this.newNodeIds = new Set();
                     this.newDataIds = new Set();
 
-                    // Update nodes efficiently
                     const nodeMap = new Map(this.nodes.map(n => [n.node_id, n]));
                     newNodes.forEach(newNode => {
                         const existingNode = nodeMap.get(newNode.node_id);
                         if (existingNode) {
-                            // Update existing node properties that might have changed
                             Object.assign(existingNode, newNode);
                         } else {
-                            // Add new node
                             this.nodes.push(newNode);
                             this.newNodeIds.add(newNode.node_id);
                         }
                     });
 
-                    // Update data items efficiently
                     const dataItemMap = new Map(this.data.map(d => [d.data_id, d]));
                     const newDataToAdd = [];
 
                     newDataItems.forEach(newDataItem => {
                         const existingDataItem = dataItemMap.get(newDataItem.data_id);
                         if (existingDataItem) {
-                            // Update existing data item properties that might have changed
                             Object.assign(existingDataItem, newDataItem);
                         } else {
-                            // Collect new data items to add at the end (preserves chronological order)
                             newDataToAdd.push(newDataItem);
                             this.newDataIds.add(newDataItem.data_id);
                         }
                     });
 
-                    // Add new data items in chronological order
                     if (newDataToAdd.length > 0) {
                         newDataToAdd.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
                         this.data.push(...newDataToAdd);
                     }
                 }
 
-                // Always re-organize nodes as their hierarchy might have changed
                 this.organizeNodesHierarchy();
 
-                const displayTitle = this.dataflow.title || this.dataflow.metadata?.title;
+                const displayTitle = this.dataflow.metadata?.title;
                 document.title = displayTitle ? `${displayTitle} - Dataflow Viewer` : (this.dataflowId ? `Dataflow ${this.dataflowId} - Viewer` : "Dataflow Viewer");
             },
 
@@ -1134,20 +968,16 @@
                 function buildFlatList(node, level) {
                     if (!node || node._visited) return;
                     node._visited = true; node.level = level; flatNodes.push(node);
-                    // Sort children by creation date to ensure consistent order
                     node.children.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
                     node.children.forEach(child => buildFlatList(child, level + 1));
                 }
-                // Sort roots by creation date
                 roots.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
                 roots.forEach(rootNode => buildFlatList(rootNode, 0));
-                // Add any orphaned nodes (should ideally not happen with correct parent_node_id logic)
                 this.nodes.forEach(node => { if (nodeMap[node.node_id] && !nodeMap[node.node_id]._visited) buildFlatList(nodeMap[node.node_id], 0); });
                 this.organizedNodes = flatNodes;
             },
 
-            refreshWorkflow() { this.loadWorkflowData(false); },
-
+            // Live updates
             toggleLiveUpdates(forceState, initializing = false) {
                 if (typeof forceState === 'boolean') {
                     this.liveUpdatesEnabled = forceState;
@@ -1165,9 +995,7 @@
             },
 
             subscribeToDataflowEvents() {
-                if (!this.wippyApi || typeof this.wippyApi.on !== 'function') { console.warn("Wippy API or 'on' method not available. Real-time updates disabled."); return; }
-                if (!this.dataflowId) { console.warn("Dataflow ID not available for event subscription."); return; }
-                if (this.eventsSubscribed) return;
+                if (!this.dataflowId || this.eventsSubscribed) return;
 
                 const eventName = `dataflow:${this.dataflowId}`;
                 try {
@@ -1175,11 +1003,14 @@
                     this.wippyApi.on(eventName, this._boundHandleDataflowEvent);
                     this.eventsSubscribed = true;
                     console.log(`Successfully subscribed to ${eventName}`);
-                } catch (error) { console.error(`Failed to subscribe to ${eventName}:`, error); this.error = `Failed to subscribe: ${error.message}`; }
+                } catch (error) {
+                    console.error(`Failed to subscribe to ${eventName}:`, error);
+                    this.error = `Failed to subscribe: ${error.message}`;
+                }
             },
 
             unsubscribeFromDataflowEvents() {
-                if (!this.wippyApi || typeof this.wippyApi.off !== 'function' || !this.dataflowId || !this.eventsSubscribed || !this._boundHandleDataflowEvent) return;
+                if (!this.dataflowId || !this.eventsSubscribed || !this._boundHandleDataflowEvent) return;
                 const eventName = `dataflow:${this.dataflowId}`;
                 try {
                     this.wippyApi.off(eventName, this._boundHandleDataflowEvent);
@@ -1199,16 +1030,15 @@
                 console.log('Dataflow event received by Alpine handler (live updates enabled):', eventPayload);
                 if (this.eventLoadTimeout) clearTimeout(this.eventLoadTimeout);
                 this.eventLoadTimeout = setTimeout(() => {
-                    this.loadWorkflowData(true); // True indicates event-triggered
+                    this.loadWorkflowData(true);
                 }, 300);
             },
 
             showUpdateNotification(message) {
                 console.info("Update Notification:", message);
-                // No visual flash on button for now, to keep it "no visual effects"
             },
 
-            // Workflow action helper functions
+            // Workflow actions
             canCancelWorkflow() {
                 const status = this.dataflow?.status;
                 return status === 'running' || status === 'pending' || status === 'ready';
@@ -1225,80 +1055,58 @@
                     return;
                 }
 
-                // Use Wippy iframe API for confirmation if available, otherwise use browser confirm
                 let confirmed = false;
-                if (this.wippyApi && typeof this.wippyApi.iframe?.confirm === 'function') {
-                    try {
-                        confirmed = await this.wippyApi.iframe.confirm({
-                            message: 'Are you sure you want to cancel this workflow? It will be given time to finish gracefully.',
-                            header: 'Cancel Workflow',
-                            icon: 'tabler:hand-stop',
-                            acceptLabel: 'Yes, Cancel',
-                            rejectLabel: 'No, Keep Running',
-                            acceptClass: 'p-button-warning',
-                            rejectClass: 'p-button-secondary',
-                        });
-                    } catch (err) {
-                        console.warn('Wippy confirm failed, falling back to browser confirm', err);
-                        confirmed = confirm('Are you sure you want to cancel this workflow? It will be given time to finish gracefully.');
-                    }
-                } else {
+                try {
+                    confirmed = await this.wippyApi.iframe.confirm({
+                        message: 'Are you sure you want to cancel this workflow? It will be given time to finish gracefully.',
+                        header: 'Cancel Workflow',
+                        icon: 'tabler:hand-stop',
+                        acceptLabel: 'Yes, Cancel',
+                        rejectLabel: 'No, Keep Running',
+                        acceptClass: 'p-button-warning',
+                        rejectClass: 'p-button-secondary',
+                    });
+                } catch (err) {
+                    console.warn('Wippy confirm failed, falling back to browser confirm', err);
                     confirmed = confirm('Are you sure you want to cancel this workflow? It will be given time to finish gracefully.');
                 }
 
-                if (!confirmed) {
-                    return;
-                }
+                if (!confirmed) return;
 
                 try {
                     this.isUpdating = true;
                     const apiUrl = `/api/v1/dataflows/${encodeURIComponent(this.dataflowId)}/cancel`;
-                    let response;
-                    if (this.wippyApi && typeof this.wippyApi.api?.post === 'function') {
-                        response = await this.wippyApi.api.post(apiUrl);
-                    } else if (this.apiConfig?.auth?.token) {
-                        const rawResponse = await fetch(apiUrl, {
-                            method: 'POST',
-                            headers: { 'Authorization': `Bearer ${this.apiConfig.auth.token}` }
-                        });
-                        if (!rawResponse.ok) throw new Error(`Terminate request failed: ${rawResponse.status} ${await rawResponse.text()}`);
-                        response = { data: await rawResponse.json() };
-                    } else {
-                        const rawResponse = await fetch(apiUrl, { method: 'POST' });
-                        if (!rawResponse.ok) throw new Error(`Terminate request failed: ${rawResponse.status} ${await rawResponse.text()}`);
-                        response = { data: await rawResponse.json() };
-                    }
+                    const response = await this.wippyApi.api.post(apiUrl);
 
                     if (!response.data?.success) {
-                        throw new Error(response.data?.error || 'Terminate request failed');
+                        throw new Error(response.data?.error || 'Cancel request failed');
                     }
 
-                    // Show success message using Wippy toast if available
-                    if (this.wippyApi && typeof this.wippyApi.iframe?.toast === 'function') {
+                    try {
                         this.wippyApi.iframe.toast({
                             severity: 'success',
-                            summary: 'Workflow Terminated',
-                            detail: 'The workflow has been terminated successfully.',
+                            summary: 'Workflow Cancelled',
+                            detail: 'The workflow cancellation has been initiated.',
                             life: 3000
                         });
-                    } else {
-                        alert('Workflow terminated successfully.');
+                    } catch (err) {
+                        alert('Workflow cancellation initiated successfully.');
                     }
 
                     setTimeout(() => {
                         this.loadWorkflowData(false);
                     }, 1000);
                 } catch (err) {
-                    console.error('Error terminating workflow:', err);
-                    if (this.wippyApi && typeof this.wippyApi.iframe?.toast === 'function') {
+                    console.error('Error cancelling workflow:', err);
+                    try {
                         this.wippyApi.iframe.toast({
                             severity: 'error',
-                            summary: 'Terminate Failed',
+                            summary: 'Cancel Failed',
                             detail: err.message,
                             life: 5000
                         });
-                    } else {
-                        alert(`Failed to terminate workflow: ${err.message}`);
+                    } catch (toastErr) {
+                        alert(`Failed to cancel workflow: ${err.message}`);
                     }
                 } finally {
                     this.isUpdating = false;
@@ -1311,63 +1119,41 @@
                     return;
                 }
 
-                // Use Wippy iframe API for confirmation if available, otherwise use browser confirm
                 let confirmed = false;
-                if (this.wippyApi && typeof this.wippyApi.iframe?.confirm === 'function') {
-                    try {
-                        confirmed = await this.wippyApi.iframe.confirm({
-                            message: 'Are you sure you want to TERMINATE this workflow? This will forcefully stop the workflow immediately and cannot be undone.',
-                            header: 'Terminate Workflow',
-                            icon: 'tabler:square-x',
-                            acceptLabel: 'Yes, Terminate',
-                            rejectLabel: 'Cancel',
-                            acceptClass: 'p-button-danger',
-                            rejectClass: 'p-button-secondary',
-                        });
-                    } catch (err) {
-                        console.warn('Wippy confirm failed, falling back to browser confirm', err);
-                        confirmed = confirm('Are you sure you want to TERMINATE this workflow? This will forcefully stop the workflow immediately and cannot be undone.');
-                    }
-                } else {
+                try {
+                    confirmed = await this.wippyApi.iframe.confirm({
+                        message: 'Are you sure you want to TERMINATE this workflow? This will forcefully stop the workflow immediately and cannot be undone.',
+                        header: 'Terminate Workflow',
+                        icon: 'tabler:square-x',
+                        acceptLabel: 'Yes, Terminate',
+                        rejectLabel: 'Cancel',
+                        acceptClass: 'p-button-danger',
+                        rejectClass: 'p-button-secondary',
+                    });
+                } catch (err) {
+                    console.warn('Wippy confirm failed, falling back to browser confirm', err);
                     confirmed = confirm('Are you sure you want to TERMINATE this workflow? This will forcefully stop the workflow immediately and cannot be undone.');
                 }
 
-                if (!confirmed) {
-                    return;
-                }
+                if (!confirmed) return;
 
                 try {
                     this.isUpdating = true;
                     const apiUrl = `/api/v1/dataflows/${encodeURIComponent(this.dataflowId)}/terminate`;
-                    let response;
-                    if (this.wippyApi && typeof this.wippyApi.api?.post === 'function') {
-                        response = await this.wippyApi.api.post(apiUrl);
-                    } else if (this.apiConfig?.auth?.token) {
-                        const rawResponse = await fetch(apiUrl, {
-                            method: 'POST',
-                            headers: { 'Authorization': `Bearer ${this.apiConfig.auth.token}` }
-                        });
-                        if (!rawResponse.ok) throw new Error(`Terminate request failed: ${rawResponse.status} ${await rawResponse.text()}`);
-                        response = { data: await rawResponse.json() };
-                    } else {
-                        const rawResponse = await fetch(apiUrl, { method: 'POST' });
-                        if (!rawResponse.ok) throw new Error(`Terminate request failed: ${rawResponse.status} ${await rawResponse.text()}`);
-                        response = { data: await rawResponse.json() };
-                    }
+                    const response = await this.wippyApi.api.post(apiUrl);
 
                     if (!response.data?.success) {
                         throw new Error(response.data?.error || 'Terminate request failed');
                     }
 
-                    // Show success message using Wippy toast if available
-                    if (this.wippyApi && typeof this.wippyApi.iframe?.toast === 'function') {
+                    try {
                         this.wippyApi.iframe.toast({
                             severity: 'success',
                             summary: 'Workflow Terminated',
                             detail: 'The workflow has been terminated successfully.',
                             life: 3000
                         });
-                    } else {
+                    } catch (err) {
                         alert('Workflow terminated successfully.');
                     }
 
@@ -1376,14 +1162,14 @@
                     }, 1000);
                 } catch (err) {
                     console.error('Error terminating workflow:', err);
-                    if (this.wippyApi && typeof this.wippyApi.iframe?.toast === 'function') {
+                    try {
                         this.wippyApi.iframe.toast({
                             severity: 'error',
                             summary: 'Terminate Failed',
                             detail: err.message,
                             life: 5000
                         });
-                    } else {
+                    } catch (toastErr) {
                         alert(`Failed to terminate workflow: ${err.message}`);
                     }
                 } finally {
@@ -1391,15 +1177,10 @@
                 }
             },
 
-            formatTime(dateString) { if (!dateString) return 'N/A'; try { return new Date(dateString).toLocaleTimeString(); } catch (e) { return dateString; } },
-            formatDate(dateString) { if (!dateString) return 'N/A'; try { return new Date(dateString).toLocaleString(); } catch (e) { return dateString; } },
-            formatDateCompact(dateString) {
-                if (!dateString) return 'N/A';
-                try {
-                    const date = new Date(dateString);
-                    return `${date.toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })} ${date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true })}`;
-                } catch (e) { return dateString; }
+            refreshWorkflow() {
+                this.loadWorkflowData(false);
             },
+
             exportWorkflowJson() {
                 if (!this.dataflowData) { alert("No dataflow data to copy"); return; }
                 try {
@@ -1411,29 +1192,115 @@
                     } else { console.warn('Clipboard API unavailable.'); alert('Clipboard API unavailable. JSON in console.'); console.log("JSON:\n", dataStr); }
                 } catch (err) { console.error("Error preparing JSON:", err); alert("Failed to prepare JSON: " + err.message); }
             },
+
             goBackToList() {
                 if (this.navigateApi?.navigate) this.navigateApi.navigate('/c/keeper.views.dataflow:list');
                 else if (window.history.length > 1) window.history.back();
                 else window.location.href = '/';
             },
+
+            // UI interactions
+            toggleNodeExpand(nodeId) {
+                this.expandedNodes[nodeId] = !this.expandedNodes[nodeId];
+                this.expandedNodes = {...this.expandedNodes};
+            },
+
+            toggleDataExpand(dataId) {
+                this.expandedData[dataId] = !this.expandedData[dataId];
+                this.expandedData = {...this.expandedData};
+            },
+
+            viewNodeDetails(nodeId, expandOnly = false) {
+                if(!expandOnly) this.activeTab = 'nodes';
+                const node = this.nodes.find(n => n.node_id === nodeId);
+                if (node?.type && this.nodeFilter !== 'all' && node.type !== this.nodeFilter) this.nodeFilter = node.type;
+                this.expandedNodes[nodeId] = true; this.expandedNodes = {...this.expandedNodes};
+                this.$nextTick(() => {
+                    const el = Array.from(this.$el.querySelectorAll('.group span')).find(span => span.textContent === this.getUuidSegment(nodeId) && span.closest('[title^="Node ID"]'))?.closest('.group');
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                });
+            },
+
+            viewDataDetails(dataId, expandOnly = false) {
+                if (!expandOnly && this.activeTab !== 'timelineData') this.activeTab = 'timelineData';
+                this.expandedData[dataId] = true; this.expandedData = {...this.expandedData};
+                this.$nextTick(() => {
+                    const el = Array.from(this.$el.querySelectorAll(`div[x-show="activeTab === '${this.activeTab}'"] .group span`)).find(span => span.textContent === this.getUuidSegment(dataId) && span.closest('[title^="Data ID"]'))?.closest('.group');
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                });
+            },
+
+            // Node analysis functions
+            isNodeTemplate(node) {
+                return node.metadata?.template === true ||
+                    node.metadata?.is_template === true ||
+                    node.status === 'template' ||
+                    (node.metadata?.node_type && node.metadata.node_type.includes('template'));
+            },
+
+            getNodeTargets(node) {
+                const targets = [];
+                if (node.metadata?.data_target) targets.push(node.metadata.data_target);
+                if (node.metadata?.error_target) targets.push(node.metadata.error_target);
+                return targets.filter(t => t && t !== '');
+            },
+
+            getNodeRelationships(node) {
+                const relationships = [];
+                if (node.metadata?.data_target) {
+                    relationships.push({
+                        type: 'data_target',
+                        target: node.metadata.data_target
+                    });
+                }
+                if (node.metadata?.error_target) {
+                    relationships.push({
+                        type: 'error_target',
+                        target: node.metadata.error_target
+                    });
+                }
+                return relationships;
+            },
+
+            getNodeTitle(nodeId) {
+                const node = this.nodes.find(n => n.node_id === nodeId);
+                if (!node) return 'Unknown Node';
+                return this.formatNodeTitle(node.type, node.metadata);
+            },
+
+            getNodeDataItems(nodeId) {
+                return this.data.filter(item => item.node_id === nodeId).sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+            },
+
+            // Computed properties
             get filteredNodes() {
                 if (!this.organizedNodes || !Array.isArray(this.organizedNodes)) return [];
                 return this.nodeFilter === 'all' ? this.organizedNodes : this.organizedNodes.filter(node => node.type === this.nodeFilter);
             },
-            get filteredData() {
-                if (!this.data || !Array.isArray(this.data)) return [];
-                let items = this.data;
-                if (this.selectedNodeIdForDataFilter === 'dataflow_global') items = items.filter(item => !item.node_id);
-                else if (this.selectedNodeIdForDataFilter !== 'all') items = items.filter(item => item.node_id === this.selectedNodeIdForDataFilter);
-                return items.sort((a,b) => new Date(a.created_at) - new Date(b.created_at)); // Ensure chronological order
+
+            get availableNodeTypes() {
+                if (!this.nodes || this.nodes.length === 0) return [];
+
+                const uniqueTypes = [...new Set(this.nodes.map(node => node.type).filter(type => type))];
+
+                return uniqueTypes.sort().map(type => ({
+                    value: type,
+                    label: this.formatNodeTitle(type, {})
+                }));
             },
+
             get timelineDataDisplay() {
                 if (!this.data || !this.nodes || !this.organizedNodes) return [];
                 const nodeLevelMap = this.organizedNodes.reduce((acc, node) => {
-                    acc[node.node_id] = { node_id: node.node_id, type: node.type, title: this.formatNodeTitle(node.type, node.metadata), level: node.level };
+                    acc[node.node_id] = {
+                        node_id: node.node_id,
+                        type: node.type,
+                        title: this.formatNodeTitle(node.type, node.metadata),
+                        level: node.level
+                    };
                     return acc;
                 }, {});
-                const sortedData = [...this.data].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)); // Sort a copy
+                const sortedData = [...this.data].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
                 const timelineEntries = [];
                 let i = 0;
                 while (i < sortedData.length) {
@@ -1452,7 +1319,12 @@
                         } else {
                             const fallbackNode = this.nodes.find(n => n.node_id === dataItem.node_id);
                             if (fallbackNode) {
-                                entry.nodeInfo = { node_id: fallbackNode.node_id, type: fallbackNode.type, title: this.formatNodeTitle(fallbackNode.type, fallbackNode.metadata), level: 0 };
+                                entry.nodeInfo = {
+                                    node_id: fallbackNode.node_id,
+                                    type: fallbackNode.type,
+                                    title: this.formatNodeTitle(fallbackNode.type, fallbackNode.metadata),
+                                    level: 0
+                                };
                             }
                         }
                     }
@@ -1460,6 +1332,120 @@
                 }
                 return timelineEntries;
             },
+
+            // Formatting functions
+            formatTime(dateString) {
+                if (!dateString) return 'N/A';
+                try { return new Date(dateString).toLocaleTimeString(); } catch (e) { return dateString; }
+            },
+
+            formatDate(dateString) {
+                if (!dateString) return 'N/A';
+                try { return new Date(dateString).toLocaleString(); } catch (e) { return dateString; }
+            },
+
+            formatDateCompact(dateString) {
+                if (!dateString) return 'N/A';
+                try {
+                    const date = new Date(dateString);
+                    return `${date.toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })} ${date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+                } catch (e) { return dateString; }
+            },
+
+            formatJson(d) {
+                if (d === undefined || d === null) return 'null';
+                try { return JSON.stringify(d, (k,v)=>typeof v==='bigint'?v.toString():v, 2); } catch (e) { return String(d); }
+            },
+
+            formatNodeTitle(type, metadata) {
+                if (metadata?.name) return metadata.name;
+                if (metadata?.title) return metadata.title;
+                if (!type) return 'Unknown Node';
+
+                // Generic namespace cleanup - remove everything before the last colon
+                let cleaned = type;
+                if (type.includes(':')) {
+                    cleaned = type.split(':').pop();
+                }
+
+                // Convert underscores/dots to spaces and title case
+                return cleaned.replace(/[_\.]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            },
+
+            formatDataTitle(i,l=false) {
+                let ti='';
+                if(i.metadata?.title)ti=i.metadata.title;
+                else if(i.key&&i.content_type==='dataflow/reference')ti=i.key;
+                else if(i.key&&!this.isUuid(i.key))ti=i.key;
+                else if(i.type)ti=l?i.type:i.type.replace(/\./g,' ').replace(/\b([a-z])/g,l=>l.toUpperCase());
+                else ti='Data Item';
+                if(!l&&i.content_type==='dataflow/reference')ti+=' (Ref)';
+                return ti;
+            },
+
+            getFormattedContent(d) {
+                if(!d)return 'No data item.';
+                let c,ct;
+                if(d.content_type==='dataflow/reference'){
+                    c=d.ref_content;ct=d.ref_content_type;
+                    if(c===undefined||c===null||c===''){
+                        if(d.key&&(d.ref_type||d.ref_content_type))return `Ref content not loaded. Key=${d.key}${d.ref_type?`, Orig Type=${d.ref_type}`:''}${d.ref_content_type?`, Orig Content Type=${d.ref_content_type}`:''}`;
+                        return 'Ref points to empty/unloaded content.';
+                    }
+                }else{
+                    c=d.content;ct=d.content_type;
+                    if(d.content_size>0&&(c===undefined||c===null||c===''))return `Binary data (${this.formatBytes(d.content_size)}) - Not shown.`;
+                }
+                if(c===null||c===undefined)return 'null';
+                try{
+                    if(typeof c==='string'){
+                        if(ct?.includes('json')){
+                            try{return JSON.stringify(JSON.parse(c),null,2);}catch(e){return c;}
+                        }
+                        return c;
+                    }
+                    return JSON.stringify(c,null,2);
+                }catch(e){return String(c);}
+            },
+
+            formatBytes(b,dec=2) {
+                if(!b||b===0)return '0 Bytes';
+                const k=1024,dm=dec<0?0:dec,s=['Bytes','KB','MB','GB','TB'],i=Math.floor(Math.log(b)/Math.log(k));
+                return parseFloat((b/Math.pow(k,i)).toFixed(dm))+' '+s[i];
+            },
+
+            // Utility functions
+            getUuidSegment(uuid) {
+                if (!uuid || typeof uuid !== 'string') return '';
+                const parts = uuid.split('-');
+                return parts[parts.length - 1] || '';
+            },
+
+            isUuid(str) {
+                if (!str || typeof str !== 'string') return false;
+                return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+            },
+
+            truncateText(text, maxLength = 20) {
+                if (!text || text.length <= maxLength) return text || '';
+                return text.substring(0, maxLength - 3) + '...';
+            },
+
+            simpleHash(str) {
+                let h = 0;
+                if (!str || str.length === 0) return 0;
+                for (let i = 0; i < str.length; i++) {
+                    h = ((h << 5) - h) + str.charCodeAt(i);
+                    h |= 0;
+                }
+                return Math.abs(h);
+            },
+
+            // Styling functions
+            getTypeHueStyle(type) {
+                return `--type-hue: ${((this.simpleHash(type || 'unknown') * 137.508) % 360).toFixed(0)};`;
+            },
+
             getTimelineItemStyleVars(entry) {
                 let baseHue = ((this.simpleHash(entry.dataItem.type) * 137.508) % 360).toFixed(0);
                 let styleVars = `--type-hue: ${baseHue};`;
@@ -1467,55 +1453,144 @@
                 else if (entry.isGlobal) styleVars += ` --timeline-item-border-hue: 0; --timeline-item-border-saturation: 0%; --dark-timeline-item-border-saturation: 0%;`;
                 return styleVars;
             },
-            getNodeHueForStyle(nodeType) { return ((this.simpleHash(nodeType || 'unknown') * 137.508) % 360).toFixed(0); },
-            getTimelineItemLineShadeBorderClass() { return 'border-l-4 border-solid border-[hsl(var(--timeline-item-border-hue,var(--type-hue)),var(--timeline-item-border-saturation,60%),75%)] dark:border-[hsl(var(--timeline-item-border-hue,var(--type-hue)),var(--dark-timeline-item-border-saturation,50%),60%)]'; },
-            toggleNodeExpand(nodeId) { this.expandedNodes[nodeId] = !this.expandedNodes[nodeId]; this.expandedNodes = {...this.expandedNodes}; },
-            toggleDataExpand(dataId) { this.expandedData[dataId] = !this.expandedData[dataId]; this.expandedData = {...this.expandedData}; },
-            viewNodeDetails(nodeId, expandOnly = false) {
-                if(!expandOnly) this.activeTab = 'nodes';
-                const node = this.nodes.find(n => n.node_id === nodeId);
-                if (node?.type && this.nodeFilter !== 'all' && node.type !== this.nodeFilter) this.nodeFilter = node.type;
-                this.expandedNodes[nodeId] = true; this.expandedNodes = {...this.expandedNodes};
-                this.$nextTick(() => {
-                    const el = Array.from(this.$el.querySelectorAll('.group span')).find(span => span.textContent === this.getUuidSegment(nodeId) && span.closest('[title^="Node ID"]'))?.closest('.group');
-                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                });
+
+            getNodeHueForStyle(nodeType) {
+                return ((this.simpleHash(nodeType || 'unknown') * 137.508) % 360).toFixed(0);
             },
-            viewDataDetails(dataId, expandOnly = false) {
-                if (!expandOnly && !['data', 'timelineData'].includes(this.activeTab)) this.activeTab = 'data';
-                const dataItem = this.data.find(d => d.data_id === dataId);
-                if (this.activeTab === 'data' && dataItem) {
-                    if (dataItem.node_id && this.selectedNodeIdForDataFilter !== 'all' && dataItem.node_id !== this.selectedNodeIdForDataFilter) this.selectedNodeIdForDataFilter = dataItem.node_id;
-                    else if (!dataItem.node_id && this.selectedNodeIdForDataFilter !== 'all' && this.selectedNodeIdForDataFilter !== 'dataflow_global') this.selectedNodeIdForDataFilter = 'dataflow_global';
+
+            getTimelineItemLineShadeBorderClass() {
+                return 'border-l-4 border-solid border-[hsl(var(--timeline-item-border-hue,var(--type-hue)),var(--timeline-item-border-saturation,60%),75%)] dark:border-[hsl(var(--timeline-item-border-hue,var(--type-hue)),var(--dark-timeline-item-border-saturation,50%),60%)]';
+            },
+
+            getLineShadeBorderClass() {
+                return 'border-l-4 border-solid border-[hsl(var(--type-hue),60%,75%)] dark:border-[hsl(var(--type-hue),50%,60%)]';
+            },
+
+            getIconColorClasses() {
+                return {
+                    bgClass: `bg-[hsl(var(--type-hue),70%,90%)] dark:bg-[hsl(var(--type-hue),40%,25%)]`,
+                    textClass: `text-[hsl(var(--type-hue),60%,40%)] dark:text-[hsl(var(--type-hue),60%,75%)]`
+                };
+            },
+
+            getBadgeColorClasses() {
+                return {
+                    bgClass: `bg-[hsl(var(--type-hue),70%,85%)] dark:bg-[hsl(var(--type-hue),40%,30%)]`,
+                    textClass: `text-[hsl(var(--type-hue),60%,35%)] dark:text-[hsl(var(--type-hue),70%,80%)]`
+                };
+            },
+
+            getGenericBadgeColorClasses(seed = 0) {
+                const h = [210,150,30,270,60,300,180,330,120,240][Math.abs(this.simpleHash(String(seed)))%10];
+                return `bg-[hsl(${h},70%,90%)] text-[hsl(${h},60%,30%)] dark:bg-[hsl(${h},40%,25%)] dark:text-[hsl(${h},60%,75%)]`;
+            },
+
+            getNodeStatusBadgeClasses(s) {
+                const b = 'inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium';
+                switch(s){
+                    case 'completed': return `${b} bg-green-100 text-green-800 dark:bg-green-700 dark:text-green-100`;
+                    case 'running': return `${b} bg-blue-100 text-blue-800 dark:bg-blue-700 dark:text-blue-100`;
+                    case 'pending': case 'defined': case 'ready': return `${b} bg-yellow-100 text-yellow-800 dark:bg-yellow-700 dark:text-yellow-100`;
+                    case 'failed': return `${b} bg-red-100 text-red-800 dark:bg-red-700 dark:text-red-100`;
+                    case 'cancelled': return `${b} bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-100`;
+                    case 'terminated': return `${b} bg-red-200 text-red-900 dark:bg-red-800 dark:text-red-100`;
+                    case 'template': return `${b} bg-purple-100 text-purple-800 dark:bg-purple-700 dark:text-purple-100`;
+                    default: return `${b} bg-gray-200 text-gray-700 dark:bg-gray-500 dark:text-gray-200`;
                 }
-                this.expandedData[dataId] = true; this.expandedData = {...this.expandedData};
-                this.$nextTick(() => {
-                    const el = Array.from(this.$el.querySelectorAll(`div[x-show="activeTab === '${this.activeTab}'"] .group span`)).find(span => span.textContent === this.getUuidSegment(dataId) && span.closest('[title^="Data ID"]'))?.closest('.group');
-                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                });
             },
-            getNodeById(nodeId) { return this.nodes.find(n => n.node_id === nodeId); },
-            getNodeDataItems(nodeId) { return this.data.filter(item => item.node_id === nodeId).sort((a,b) => new Date(a.created_at) - new Date(b.created_at)); },
-            getUuidSegment(uuid) { if (!uuid || typeof uuid !== 'string') return ''; const parts = uuid.split('-'); return parts[parts.length - 1] || ''; },
-            isUuid(str) { if (!str || typeof str !== 'string') return false; return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str); },
-            truncateText(text, maxLength = 20) { if (!text || text.length <= maxLength) return text || ''; return text.substring(0, maxLength - 3) + '...'; },
-            simpleHash(str) { let h = 0; if (!str || str.length === 0) return 0; for (let i = 0; i < str.length; i++) { h = ((h << 5) - h) + str.charCodeAt(i); h |= 0; } return Math.abs(h); },
-            getTypeHueStyle(type) { return `--type-hue: ${((this.simpleHash(type || 'unknown') * 137.508) % 360).toFixed(0)};`; },
-            getLineShadeBorderClass() { return 'border-l-4 border-solid border-[hsl(var(--type-hue),60%,75%)] dark:border-[hsl(var(--type-hue),50%,60%)]'; },
-            getIconColorClasses() { return { bgClass: `bg-[hsl(var(--type-hue),70%,90%)] dark:bg-[hsl(var(--type-hue),40%,25%)]`, textClass: `text-[hsl(var(--type-hue),60%,40%)] dark:text-[hsl(var(--type-hue),60%,75%)]` }; },
-            getBadgeColorClasses() { return { bgClass: `bg-[hsl(var(--type-hue),70%,85%)] dark:bg-[hsl(var(--type-hue),40%,30%)]`, textClass: `text-[hsl(var(--type-hue),60%,35%)] dark:text-[hsl(var(--type-hue),70%,80%)]` }; },
-            getGenericBadgeColorClasses(seed = 0) { const h = [210,150,30,270,60,300,180,330,120,240][Math.abs(this.simpleHash(String(seed)))%10]; return `bg-[hsl(${h},70%,90%)] text-[hsl(${h},60%,30%)] dark:bg-[hsl(${h},40%,25%)] dark:text-[hsl(${h},60%,75%)]`; },
-            getNodeStatusBadgeClasses(s) { const b = 'inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium'; switch(s){ case 'completed': return `${b} bg-green-100 text-green-800 dark:bg-green-700 dark:text-green-100`; case 'running': return `${b} bg-blue-100 text-blue-800 dark:bg-blue-700 dark:text-blue-100`; case 'pending': case 'defined': return `${b} bg-yellow-100 text-yellow-800 dark:bg-yellow-700 dark:text-yellow-100`; case 'failed': return `${b} bg-red-100 text-red-800 dark:bg-red-700 dark:text-red-100`; case 'cancelled': return `${b} bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-100`; case 'terminated': return `${b} bg-red-200 text-red-900 dark:bg-red-800 dark:text-red-100`; default: return `${b} bg-gray-200 text-gray-700 dark:bg-gray-500 dark:text-gray-200`; }},
-            getDataTypeBadgeClasses(t) { const b = 'inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium'; switch(t){ case 'dataflow.input': case 'node.input': return `${b} bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200`; case 'dataflow.output': case 'node.output': case 'node.result': return `${b} bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200`; case 'node.yield': case 'node.yield.result': return `${b} bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200`; case 'context.node': case 'context.data': case 'context.root': return `${b} bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200`; case 'react.action': case 'react.observation': return `${b} bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200`; default: return `${b} bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200`; }},
-            getNodeStatusIcon(s) { switch(s){ case 'completed': return 'tabler:check'; case 'running': return 'tabler:loader-2 animate-spin'; case 'pending': return 'tabler:clock-hour-3'; case 'defined': return 'tabler:file-text'; case 'failed': return 'tabler:alert-triangle'; case 'cancelled': return 'tabler:circle-x'; case 'terminated': return 'tabler:square-x'; default: return 'tabler:question-mark'; }},
-            getNodeTypeIcon(t) { const m={'processor':'tabler:cpu','input':'tabler:arrow-bar-to-down','output':'tabler:arrow-bar-up','condition':'tabler:git-branch','transformer':'tabler:transform','dataflow.agent:planner_node':'tabler:route-2','dataflow.agent:react_node':'tabler:atom-2'}; return m[t]||'tabler:code-dots';},
-            getDataTypeIcon(t,r=false) { if(r)return 'tabler:link'; const m={'dataflow.input':'tabler:cloud-upload','dataflow.output':'tabler:cloud-download','node.input':'tabler:arrow-right-circle','node.output':'tabler:arrow-left-circle','node.result':'tabler:file-check','node.yield':'tabler:corner-down-right','node.yield.result':'tabler:corner-down-right-double','context.node':'tabler:archive','context.data':'tabler:file-stack','context.root':'tabler:database-cog','react.action':'tabler:bolt','react.observation':'tabler:eye-search','config':'tabler:settings','log':'tabler:file-text','artifact':'tabler:package'}; return m[t]||'tabler:file';},
-            getDiscriminatorIcon(d) { if(!d)return 'tabler:tag-off'; const l=d.toLowerCase(); if(l==='public')return 'tabler:world'; if(l==='private')return 'tabler:lock'; if(l==='group')return 'tabler:users-group'; if(l==='result.success')return 'tabler:circle-check'; if(l.startsWith('action_')||l.includes('react.action'))return 'tabler:bolt'; if(l.startsWith('observation_')||l.includes('react.observation'))return 'tabler:eye-search'; if(l.includes('task_instructions'))return 'tabler:info-circle'; if(l.includes('research_task'))return 'tabler:search'; if(l.includes('planning_result'))return 'tabler:route-2'; if(l.includes('final_result'))return 'tabler:flag-checkered'; if(l.includes('input'))return 'tabler:arrow-bar-to-right'; if(l.includes('output'))return 'tabler:arrow-bar-to-left'; if(l.includes('yield.result'))return 'tabler:corner-down-right-double'; if(l.includes('yield'))return 'tabler:corner-down-right'; if(l.includes('param'))return 'tabler:variable'; if(l.includes('config'))return 'tabler:settings-cog'; if(l.includes('state'))return 'tabler:history'; if(l.includes('react_result'))return 'tabler:atom-2'; if(l.includes('task_result'))return 'tabler:checklist'; return 'tabler:tag';},
-            formatNodeTitle(t,m) { if(m?.name)return m.name; if(m?.title)return m.title; if(!t)return 'Unknown Node'; let n=t.replace('dataflow.agent:','Agent ').replace('dataflow.agent.react:','React '); return n.replace(/[:_]/g,' ').replace(/\b\w/g,l=>l.toUpperCase());},
-            formatDataTitle(i,l=false) { let ti=''; if(i.metadata?.title)ti=i.metadata.title; else if(i.key&&i.content_type==='dataflow/reference')ti=i.key; else if(i.key&&!this.isUuid(i.key))ti=i.key; else if(i.type)ti=l?i.type:i.type.replace(/\./g,' ').replace(/\b([a-z])/g,l=>l.toUpperCase()); else ti='Data Item'; if(!l&&i.content_type==='dataflow/reference')ti+=' (Ref)'; return ti;},
-            getFormattedContent(d) { if(!d)return 'No data item.'; let c,ct; if(d.content_type==='dataflow/reference'){c=d.ref_content;ct=d.ref_content_type;if(c===undefined||c===null||c===''){if(d.key&&(d.ref_type||d.ref_content_type))return `Ref content not loaded. Key=${d.key}${d.ref_type?`, Orig Type=${d.ref_type}`:''}${d.ref_content_type?`, Orig Content Type=${d.ref_content_type}`:''}`; return 'Ref points to empty/unloaded content.';}}else{c=d.content;ct=d.content_type;if(d.content_size>0&&(c===undefined||c===null||c===''))return `Binary data (${this.formatBytes(d.content_size)}) - Not shown.`;} if(c===null||c===undefined)return 'null'; try{if(typeof c==='string'){if(ct?.includes('json')){try{return JSON.stringify(JSON.parse(c),null,2);}catch(e){return c;}}return c;}return JSON.stringify(c,null,2);}catch(e){return String(c);}},
-            formatJson(d) { if (d === undefined || d === null) return 'null'; try { return JSON.stringify(d, (k,v)=>typeof v==='bigint'?v.toString():v, 2); } catch (e) { return String(d); } },
-            formatBytes(b,dec=2) { if(!b||b===0)return '0 Bytes'; const k=1024,dm=dec<0?0:dec,s=['Bytes','KB','MB','GB','TB'],i=Math.floor(Math.log(b)/Math.log(k)); return parseFloat((b/Math.pow(k,i)).toFixed(dm))+' '+s[i];}
+
+            getDataTypeBadgeClasses(t) {
+                const b = 'inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium';
+                switch(t){
+                    case 'dataflow.input': case 'node.input': return `${b} bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200`;
+                    case 'dataflow.output': case 'node.output': case 'node.result': return `${b} bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200`;
+                    case 'node.yield': case 'node.yield.result': return `${b} bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200`;
+                    case 'context.node': case 'context.data': case 'context.root': return `${b} bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200`;
+                    case 'react.action': case 'react.observation': return `${b} bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200`;
+                    default: return `${b} bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200`;
+                }
+            },
+
+            // Icon functions
+            getNodeStatusIcon(s) {
+                switch(s){
+                    case 'completed': return 'tabler:check';
+                    case 'running': return 'tabler:loader-2 animate-spin';
+                    case 'pending': case 'ready': return 'tabler:clock-hour-3';
+                    case 'defined': return 'tabler:file-text';
+                    case 'failed': return 'tabler:alert-triangle';
+                    case 'cancelled': return 'tabler:circle-x';
+                    case 'terminated': return 'tabler:square-x';
+                    case 'template': return 'tabler:template';
+                    default: return 'tabler:question-mark';
+                }
+            },
+
+            getNodeTypeIcon(t) {
+                const m={
+                    'processor':'tabler:cpu',
+                    'input':'tabler:arrow-bar-to-down',
+                    'output':'tabler:arrow-bar-up',
+                    'condition':'tabler:git-branch',
+                    'transformer':'tabler:transform',
+                    'template':'tabler:template'
+                };
+
+                // Generic icon mapping based on type content
+                if (t && t.includes('func')) return 'tabler:function';
+                if (t && t.includes('agent')) return 'tabler:robot';
+                if (t && t.includes('planner')) return 'tabler:route-2';
+                if (t && t.includes('react')) return 'tabler:atom-2';
+
+                return m[t]||'tabler:code-dots';
+            },
+
+            getDataTypeIcon(t,r=false) {
+                if(r)return 'tabler:link';
+                const m={
+                    'dataflow.input':'tabler:cloud-upload',
+                    'dataflow.output':'tabler:cloud-download',
+                    'node.input':'tabler:arrow-right-circle',
+                    'node.output':'tabler:arrow-left-circle',
+                    'node.result':'tabler:file-check',
+                    'node.yield':'tabler:corner-down-right',
+                    'node.yield.result':'tabler:corner-down-right-double',
+                    'context.node':'tabler:archive',
+                    'context.data':'tabler:file-stack',
+                    'context.root':'tabler:database-cog',
+                    'react.action':'tabler:bolt',
+                    'react.observation':'tabler:eye-search',
+                    'config':'tabler:settings',
+                    'log':'tabler:file-text',
+                    'artifact':'tabler:package'
+                };
+                return m[t]||'tabler:file';
+            },
+
+            getDiscriminatorIcon(d) {
+                if(!d)return 'tabler:tag-off';
+                const l=d.toLowerCase();
+                if(l==='public')return 'tabler:world';
+                if(l==='private')return 'tabler:lock';
+                if(l==='group')return 'tabler:users-group';
+                if(l==='result.success')return 'tabler:circle-check';
+                if(l.startsWith('action_')||l.includes('react.action'))return 'tabler:bolt';
+                if(l.startsWith('observation_')||l.includes('react.observation'))return 'tabler:eye-search';
+                if(l.includes('task_instructions'))return 'tabler:info-circle';
+                if(l.includes('research_task'))return 'tabler:search';
+                if(l.includes('planning_result'))return 'tabler:route-2';
+                if(l.includes('final_result'))return 'tabler:flag-checkered';
+                if(l.includes('input'))return 'tabler:arrow-bar-to-right';
+                if(l.includes('output'))return 'tabler:arrow-bar-to-left';
+                if(l.includes('yield.result'))return 'tabler:corner-down-right-double';
+                if(l.includes('yield'))return 'tabler:corner-down-right';
+                if(l.includes('param'))return 'tabler:variable';
+                if(l.includes('config'))return 'tabler:settings-cog';
+                if(l.includes('state'))return 'tabler:history';
+                if(l.includes('react_result'))return 'tabler:atom-2';
+                if(l.includes('task_result'))return 'tabler:checklist';
+                return 'tabler:tag';
+            }
         }));
     });
 </script>

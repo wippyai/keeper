@@ -1,8 +1,8 @@
 version: "1.0"
-namespace: wippy.keeper.views.editors.aws
+namespace: keeper.views.editors.aws
 
 entries:
-  # wippy.keeper.views.editors.aws:config
+  # keeper.views.editors.aws:config
   - name: config
     kind: template.jet
     meta:
@@ -14,11 +14,11 @@ entries:
       content_type: text/html
       secure: true
     source: file://config.jet
-    set: wippy.keeper.views.common:templates
+    set: keeper.views.common:templates
     resources:
-      - wippy.keeper.views.common:alpine.js
-
-  # wippy.keeper.views.editors.aws:config_editors
+      - keeper.views.common:alpine.js
+    
+  # keeper.views.editors.aws:config_editors
   - name: config_editors
     kind: registry.entry
     meta:
@@ -30,9 +30,9 @@ entries:
         icon: tabler:brand-aws
         order: 1
         id: default
-        page_name: wippy.keeper.views.editors.aws:config
-
-  # wippy.keeper.views.editors.aws:storage
+        page_name: keeper.views.editors.aws:config
+    
+  # keeper.views.editors.aws:storage
   - name: storage
     kind: template.jet
     meta:
@@ -44,11 +44,11 @@ entries:
       content_type: text/html
       secure: true
     source: file://storage.jet
-    set: wippy.keeper.views.common:templates
+    set: keeper.views.common:templates
     resources:
-      - wippy.keeper.views.common:alpine.js
-
-  # wippy.keeper.views.editors.aws:storage_editors
+      - keeper.views.common:alpine.js
+    
+  # keeper.views.editors.aws:storage_editors
   - name: storage_editors
     kind: registry.entry
     meta:
@@ -60,4 +60,5 @@ entries:
         icon: tabler:cloud-upload
         order: 1
         id: default
-        page_name: wippy.keeper.views.editors.aws:storage
+        page_name: keeper.views.editors.aws:storage
+    

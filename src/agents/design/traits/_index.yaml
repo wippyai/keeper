@@ -1,0 +1,101 @@
+version: "1.0"
+namespace: keeper.agents.design.traits
+
+entries:
+  # keeper.agents.design.traits:agent_list
+  - name: agent_list
+    kind: function.lua
+    meta:
+      name: Design Agent List
+      comment: Dynamic function that generates current design agent list for prompt injection
+      tags:
+        - design
+        - agents
+        - dynamic
+        - prompt
+      description: Generates real_time list of available design agents for trait prompt injection
+    source: file://agent_list.lua
+    imports:
+      list_agents: keeper.agents.manager:list_agents
+    method: handler
+    
+  # keeper.agents.design.traits:design
+  - name: design
+    kind: function.lua
+    meta:
+      type: tool
+      title: Design
+      comment: Delegate design tasks to specialized design agents with preloaded context
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "Development agent ID to delegate to (e.g., keeper.agents.development:backend_engineer)"
+            },
+            "request": {
+              "type": "string",
+              "description": "Development request/task description"
+            },
+            "namespaces": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Namespaces to explore with tree view"
+            },
+            "files": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Specific file paths to read"
+            },
+            "entries": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Registry entry IDs to load (format: namespace:entry)"
+            },
+            "search": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Search terms for finding relevant code patterns"
+            }
+          },
+          "required": ["agent_id", "request"],
+          "additionalProperties": false
+        }
+      llm_alias: Design
+      llm_description: Delegate design tasks to a design agent with optional preloaded context from namespaces, files, entries, and search results.
+      private: true
+    source: file://design.lua
+    modules:
+      - json
+      - uuid
+      - ctx
+      - registry
+      - funcs
+      - text
+    imports:
+      develop_client: userspace.dataflow:client
+      df_consts: userspace.dataflow:consts
+    method: handler
+    
+  # keeper.agents.design.traits:designer
+  - name: designer
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Design
+      comment: Design task delegation with architecture_focused cache optimization [INTERNAL USE ONLY]
+      tags:
+        - design
+        - delegation
+        - context
+        - agents
+        - tools
+        - architecture
+      icon: tabler:blueprint
+      private: true
+    prompt: "Design delegation with architecture_focused cache optimization. Targets existing patterns, reference architectures, and integration points for immediate design execution.\n\n## Design_Specific Cache Strategies\n\n**Architecture Pattern Discovery** (system design)\n```json\n{\n  \"agent_id\": \"keeper.agents.design:architect\",\n  \"request\": \"Design plugin architecture for external service integration with authentication\",\n  \"context\": {\n    \"namespaces\": [\"app.plugins\"],\n    \"files\": [\n      \"app/plugins/github/_index.yaml\",\n      \"app/plugins/bamboohr/_index.yaml\",\n      \"app/plugins/github/oauth.lua\",\n      \"app/plugins/bamboohr/client.lua\"\n    ],\n    \"entries\": [\"app.plugins.github:github\", \"app.plugins.bamboohr:bamboohr\"],\n    \"search\": [\"plugin architecture\", \"authentication patterns\"]\n  }\n}\n```\n**Optimization**: Existing plugin patterns + authentication variations + tool structures\n\n**Integration Architecture** (external service design)\n```json\n{\n  \"agent_id\": \"keeper.agents.design:integration_architect\", \n  \"request\": \"Design OAuth integration for Slack with webhook support\",\n  \"context\": {\n    \"files\": [\n      \"app/plugins/github/oauth.lua\",\n      \"app/plugins/github/webhook.lua\",\n      \"app/plugins/github/client.lua\",\n      \"app/plugins/jira/client.lua\"\n    ],\n    \"namespaces\": [\"app.plugins.slack\", \"app.plugins\"],\n    \"entries\": [\"app.plugins.github:github\"],\n    \"search\": [\"oauth flows\", \"webhook integration\"]\n  }\n}\n```\n**Optimization**: OAuth patterns + webhook architectures + client structures\n\n**System Analysis** (complex discovery)\n```json\n{\n  \"agent_id\": \"keeper.agents.design:system_analyst\",\n  \"request\": \"Analyze existing HTTP routing patterns and middleware integration points\",\n  \"context\": {\n    \"namespaces\": [\"app.api\", \"app\"],\n    \"files\": [\n      \"app/api/_index.yaml\",\n      \"app/api/entries/_index.yaml\",\n      \"app/api/auth/login.lua\",\n      \"app/api/auth/middleware.lua\"\n    ],\n    \"entries\": [\"app:api\", \"app:api.public\"],\n    \"search\": [\"http routing\", \"middleware patterns\"]\n  }\n}\n```\n**Optimization**: Router configs + endpoint patterns + middleware chains\n\n## Architecture Context Loading Priorities\n\n**Priority 1: Reference Architectures**\nExisting implementations that solve similar problems:\n- Plugin structures for external integrations\n- Service architectures for internal components\n- Contract patterns for swappable services\n- Routing configurations for API design\n\n**Priority 2: Integration Point Files**\nConnection and dependency patterns:\n- Client library interfaces\n- Authentication flow implementations\n- Middleware and routing configurations\n- Cross_namespace integration points\n\n**Priority 3: Pattern Variation Files**\nDifferent approaches to similar problems:\n- OAuth vs API key authentication\n- REST vs GraphQL interfaces\n- Synchronous vs asynchronous processing\n- Component vs contract service access\n\n**Priority 4: System Boundary Files**\nNamespace and component boundaries:\n- _index.yaml files showing component structure\n- Trait compositions and tool organizations\n- Import patterns and dependency flows\n\n## Architecture Context Rules\n\n**Include patterns when:**\n- Designing new integrations without existing examples\n- Creating system architectures spanning multiple components\n- Building cross_namespace coordination patterns\n- Implementing new service patterns not seen in codebase\n\n**Pattern + Architecture Combinations:**\n```json\n// Plugin integration design\n{\n  \"files\": [\"app/plugins/github/oauth.lua\", \"app/plugins/google/oauth.lua\"],\n  \"entries\": [\"app.plugins.github:github\", \"app.plugins.google:google\"],\n  \"search\": [\"plugin patterns\", \"authentication flows\"]\n}\n\n// API architecture design\n{\n  \"files\": [\"app/api/auth/_index.yaml\", \"app/api/entries/_index.yaml\"],\n  \"namespaces\": [\"app.api\"],\n  \"search\": [\"api patterns\", \"endpoint architecture\"]\n}\n\n// Service integration design\n{\n  \"files\": [\"userspace/component/_index.yaml\", \"userspace/credentials/_index.yaml\"],\n  \"entries\": [\"userspace.component:component\", \"userspace.credentials:validator\"],\n  \"search\": [\"service patterns\", \"contract integration\"]\n}\n```\n\n## Design Cache Cohesion\n\n**Bundle architectural chains:**\n- Plugin design: authentication pattern + client structure + tool architecture + integration points\n- API design: routing + middleware + handlers + security patterns\n- Service design: contracts + implementations + integration patterns + boundaries\n\n**Avoid pattern lookup during design:**\n- Maker preloads relevant architecture examples\n- Designer gets immediate pattern access\n- No mid_design architecture discovery\n- Focus on decision making, not pattern hunting\n\n**File clustering for architecture:**\n```\nTarget:     New plugin architecture\nLoad refs:  app/plugins/similar_service/_index.yaml, oauth.lua, client.lua\nLoad deps:  Authentication patterns, tool structures\nResult:     Zero_discovery architecture with proven patterns\n```\n\nDesign delegation optimizes for immediate architectural decision making by frontloading reference architectures, integration patterns, and proven structures in coordinated cache loads.\n"
+    tools:
+      - id: keeper.agents.design.traits:design
+    prompt_func_id: keeper.agents.design.traits:agent_list
+    

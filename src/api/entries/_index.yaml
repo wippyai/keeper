@@ -1,8 +1,8 @@
 version: "1.0"
-namespace: wippy.keeper.api.entries
+namespace: keeper.api.entries
 
 entries:
-  # wippy.keeper.api.entries:start_agent
+  # keeper.api.entries:start_agent
   - name: start_agent
     kind: function.lua
     meta:
@@ -14,16 +14,15 @@ entries:
       - registry
       - security
     imports:
+      agent_registry: wippy.agent.discovery:registry
       start_tokens: wippy.session:start_tokens
     method: handler
-
-  # wippy.keeper.api.entries:start_agent.endpoint
+    
+  # keeper.api.entries:start_agent.endpoint
   - name: start_agent.endpoint
     kind: http.endpoint
     meta:
-      depends_on:
-        - ns:app
-      router: app:api
     method: GET
-    func: wippy.keeper.api.entries:start_agent
+    func: keeper.api.entries:start_agent
     path: /keeper/agents/start-agent
+    

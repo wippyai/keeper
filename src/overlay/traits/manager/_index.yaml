@@ -1,0 +1,260 @@
+version: "1.0"
+namespace: keeper.overlay.traits.manager
+
+entries:
+  # keeper.overlay.traits.manager:close
+  - name: close
+    kind: function.lua
+    meta:
+      type: tool
+      title: Close Workspace
+      comment: Clear workspace context and close active workspace
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "confirm": {
+              "type": "boolean",
+              "default": true,
+              "description": "Confirmation to close workspace context"
+            }
+          }
+        }
+      llm_alias: CloseWorkspace
+      llm_description: Close the currently active workspace and clear workspace context. Use when switching between workspaces or ending work session.
+    source: file://close.lua
+    modules:
+      - json
+      - security
+      - ctx
+    imports:
+      reader: keeper.overlay.persist:reader
+      writer: keeper.overlay.persist:writer
+    method: handler
+    
+  # keeper.overlay.traits.manager:create
+  - name: create
+    kind: function.lua
+    meta:
+      type: tool
+      title: Create Workspace
+      comment: Create a new overlay workspace with permissions
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "Human-readable workspace title"
+            },
+            "description": {
+              "type": "string",
+              "description": "Optional workspace description"
+            },
+            "permissions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "namespace_pattern": {
+                    "type": "string",
+                    "description": "Namespace pattern (e.g., 'userspace.myapp.*' or '*')"
+                  },
+                  "permission_type": {
+                    "type": "string",
+                    "enum": ["read", "write"],
+                    "description": "Permission level for this namespace pattern"
+                  }
+                },
+                "required": ["namespace_pattern", "permission_type"]
+              },
+              "description": "Namespace permissions for workspace"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["draft", "active", "committed", "failed", "archived"],
+              "default": "draft",
+              "description": "Initial workspace status"
+            },
+            "metadata": {
+              "type": "object",
+              "description": "Additional workspace metadata"
+            }
+          },
+          "required": ["title", "permissions"]
+        }
+      llm_alias: CreateWorkspace
+      llm_description: Create a new overlay workspace with title and permissions. Automatically sets workspace context - no need to open after creating.
+    source: file://create.lua
+    modules:
+      - json
+      - security
+    imports:
+      writer: keeper.overlay.persist:writer
+    method: handler
+    
+  # keeper.overlay.traits.manager:delete
+  - name: delete
+    kind: function.lua
+    meta:
+      type: tool
+      title: Delete Workspace
+      comment: Permanently delete a workspace and all its entries
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "workspace_id": {
+              "type": "string",
+              "description": "Workspace ID to delete"
+            },
+            "confirm": {
+              "type": "boolean",
+              "default": false,
+              "description": "Confirmation flag - must be true to proceed"
+            }
+          },
+          "required": ["workspace_id", "confirm"]
+        }
+      llm_alias: DeleteWorkspace
+      llm_description: Permanently delete a workspace. Requires confirm=true. This will destroy all workspace entries and cannot be undone.
+    source: file://delete.lua
+    modules:
+      - json
+      - security
+    imports:
+      writer: keeper.overlay.persist:writer
+    method: handler
+    
+  # keeper.overlay.traits.manager:list
+  - name: list
+    kind: function.lua
+    meta:
+      type: tool
+      title: List Workspaces
+      comment: List user's overlay workspaces with filtering options
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["draft", "active", "committed", "failed", "archived"],
+              "description": "Filter by workspace status"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "description": "Maximum number of workspaces to return"
+            }
+          }
+        }
+      llm_alias: ListWorkspaces
+      llm_description: List user's overlay workspaces with optional filtering by status. Can include entry details and permissions.
+    source: file://list.lua
+    modules:
+      - json
+      - security
+    imports:
+      reader: keeper.overlay.persist:reader
+    method: handler
+    
+  # keeper.overlay.traits.manager:manager
+  - name: manager
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Workspace Manager
+      comment: Complete workspace lifecycle management with context switching
+      tags:
+        - workspace
+        - lifecycle
+        - management
+        - context
+        - creation
+        - deletion
+      icon: tabler:layers-difference
+    prompt: "You have complete workspace lifecycle management capabilities:\n\n## Workspace Management Tools\n\n**Create Workspace** - Start new workspace and activate context:\n```json\n{\n  \"title\": \"My Project\",\n  \"description\": \"Working on customer tools\",\n  \"permissions\": [\n    {\"namespace_pattern\": \"*\", \"permission_type\": \"read\"},\n    {\"namespace_pattern\": \"userspace.demo.*\", \"permission_type\": \"write\"}\n  ]\n}\n```\n\n**List Workspaces** - See all available workspaces:\n```json\n{\"include_permissions\": true, \"status\": \"draft\"}\n```\n\n**Open Workspace** - Switch to existing workspace:\n```json\n{\"workspace_id\": \"workspace-uuid\"}\n```\n\n**Update Workspace** - Modify workspace properties:\n```json\n{\n  \"workspace_id\": \"workspace-uuid\",\n  \"title\": \"Updated Title\",\n  \"status\": \"active\"\n}\n```\n\n**Close Workspace** - Clear active workspace context:\n```json\n{\"confirm\": true}\n```\n\n**Delete Workspace** - Permanently destroy workspace:\n```json\n{\n  \"workspace_id\": \"workspace-uuid\", \n  \"confirm\": true\n}\n```\n\n## Context Management\n\n**CRITICAL:** This trait is NOT context-locked. You can:\n- Create new workspaces and switch contexts\n- Open any workspace by ID (if you have access)\n- Close current workspace context\n- Delete workspaces across contexts\n\n**Context Flow:**\n1. `create` automatically activates new workspace context\n2. `open` switches to different workspace context\n3. `close` clears workspace context completely\n4. Other tools work within whatever context is active\n\n**Permission Patterns:**\n- `*` = Full registry access (start with read)\n- `userspace.demo.*` = Specific namespace tree access\n- `namespace.exact` = Single namespace access\n\n**Security Note:**\nThis trait allows context switching and workspace creation/deletion. It's powerful but not suitable for fully autonomous agents that should be contained within a single workspace.\n\n**Best Practices:**\n- Always start with read permissions, add write permissions specifically\n- Use descriptive workspace titles and descriptions\n- Close workspace when switching contexts to avoid confusion\n- List workspaces to understand what exists before creating new ones"
+    tools:
+      - keeper.overlay.traits.manager:open
+      - keeper.overlay.traits.manager:create
+      - keeper.overlay.traits.manager:list
+      - keeper.overlay.traits.manager:update
+      - keeper.overlay.traits.manager:close
+    
+  # keeper.overlay.traits.manager:open
+  - name: open
+    kind: function.lua
+    meta:
+      type: tool
+      title: Open Workspace
+      comment: Set context to work within an existing workspace
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "workspace_id": {
+              "type": "string",
+              "description": "Workspace ID to open and set as active context"
+            }
+          },
+          "required": ["workspace_id"]
+        }
+      llm_alias: OpenWorkspace
+      llm_description: Open and activate an existing workspace for editing. Sets workspace context for file operations.
+    source: file://open.lua
+    modules:
+      - json
+      - security
+    imports:
+      reader: keeper.overlay.persist:reader
+      writer: keeper.overlay.persist:writer
+    method: handler
+    
+  # keeper.overlay.traits.manager:update
+  - name: update
+    kind: function.lua
+    meta:
+      type: tool
+      title: Update Workspace
+      comment: Update workspace details like title, description, status
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "workspace_id": {
+              "type": "string",
+              "description": "Workspace ID to update"
+            },
+            "title": {
+              "type": "string",
+              "description": "New workspace title"
+            },
+            "description": {
+              "type": "string",
+              "description": "New workspace description"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["draft", "active", "committed", "failed", "archived"],
+              "description": "New workspace status"
+            },
+            "metadata": {
+              "type": "object",
+              "description": "Updated metadata (will merge with existing)"
+            }
+          },
+          "required": ["workspace_id"]
+        }
+      llm_alias: UpdateWorkspace
+      llm_description: Update workspace title, description, status, or metadata. Provide only fields you want to change.
+    source: file://update.lua
+    modules:
+      - json
+      - security
+    imports:
+      writer: keeper.overlay.persist:writer
+    method: handler
+    

@@ -1,0 +1,94 @@
+version: "1.0"
+namespace: keeper.overlay.traits.publisher
+
+entries:
+  # keeper.overlay.traits.publisher:publisher
+  - name: publisher
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Registry Publisher
+      comment: Push workspace changes to main registry with governance validation
+      tags:
+        - registry
+        - push
+        - governance
+        - workspace
+        - changes
+      icon: tabler:cloud-upload
+    prompt: |-
+      You can push workspace changes to the main registry:
+    
+      ## Push Tool
+    
+      **Push Changes** - Submit current workspace changes to registry:
+      ```json
+      {"message": "Add new customer support tools"}
+      ```
+    
+      ## Context Rules
+    
+      **CRITICAL:** This tool is context-locked to your current workspace. It will only push changes from the active workspace - you cannot specify a different workspace_id.
+    
+      **What Push Does:**
+      - Converts all workspace changes to registry changeset format
+      - Submits changes through governance validation pipeline
+      - Returns validation results and any errors
+      - Handles create, update, and delete operations
+      - Shows processing details from governance processors
+    
+      **Push Requirements:**
+      - Must have active workspace context (use workspace manager to open one)
+      - Workspace must have changes to push
+      - Workspace changes must be linted
+      - User must have push permissions for affected namespaces
+      - Changes must pass governance validation
+    
+      **Typical Workflow:**
+      1. Make changes in workspace using edit tools
+      2. Use push tool to submit changes to registry
+      3. Review governance feedback and validation results
+      4. Iterate on changes if validation fails
+    
+      **Error Handling:**
+      - Tool will fail if no workspace context is active
+      - Will show detailed validation errors from governance system
+      - Returns processing details to help debug issues
+      - Safe to retry after fixing validation problems
+    
+      The push operation goes through the full governance pipeline including validation, linting, and any configured processors before changes are applied to the main registry.
+    tools:
+      - keeper.overlay.traits.publisher:*
+    
+  # keeper.overlay.traits.publisher:push
+  - name: push
+    kind: function.lua
+    meta:
+      type: tool
+      title: Push
+      comment: Push workspace changes to registry
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string",
+              "description": "Optional commit message for the push"
+            }
+          }
+        }
+      llm_alias: Push
+      llm_description: Push current workspace changes to the main registry. Context-locked to active workspace only.
+    source: file://push.lua
+    modules:
+      - json
+      - security
+      - ctx
+      - registry
+    imports:
+      governance_client: keeper.gov:client
+      snapshot: keeper.overlay.rfs:snapshot
+      workspace: keeper.overlay:workspace
+      writer: keeper.overlay.persist:writer
+    method: handler
+    
