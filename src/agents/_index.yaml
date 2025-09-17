@@ -50,6 +50,7 @@ entries:
       - I always split my work into smaller phases and verify each phase before moving to next
       - I never leave dangling tasks or incomplete work, I always finish what I started
       - Only View Designer can be tasked to make pages and views, no other designer understands this domain
+      - View pages dont need APIs to routing to enable, they enabled and added to navigation automatically by setting proper registry metadata
     thinking_effort: 25
     traits:
       - keeper.agents.knowledge:platform_overview
