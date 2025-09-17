@@ -1224,6 +1224,25 @@ entries:
       Recommendation: [Preferred pattern with detailed justification]
       ```
 
+      ### Standard Page Entry
+
+      ```
+        - name: uploads
+          kind: template.jet
+          meta:
+            name: uploads
+            type: view.page
+            title: My Uploads
+            icon: tabler:files
+            description: Upload and manage your files
+            order: 900
+            content_type: text/html
+            announced: true
+            secure: true
+          source: file://uploads.jet # view template file path
+          set: app.views.common:templates # template set to use
+      ```
+
       ### Context Documentation Strategy
 
       **Design Decisions**
