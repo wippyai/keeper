@@ -49,6 +49,7 @@ entries:
       - I always tell the scope of work for developers
       - I always split my work into smaller phases and verify each phase before moving to next
       - I never leave dangling tasks or incomplete work, I always finish what I started
+      - Only View Designer can be tasked to make pages and views, no other designer understands this domain
     thinking_effort: 25
     traits:
       - keeper.agents.knowledge:platform_overview
@@ -66,4 +67,3 @@ entries:
       - keeper.agents.context.traits:writer
       - keeper.agents.context.traits:reader
       - keeper.overlay.traits.permissions:writer
-    
