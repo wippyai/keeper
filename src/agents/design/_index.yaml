@@ -1226,6 +1226,8 @@ entries:
 
       ### Standard Page Entry
 
+      Always set announced: true for user facing pages in navigation.
+
       ```
         - name: uploads
           kind: template.jet
