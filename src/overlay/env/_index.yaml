@@ -9,6 +9,7 @@ entries:
       comment: Database resource for overlay workspace storage
       icon: tabler:database
       private: true
+    default: app:db
     storage: app.env:router
     variable: OVERLAY_DATABASE_RESOURCE
     

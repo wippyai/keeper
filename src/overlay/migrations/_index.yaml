@@ -15,6 +15,7 @@ entries:
       description: Create registry overlay system tables for user-specific registry workspaces
       depends_on:
         - ns:wippy.migration
+      target_db: app:db
       timestamp: "2025-09-02T15:00:00Z"
     source: file://01_create_overlay_tables.lua
     imports:
@@ -34,6 +35,7 @@ entries:
       description: Add workspace context table for contextual data storage
       depends_on:
         - ns:wippy.migration
+      target_db: app:db
       timestamp: "2025-09-11T18:00:00Z"
     source: file://02_add_workspace_context.lua
     imports:

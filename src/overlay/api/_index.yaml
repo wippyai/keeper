@@ -8,6 +8,7 @@ entries:
     meta:
       comment: Add view permission for workspace access
       description: Workspace permission management HTTP endpoints
+      router: app:api
     source: file://add_view_permission.lua
     modules:
       - http
@@ -25,6 +26,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://create_workspace.lua
     modules:
       - http
@@ -42,6 +46,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: POST
     func: create_workspace
     path: /workspaces
@@ -52,6 +59,7 @@ entries:
     meta:
       comment: Create new workspace context
       description: Workspace context management HTTP endpoints
+      router: app:api
     source: file://create_workspace_context.lua
     modules:
       - http
@@ -66,6 +74,7 @@ entries:
     meta:
       comment: Create workspace context endpoint
       description: Workspace context management HTTP endpoints
+      router: app:api
     method: POST
     func: create_workspace_context
     path: /workspaces/{id}/context
@@ -79,6 +88,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://create_workspace_permission.lua
     modules:
       - http
@@ -96,6 +108,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: POST
     func: create_workspace_permission
     path: /workspaces/{id}/permissions
@@ -109,6 +124,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://create_workspace_review.lua
     modules:
       - http
@@ -126,6 +144,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: POST
     func: create_workspace_review
     path: /workspaces/{id}/reviews
@@ -139,6 +160,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://delete_workspace.lua
     modules:
       - http
@@ -156,6 +180,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: DELETE
     func: delete_workspace
     path: /workspaces/{id}
@@ -166,6 +193,7 @@ entries:
     meta:
       comment: Delete workspace context
       description: Workspace context management HTTP endpoints
+      router: app:api
     source: file://delete_workspace_context.lua
     modules:
       - http
@@ -180,6 +208,7 @@ entries:
     meta:
       comment: Delete workspace context endpoint
       description: Workspace context management HTTP endpoints
+      router: app:api
     method: DELETE
     func: delete_workspace_context
     path: /workspaces/{id}/context/{context_id}
@@ -193,6 +222,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://delete_workspace_entry.lua
     modules:
       - http
@@ -210,6 +242,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: DELETE
     func: delete_workspace_entry
     path: /workspaces/{id}/entries/{entry_id}
@@ -223,6 +258,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://delete_workspace_permission.lua
     modules:
       - http
@@ -240,6 +278,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: DELETE
     func: delete_workspace_permission
     path: /workspaces/{id}/permissions/{permission_id}
@@ -253,6 +294,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://delete_workspace_review.lua
     modules:
       - http
@@ -270,6 +314,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: DELETE
     func: delete_workspace_review
     path: /workspaces/{id}/reviews/{review_id}
@@ -280,6 +327,10 @@ entries:
     meta:
       comment: Get complete workspace details with entries
       description: Workspace management HTTP endpoints
+      depends_on:
+        - app:api
+        - app:api
+      router: app:api
     source: file://get_workspace.lua
     modules:
       - http
@@ -297,6 +348,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: GET
     func: get_workspace
     path: /workspaces/{id}
@@ -307,6 +361,7 @@ entries:
     meta:
       comment: Get workspace context by ID
       description: Workspace context management HTTP endpoints
+      router: app:api
     source: file://get_workspace_context.lua
     modules:
       - http
@@ -321,6 +376,7 @@ entries:
     meta:
       comment: Get workspace context endpoint
       description: Workspace context management HTTP endpoints
+      router: app:api
     method: GET
     func: get_workspace_context
     path: /workspaces/{id}/context/{context_id}
@@ -334,6 +390,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://get_workspace_entry.lua
     modules:
       - http
@@ -351,6 +410,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: GET
     func: get_workspace_entry
     path: /workspaces/{id}/entries/{entry_id}
@@ -364,6 +426,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://get_workspace_review.lua
     modules:
       - http
@@ -381,6 +446,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: GET
     func: get_workspace_review
     path: /workspaces/{id}/reviews/{review_id}
@@ -391,6 +459,7 @@ entries:
     meta:
       comment: List workspace contexts with filtering and pagination
       description: Workspace context management HTTP endpoints
+      router: app:api
     source: file://list_workspace_contexts.lua
     modules:
       - http
@@ -405,6 +474,7 @@ entries:
     meta:
       comment: List workspace contexts endpoint
       description: Workspace context management HTTP endpoints
+      router: app:api
     method: GET
     func: list_workspace_contexts
     path: /workspaces/{id}/context
@@ -418,6 +488,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://list_workspace_ops.lua
     modules:
       - http
@@ -435,6 +508,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: GET
     func: list_workspace_ops
     path: /workspaces/{id}/ops
@@ -448,6 +524,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://list_workspace_permissions.lua
     modules:
       - http
@@ -465,6 +544,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: GET
     func: list_workspace_permissions
     path: /workspaces/{id}/permissions
@@ -478,6 +560,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://list_workspace_reviews.lua
     modules:
       - http
@@ -495,6 +580,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: GET
     func: list_workspace_reviews
     path: /workspaces/{id}/reviews
@@ -508,6 +596,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://list_workspaces.lua
     modules:
       - http
@@ -525,6 +616,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: GET
     func: list_workspaces
     path: /workspaces
@@ -538,6 +632,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://reset_workspace_entry.lua
     modules:
       - http
@@ -555,6 +652,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: POST
     func: reset_workspace_entry
     path: /workspaces/{id}/entries/{entry_id}/reset
@@ -568,6 +668,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://update_workspace.lua
     modules:
       - http
@@ -585,6 +688,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: PUT
     func: update_workspace
     path: /workspaces/{id}
@@ -595,6 +701,7 @@ entries:
     meta:
       comment: Update workspace context content and metadata
       description: Workspace context management HTTP endpoints
+      router: app:api
     source: file://update_workspace_context.lua
     modules:
       - http
@@ -609,6 +716,7 @@ entries:
     meta:
       comment: Update workspace context endpoint
       description: Workspace context management HTTP endpoints
+      router: app:api
     method: PUT
     func: update_workspace_context
     path: /workspaces/{id}/context/{context_id}
@@ -622,6 +730,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://update_workspace_review.lua
     modules:
       - http
@@ -639,6 +750,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: PUT
     func: update_workspace_review
     path: /workspaces/{id}/reviews/{review_id}
@@ -652,6 +766,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     source: file://upsert_workspace_entry.lua
     modules:
       - http
@@ -669,6 +786,9 @@ entries:
       depends_on:
         - ns:keeper.overlay
         - ns:keeper.overlay.persist
+        - app:api
+        - app:api
+      router: app:api
     method: PUT
     func: upsert_workspace_entry
     path: /workspaces/{id}/entries/{entry_id}

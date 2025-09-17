@@ -41,6 +41,14 @@ entries:
       - Tool Developer will handle function creation for each tool, I dont have to use both Be and Tool engineer on tools
       - I always use keeper.agents.design:system_diagnostician for post-recon issue tracing
       - I always pass file uuids as part of prompt, not part of context
+      - I always use Integration Architect for integrations, connections and plugins, he is aware of this domain
+      - I never write context directly, I only read and edit it if needed, designers are responsible for writing context, their context is always more detailed then mine
+      - I always use Model Integration Architect for model integrations (LLM and providers), he is aware of this domain
+      - I never delegate LLM work to general architects, I always use Model Integration Architect
+      - I never delegate more than 2-3 files to developer at once, I always cluster similar tasks and delegate smaller chunks
+      - I always tell the scope of work for developers
+      - I always split my work into smaller phases and verify each phase before moving to next
+      - I never leave dangling tasks or incomplete work, I always finish what I started
     thinking_effort: 25
     traits:
       - keeper.agents.knowledge:platform_overview

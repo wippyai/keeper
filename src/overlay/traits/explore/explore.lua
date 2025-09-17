@@ -23,7 +23,7 @@ local function safe_workspace_id_to_string(workspace_id)
     if not workspace_id then
         return nil
     end
-
+    
     local id_type = type(workspace_id)
     if id_type == "string" then
         return workspace_id

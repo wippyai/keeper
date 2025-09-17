@@ -118,6 +118,70 @@ local function extract_smart_context(context_string)
     return context
 end
 
+local function xml_escape(str)
+    if not str then return "" end
+    str = tostring(str)
+    str = str:gsub("&", "&amp;")
+    str = str:gsub("<", "&lt;")
+    str = str:gsub(">", "&gt;")
+    str = str:gsub("\"", "&quot;")
+    str = str:gsub("'", "&apos;")
+    return str
+end
+
+local function parse_workspace_status(workspace_text)
+    local status = {
+        modified_files = 0,
+        new_files = 0,
+        deleted_files = 0
+    }
+    
+    if not workspace_text then
+        return status
+    end
+    
+    -- Count status indicators in workspace output
+    for line in workspace_text:gmatch("[^\r\n]+") do
+        if line:match("~modified") then
+            status.modified_files = status.modified_files + 1
+        elseif line:match("%+new") then
+            status.new_files = status.new_files + 1
+        elseif line:match("%-deleted") then
+            status.deleted_files = status.deleted_files + 1
+        end
+    end
+    
+    return status
+end
+
+local function extract_workspace_permissions(workspace_text)
+    local permissions = {}
+    
+    if not workspace_text then
+        return permissions
+    end
+    
+    -- Extract permission information from workspace text
+    local in_permissions = false
+    for line in workspace_text:gmatch("[^\r\n]+") do
+        if line:match("^Permissions:") then
+            in_permissions = true
+        elseif in_permissions and line:match("^%s+") then
+            local scope, access = line:match("^%s+([^:]+):%s*(.+)")
+            if scope and access then
+                table.insert(permissions, {
+                    scope = scope:gsub("%s+", ""),
+                    access = access:gsub("%s+", "")
+                })
+            end
+        elseif in_permissions and not line:match("^%s") then
+            in_permissions = false
+        end
+    end
+    
+    return permissions
+end
+
 local function load_workspace_context()
     local workspace_id, _ = ctx.get("workspace_id")
     if not workspace_id then
@@ -131,11 +195,47 @@ local function load_workspace_context()
         verbose = true
     })
 
-    if workspace_result and not workspace_err then
-        return "\n\n## Active Workspace Context\n\n" .. workspace_result
-    else
+    if not workspace_result or workspace_err then
         return ""
     end
+
+    -- Extract workspace title and description from result
+    local title = workspace_result:match("([^\r\n]+)") or "Unknown Workspace"
+    local description = ""
+    
+    -- Look for description pattern in workspace output
+    local desc_match = workspace_result:match("Description:%s*([^\r\n]+)")
+    if desc_match then
+        description = desc_match
+    end
+    
+    local status = parse_workspace_status(workspace_result)
+    local permissions = extract_workspace_permissions(workspace_result)
+    
+    local xml_parts = {}
+    table.insert(xml_parts, "  <workspace>")
+    table.insert(xml_parts, "    <id>" .. xml_escape(workspace_id) .. "</id>")
+    table.insert(xml_parts, "    <title>" .. xml_escape(title) .. "</title>")
+    if description ~= "" then
+        table.insert(xml_parts, "    <description>" .. xml_escape(description) .. "</description>")
+    end
+    
+    table.insert(xml_parts, "    <permissions>")
+    for _, perm in ipairs(permissions) do
+        table.insert(xml_parts, "      <permission scope=\"" .. xml_escape(perm.scope) .. 
+                    "\" access=\"" .. xml_escape(perm.access) .. "\"/>")
+    end
+    table.insert(xml_parts, "    </permissions>")
+    
+    table.insert(xml_parts, "    <status>")
+    table.insert(xml_parts, "      <modified_files>" .. status.modified_files .. "</modified_files>")
+    table.insert(xml_parts, "      <new_files>" .. status.new_files .. "</new_files>")
+    table.insert(xml_parts, "      <deleted_files>" .. status.deleted_files .. "</deleted_files>")
+    table.insert(xml_parts, "    </status>")
+    
+    table.insert(xml_parts, "  </workspace>")
+    
+    return table.concat(xml_parts, "\n")
 end
 
 local function normalize_context_params(params)
@@ -183,16 +283,89 @@ local function normalize_context_params(params)
     return context_params
 end
 
+local function parse_file_status(file_path, files_content)
+    -- Determine file status from workspace output patterns
+    if not files_content then return "active" end
+    
+    -- Look for status indicators in the files content
+    local status_pattern = file_path:gsub("[%(%)%.%+%-%*%?%[%]%^%$%%]", "%%%1")
+    
+    if files_content:match(status_pattern .. "[^\r\n]*%+new") then
+        return "new"
+    elseif files_content:match(status_pattern .. "[^\r\n]*~modified") then
+        return "modified"
+    elseif files_content:match(status_pattern .. "[^\r\n]*%-deleted") then
+        return "deleted"
+    end
+    
+    return "active"
+end
+
+local function parse_entry_info_from_content(entry_id, content)
+    -- Extract entry metadata from _index.yaml content
+    local entry_info = {
+        kind = "unknown",
+        meta_type = "",
+        title = "",
+        comment = "",
+        source = "",
+        modules = {},
+        imports = {}
+    }
+    
+    if not content then return entry_info end
+    
+    -- Look for the specific entry in the YAML content
+    local entry_name = entry_id:match(":([^:]+)$")
+    if not entry_name then return entry_info end
+    
+    -- Find the entry block
+    local entry_pattern = "%-%-%-[^\r\n]*" .. entry_name .. "[^\r\n]*\r?\n"
+    local entry_start = content:find(entry_pattern)
+    if not entry_start then
+        -- Try simpler pattern
+        entry_pattern = "name:%s*" .. entry_name
+        entry_start = content:find(entry_pattern)
+    end
+    
+    if entry_start then
+        local entry_block = content:sub(entry_start, entry_start + 2000) -- Get reasonable chunk
+        
+        -- Extract kind
+        local kind = entry_block:match("kind:%s*([^\r\n]+)")
+        if kind then entry_info.kind = kind:gsub("%s+", "") end
+        
+        -- Extract meta type
+        local meta_type = entry_block:match("type:%s*([^\r\n]+)")
+        if meta_type then entry_info.meta_type = meta_type:gsub("%s+", "") end
+        
+        -- Extract title and comment
+        local title = entry_block:match("title:%s*([^\r\n]+)")
+        if title then entry_info.title = title:gsub("%s+", "") end
+        
+        local comment = entry_block:match("comment:%s*([^\r\n]+)")
+        if comment then entry_info.comment = comment:gsub("^%s*", ""):gsub("%s*$", "") end
+        
+        -- Extract source
+        local source = entry_block:match("source:%s*([^\r\n]+)")
+        if source then entry_info.source = source:gsub("%s+", "") end
+    end
+    
+    return entry_info
+end
+
 local function load_context_data(context_params)
     if not context_params then
         return ""
     end
 
-    local context_sections = {}
+    local xml_sections = {}
     local executor = funcs.new()
 
+    -- Generate namespaces section
     if context_params.namespaces and #context_params.namespaces > 0 then
-        table.insert(context_sections, "## Namespace Structures")
+        table.insert(xml_sections, "  <namespaces>")
+        
         for _, namespace in ipairs(context_params.namespaces) do
             local tree_result, tree_err = executor:call(EXPLORE_FUNC_ID, {
                 operation = "tree",
@@ -200,36 +373,91 @@ local function load_context_data(context_params)
                 depth = 2,
                 show_entries = true
             })
+            
             if tree_result and not tree_err then
-                table.insert(context_sections, "### " .. namespace)
-                table.insert(context_sections, tree_result)
+                table.insert(xml_sections, "    <namespace path=\"" .. xml_escape(namespace) .. "\" depth=\"2\"/>")
+                table.insert(xml_sections, tree_result)
+                table.insert(xml_sections, "")
             else
-                table.insert(context_sections, "### " .. namespace .. " (error: " .. (tree_err or "unknown") .. ")")
+                table.insert(xml_sections, "    <namespace path=\"" .. xml_escape(namespace) .. "\" depth=\"2\" error=\"" .. 
+                           xml_escape(tree_err or "unknown") .. "\"/>")
+                table.insert(xml_sections, "")
             end
         end
+        
+        table.insert(xml_sections, "  </namespaces>")
     end
 
+    -- Generate files section
     if context_params.files and #context_params.files > 0 then
-        table.insert(context_sections, "## File Contents")
+        table.insert(xml_sections, "  <files>")
+        
         local files_result, files_err = executor:call(EXPLORE_FUNC_ID, {
             operation = "files",
             paths = context_params.files
         })
+        
         if files_result and not files_err then
-            table.insert(context_sections, files_result)
+            -- Parse individual files from the result
+            local current_file = nil
+            local current_content = {}
+            
+            for line in files_result:gmatch("[^\r\n]+") do
+                local file_match = line:match("^%-%-%-+ ([^%s]+) %-%-%-+$")
+                if file_match then
+                    -- Save previous file if exists
+                    if current_file then
+                        local status = parse_file_status(current_file, files_result)
+                        table.insert(xml_sections, "    <file path=\"" .. xml_escape(current_file) .. 
+                                   "\" status=\"" .. status .. "\">")
+                        table.insert(xml_sections, "      <content><![CDATA[")
+                        table.insert(xml_sections, table.concat(current_content, "\n"))
+                        table.insert(xml_sections, "      ]]></content>")
+                        table.insert(xml_sections, "    </file>")
+                    end
+                    
+                    -- Start new file
+                    current_file = file_match
+                    current_content = {}
+                else
+                    -- Add line to current file content
+                    if current_file then
+                        table.insert(current_content, line)
+                    end
+                end
+            end
+            
+            -- Save last file
+            if current_file then
+                local status = parse_file_status(current_file, files_result)
+                table.insert(xml_sections, "    <file path=\"" .. xml_escape(current_file) .. 
+                           "\" status=\"" .. status .. "\">")
+                table.insert(xml_sections, "      <content><![CDATA[")
+                table.insert(xml_sections, table.concat(current_content, "\n"))
+                table.insert(xml_sections, "      ]]></content>")
+                table.insert(xml_sections, "    </file>")
+            end
         else
-            table.insert(context_sections, "Error loading files: " .. (files_err or "unknown"))
+            table.insert(xml_sections, "    <!-- Error loading files: " .. xml_escape(files_err or "unknown") .. " -->")
         end
+        
+        table.insert(xml_sections, "  </files>")
     end
 
+    -- Generate entries section
     if context_params.entries and #context_params.entries > 0 then
-        table.insert(context_sections, "## Registry Entries")
+        table.insert(xml_sections, "  <entries>")
+        
         local entry_files = {}
+        local entry_to_namespace = {}
+        
         for _, entry_id in ipairs(context_params.entries) do
             local namespace = entry_id:match("^([^:]+):")
             if namespace then
                 local namespace_path = namespace:gsub("%.", "/")
-                table.insert(entry_files, namespace_path .. "/_index.yaml")
+                local index_file = namespace_path .. "/_index.yaml"
+                table.insert(entry_files, index_file)
+                entry_to_namespace[entry_id] = index_file
             end
         end
 
@@ -240,17 +468,65 @@ local function load_context_data(context_params)
                 operation = "files",
                 paths = entry_files
             })
+            
             if entries_result and not entries_err then
-                table.insert(context_sections, entries_result)
+                -- Parse entry information for each requested entry
+                for _, entry_id in ipairs(context_params.entries) do
+                    local index_file = entry_to_namespace[entry_id]
+                    if index_file then
+                        -- Extract content for this index file
+                        local file_content = ""
+                        local in_file = false
+                        
+                        for line in entries_result:gmatch("[^\r\n]+") do
+                            local file_match = line:match("^%-%-%-+ ([^%s]+) %-%-%-+$")
+                            if file_match then
+                                in_file = (file_match == index_file)
+                            elseif in_file then
+                                file_content = file_content .. line .. "\n"
+                            end
+                        end
+                        
+                        local entry_info = parse_entry_info_from_content(entry_id, file_content)
+                        
+                        table.insert(xml_sections, "    <entry id=\"" .. xml_escape(entry_id) .. "\">")
+                        table.insert(xml_sections, "      <kind>" .. xml_escape(entry_info.kind) .. "</kind>")
+                        
+                        if entry_info.meta_type ~= "" or entry_info.title ~= "" or entry_info.comment ~= "" then
+                            local meta_attrs = {}
+                            if entry_info.meta_type ~= "" then
+                                table.insert(meta_attrs, "type=\"" .. xml_escape(entry_info.meta_type) .. "\"")
+                            end
+                            if entry_info.title ~= "" then
+                                table.insert(meta_attrs, "title=\"" .. xml_escape(entry_info.title) .. "\"")
+                            end
+                            if entry_info.comment ~= "" then
+                                table.insert(meta_attrs, "comment=\"" .. xml_escape(entry_info.comment) .. "\"")
+                            end
+                            
+                            table.insert(xml_sections, "      <meta " .. table.concat(meta_attrs, " ") .. "/>")
+                        end
+                        
+                        table.insert(xml_sections, "      <data>")
+                        if entry_info.source ~= "" then
+                            table.insert(xml_sections, "        <source>" .. xml_escape(entry_info.source) .. "</source>")
+                        end
+                        table.insert(xml_sections, "      </data>")
+                        table.insert(xml_sections, "    </entry>")
+                    end
+                end
             else
-                table.insert(context_sections, "Error loading entries: " .. (entries_err or "unknown"))
+                table.insert(xml_sections, "    <!-- Error loading entries: " .. xml_escape(entries_err or "unknown") .. " -->")
             end
         end
+        
+        table.insert(xml_sections, "  </entries>")
     end
 
-    -- Only run search when ENABLE_SEARCH is true AND search params are provided
+    -- Generate search section
     if ENABLE_SEARCH and context_params.search and #context_params.search > 0 then
-        table.insert(context_sections, "## Search Results")
+        table.insert(xml_sections, "  <search enabled=\"true\">")
+        
         for _, search_query in ipairs(context_params.search) do
             local search_result, search_err = executor:call(EXPLORE_FUNC_ID, {
                 operation = "search",
@@ -258,21 +534,26 @@ local function load_context_data(context_params)
                 search_type = "regex",
                 limit = 20
             })
+            
             if search_result and not search_err then
-                table.insert(context_sections, "### Search: " .. search_query)
-                table.insert(context_sections, search_result)
+                table.insert(xml_sections, "    <query term=\"" .. xml_escape(search_query) .. "\" type=\"regex\" limit=\"20\">")
+                table.insert(xml_sections, "      <results><![CDATA[")
+                table.insert(xml_sections, search_result)
+                table.insert(xml_sections, "      ]]></results>")
+                table.insert(xml_sections, "    </query>")
             else
-                table.insert(context_sections,
-                    "### Search: " .. search_query .. " (error: " .. (search_err or "unknown") .. ")")
+                table.insert(xml_sections, "    <query term=\"" .. xml_escape(search_query) .. "\" type=\"regex\" limit=\"20\" error=\"" .. 
+                           xml_escape(search_err or "unknown") .. "\">")
+                table.insert(xml_sections, "    </query>")
             end
         end
+        
+        table.insert(xml_sections, "  </search>")
+    else
+        table.insert(xml_sections, "  <search enabled=\"false\"/>")
     end
 
-    if #context_sections > 0 then
-        return "\n\n" .. table.concat(context_sections, "\n\n")
-    else
-        return ""
-    end
+    return table.concat(xml_sections, "\n")
 end
 
 local function extract_data_field(result)
@@ -336,7 +617,22 @@ local function handler(params)
     local context_params = normalize_context_params(params)
     local context_data = load_context_data(context_params)
     local workspace_context = load_workspace_context()
-    local full_context = workspace_context .. context_data
+    
+    -- Wrap everything in XML delegation_context root element
+    local xml_parts = {}
+    table.insert(xml_parts, "<delegation_context>")
+    
+    if workspace_context ~= "" then
+        table.insert(xml_parts, workspace_context)
+    end
+    
+    if context_data ~= "" then
+        table.insert(xml_parts, context_data)
+    end
+    
+    table.insert(xml_parts, "</delegation_context>")
+    
+    local full_context = table.concat(xml_parts, "\n")
 
     local session_context, ctx_err = ctx.all()
     if ctx_err then

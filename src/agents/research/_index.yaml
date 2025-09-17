@@ -132,7 +132,7 @@ entries:
     meta:
       type: agent.gen1
       title: Session Analyst
-      comment: User session analysis specialist for patterns, failures, and agent improvement opportunities
+      comment: User session analysis specialist for patterns, failures, and agent improvement opportunities, use for fetching user conversation patterns, past memories and session data
       group: Research
       tags:
         - sessions
