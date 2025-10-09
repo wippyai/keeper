@@ -52,8 +52,6 @@ entries:
       description: "API router for handling HTTP requests"
     default: "app:api"
     targets:
-      - entry: wippy.embeddings.migrations:01_create_embeddings_table
-        path: ".meta.target_db"
       - entry: keeper.hil.api:approve
         path: ".meta.router"
       - entry: keeper.hil.api:approve.endpoint
