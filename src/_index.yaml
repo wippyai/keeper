@@ -46,6 +46,17 @@ entries:
     version: ">=v0.0.7"
 
   # Requirements
+  - name: web_host_origin_env
+    kind: ns.requirement
+    meta:
+    description: "Environment variable that defines the public web host origin URL"
+    default: "keeper.env:web_host_origin"
+    targets:
+      - entry: keeper.hil.views:env_mappings
+        path: ".mappings.web_host_origin"
+      - entry: keeper.views.common:env_mappings
+        path: ".mappings.web_host_origin"
+
   - name: router
     kind: ns.requirement
     meta:
