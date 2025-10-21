@@ -23,6 +23,7 @@
     {{ end }}
     {{ end }}
     {{ end }}
+    <script src="{{ env.web_host_origin }}/proxy.js"></script>
 </head>
 <body class="bg-surface-50 dark:bg-surface-900">
 <div class="py-3 max-w-8xl mx-auto">

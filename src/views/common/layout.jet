@@ -32,6 +32,7 @@
     {{ end }}
     {{ end }}
     {{ end }}
+    <script src="{{ env.web_host_origin }}/proxy.js"></script>
 </head>
 <body class="bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-surface-200">
 <div class="min-h-screen">
