@@ -1,0 +1,35 @@
+version: "1.0"
+namespace: keeper.state
+
+entries:
+  # keeper.state:client
+  - name: client
+    kind: library.lua
+    meta:
+      comment: State client library
+      description: Simple wrapper for sending commands to state orchestrator
+    source: file://client.lua
+    modules:
+      - uuid
+      - time
+    imports:
+      state_consts: keeper.state:consts
+    method: state_client
+    
+  # keeper.state:consts
+  - name: consts
+    kind: library.lua
+    meta:
+      comment: State system constants
+    source: file://consts.lua
+    
+  # keeper.state:db
+  - name: db
+    kind: db.sql.sqlite
+    meta:
+      comment: State system local database
+      description: SQLite database for state indexing and synchronization
+    file: ./.wippy/state_reflect.db
+    lifecycle:
+      auto_start: true
+    

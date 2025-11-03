@@ -1,0 +1,103 @@
+version: "1.0"
+namespace: keeper.materialize.cycle
+
+entries:
+  # keeper.materialize.cycle:implementation_collector
+  - name: implementation_collector
+    kind: function.lua
+    meta:
+      title: Implementation Collector
+      comment: Process operations and write results
+    source: file://implementation_collector.lua
+    modules:
+      - json
+      - uuid
+      - ctx
+    imports:
+      design_reader: keeper.design.persist:reader
+      design_writer: keeper.design.persist:writer
+    method: run
+    
+  # keeper.materialize.cycle:load_design_context
+  - name: load_design_context
+    kind: function.lua
+    meta:
+      title: Load Design Context
+      comment: Load clean design spec without iteration history for implementation agents
+    source: file://load_design_context.lua
+    modules:
+      - json
+      - ctx
+    imports:
+      design_reader: keeper.design.persist:reader
+    method: run
+    
+  # keeper.materialize.cycle:load_implementation_context
+  - name: load_implementation_context
+    kind: function.lua
+    meta:
+      title: Load Implementation Context
+      comment: Load full context with iteration history for orchestrator
+    source: file://load_implementation_context.lua
+    modules:
+      - json
+      - ctx
+    imports:
+      design_reader: keeper.design.persist:reader
+    method: run
+    
+  # keeper.materialize.cycle:materialize_cycle
+  - name: materialize_cycle
+    kind: function.lua
+    meta:
+      title: Materialize Cycle
+      comment: Single iteration cycle
+    source: file://materialize_cycle.lua
+    modules:
+      - json
+    imports:
+      flow: userspace.dataflow.flow:flow
+    method: run
+    
+  # keeper.materialize.cycle:operation_handler
+  - name: operation_handler
+    kind: function.lua
+    meta:
+      title: Operation Handler
+      comment: Handles post-collection operation execution
+    source: file://operation_handler.lua
+    modules:
+      - json
+      - ctx
+    imports:
+      design_reader: keeper.design.persist:reader
+      design_writer: keeper.design.persist:writer
+      flow: userspace.dataflow.flow:flow
+    method: run
+    
+  # keeper.materialize.cycle:store_operation_result
+  - name: store_operation_result
+    kind: function.lua
+    meta:
+      title: Store Operation Result
+      comment: Persists operation execution results to materialize branch
+    source: file://store_operation_result.lua
+    modules:
+      - json
+      - ctx
+    imports:
+      design_reader: keeper.design.persist:reader
+      design_writer: keeper.design.persist:writer
+    method: run
+    
+  # keeper.materialize.cycle:validate_operation
+  - name: validate_operation
+    kind: function.lua
+    meta:
+      title: Validate Operation
+      comment: Exit function validator for orchestrator
+    source: file://validate_operation.lua
+    modules:
+      - json
+    method: handler
+    

@@ -1,0 +1,40 @@
+version: "1.0"
+namespace: keeper.context.traits.migrations
+
+entries:
+  # keeper.context.traits.migrations:get_migration_tree
+  - name: get_migration_tree
+    kind: function.lua
+    meta:
+      comment: Returns tree structure of all database migrations grouped by target database
+      output_schema: |
+        {
+          "type": "string"
+        }
+    source: file://get_migration_tree.lua
+    modules:
+      - ctx
+      - yaml
+    imports:
+      migration_repo: wippy.migration:repository
+      state_reader: keeper.state.persist:reader
+    method: handler
+    
+  # keeper.context.traits.migrations:migrations_aware
+  - name: migrations_aware
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Migrations Aware
+      comment: Inject complete migration tree into system prompt showing databases and their migrations
+      tags:
+        - migrations
+        - database
+        - context
+        - schema
+      icon: tabler:database-cog
+    prompt: Database migration ecosystem showing all migrations organized by target database.
+    tools:
+      - keeper.state.traits.explore:get_entries
+    prompt_func_id: keeper.context.traits.migrations:get_migration_tree
+    

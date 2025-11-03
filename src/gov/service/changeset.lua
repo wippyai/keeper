@@ -6,25 +6,17 @@ local contract = require("contract")
 local consts = require("consts")
 local observers = require("observers")
 
--- Create a named logger for this process
 local log = logger:named("gov.service.changeset")
 
----------------------------
--- Helper Functions
----------------------------
-
--- Merge options tables, with override taking precedence
 local function merge_options(base_options, override_options)
     local merged = {}
 
-    -- Copy base options
     if base_options then
         for k, v in pairs(base_options) do
             merged[k] = v
         end
     end
 
-    -- Override with new options
     if override_options then
         for k, v in pairs(override_options) do
             merged[k] = v
@@ -34,11 +26,6 @@ local function merge_options(base_options, override_options)
     return merged
 end
 
----------------------------
--- Validation Functions
----------------------------
-
--- Validate changeset using namespace restrictions and linters
 local function validate_changeset(changeset, request_id, options, user_id)
     log:debug("Validating changeset", {
         count = #changeset,
@@ -58,11 +45,9 @@ local function validate_changeset(changeset, request_id, options, user_id)
         return nil, consts.ERRORS.NO_CHANGESET, issues
     end
 
-    -- Validate each entry and check namespace management
     for i, item in ipairs(changeset) do
         local item_id = "item:" .. i
 
-        -- Basic structure validation
         if not item.kind or not item.entry then
             table.insert(issues, {
                 id = item_id,
@@ -72,7 +57,6 @@ local function validate_changeset(changeset, request_id, options, user_id)
             goto continue
         end
 
-        -- Validate operation kind
         if item.kind ~= consts.REGISTRY_OPERATIONS.CREATE and
            item.kind ~= consts.REGISTRY_OPERATIONS.UPDATE and
            item.kind ~= consts.REGISTRY_OPERATIONS.DELETE then
@@ -84,7 +68,6 @@ local function validate_changeset(changeset, request_id, options, user_id)
             goto continue
         end
 
-        -- Validate entry ID exists for delete operations
         if item.kind == consts.REGISTRY_OPERATIONS.DELETE and not item.entry.id then
             table.insert(issues, {
                 id = item_id,
@@ -94,7 +77,6 @@ local function validate_changeset(changeset, request_id, options, user_id)
             goto continue
         end
 
-        -- Check namespace management
         if item.entry.id then
             local namespace = item.entry.id:match("^([^:]+):")
             if namespace and not consts.is_namespace_managed(namespace) then
@@ -110,7 +92,6 @@ local function validate_changeset(changeset, request_id, options, user_id)
         ::continue::
     end
 
-    -- If we have errors from basic validation, return early
     local error_count = 0
     for _, issue in ipairs(issues) do
         if issue.type == "error" then
@@ -126,7 +107,6 @@ local function validate_changeset(changeset, request_id, options, user_id)
         return nil, "Changeset validation failed", issues
     end
 
-    -- Run linters pipeline
     local pipeline_contract, err = contract.get("keeper.linters:pipeline")
     if err then
         log:error("Failed to get linters pipeline contract", { error = err })
@@ -138,7 +118,6 @@ local function validate_changeset(changeset, request_id, options, user_id)
         return nil, consts.ERRORS.LINTER_PIPELINE_UNAVAILABLE, issues
     end
 
-    -- Open pipeline instance
     local pipeline_instance, err = pipeline_contract:open()
     if err then
         log:error("Failed to open linting pipeline", { error = err })
@@ -150,15 +129,12 @@ local function validate_changeset(changeset, request_id, options, user_id)
         return nil, "Linting pipeline initialization failed", issues
     end
 
-    -- Merge original options with linting-specific overrides
-    -- Force level to 100 and preserve all other original options
     local lint_options = merge_options(options, {
-        level = 100,                 -- Force level 100 as requested
-        halt_on_error = false,       -- Get all issues
-        halt_on_warning = false      -- Get all issues
+        level = 100,
+        halt_on_error = false,
+        halt_on_warning = false
     })
 
-    -- Execute linting
     local lint_request = {
         changeset = changeset,
         options = lint_options
@@ -184,18 +160,16 @@ local function validate_changeset(changeset, request_id, options, user_id)
         return nil, consts.ERRORS.LINTER_EXECUTION_FAILED, issues
     end
 
-    -- Convert linter issues to our format (maintain compatibility)
     if lint_result.issues then
         for _, lint_issue in ipairs(lint_result.issues) do
             table.insert(issues, {
                 id = lint_issue.entry_id or "unknown",
-                type = lint_issue.level, -- error, warning, info
+                type = lint_issue.level,
                 message = lint_issue.message
             })
         end
     end
 
-    -- Check if linting succeeded (no errors)
     if not lint_result.success then
         log:error("Linting validation failed", {
             request_id = request_id,
@@ -204,7 +178,6 @@ local function validate_changeset(changeset, request_id, options, user_id)
         return nil, consts.ERRORS.LINTING_VALIDATION_FAILED, issues
     end
 
-    -- Count errors to ensure we never pass with errors
     local final_error_count = 0
     for _, issue in ipairs(issues) do
         if issue.type == "error" then
@@ -227,11 +200,9 @@ local function validate_changeset(changeset, request_id, options, user_id)
         request_id = request_id
     })
 
-    -- Return the potentially modified changeset from linters
     return lint_result.changeset or changeset, nil, issues
 end
 
--- Validate version ID
 local function validate_version_id(version_id)
     log:debug("Validating version ID", { version_id = version_id })
 
@@ -246,7 +217,6 @@ local function validate_version_id(version_id)
         return nil, consts.ERRORS.INVALID_VERSION_ID, issues
     end
 
-    -- Check if the version exists in the registry
     local history = registry.history()
     if not history then
         table.insert(issues, {
@@ -270,11 +240,6 @@ local function validate_version_id(version_id)
     return version_id, nil, issues
 end
 
----------------------------
--- Execution Functions
----------------------------
-
--- Apply changeset to registry
 local function execute_changeset(changeset, options, request_id, user_id)
     log:info("Executing changeset", {
         changeset_count = #changeset,
@@ -283,7 +248,6 @@ local function execute_changeset(changeset, options, request_id, user_id)
         user_id = user_id
     })
 
-    -- Create a snapshot for applying changes
     local snapshot, err = registry.snapshot()
     if not snapshot then
         log:error("Failed to create registry snapshot", {
@@ -300,7 +264,6 @@ local function execute_changeset(changeset, options, request_id, user_id)
         }
     end
 
-    -- Get changes object for the snapshot
     local changes = snapshot:changes()
     if not changes then
         log:error("Failed to get changes object", {
@@ -316,7 +279,6 @@ local function execute_changeset(changeset, options, request_id, user_id)
         }
     end
 
-    -- Apply changeset to the changes object
     for _, op in ipairs(changeset) do
         local kind = op.kind
         local entry = op.entry
@@ -346,10 +308,8 @@ local function execute_changeset(changeset, options, request_id, user_id)
         end
     end
 
-    -- Apply the changes to create a new registry version
     local version, err = changes:apply()
     if not version then
-        -- Handle "no changes to apply" case
         if err and tostring(err):find("no changes to apply") then
             log:info("No changes needed to be applied", {
                 request_id = request_id,
@@ -362,7 +322,6 @@ local function execute_changeset(changeset, options, request_id, user_id)
                 user_id = user_id
             }
         else
-            -- Actual error case
             log:error("Failed to apply changes", {
                 error = err,
                 request_id = request_id,
@@ -393,7 +352,6 @@ local function execute_changeset(changeset, options, request_id, user_id)
     }
 end
 
--- Apply a specific registry version
 local function execute_version(version_id, options, request_id, user_id)
     log:info("Executing version application", {
         version_id = version_id,
@@ -402,7 +360,6 @@ local function execute_version(version_id, options, request_id, user_id)
         user_id = user_id
     })
 
-    -- Get the specified version using the history object
     local history = registry.history()
     local version, err = history:get_version(version_id)
     if not version then
@@ -421,7 +378,6 @@ local function execute_version(version_id, options, request_id, user_id)
         }
     end
 
-    -- Apply the version
     local success, err = registry.apply_version(version)
     if not success then
         log:error("Failed to apply registry version", {
@@ -454,11 +410,6 @@ local function execute_version(version_id, options, request_id, user_id)
     }
 end
 
----------------------------
--- Post-Processing Functions
----------------------------
-
--- Run observers for successful operations
 local function run_post_processing(changeset, result, request_id, user_id)
     if not result.success then
         log:debug("Skipping post-processing for failed operation", {
@@ -474,21 +425,12 @@ local function run_post_processing(changeset, result, request_id, user_id)
         has_changeset = changeset ~= nil
     })
 
-    -- Run observers if we have a changeset
-    if changeset then
-        observers.run_observers(changeset, result, request_id, user_id)
-    end
+    observers.run_observers(changeset or {}, result, request_id, user_id)
 end
 
----------------------------
--- Main Process Function
----------------------------
-
--- Main run function that executes the appropriate operation
 local function run(args)
     log:info("Starting changeset process")
 
-    -- Validate arguments
     if not args then
         log:error("No arguments provided")
         return {
@@ -518,12 +460,9 @@ local function run(args)
     local changeset = args.changeset
     local validation_details = {}
 
-    -- Determine and execute the appropriate operation
     if args.changeset then
-        -- Validate changeset (this now properly merges options)
         local validated_changeset, err, issues = validate_changeset(args.changeset, request_id, args.options or {}, user_id)
 
-        -- Store validation details
         validation_details = issues or {}
 
         if not validated_changeset then
@@ -544,15 +483,12 @@ local function run(args)
             }
         end
 
-        -- Execute changeset
         result = execute_changeset(validated_changeset, args.options or {}, request_id, user_id)
         changeset = validated_changeset
 
     elseif args.version_id then
-        -- Validate version ID
         local validated_version, err, issues = validate_version_id(args.version_id)
 
-        -- Store validation details
         validation_details = issues or {}
 
         if not validated_version then
@@ -572,7 +508,6 @@ local function run(args)
             }
         end
 
-        -- Execute version application
         result = execute_version(validated_version, args.options or {}, request_id, user_id)
 
     else
@@ -590,11 +525,9 @@ local function run(args)
         }
     end
 
-    -- Add validation details to result
     result.details = validation_details
     result.changeset = changeset
 
-    -- Run post-processing (observers)
     run_post_processing(changeset, result, request_id, user_id)
 
     log:info("Completed changeset process", {
@@ -606,5 +539,4 @@ local function run(args)
     return result
 end
 
--- Export the run function
 return { run = run }

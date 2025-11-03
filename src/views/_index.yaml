@@ -17,7 +17,28 @@ entries:
       group_order: 9999
       group_placement: bottom
       internal: /keeper
-
+    
+  # keeper.views:tests
+  - name: tests
+    kind: template.jet
+    meta:
+      name: control.tests
+      type: view.page
+      title: Application Tests
+      group: Keeper
+      icon: tabler:test-pipe
+      description: Manage and run system tests
+      order: 120
+      content_type: text/html
+      announced: true
+      group_icon: tabler:settings
+      group_order: 9999
+      group_placement: bottom
+      secure: true
+      space: admin
+    source: file://tests.jet
+    set: keeper.views.common:templates
+    
   # keeper.views:token_usage
   - name: token_usage
     kind: template.jet
@@ -40,3 +61,4 @@ entries:
     set: app.views.common:templates
     resources: {}
     data_func: ""
+    

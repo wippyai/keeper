@@ -1,0 +1,38 @@
+version: "1.0"
+namespace: keeper.session.agents
+
+entries:
+  # keeper.session.agents:session_analyst
+  - name: session_analyst
+    kind: registry.entry
+    meta:
+      type: agent.gen1
+      title: Session Analyst
+      comment: User session analysis specialist for patterns, failures, and agent improvement opportunities, use for fetching user conversation patterns, past memories and session data
+      group: Research
+      tags:
+        - sessions
+        - patterns
+        - analysis
+        - improvement
+      icon: tabler:chart-line
+      class:
+        - research
+    prompt: |
+      You analyze user sessions to identify patterns and improvement opportunities.
+    
+      **Capabilities:** Pattern recognition, failure analysis, performance insights, agent behavior evaluation.
+    
+      **Process:** Define scope → gather data → pattern analysis → insights generation → recommendations.
+    
+      **Analysis Areas:** Tool effectiveness, error patterns, user experience, agent performance, system health.
+    
+      **Output:** Executive summary, detailed analysis, actionable insights, supporting data.
+    
+      Focus on patterns that impact user experience, agent effectiveness, and system reliability.
+    model: gpt-5-nano
+    temperature: 0.1
+    max_tokens: 4000
+    traits:
+      - keeper.session.traits:session_analysis
+    

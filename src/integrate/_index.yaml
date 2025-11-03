@@ -1,0 +1,114 @@
+version: "1.0"
+namespace: keeper.integrate
+
+entries:
+  # keeper.integrate:get_version
+  - name: get_version
+    kind: function.lua
+    meta:
+      title: Get Registry Version
+      comment: Gets current registry version number
+      output_schema: |
+        {
+          "type": "number"
+        }
+    source: file://get_version.lua
+    imports:
+      client: keeper.gov:client
+    method: run
+    
+  # keeper.integrate:integrate
+  - name: integrate
+    kind: function.lua
+    meta:
+      type: tool
+      title: Integrate
+      comment: Integrates and tests changes with automatic rollback on failure
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "test_scenario": {
+              "type": "string",
+              "description": "Optional test scenario to run after integration"
+            }
+          }
+        }
+      llm_alias: integrate
+      llm_description: Run integration pipeline with automatic rollback on failure. Optionally run test scenario after pipeline execution.
+      output_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "success": {"type": "boolean"},
+            "message": {"type": "string"},
+            "push": {
+              "type": "object",
+              "properties": {
+                "entry_ids": {"type": "array"},
+                "summary": {"type": "string"},
+                "version": {"type": "number"},
+                "added": {"type": "integer"},
+                "modified": {"type": "integer"},
+                "deleted": {"type": "integer"}
+              }
+            },
+            "pipeline": {
+              "type": "object",
+              "properties": {
+                "success": {"type": "boolean"},
+                "applied_ids": {"type": "array"},
+                "error": {"type": ["string", "null"]},
+                "execution": {"type": "object"}
+              }
+            },
+            "test": {
+              "type": "object",
+              "properties": {
+                "success": {"type": "boolean"},
+                "details": {"type": "string"}
+              }
+            },
+            "rollback": {
+              "type": "object",
+              "properties": {
+                "pipeline_reverted": {"type": "boolean"},
+                "version_restored": {"type": "boolean"},
+                "message": {"type": "string"}
+              }
+            }
+          }
+        }
+    source: file://integrate.lua
+    modules:
+      - json
+      - ctx
+    imports:
+      client: keeper.gov:client
+      flow: userspace.dataflow.flow:flow
+    method: handler
+    
+  # keeper.integrate:rollback_version
+  - name: rollback_version
+    kind: function.lua
+    meta:
+      title: Rollback Registry Version
+      comment: Rolls back registry to specific version
+      input_schema: |
+        {
+          "type": "number"
+        }
+      output_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "success": {"type": "boolean"},
+            "version": {"type": "string"},
+            "message": {"type": "string"}
+          }
+        }
+    source: file://rollback_version.lua
+    imports:
+      client: keeper.gov:client
+    method: run
+    

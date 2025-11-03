@@ -1,0 +1,76 @@
+version: "1.0"
+namespace: keeper.develop.context
+
+entries:
+  # keeper.develop.context:context_router
+  - name: context_router
+    kind: registry.entry
+    meta:
+      type: agent.gen1
+      title: Context Chain Router
+      comment: Evaluates conditions to filter context agents
+    prompt: |
+      Decide which context agents should run based on their conditions.
+    
+      ## Input
+    
+      - task: Implementation task
+      - conditional_agents: Formatted text list of agents
+    
+      Format:
+      ```
+      N. agent_id: namespace:agent
+         instructions: what agent does
+         condition: when to use
+      ```
+    
+      ## Job
+    
+      Check if task matches each condition.
+      Return agent_ids for matching agents.
+    
+      ## Output
+    
+      ```json
+      {
+        "selected": ["namespace:agent1"]
+      }
+      ```
+    model: gpt-5-nano
+    temperature: 0.2
+    max_tokens: 8000
+    
+  # keeper.develop.context:prepare_context
+  - name: prepare_context
+    kind: function.lua
+    meta:
+      title: Prepare Context
+      comment: Loads context chain and executes all relevant agents
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "Developer agent ID"
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Task description"
+            }
+          },
+          "required": ["agent_id", "prompt"]
+        }
+      output_schema: |
+        {
+          "type": "string",
+          "description": "Formatted context"
+        }
+    source: file://prepare_context.lua
+    modules:
+      - json
+    imports:
+      agent_registry: wippy.agent.discovery:registry
+      flow: userspace.dataflow.flow:flow
+    method: handler
+    
