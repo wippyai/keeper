@@ -2,18 +2,6 @@ version: "1.0"
 namespace: keeper.hil.views
 
 entries:
-  # keeper.hil.views:env_mappings
-  - name: env_mappings
-    kind: registry.entry
-    meta:
-      type: view.env_mapping
-      description: Default environment variable mappings for Keeper HIL views
-      category: keeper
-      priority: 20
-      template_set: keeper.hil.views:templates
-    mappings:
-      web_host_origin: keeper.env:web_host_origin
-
   # keeper.hil.views:alpine.js
   - name: alpine.js
     kind: registry.entry
@@ -25,7 +13,7 @@ entries:
       resource_type: script
       template_set: keeper.hil.views:templates
       url: https://unpkg.com/alpinejs@3.13.0/dist/cdn.min.js
-
+    
   # keeper.hil.views:approval
   - name: approval
     kind: template.jet
@@ -40,7 +28,7 @@ entries:
     source: file://approval.jet
     set: keeper.hil.views:templates
     data_func: keeper.hil.views:approval.data
-
+    
   # keeper.hil.views:approval.data
   - name: approval.data
     kind: function.lua
@@ -48,7 +36,7 @@ entries:
       type: view.data
     source: file://approval.data.lua
     method: handler
-
+    
   # keeper.hil.views:tailwindcss
   - name: tailwindcss
     kind: registry.entry
@@ -59,7 +47,7 @@ entries:
       resource_type: script
       template_set: keeper.hil.views:templates
       url: https://cdn.tailwindcss.com
-
+    
   # keeper.hil.views:templates
   - name: templates
     kind: template.set
@@ -67,3 +55,15 @@ entries:
       description: Template set for HIL approval views
     engine:
       development_mode: true
+    
+  # keeper.hil.views:wippy-api
+  - name: wippy-api
+    kind: registry.entry
+    meta:
+      name: WippyAPI
+      type: view.resource
+      order: 10
+      resource_type: script
+      template_set: keeper.hil.views:templates
+      url: https://front.wippy.ai/proxy.js
+    

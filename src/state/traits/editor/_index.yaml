@@ -1,0 +1,226 @@
+version: "1.0"
+namespace: keeper.state.traits.editor
+
+entries:
+  # keeper.state.traits.editor:branch
+  - name: branch
+    kind: function.lua
+    meta:
+      type: tool
+      title: Set Branch
+      comment: Set active branch context for state operations
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["set", "get", "clear"],
+              "default": "set",
+              "description": "Action: set branch, get current, or clear to main"
+            },
+            "branch": {
+              "type": "string",
+              "description": "Branch name to activate (required for 'set')"
+            }
+          }
+        }
+      llm_alias: set_branch
+      llm_description: Set or manage active branch context. All state operations use the active branch. Use 'set' to switch branches, 'get' to check current branch, 'clear' to return to main.
+    source: file://branch.lua
+    modules:
+      - json
+      - ctx
+    method: handler
+    
+  # keeper.state.traits.editor:edit
+  - name: edit
+    kind: function.lua
+    meta:
+      type: tool
+      title: Edit
+      comment: Edit entry definitions and source files
+      claude:
+        type: text_editor_20250728
+        max_characters: 50000
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "enum": ["view", "str_replace", "create"],
+              "description": "Editor command"
+            },
+            "path": {
+              "type": "string",
+              "description": "Entry ID (namespace:name format)"
+            },
+            "old_str": {
+              "type": "string",
+              "description": "Text to replace (str_replace)"
+            },
+            "new_str": {
+              "type": "string",
+              "description": "Replacement text (str_replace)"
+            },
+            "file_text": {
+              "type": "string",
+              "description": "Complete file with <definition> and <source> sections (create)"
+            },
+            "view_range": {
+              "type": "array",
+              "items": {"type": "integer"},
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "Line range [start, end] for view"
+            }
+          },
+          "required": ["command", "path"]
+        }
+      llm_alias: str_replace_based_edit_tool
+      llm_description: Edit entries (definitions and source). View shows both definition YAML and source with line numbers. str_replace works on either part. Create takes structured file_text with definition and source sections. Works on active branch.
+    source: file://edit.lua
+    modules:
+      - json
+      - ctx
+      - text
+      - yaml
+    imports:
+      consts: keeper.state:consts
+      materialize: keeper.state.persist:materialize
+      state_client: keeper.state:client
+      state_reader: keeper.state.persist:reader
+    method: handler
+    
+  # keeper.state.traits.editor:editor
+  - name: editor
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: State Editor
+      comment: Branch-based entry and file editing
+      tags:
+        - editor
+        - state
+        - branch
+        - files
+      icon: tabler:code
+    prompt: "Branch-based state editing. Entry IDs: `namespace:name`\n\n## Branch Context\n\nSet branch (persistent):\n```json\n{\"action\": \"set\", \"branch\": \"dev\"}\n```\n\nAll operations use active branch. Default: main (read-only).\n\n## View Entry\n\nShows definition YAML and source with line numbers:\n```json\n{\"command\": \"view\", \"path\": \"namespace:entry\"}\n```\n\nOutput format:\n```\n1: <definition>\n2: name: entry\n3: kind: function.lua\n4: meta:\n5:   type: tool\n6: source: file://entry.lua\n7: </definition>\n8: \n9: <source filename=\"entry.lua\">\n10: local function handler()\n11:   return \"hello\"\n12: end\n13: </source>\n```\n\n## Edit with str_replace\n\nWorks on definition OR source (wherever old_str matches):\n```json\n{\n  \"command\": \"str_replace\",\n  \"path\": \"namespace:entry\",\n  \"old_str\": \"exact text to find\",\n  \"new_str\": \"replacement text\"\n}\n```\n\nEdit definition to change kind, meta, data, source field.\nEdit source to change code.\n\n## Create Entry\n\nCopy/paste from view output format:\n```json\n{\n  \"command\": \"create\",\n  \"path\": \"namespace:newentry\",\n  \"file_text\": \"<definition>\\nname: newentry\\nkind: function.lua\\nsource: file://newentry.lua\\n</definition>\\n\\n<source filename=\\\"newentry.lua\\\">\\nlocal function handler()\\n  return true\\nend\\n</source>\"\n}\n```\n\nThe file_text should contain both <definition> and <source> sections.\nSource section is optional for entries without code.\n\n## Workflow\n\n1. Set branch context\n2. View entry to see current state\n3. str_replace to modify definition or source\n4. Create for new entries (copy view format)\n\n## Critical Rules\n\n- Entries have definition (YAML) + optional source (content)\n- str_replace works on whichever part matches old_str\n- Changing definition can change kind, meta, everything\n- Must set branch before editing (main is read-only)\n- Use explore tool to discover existing entries\n- Create uses same format as view output\n\nSimple, fast, branch-based editing.\n"
+    tools:
+      - keeper.state.traits.editor:edit
+    
+  # keeper.state.traits.editor:manage
+  - name: manage
+    kind: function.lua
+    meta:
+      type: tool
+      title: Manage Entry
+      comment: Delete or reset entry state
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "operation": {
+              "type": "string",
+              "enum": ["delete", "reset"],
+              "description": "Management operation"
+            },
+            "entry_id": {
+              "type": "string",
+              "description": "Entry ID (namespace:name format)"
+            },
+            "from_branch": {
+              "type": "string",
+              "default": "main",
+              "description": "Source branch for reset operation"
+            }
+          },
+          "required": ["operation", "entry_id"]
+        }
+      llm_alias: manage_entry
+      llm_description: Manage entry lifecycle. Delete marks entry as deleted in current branch. Reset copies entry state from another branch (default main) to current branch, reverting changes.
+    source: file://manage.lua
+    modules:
+      - json
+      - ctx
+    imports:
+      consts: keeper.state:consts
+      state_client: keeper.state:client
+      state_reader: keeper.state.persist:reader
+    method: handler
+    
+  # keeper.state.traits.editor:manager
+  - name: manager
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: State Manager
+      comment: Entry lifecycle management
+      tags:
+        - manager
+        - state
+        - branch
+        - lifecycle
+      icon: tabler:adjustments
+    prompt: |
+      Branch-based entry lifecycle management. Entry IDs: `namespace:name`
+    
+      ## Branch Context
+    
+      Set branch (persistent):
+      ```json
+      {"action": "set", "branch": "dev"}
+      ```
+    
+      All operations use active branch. Default: main (read-only).
+    
+      ## Delete Entry
+    
+      Mark as deleted in branch:
+      ```json
+      {"operation": "delete", "entry_id": "namespace:entry"}
+      ```
+    
+      ## Reset Entry
+    
+      Copy state from another branch (undo changes):
+      ```json
+      {"operation": "reset", "entry_id": "namespace:entry", "from_branch": "main"}
+      ```
+    
+      ## Workflow
+    
+      1. Set branch context
+      2. Delete to mark entry as deleted
+      3. Reset to revert changes from source branch
+    
+      ## Critical Rules
+    
+      - Must set branch before managing (main is read-only)
+      - Delete marks deleted, doesn't remove from storage
+      - Reset copies complete state from source branch
+      - Use explore tool to discover existing entries
+    
+      Simple, fast, branch-based lifecycle management.
+    tools:
+      - keeper.state.traits.editor:branch
+      - keeper.state.traits.editor:manage
+    
+  # keeper.state.traits.editor:resetter
+  - name: resetter
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: State Manager
+      comment: Entry lifecycle management (resetting)
+      tags:
+        - manager
+        - state
+        - branch
+        - lifecycle
+      icon: tabler:adjustments
+    prompt: "Branch-based entry lifecycle management. Entry IDs: `namespace:name`\n\n## Delete Entry\n\nMark as deleted in branch:\n```json\n{\"operation\": \"delete\", \"entry_id\": \"namespace:entry\"}\n```\n\n## Reset Entry\n\nCopy state from another branch (undo changes, default main):\n```json\n{\"operation\": \"reset\", \"entry_id\": \"namespace:entry\", \"from_branch\": \"main\"}\n```\n\n## Critical Rules      \n- Reset copies complete state from source branch or resets entry. Use to flush mistakes\n- Use explore tool to discover existing entries\n\nSimple, fast, branch-based lifecycle management.\n"
+    tools:
+      - keeper.state.traits.editor:manage
+    

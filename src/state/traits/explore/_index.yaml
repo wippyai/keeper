@@ -1,0 +1,308 @@
+version: "1.0"
+namespace: keeper.state.traits.explore
+
+entries:
+  # keeper.state.traits.explore:compare
+  - name: compare
+    kind: function.lua
+    meta:
+      type: tool
+      title: Compare State Branches
+      comment: Compare two branches to identify added, deleted, and modified entries with detailed diffs
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["tree", "entries"],
+              "description": "Comparison mode - tree for namespace-level summary, entries for detailed entry-level diffs"
+            },
+            "source": {
+              "type": "string",
+              "default": "main",
+              "description": "Source branch to compare from"
+            },
+            "target": {
+              "type": "string",
+              "description": "Target branch to compare to"
+            },
+            "namespace": {
+              "type": "string",
+              "description": "Optional namespace filter to limit comparison scope"
+            },
+            "ids": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Optional array of specific entry IDs to compare (entries mode only)"
+            },
+            "show_unchanged": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether to show unchanged entries in output (entries mode only)"
+            }
+          },
+          "required": ["mode", "target"]
+        }
+      llm_alias: compare_state_branches
+      llm_description: Compare two branches to identify added, deleted, and modified entries with detailed diffs
+    source: file://compare.lua
+    modules:
+      - logger
+      - hash
+    imports:
+      materialize: keeper.state.persist:materialize
+      state_reader: keeper.state.persist:reader
+      text: text
+    method: handler
+    
+  # keeper.state.traits.explore:comparer
+  - name: comparer
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: State Comparer Trait
+      comment: Branch comparison and diff capabilities
+      tags:
+        - state
+        - comparison
+        - diff
+        - branches
+      icon: tabler:git-compare
+    prompt: |
+      You compare state branches to identify changes. Entries use `namespace:name` format.
+    
+      ## Comparison Modes
+    
+      **tree** - High-level namespace summary
+      ```json
+      {"mode": "tree", "source": "main", "target": "feature-branch"}
+      ```
+      Shows added/deleted/modified counts per namespace.
+    
+      **entries** - Detailed file-level diffs
+      ```json
+      {"mode": "entries", "source": "main", "target": "feature-branch", "namespace": "api"}
+      ```
+      Shows unified diffs for each modified entry (definition and source).
+    
+      ## Filtering
+    
+      Filter by namespace:
+      ```json
+      {"mode": "tree", "target": "dev", "namespace": "api.handlers"}
+      ```
+    
+      Filter by specific entries:
+      ```json
+      {"mode": "entries", "target": "dev", "ids": ["api:user", "api:auth"]}
+      ```
+    
+      ## Best Practices
+    
+      - Use `tree` mode first for overview
+      - Use `entries` mode for detailed review
+      - Filter by namespace to focus on specific areas
+    tools:
+      - keeper.state.traits.explore:compare
+    
+  # keeper.state.traits.explore:explore
+  - name: explore
+    kind: function.lua
+    meta:
+      type: tool
+      title: Explore State
+      comment: Unified exploration tool for state system - tree, namespace, entries, search, and graph operations
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "operation": {
+              "type": "string",
+              "enum": ["tree", "namespace", "entries", "search", "graph"],
+              "description": "Exploration operation"
+            },
+            "root": {
+              "type": "string",
+              "default": ".",
+              "description": "Root namespace prefix for tree operation"
+            },
+            "depth": {
+              "type": "integer",
+              "default": -1,
+              "description": "Max traversal depth (-1 = unlimited for tree, 1-5 for graph)"
+            },
+            "show_entries": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show individual entries within namespaces in tree view"
+            },
+            "name": {
+              "type": "string",
+              "description": "Namespace name for namespace operation"
+            },
+            "id": {
+              "type": "string",
+              "description": "Entry ID for graph operation (namespace:name format)"
+            },
+            "ids": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Array of entry IDs for entries operation (namespace:name format)"
+            },
+            "query": {
+              "type": "string",
+              "description": "Search query (optional, can be empty to list all with filters)"
+            },
+            "namespace": {
+              "type": "string",
+              "description": "Filter by namespace prefix"
+            },
+            "kind": {
+              "type": "string",
+              "description": "Filter by entry kind (http.endpoint, function.lua, registry.entry, etc.)"
+            },
+            "attributes": {
+              "type": "object",
+              "description": "Filter by meta attributes (e.g., {\"meta.type\": \"tool\"})",
+              "additionalProperties": {"type": "string"}
+            },
+            "limit": {
+              "type": "integer",
+              "default": 100,
+              "description": "Max results for search (default 100)"
+            },
+            "direction": {
+              "type": "string",
+              "enum": ["outgoing", "incoming", "both"],
+              "default": "both",
+              "description": "Edge traversal direction for graph"
+            },
+            "edge_type": {
+              "type": "string",
+              "description": "Filter edges by type in graph"
+            },
+            "branch": {
+              "type": "string",
+              "description": "State branch (default: main)"
+            }
+          },
+          "required": ["operation"]
+        }
+      llm_alias: explore_state
+      llm_description: Unified state exploration with tree, namespace, entries, search, and graph operations
+    source: file://explore.lua
+    modules:
+      - logger
+      - ctx
+    imports:
+      consts: keeper.state:consts
+      materialize: keeper.state.persist:materialize
+      state_reader: keeper.state.persist:reader
+    method: handler
+    
+  # keeper.state.traits.explore:explorer
+  - name: explorer
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: State Explorer Trait
+      comment: State exploration capabilities
+      tags:
+        - state
+        - exploration
+        - registry
+        - graph
+        - search
+      icon: tabler:database-search
+    prompt: |
+      You explore the state system. Entries use `namespace:name` format.
+    
+      ## Operations
+    
+      **tree** - Discover namespaces and their entries
+      ```json
+      {"operation": "tree", "root": ".", "depth": 2, "show_entries": true}
+      ```
+    
+      **namespace** - Read complete namespace YAML definition
+      ```json
+      {"operation": "namespace", "name": "target.namespace"}
+      ```
+    
+      **entries** - Bulk read multiple entries (PREFERRED)
+      ```json
+      {"operation": "entries", "ids": ["ns:entry1", "ns:entry2"]}
+      ```
+      Returns structured format with definition and source sections.
+      ALWAYS prefer this over multiple single reads.
+    
+      **search** - Full-text search and filtering
+      ```json
+      {"operation": "search", "query": "term1 term2", "limit": 100}
+      ```
+      Uses OR logic: finds entries with ANY search term.
+      Returns context snippets showing where terms appear.
+    
+      **graph** - Query entry relationships
+      ```json
+      {"operation": "graph", "id": "ns:entry", "direction": "both", "depth": 2}
+      ```
+    
+      ## Filtering
+    
+      **By kind** - Primary entry type classification
+      ```json
+      {"operation": "search", "kind": "http.endpoint", "limit": 200}
+      ```
+    
+      **By attributes** - Meta field filtering (for registry.entry with meta.type)
+      ```json
+      {"operation": "search", "kind": "registry.entry", "attributes": {"meta.type": "tool"}, "limit": 200}
+      ```
+    
+      ## Best Practices
+    
+      - Use `entries` for bulk reads (always preferred)
+      - Filter by `kind` first (primary classification)
+      - Use `attributes` only for registry.entry with meta.type or other meta fields
+      - Use `search` without query to list all matching filters
+      - Use `namespace` to read complete definitions
+      - Use `graph` to understand relationships
+      - Set higher limits (100-500) for bulk queries
+    tools:
+      - keeper.state.traits.explore:explore
+    
+  # keeper.state.traits.explore:get_entries
+  - name: get_entries
+    kind: function.lua
+    meta:
+      type: tool
+      title: Get Entries
+      comment: Retrieve complete entry definitions including structure and source code
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "ids": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Array of entry IDs (namespace:name format)"
+            }
+          },
+          "required": ["ids"]
+        }
+      llm_alias: get_entries
+      llm_description: Retrieve complete definitions including entry structure and source code for any entries (views, funcs, resources, etc).
+      output_schema: |
+        {
+          "type": "string"
+        }
+    source: file://get_entries.lua
+    modules:
+      - ctx
+    imports:
+      materialize: keeper.state.persist:materialize
+      state_reader: keeper.state.persist:reader
+    method: handler
+    

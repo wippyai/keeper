@@ -22,6 +22,8 @@ entries:
   - name: start_agent.endpoint
     kind: http.endpoint
     meta:
+      comment: Endpoint that generates a session start token for a specific agent by name/ID.
+      router: app:api
     method: GET
     func: keeper.api.entries:start_agent
     path: /keeper/agents/start-agent

@@ -7,7 +7,6 @@ entries:
     kind: function.lua
     meta:
       name: Human-In-Loop Approval Linter
-      type: linter
       comment: Human-in-loop linter for registry changes requiring approval
       tags:
         - linting

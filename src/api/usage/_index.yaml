@@ -10,6 +10,7 @@ entries:
       depends_on:
         - ns:app
         - ns:wippy.usage
+      router: app:api
     source: file://get_summary.lua
     modules:
       - http
@@ -29,6 +30,7 @@ entries:
       comment: Endpoint that returns token usage summary
       depends_on:
         - ns:app
+      router: app:api
     method: GET
     func: get_summary
     path: /keeper/usage/summary
@@ -41,6 +43,7 @@ entries:
       depends_on:
         - ns:app
         - ns:wippy.usage
+      router: app:api
     source: file://get_usage_by_model.lua
     modules:
       - http
@@ -60,6 +63,7 @@ entries:
       comment: Endpoint that returns token usage by model
       depends_on:
         - ns:app
+      router: app:api
     method: GET
     func: get_usage_by_model
     path: /keeper/usage/by-model
@@ -72,6 +76,7 @@ entries:
       depends_on:
         - ns:app
         - ns:wippy.usage
+      router: app:api
     source: file://get_usage_by_time.lua
     modules:
       - http
@@ -91,6 +96,7 @@ entries:
       comment: Endpoint that returns token usage over time
       depends_on:
         - ns:app
+      router: app:api
     method: GET
     func: get_usage_by_time
     path: /keeper/usage/by-time

@@ -1,0 +1,28 @@
+version: "1.0"
+namespace: keeper.state.observer
+
+entries:
+  # keeper.state.observer:registry_watcher
+  - name: registry_watcher
+    kind: function.lua
+    meta:
+      type: registry.observer
+      comment: Registry observer for state system
+      description: Notifies state orchestrator of registry changes for reindexing
+      depends_on:
+        - ns:registry
+        - ns:logger
+        - ns:json
+        - ns:time
+      priority: 60
+    source: file://registry_watcher.lua
+    modules:
+      - registry
+      - json
+      - time
+      - logger
+      - uuid
+    imports:
+      consts: keeper.state:consts
+    method: run
+    

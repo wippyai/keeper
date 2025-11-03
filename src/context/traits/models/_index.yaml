@@ -1,0 +1,32 @@
+version: "1.0"
+namespace: keeper.context.traits.models
+
+entries:
+  # keeper.context.traits.models:models_aware
+  - name: models_aware
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Models Aware
+      comment: Inject available models into system prompt
+      tags:
+        - models
+        - context
+        - discovery
+      icon: tabler:cpu
+    prompt_func_id: keeper.context.traits.models:models_list
+    
+  # keeper.context.traits.models:models_list
+  - name: models_list
+    kind: function.lua
+    meta:
+      comment: List available models for prompt injection
+      output_schema: |
+        {
+          "type": "string"
+        }
+    source: file://models_list.lua
+    imports:
+      models: wippy.llm.discovery:models
+    method: handler
+    

@@ -1,0 +1,149 @@
+version: "1.0"
+namespace: keeper.state.traits.publish
+
+entries:
+  # keeper.state.traits.publish:publisher
+  - name: publisher
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: State Branch Publisher
+      comment: Push state branch changes to main registry with governance validation
+      tags:
+        - state
+        - branch
+        - push
+        - governance
+        - registry
+      icon: tabler:git-merge
+    prompt: |
+      You can push state branch changes to the main registry.
+    
+      ## Push Tool
+    
+      **Push Branch Changes** - Submit branch changes to registry:
+      ```json
+      {"message": "Add new customer support tools"}
+      ```
+    
+      ## Context Rules
+    
+      **CRITICAL:** This tool uses the active branch context. Set branch first using the branch tool.
+    
+      **What Push Does:**
+      - Compares branch against base (default: main)
+      - Identifies added, modified, and deleted entries
+      - Converts state entries to registry format
+      - Submits changes through governance validation
+      - Returns validation results and processing details
+    
+      **Push Requirements:**
+      - Must have active branch context (cannot push main)
+      - Branch must have changes compared to base
+      - Changes should be linted before pushing
+      - User must have push permissions for affected namespaces
+      - Changes must pass governance validation
+    
+      **Typical Workflow:**
+      1. Set branch: `{"action": "set", "branch": "feature-x"}`
+      2. Make changes using edit tool
+      3. Lint: `{"branch": "feature-x", "level": 50}`
+      4. Push: `{"message": "Add feature X"}`
+      5. Review governance feedback
+    
+      **Parameters:**
+      - `branch` (optional) - Branch to push (uses context if omitted)
+      - `base` (optional) - Base branch to compare against (default: main)
+      - `message` (optional) - Commit message for the push
+    
+      **Error Handling:**
+      - Fails if no branch context and no branch parameter
+      - Fails if trying to push main branch
+      - Shows detailed validation errors from governance
+      - Safe to retry after fixing issues
+    
+      The push operation goes through the full governance pipeline including validation, linting, and configured processors before changes are applied to the registry.
+    tools:
+      - keeper.state.traits.publish:push
+    
+  # keeper.state.traits.publish:push
+  - name: push
+    kind: function.lua
+    meta:
+      type: tool
+      title: Push Branch
+      comment: Push state branch changes to registry
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "branch": {
+              "type": "string",
+              "description": "Branch to push (uses active branch if omitted)"
+            },
+            "base": {
+              "type": "string",
+              "default": "main",
+              "description": "Base branch to compare against"
+            },
+            "message": {
+              "type": "string",
+              "description": "Commit message for the push"
+            }
+          }
+        }
+      llm_alias: push_branch
+      llm_description: Push state branch changes to registry. Uses active branch context or explicit branch parameter. Compares against base branch and submits changes to governance.
+      output_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "entry_ids": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "IDs of entries that were pushed to registry"
+            },
+            "summary": {
+              "type": "string",
+              "description": "Formatted text summary of push results"
+            },
+            "version": {
+              "type": "number",
+              "description": "Registry version after push"
+            },
+            "added": {
+              "type": "integer",
+              "description": "Number of entries added"
+            },
+            "modified": {
+              "type": "integer",
+              "description": "Number of entries modified"
+            },
+            "deleted": {
+              "type": "integer",
+              "description": "Number of entries deleted"
+            },
+            "branch": {
+              "type": "string",
+              "description": "Source branch that was pushed"
+            },
+            "base_branch": {
+              "type": "string",
+              "description": "Target branch (usually main)"
+            }
+          },
+          "required": ["entry_ids", "summary", "added", "modified", "deleted", "branch", "base_branch"]
+        }
+    source: file://push.lua
+    modules:
+      - json
+      - security
+      - ctx
+      - hash
+    imports:
+      governance_client: keeper.gov:client
+      materialize: keeper.state.persist:materialize
+      state_client: keeper.state:client
+      state_reader: keeper.state.persist:reader
+    method: handler
+    

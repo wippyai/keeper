@@ -20,7 +20,7 @@ local function handler()
     end
 
     -- Get query parameters for pagination and filtering
-    local limit = tonumber(req:query("limit")) or 100
+    local limit = tonumber(req:query("limit")) or 500
     local offset = tonumber(req:query("offset")) or 0
     local search = req:query("search") -- Optional search filter
     local class_filter = req:query("class") -- Optional class filter

@@ -1,0 +1,159 @@
+version: "1.0"
+namespace: keeper.design.cycle.review
+
+entries:
+  # keeper.design.cycle.review:execute_review
+  - name: execute_review
+    kind: function.lua
+    meta:
+      title: Execute Design Review
+      comment: Orchestrates design review workflow
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "branch_id": {
+              "type": "string",
+              "description": "Branch ID with final design to review"
+            },
+            "collector_output": {
+              "type": "object",
+              "description": "Full collector output with state and result"
+            }
+          },
+          "required": ["branch_id", "collector_output"]
+        }
+      output_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "object",
+              "description": "Cycle state to pass through"
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "should_stop": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "stop_reason": {
+                  "type": "string"
+                },
+                "iterations_run": {
+                  "type": "integer"
+                }
+              }
+            },
+            "continue": {
+              "type": "boolean",
+              "description": "Whether cycle should continue"
+            }
+          },
+          "required": ["state", "result", "continue"]
+        }
+    source: file://execute_review.lua
+    modules:
+      - json
+      - ctx
+    imports:
+      flow: userspace.dataflow.flow:flow
+    method: run
+    
+  # keeper.design.cycle.review:finalize
+  - name: finalize
+    kind: function.lua
+    meta:
+      title: Finalize Review
+      comment: Writes feedback and returns cycle format
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "passed": {
+              "type": "boolean"
+            },
+            "feedback": {
+              "type": "string"
+            },
+            "branch_id": {
+              "type": "string"
+            },
+            "collector_output": {
+              "type": "object"
+            },
+            "workspace_id": {
+              "type": "string"
+            }
+          },
+          "required": ["passed", "branch_id", "collector_output", "workspace_id"]
+        }
+      output_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "object"
+            },
+            "result": {
+              "type": "object"
+            },
+            "continue": {
+              "type": "boolean"
+            }
+          },
+          "required": ["state", "result", "continue"]
+        }
+    source: file://finalize.lua
+    modules:
+      - json
+    imports:
+      design_reader: keeper.design.persist:reader
+      design_writer: keeper.design.persist:writer
+    method: run
+    
+  # keeper.design.cycle.review:workflow
+  - name: workflow
+    kind: function.lua
+    meta:
+      title: Run Review Workflow
+      comment: Executes parallel review agents and consolidates feedback
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "branch_context": {
+              "type": "string",
+              "description": "Full branch context from load_branch_context"
+            },
+            "branch_id": {
+              "type": "string"
+            }
+          },
+          "required": ["branch_context", "branch_id"]
+        }
+      output_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "passed": {
+              "type": "boolean",
+              "description": "Whether review passed"
+            },
+            "feedback": {
+              "type": "string",
+              "description": "Consolidated feedback or null if passed"
+            }
+          },
+          "required": ["passed"]
+        }
+    source: file://workflow.lua
+    modules:
+      - json
+    imports:
+      flow: userspace.dataflow.flow:flow
+    method: run
+    

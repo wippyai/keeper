@@ -1,0 +1,18 @@
+version: "1.0"
+namespace: keeper.state.migrations
+
+entries:
+  # keeper.state.migrations:01_create_overlay_tables
+  - name: 01_create_overlay_tables
+    kind: function.lua
+    meta:
+      type: migration
+      comment: Create overlay tables
+      description: Creates tables for overlay-based state with branches and chunks
+      target_db: keeper.state:db
+      timestamp: "2025-10-08T00:00:00Z"
+    source: file://01_create_overlay_tables.lua
+    imports:
+      migration: wippy.migration:migration
+    method: migrate
+    

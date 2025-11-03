@@ -1,0 +1,49 @@
+version: "1.0"
+namespace: keeper.state.persist
+
+entries:
+  # keeper.state.persist:materialize
+  - name: materialize
+    kind: library.lua
+    meta:
+      comment: State materialization library
+      description: Converts registry entries to state commands with proper hashing
+    source: file://materialize.lua
+    modules:
+      - yaml
+      - hash
+    imports:
+      overlay_consts: keeper.state:consts
+      state_ops: keeper.state.persist:ops
+    method: materialize
+    
+  # keeper.state.persist:ops
+  - name: ops
+    kind: library.lua
+    meta:
+      comment: State operations command handlers
+      description: CQRS command handlers for state entries, edges, and attributes
+    source: file://ops.lua
+    modules:
+      - sql
+      - json
+      - time
+      - hash
+    imports:
+      overlay_consts: keeper.state:consts
+    method: state_ops
+    
+  # keeper.state.persist:reader
+  - name: reader
+    kind: library.lua
+    meta:
+      comment: State reader with fluent API
+      description: Fluent API for querying state entries, edges, and attributes
+    source: file://reader.lua
+    modules:
+      - sql
+      - json
+    imports:
+      overlay_consts: keeper.state:consts
+    method: state_reader
+    

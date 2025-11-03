@@ -1,0 +1,1272 @@
+{{ extends "common/layout" }}
+
+{{ block title() }}Design Workspace{{ end }}
+{{ block metaDescription() }}Edit design workspace data and context{{ end }}
+
+{{ block headScripts() }}
+<script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+<style>
+    .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        padding: 0.375rem 0.75rem;
+        border-radius: 0.375rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+
+    .process-stage {
+        background: rgb(var(--color-surface-50));
+        border-radius: 0.75rem;
+        border: 1px solid rgb(var(--color-surface-200));
+        margin-bottom: 1rem;
+        overflow: hidden;
+    }
+
+    .dark .process-stage {
+        background: rgb(var(--color-surface-800));
+        border-color: rgb(var(--color-surface-700));
+    }
+
+    .stage-header {
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid rgb(var(--color-surface-200));
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .dark .stage-header {
+        border-color: rgb(var(--color-surface-700));
+    }
+
+    .stage-header:hover {
+        background: rgb(var(--color-surface-100));
+    }
+
+    .dark .stage-header:hover {
+        background: rgb(var(--color-surface-700));
+    }
+
+    .stage-content {
+        padding: 1.5rem;
+    }
+
+    .iteration-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        background: rgb(var(--color-primary-600));
+        color: white;
+        border-radius: 0.5rem;
+        font-weight: 600;
+        font-size: 0.875rem;
+    }
+
+    .live-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+
+    .action-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        transition: all 0.2s;
+        border: none;
+        cursor: pointer;
+    }
+
+    .action-btn-primary {
+        background: rgb(var(--color-primary-600));
+        color: white;
+    }
+
+    .action-btn-primary:hover {
+        background: rgb(var(--color-primary-700));
+    }
+
+    .action-btn-secondary {
+        background: rgb(var(--color-surface-50));
+        color: rgb(var(--color-surface-700));
+        border: 1px solid rgb(var(--color-surface-300));
+    }
+
+    .dark .action-btn-secondary {
+        background: rgb(var(--color-surface-800));
+        color: rgb(var(--color-surface-300));
+        border-color: rgb(var(--color-surface-600));
+    }
+
+    .action-btn-secondary:hover {
+        background: rgb(var(--color-surface-100));
+    }
+
+    .dark .action-btn-secondary:hover {
+        background: rgb(var(--color-surface-700));
+    }
+
+    .collapsible-content {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.3s ease-out;
+    }
+
+    .collapsible-content.expanded {
+        max-height: 5000px;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 3rem 1rem;
+    }
+
+    .version-tab {
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+    }
+
+    .version-tab.active {
+        border-bottom-color: rgb(var(--color-primary-600));
+        color: rgb(var(--color-primary-600));
+        font-weight: 600;
+    }
+
+    .feedback-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.375rem;
+        font-size: 0.75rem;
+        font-weight: 500;
+        background: rgb(var(--color-amber-100));
+        color: rgb(var(--color-amber-800));
+    }
+
+    .dark .feedback-badge {
+        background: rgb(var(--color-amber-900));
+        color: rgb(var(--color-amber-200));
+    }
+
+    .raw-data-row {
+        padding: 0.75rem;
+        border-bottom: 1px solid rgb(var(--color-surface-200));
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+
+    .dark .raw-data-row {
+        border-bottom-color: rgb(var(--color-surface-700));
+    }
+
+    .raw-data-row:hover {
+        background: rgb(var(--color-surface-100));
+    }
+
+    .dark .raw-data-row:hover {
+        background: rgb(var(--color-surface-700));
+    }
+
+    .raw-data-row.expanded {
+        background: rgb(var(--color-primary-50));
+    }
+
+    .dark .raw-data-row.expanded {
+        background: rgb(var(--color-primary-900) / 0.3);
+    }
+</style>
+{{ end }}
+
+{{ block mainContent() }}
+<div x-data="designWorkspaceView" x-init="initialize()" class="max-w-7xl mx-auto px-4 py-6 space-y-6">
+    {{ yield workspaceHeader() }}
+    {{ yield loadingState() }}
+    {{ yield tabNavigation() }}
+    {{ yield designProcess() }}
+    {{ yield materializeView() }}
+    {{ yield rawDataView() }}
+    {{ yield historyView() }}
+    {{ yield feedbackModal() }}
+</div>
+{{ end }}
+
+{{ block workspaceHeader() }}
+<div class="bg-surface-50 dark:bg-surface-800 shadow-lg rounded-xl p-6 border border-surface-200 dark:border-surface-700">
+    <div class="flex items-start justify-between gap-4 mb-4">
+        <div class="flex-1">
+            <input type="text" x-model="workspace.title" @blur="saveWorkspace()" placeholder="Workspace Title"
+                   class="text-2xl font-bold bg-transparent border-0 focus:ring-2 focus:ring-primary-500 rounded px-2 text-surface-900 dark:text-surface-100 w-full">
+            <div class="flex items-center gap-3 mt-3">
+                <span class="iteration-badge">
+                    <iconify-icon icon="tabler:repeat" width="16" height="16"></iconify-icon>
+                    Iteration <span x-text="getCurrentIteration()"></span>
+                </span>
+                <span class="status-pill bg-primary-100 dark:bg-primary-900 text-primary-800 dark:text-primary-200">
+                    <iconify-icon icon="tabler:circle-filled" width="8" height="8"></iconify-icon>
+                    <span x-text="workspace.status || 'draft'"></span>
+                </span>
+                <span x-show="liveUpdatesEnabled" class="live-indicator text-green-600 dark:text-green-400 text-sm">
+                    <iconify-icon icon="tabler:wifi" width="16" height="16"></iconify-icon>
+                    Live
+                </span>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <button @click="toggleLiveUpdates()" :class="liveUpdatesEnabled ? 'action-btn-primary' : 'action-btn-secondary'" class="action-btn">
+                <iconify-icon :icon="liveUpdatesEnabled ? 'tabler:player-pause' : 'tabler:player-play'" width="18" height="18"></iconify-icon>
+            </button>
+            <select x-model="workspace.status" @change="saveWorkspace()" class="action-btn action-btn-secondary bg-surface-50 dark:bg-surface-800 text-surface-900 dark:text-surface-100">
+                <option value="draft">Draft</option>
+                <option value="active">Active</option>
+                <option value="archived">Archived</option>
+            </select>
+        </div>
+    </div>
+    <textarea x-model="workspace.description" @blur="saveWorkspace()" placeholder="Workspace description"
+              rows="2" class="w-full text-sm bg-surface-100 dark:bg-surface-900 border-surface-300 dark:border-surface-600 rounded-lg p-3 text-surface-900 dark:text-surface-100"></textarea>
+</div>
+{{ end }}
+
+{{ block loadingState() }}
+<div x-show="isLoading" class="bg-surface-50 dark:bg-surface-800 shadow rounded-lg p-8 text-center">
+    <iconify-icon icon="tabler:loader-2" class="animate-spin text-primary-600" width="48" height="48"></iconify-icon>
+    <p class="mt-4 text-surface-600 dark:text-surface-400">Loading workspace...</p>
+</div>
+<div x-show="error" class="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 p-4 rounded-lg">
+    <p class="text-red-800 dark:text-red-300" x-text="error"></p>
+</div>
+{{ end }}
+
+{{ block tabNavigation() }}
+<div x-show="!isLoading && workspaceData" class="flex gap-3 border-b border-surface-200 dark:border-surface-600 pb-3">
+    <button @click="activeTab = 'design'" :class="activeTab === 'design' ? 'action-btn-primary' : 'action-btn-secondary'" class="action-btn">
+        <iconify-icon icon="tabler:brain" width="18" height="18"></iconify-icon>
+        Design
+    </button>
+    <button x-show="getMaterializeNode()" @click="activeTab = 'materialize'" :class="activeTab === 'materialize' ? 'action-btn-primary' : 'action-btn-secondary'" class="action-btn">
+        <iconify-icon icon="tabler:code" width="18" height="18"></iconify-icon>
+        Materialize
+    </button>
+    <button @click="activeTab = 'raw'" :class="activeTab === 'raw' ? 'action-btn-primary' : 'action-btn-secondary'" class="action-btn">
+        <iconify-icon icon="tabler:database" width="18" height="18"></iconify-icon>
+        Raw Data
+    </button>
+    <button @click="activeTab = 'history'; loadHistory()" :class="activeTab === 'history' ? 'action-btn-primary' : 'action-btn-secondary'" class="action-btn">
+        <iconify-icon icon="tabler:history" width="18" height="18"></iconify-icon>
+        History
+    </button>
+</div>
+{{ end }}
+
+{{ block designProcess() }}
+<div x-show="!isLoading && activeTab === 'design'" class="space-y-6">
+    {{ yield branchFeedbackSection() }}
+    {{ yield questionsSection() }}
+    {{ yield designSpecSection() }}
+    {{ yield contextSection() }}
+    {{ yield iterationsSection() }}
+    {{ yield researchSection() }}
+</div>
+{{ end }}
+
+{{ block branchFeedbackSection() }}
+<div x-show="getBranchFeedback().length > 0" class="process-stage">
+    <div class="stage-header" @click="toggleStage('branchFeedback')">
+        <div class="flex items-center gap-3">
+            <iconify-icon icon="tabler:message-circle" width="24" height="24" class="text-amber-600"></iconify-icon>
+            <div>
+                <h3 class="text-lg font-semibold text-surface-900 dark:text-surface-100">Branch Feedback</h3>
+                <p class="text-sm text-surface-500 dark:text-surface-400">
+                    <span x-text="getBranchFeedback().length"></span> feedback items
+                </p>
+            </div>
+        </div>
+        <iconify-icon :icon="stageExpanded.branchFeedback ? 'tabler:chevron-up' : 'tabler:chevron-down'" width="20" height="20" class="text-surface-500"></iconify-icon>
+    </div>
+    <div :class="stageExpanded.branchFeedback ? 'expanded' : ''" class="collapsible-content">
+        <div class="stage-content">
+            <template x-for="item in getBranchFeedback()" :key="item.data_id">
+                <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 mb-3">
+                    <div class="flex items-start justify-between mb-2">
+                        <div class="flex items-center gap-2">
+                            <iconify-icon icon="tabler:message-circle" width="20" height="20" class="text-amber-600 dark:text-amber-400"></iconify-icon>
+                            <span class="font-semibold text-amber-900 dark:text-amber-100" x-text="getMetadataField(item, 'feedback_type') || 'Feedback'"></span>
+                            <span class="text-xs text-surface-500 dark:text-surface-400" x-text="formatRelativeTime(item.created_at)"></span>
+                        </div>
+                        <button @click="toggleCollapse(item.data_id)" class="text-amber-600 dark:text-amber-400">
+                            <iconify-icon :icon="isCollapsed(item.data_id) ? 'tabler:chevron-down' : 'tabler:chevron-up'" width="18" height="18"></iconify-icon>
+                        </button>
+                    </div>
+                    <div x-show="!isCollapsed(item.data_id)" class="text-sm whitespace-pre-wrap text-surface-800 dark:text-surface-200" x-text="item.content"></div>
+                </div>
+            </template>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ block questionsSection() }}
+<div class="process-stage">
+    <div class="stage-header" @click="toggleStage('questions')">
+        <div class="flex items-center gap-3">
+            <iconify-icon icon="tabler:help" width="24" height="24" class="text-primary-600"></iconify-icon>
+            <div>
+                <h3 class="text-lg font-semibold text-surface-900 dark:text-surface-100">Questions</h3>
+                <p class="text-sm text-surface-500 dark:text-surface-400">
+                    <span x-text="getQuestionsByStatus('open').length"></span> open questions
+                    <span x-show="getBlockingQuestions().length > 0" class="text-red-600 dark:text-red-400 font-medium">
+                        (<span x-text="getBlockingQuestions().length"></span> blocking)
+                    </span>
+                </p>
+            </div>
+        </div>
+        <iconify-icon :icon="stageExpanded.questions ? 'tabler:chevron-up' : 'tabler:chevron-down'" width="20" height="20" class="text-surface-500"></iconify-icon>
+    </div>
+    <div :class="stageExpanded.questions ? 'expanded' : ''" class="collapsible-content">
+        <div class="stage-content">
+            <template x-for="item in getItemsByType('question')" :key="item.data_id">
+                <div class="border-l-4 rounded-lg p-4 mb-3"
+                     :class="getMetadataField(item, 'blocking') ? 'bg-red-50 dark:bg-red-900/20 border-red-500 dark:border-red-700' : 'bg-primary-50 dark:bg-primary-900/20 border-primary-500 dark:border-primary-700'">
+                    <div class="flex items-start justify-between mb-2">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 mb-2">
+                                <iconify-icon :icon="getMetadataField(item, 'blocking') ? 'tabler:alert-triangle' : 'tabler:help-circle'" width="20" height="20" class="text-surface-700 dark:text-surface-300"></iconify-icon>
+                                <span class="font-semibold text-surface-900 dark:text-surface-100">Question</span>
+                                <span class="text-xs px-2 py-1 rounded-md font-medium"
+                                      :class="item.status === 'open' ? 'bg-primary-100 dark:bg-primary-900 text-primary-800 dark:text-primary-200' : 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200'"
+                                      x-text="item.status"></span>
+                                <span x-show="getMetadataField(item, 'blocking')" class="text-xs px-2 py-1 rounded-md bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 font-medium">BLOCKING</span>
+                            </div>
+                            <div class="text-sm mb-2 whitespace-pre-wrap text-surface-800 dark:text-surface-200" x-text="item.content"></div>
+
+                            <template x-for="answer in getAnswersForQuestion(item.data_id)" :key="answer.data_id">
+                                <div class="mt-3 pl-4 border-l-2 border-green-500 dark:border-green-700 bg-green-50 dark:bg-green-900/20 rounded p-3">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <iconify-icon icon="tabler:check" width="16" height="16" class="text-green-600 dark:text-green-400"></iconify-icon>
+                                        <span class="text-xs font-medium text-green-800 dark:text-green-200">Answer</span>
+                                        <span class="text-xs text-surface-500 dark:text-surface-400" x-text="formatRelativeTime(answer.created_at)"></span>
+                                    </div>
+                                    <div class="text-sm text-surface-800 dark:text-surface-200 whitespace-pre-wrap" x-text="answer.content"></div>
+                                </div>
+                            </template>
+                        </div>
+                        <button @click="showFeedbackModalFn(item.data_id)" class="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300">
+                            <iconify-icon icon="tabler:message-plus" width="18" height="18"></iconify-icon>
+                        </button>
+                    </div>
+                </div>
+            </template>
+            <div x-show="getItemsByType('question').length === 0" class="empty-state text-surface-400 dark:text-surface-500">
+                <iconify-icon icon="tabler:help-off" width="48" height="48"></iconify-icon>
+                <p class="mt-2">No questions recorded</p>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ block designSpecSection() }}
+<div class="process-stage">
+    <div class="stage-header" @click="toggleStage('design')">
+        <div class="flex items-center gap-3">
+            <iconify-icon icon="tabler:file-text" width="24" height="24" class="text-primary-600"></iconify-icon>
+            <div>
+                <h3 class="text-lg font-semibold text-surface-900 dark:text-surface-100">Design Specification</h3>
+                <p class="text-sm text-surface-500 dark:text-surface-400">
+                    <span x-text="getItemsByType('design_version').length"></span> versions
+                    <span x-show="getCurrentDesign()" class="text-primary-600 dark:text-primary-400 font-medium">
+                        (v<span x-text="getMetadataField(getCurrentDesign(), 'version')"></span> current)
+                    </span>
+                </p>
+            </div>
+        </div>
+        <iconify-icon :icon="stageExpanded.design ? 'tabler:chevron-up' : 'tabler:chevron-down'" width="20" height="20" class="text-surface-500"></iconify-icon>
+    </div>
+    <div :class="stageExpanded.design ? 'expanded' : ''" class="collapsible-content">
+        <div class="stage-content">
+            <template x-if="getItemsByType('design_version').length > 0">
+                <div>
+                    <div class="flex gap-2 mb-4 flex-wrap border-b border-surface-200 dark:border-surface-600">
+                        <template x-for="item in getItemsByType('design_version')" :key="item.data_id">
+                            <button @click="selectedVersion = item.data_id" class="version-tab"
+                                    :class="selectedVersion === item.data_id ? 'active' : ''"
+                                    x-text="'v' + getMetadataField(item, 'version') + (item.status === 'current' ? ' (current)' : '')">
+                            </button>
+                        </template>
+                    </div>
+
+                    <template x-for="item in getItemsByType('design_version')" :key="item.data_id">
+                        <div x-show="selectedVersion === item.data_id">
+                            <div class="bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg p-4">
+                                <div class="flex items-start justify-between mb-3">
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-bold text-primary-900 dark:text-primary-100 text-lg" x-text="getMetadataField(item, 'title') || 'Design Spec'"></span>
+                                    </div>
+                                    <div class="flex gap-1">
+                                        <button @click="toggleCollapse(item.data_id)" class="text-primary-600 dark:text-primary-400">
+                                            <iconify-icon :icon="isCollapsed(item.data_id) ? 'tabler:chevron-down' : 'tabler:chevron-up'" width="20" height="20"></iconify-icon>
+                                        </button>
+                                        <button @click="toggleEdit(item.data_id)" class="text-primary-600 dark:text-primary-400">
+                                            <iconify-icon :icon="editingId === item.data_id ? 'tabler:device-floppy' : 'tabler:edit'" width="18" height="18"></iconify-icon>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div x-show="!isCollapsed(item.data_id)">
+                                    <div x-show="editingId !== item.data_id" class="text-sm whitespace-pre-wrap text-surface-800 dark:text-surface-200" x-text="item.content"></div>
+                                    <div x-show="editingId === item.data_id">
+                                        <textarea x-model="item.content" rows="12" class="w-full border border-surface-300 dark:border-surface-600 bg-surface-50 dark:bg-surface-900 text-surface-900 dark:text-surface-100 rounded-lg p-3 text-sm font-mono"></textarea>
+                                    </div>
+                                </div>
+                                <div class="text-surface-600 dark:text-surface-400 text-xs mt-3 flex items-center gap-3">
+                                    <span>Version <span x-text="getMetadataField(item, 'version')"></span></span>
+                                    <span>·</span>
+                                    <span>Iteration <span x-text="getMetadataField(item, 'created_in_iteration')"></span></span>
+                                    <span>·</span>
+                                    <span x-text="formatRelativeTime(item.created_at)"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </template>
+            <div x-show="getItemsByType('design_version').length === 0" class="empty-state text-surface-400 dark:text-surface-500">
+                <iconify-icon icon="tabler:file-off" width="48" height="48"></iconify-icon>
+                <p class="mt-2">No design specifications yet</p>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ block contextSection() }}
+<div class="process-stage">
+    <div class="stage-header" @click="toggleStage('context')">
+        <div class="flex items-center gap-3">
+            <iconify-icon icon="tabler:database" width="24" height="24" class="text-purple-600"></iconify-icon>
+            <div>
+                <h3 class="text-lg font-semibold text-surface-900 dark:text-surface-100">Stable Context</h3>
+                <p class="text-sm text-surface-500 dark:text-surface-400">
+                    <span x-text="getItemsByType('context').length"></span> context items
+                </p>
+            </div>
+        </div>
+        <iconify-icon :icon="stageExpanded.context ? 'tabler:chevron-up' : 'tabler:chevron-down'" width="20" height="20" class="text-surface-500"></iconify-icon>
+    </div>
+    <div :class="stageExpanded.context ? 'expanded' : ''" class="collapsible-content">
+        <div class="stage-content">
+            <template x-for="item in getItemsByType('context')" :key="item.data_id">
+                <div class="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4 mb-3">
+                    <div class="flex items-start justify-between mb-2">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 mb-2">
+                                <button @click="toggleCollapse(item.data_id)" class="text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-200">
+                                    <iconify-icon :icon="isCollapsed(item.data_id) ? 'tabler:chevron-right' : 'tabler:chevron-down'" width="18" height="18"></iconify-icon>
+                                </button>
+                                <iconify-icon icon="tabler:tag" width="20" height="20" class="text-purple-600 dark:text-purple-400"></iconify-icon>
+                                <span class="font-semibold text-purple-900 dark:text-purple-100" x-text="'context:' + item.discriminator"></span>
+                                <span class="text-xs text-surface-500 dark:text-surface-400" x-text="formatRelativeTime(item.created_at)"></span>
+                            </div>
+                            <div x-show="getMetadataField(item, 'comment')" class="text-xs italic text-surface-600 dark:text-surface-400 mb-2" x-text="getMetadataField(item, 'comment')"></div>
+                            <div x-show="!isCollapsed(item.data_id)">
+                                <div x-show="editingId !== item.data_id" class="text-sm whitespace-pre-wrap text-surface-800 dark:text-surface-200" x-text="item.content"></div>
+                                <div x-show="editingId === item.data_id">
+                                    <textarea x-model="item.content" rows="8" class="w-full border border-surface-300 dark:border-surface-600 bg-surface-50 dark:bg-surface-900 text-surface-900 dark:text-surface-100 rounded-lg p-3 text-sm font-mono"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex gap-1 flex-shrink-0">
+                            <button @click="toggleEdit(item.data_id)" class="text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-200">
+                                <iconify-icon :icon="editingId === item.data_id ? 'tabler:device-floppy' : 'tabler:edit'" width="18" height="18"></iconify-icon>
+                            </button>
+                            <button @dblclick="deleteData(item.data_id)" class="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">
+                                <iconify-icon icon="tabler:trash" width="18" height="18"></iconify-icon>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="text-surface-600 dark:text-surface-400 text-xs mt-2">
+                        Iteration <span x-text="getMetadataField(item, 'created_in_iteration')"></span>
+                    </div>
+                </div>
+            </template>
+            <div x-show="getItemsByType('context').length === 0" class="empty-state text-surface-400 dark:text-surface-500">
+                <iconify-icon icon="tabler:database-off" width="48" height="48"></iconify-icon>
+                <p class="mt-2">No context items stored</p>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ block iterationsSection() }}
+<div class="process-stage">
+    <div class="stage-header" @click="toggleStage('iterations')">
+        <div class="flex items-center gap-3">
+            <iconify-icon icon="tabler:repeat" width="24" height="24" class="text-primary-600"></iconify-icon>
+            <div>
+                <h3 class="text-lg font-semibold text-surface-900 dark:text-surface-100">Design Iterations</h3>
+                <p class="text-sm text-surface-500 dark:text-surface-400">Reasoning chain and evolution</p>
+            </div>
+        </div>
+        <iconify-icon :icon="stageExpanded.iterations ? 'tabler:chevron-up' : 'tabler:chevron-down'" width="20" height="20" class="text-surface-500"></iconify-icon>
+    </div>
+    <div :class="stageExpanded.iterations ? 'expanded' : ''" class="collapsible-content">
+        <div class="stage-content">
+            <template x-for="item in getItemsByType('iteration')" :key="item.data_id">
+                <div class="bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg p-4 mb-3">
+                    <div class="flex items-start justify-between mb-2">
+                        <div class="flex items-center gap-2">
+                            <span class="font-semibold text-primary-900 dark:text-primary-100">Iteration <span x-text="getMetadataField(item, 'iteration_number')"></span></span>
+                            <span class="text-xs text-surface-500 dark:text-surface-400" x-text="formatRelativeTime(item.created_at)"></span>
+                        </div>
+                        <button @click="toggleCollapse(item.data_id)" class="text-primary-600 dark:text-primary-400">
+                            <iconify-icon :icon="isCollapsed(item.data_id) ? 'tabler:chevron-down' : 'tabler:chevron-up'" width="18" height="18"></iconify-icon>
+                        </button>
+                    </div>
+                    <div x-show="!isCollapsed(item.data_id)" class="text-sm whitespace-pre-wrap text-surface-700 dark:text-surface-300" x-text="item.content"></div>
+                </div>
+            </template>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ block researchSection() }}
+<div class="process-stage">
+    <div class="stage-header" @click="toggleStage('research')">
+        <div class="flex items-center gap-3">
+            <iconify-icon icon="tabler:search" width="24" height="24" class="text-primary-600"></iconify-icon>
+            <div>
+                <h3 class="text-lg font-semibold text-surface-900 dark:text-surface-100">Research Results</h3>
+                <p class="text-sm text-surface-500 dark:text-surface-400">
+                    <span x-text="getItemsByType('research').length"></span> research items
+                    <span x-text="'(' + getResearchByStatus('pending').length + ' pending, ' + getResearchByStatus('completed').length + ' completed)'"></span>
+                </p>
+            </div>
+        </div>
+        <iconify-icon :icon="stageExpanded.research ? 'tabler:chevron-up' : 'tabler:chevron-down'" width="20" height="20" class="text-surface-500"></iconify-icon>
+    </div>
+    <div :class="stageExpanded.research ? 'expanded' : ''" class="collapsible-content">
+        <div class="stage-content">
+            <template x-for="item in getItemsByType('research')" :key="item.data_id">
+                <div class="border-l-4 rounded-lg p-4 mb-3"
+                     :class="item.status === 'completed' ? 'bg-green-50 dark:bg-green-900/20 border-green-500 dark:border-green-700' :
+                             item.status === 'pending' ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500 dark:border-yellow-700' :
+                             'bg-red-50 dark:bg-red-900/20 border-red-500 dark:border-red-700'">
+                    <div class="flex items-start justify-between mb-2">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 mb-1">
+                                <button @click="toggleCollapse(item.data_id)" class="text-surface-600 dark:text-surface-400 hover:text-surface-800 dark:hover:text-surface-200">
+                                    <iconify-icon :icon="isCollapsed(item.data_id) ? 'tabler:chevron-right' : 'tabler:chevron-down'" width="18" height="18"></iconify-icon>
+                                </button>
+                                <span class="font-semibold text-surface-900 dark:text-surface-100" x-text="getMetadataField(item, 'title') || 'Research'"></span>
+                                <span class="text-xs px-2 py-1 rounded-md font-medium"
+                                      :class="item.status === 'completed' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' :
+                                              item.status === 'pending' ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200' :
+                                              'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'"
+                                      x-text="item.status"></span>
+                                <span x-show="getResearchFeedback(item.data_id).length > 0" class="feedback-badge">
+                                    <iconify-icon icon="tabler:message-circle" width="12" height="12"></iconify-icon>
+                                    <span x-text="getResearchFeedback(item.data_id).length"></span>
+                                </span>
+                            </div>
+                            <div class="text-xs text-surface-600 dark:text-surface-400 mb-2" x-text="'Agent: ' + (getMetadataField(item, 'agent_id') || 'unknown')"></div>
+                        </div>
+                        <div class="flex gap-1">
+                            <button @click="toggleEdit(item.data_id)" class="text-surface-600 dark:text-surface-400 hover:text-surface-800 dark:hover:text-surface-200">
+                                <iconify-icon :icon="editingId === item.data_id ? 'tabler:device-floppy' : 'tabler:edit'" width="18" height="18"></iconify-icon>
+                            </button>
+                            <button @dblclick="deleteData(item.data_id)" class="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">
+                                <iconify-icon icon="tabler:trash" width="18" height="18"></iconify-icon>
+                            </button>
+                        </div>
+                    </div>
+                    <div x-show="!isCollapsed(item.data_id)" class="mt-3">
+                        <div x-show="editingId !== item.data_id" class="text-sm whitespace-pre-wrap text-surface-800 dark:text-surface-200" x-text="item.content"></div>
+                        <div x-show="editingId === item.data_id">
+                            <textarea x-model="item.content" rows="8" class="w-full border border-surface-300 dark:border-surface-600 bg-surface-50 dark:bg-surface-900 text-surface-900 dark:text-surface-100 rounded-lg p-3 text-sm font-mono"></textarea>
+                        </div>
+
+                        <template x-for="feedback in getResearchFeedback(item.data_id)" :key="feedback.data_id">
+                            <div class="mt-3 pl-4 border-l-2 border-amber-500 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 rounded p-3">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <iconify-icon icon="tabler:message-circle" width="16" height="16" class="text-amber-600 dark:text-amber-400"></iconify-icon>
+                                    <span class="text-xs font-medium text-amber-800 dark:text-amber-200" x-text="getMetadataField(feedback, 'feedback_type') || 'Feedback'"></span>
+                                    <span class="text-xs text-surface-500 dark:text-surface-400" x-text="formatRelativeTime(feedback.created_at)"></span>
+                                </div>
+                                <div class="text-sm text-surface-800 dark:text-surface-200 whitespace-pre-wrap" x-text="feedback.content"></div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
+            <div x-show="getItemsByType('research').length === 0" class="empty-state text-surface-400 dark:text-surface-500">
+                <iconify-icon icon="tabler:search-off" width="48" height="48"></iconify-icon>
+                <p class="mt-2">No research conducted yet</p>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ block materializeView() }}
+<div x-show="!isLoading && activeTab === 'materialize'" class="space-y-6">
+    <div class="process-stage">
+        <div class="stage-header">
+            <div class="flex items-center gap-3">
+                <iconify-icon icon="tabler:code" width="24" height="24" class="text-indigo-600"></iconify-icon>
+                <div>
+                    <h3 class="text-lg font-semibold text-surface-900 dark:text-surface-100">Materialization Node</h3>
+                    <p class="text-sm text-surface-500 dark:text-surface-400">Implementation tracking and artifacts</p>
+                </div>
+            </div>
+        </div>
+        <div class="stage-content">
+            <template x-if="getMaterializeNode()">
+                <div>
+                    <div class="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-4 mb-4">
+                        <div class="flex items-start justify-between mb-3">
+                            <div>
+                                <div class="font-semibold text-indigo-900 dark:text-indigo-100 text-lg" x-text="getMaterializeNode().content"></div>
+                                <div class="text-sm text-surface-600 dark:text-surface-400 mt-1">
+                                    Status: <span class="font-medium" x-text="getMaterializeNode().status"></span>
+                                </div>
+                                <div class="text-sm text-surface-600 dark:text-surface-400">
+                                    Overlay Branch: <span class="font-mono font-medium" x-text="getMetadataField(getMaterializeNode(), 'overlay_branch')"></span>
+                                </div>
+                            </div>
+                            <div class="flex gap-1">
+                                <button @click="toggleEdit(getMaterializeNode().data_id)" class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200">
+                                    <iconify-icon :icon="editingId === getMaterializeNode().data_id ? 'tabler:device-floppy' : 'tabler:edit'" width="18" height="18"></iconify-icon>
+                                </button>
+                            </div>
+                        </div>
+                        <div x-show="editingId === getMaterializeNode().data_id">
+                            <textarea x-model="getMaterializeNode().content" rows="8" class="w-full border border-surface-300 dark:border-surface-600 bg-surface-50 dark:bg-surface-900 text-surface-900 dark:text-surface-100 rounded-lg p-3 text-sm font-mono"></textarea>
+                        </div>
+                        <div class="text-xs text-surface-500 dark:text-surface-400 mt-3 flex items-center gap-2">
+                            <iconify-icon icon="tabler:clock" width="14" height="14"></iconify-icon>
+                            <span x-text="formatRelativeTime(getMaterializeNode().created_at)"></span>
+                        </div>
+                    </div>
+
+                    <div class="text-sm text-surface-600 dark:text-surface-400 mb-3">
+                        Implementation steps and artifacts will appear here during materialization.
+                    </div>
+                </div>
+            </template>
+            <div x-show="!getMaterializeNode()" class="empty-state text-surface-400 dark:text-surface-500">
+                <iconify-icon icon="tabler:code-off" width="48" height="48"></iconify-icon>
+                <p class="mt-2">No materialization node found</p>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ block rawDataView() }}
+<div x-show="!isLoading && activeTab === 'raw'" class="bg-surface-50 dark:bg-surface-800 shadow rounded-lg overflow-hidden border border-surface-200 dark:border-surface-700">
+    <div class="border-b border-surface-200 dark:border-surface-700 px-6 py-4">
+        <div class="flex items-center justify-between">
+            <h2 class="text-lg font-medium text-surface-900 dark:text-surface-100">
+                Raw Data Browser
+                <span class="text-sm font-normal text-surface-500 dark:text-surface-400 ml-2">
+                    (<span x-text="workspaceData.length"></span> items)
+                </span>
+            </h2>
+            <input type="text" x-model="rawDataFilter" placeholder="Filter by type..." class="text-sm px-3 py-1.5 border border-surface-300 dark:border-surface-600 rounded bg-surface-50 dark:bg-surface-900 text-surface-900 dark:text-surface-100">
+        </div>
+    </div>
+
+    <div class="divide-y divide-surface-200 dark:divide-surface-700 max-h-[70vh] overflow-y-auto">
+        <template x-for="item in getFilteredRawData()" :key="item.data_id">
+            <div class="raw-data-row" :class="rawDataExpanded[item.data_id] ? 'expanded' : ''" @click="toggleRawDataRow(item.data_id)">
+                <div class="flex items-start justify-between">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-1">
+                            <iconify-icon :icon="rawDataExpanded[item.data_id] ? 'tabler:chevron-down' : 'tabler:chevron-right'" width="16" height="16" class="text-surface-500 flex-shrink-0"></iconify-icon>
+                            <span class="font-mono text-xs px-2 py-0.5 rounded bg-primary-100 dark:bg-primary-900 text-primary-800 dark:text-primary-200" x-text="item.type"></span>
+                            <span x-show="item.discriminator" class="font-mono text-xs text-surface-600 dark:text-surface-400" x-text="'/' + item.discriminator"></span>
+                            <span class="text-xs px-2 py-0.5 rounded font-medium"
+                                  :class="getStatusColor(item.status)"
+                                  x-text="item.status"></span>
+                            <span class="text-xs text-surface-500 dark:text-surface-400 truncate" x-text="item.data_id"></span>
+                        </div>
+                        <div x-show="!rawDataExpanded[item.data_id] && item.content" class="text-xs text-surface-600 dark:text-surface-400 truncate mt-1" x-text="item.content"></div>
+                    </div>
+                    <div class="flex gap-1 ml-2 flex-shrink-0" @click.stop>
+                        <button @click="toggleRawDataEdit(item.data_id)" class="text-surface-600 dark:text-surface-400 hover:text-primary-600 dark:hover:text-primary-400">
+                            <iconify-icon :icon="rawDataEditing[item.data_id] ? 'tabler:device-floppy' : 'tabler:edit'" width="16" height="16"></iconify-icon>
+                        </button>
+                        <button @dblclick="deleteData(item.data_id)" class="text-surface-600 dark:text-surface-400 hover:text-red-600 dark:hover:text-red-400">
+                            <iconify-icon icon="tabler:trash" width="16" height="16"></iconify-icon>
+                        </button>
+                    </div>
+                </div>
+
+                <div x-show="rawDataExpanded[item.data_id]" class="mt-3 pl-6 space-y-2" @click.stop>
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div><span class="text-surface-500 dark:text-surface-400">ID:</span> <span class="font-mono" x-text="item.data_id"></span></div>
+                        <div><span class="text-surface-500 dark:text-surface-400">Position:</span> <span x-text="item.position"></span></div>
+                        <div><span class="text-surface-500 dark:text-surface-400">Parent:</span> <span class="font-mono" x-text="item.parent_data_id || 'root'"></span></div>
+                        <div><span class="text-surface-500 dark:text-surface-400">Content Type:</span> <span x-text="item.content_type"></span></div>
+                        <div><span class="text-surface-500 dark:text-surface-400">Created:</span> <span x-text="formatRelativeTime(item.created_at)"></span></div>
+                        <div><span class="text-surface-500 dark:text-surface-400">Updated:</span> <span x-text="formatRelativeTime(item.updated_at)"></span></div>
+                    </div>
+
+                    <div x-show="item.metadata && Object.keys(item.metadata).length > 0" class="pt-2">
+                        <div class="text-xs font-medium text-surface-700 dark:text-surface-300 mb-1">Metadata:</div>
+                        <pre class="text-xs bg-surface-100 dark:bg-surface-900 p-2 rounded overflow-x-auto" x-text="JSON.stringify(item.metadata, null, 2)"></pre>
+                    </div>
+
+                    <div class="pt-2">
+                        <div class="text-xs font-medium text-surface-700 dark:text-surface-300 mb-1">Content:</div>
+                        <template x-if="!rawDataEditing[item.data_id]">
+                            <pre class="text-xs bg-surface-100 dark:bg-surface-900 p-2 rounded overflow-x-auto max-h-48" x-text="item.content || '(empty)'"></pre>
+                        </template>
+                        <template x-if="rawDataEditing[item.data_id]">
+                            <textarea x-model="item.content" rows="8" class="w-full text-xs border border-surface-300 dark:border-surface-600 bg-surface-50 dark:bg-surface-900 text-surface-900 dark:text-surface-100 rounded p-2 font-mono"></textarea>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+{{ end }}
+
+{{ block historyView() }}
+<div x-show="!isLoading && activeTab === 'history'" class="bg-surface-50 dark:bg-surface-800 shadow rounded-lg overflow-hidden border border-surface-200 dark:border-surface-700">
+    <div class="border-b border-surface-200 dark:border-surface-700 px-6 py-4">
+        <div class="flex items-center justify-between">
+            <h2 class="text-lg font-medium text-surface-900 dark:text-surface-100">
+                Operation History
+                <span class="text-sm font-normal text-surface-500 dark:text-surface-400 ml-2">
+                    (<span x-text="historyOps.length"></span> operations)
+                </span>
+            </h2>
+            <button @click="loadHistory()" class="text-sm text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 flex items-center gap-1">
+                <iconify-icon icon="tabler:refresh" width="16" height="16"></iconify-icon>
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <div x-show="historyLoading" class="py-8 text-center">
+        <iconify-icon icon="tabler:loader-2" class="animate-spin text-primary-600" width="24" height="24"></iconify-icon>
+    </div>
+
+    <div x-show="!historyLoading && historyOps.length === 0" class="py-12 text-center text-surface-500 dark:text-surface-400">
+        <iconify-icon icon="tabler:history" width="48" height="48" class="mb-4"></iconify-icon>
+        <p>No operations recorded yet.</p>
+    </div>
+
+    <div x-show="!historyLoading && historyOps.length > 0" class="divide-y divide-surface-200 dark:divide-surface-700">
+        <template x-for="op in historyOps" :key="op.op_id">
+            <div class="px-6 py-4 hover:bg-surface-100 dark:hover:bg-surface-700">
+                <div class="flex items-start gap-3">
+                    <div class="flex-shrink-0 mt-0.5">
+                        <iconify-icon :icon="getOperationIcon(op.operation_type)" width="20" height="20"
+                                      :class="getOperationIconColor(op.operation_type)"></iconify-icon>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="font-medium text-surface-900 dark:text-surface-100" x-text="formatOperationType(op.operation_type)"></span>
+                            <span class="text-xs text-surface-500 dark:text-surface-400" x-text="formatRelativeTime(op.created_at)"></span>
+                        </div>
+                        <div x-show="op.details" class="text-sm text-surface-600 dark:text-surface-400">
+                            <span x-text="op.details"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+{{ end }}
+
+{{ block feedbackModal() }}
+<div x-show="feedbackModalVisible" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" @click.self="feedbackModalVisible = false">
+    <div class="bg-surface-50 dark:bg-surface-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-surface-900 dark:text-surface-100">Provide Feedback</h3>
+            <button @click="feedbackModalVisible = false" class="text-surface-500 hover:text-surface-700 dark:hover:text-surface-300">
+                <iconify-icon icon="tabler:x" width="24" height="24"></iconify-icon>
+            </button>
+        </div>
+        <textarea x-model="feedbackForm.content" rows="6" placeholder="Enter your feedback or answer..."
+                  class="w-full border border-surface-300 dark:border-surface-600 bg-surface-100 dark:bg-surface-900 text-surface-900 dark:text-surface-100 rounded-lg p-3 text-sm"></textarea>
+        <div class="flex justify-end gap-2 mt-4">
+            <button @click="feedbackModalVisible = false" class="action-btn action-btn-secondary">Cancel</button>
+            <button @click="saveFeedback(); feedbackModalVisible = false" class="action-btn action-btn-primary">Submit</button>
+        </div>
+    </div>
+</div>
+{{ end }}
+
+{{ block customJs() }}
+<script>
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('designWorkspaceView', () => ({
+            wippyApi: null,
+            workspaceId: null,
+            workspace: {},
+            workspaceData: [],
+            historyOps: [],
+
+            isLoading: true,
+            historyLoading: false,
+            isSaving: false,
+            error: null,
+
+            activeTab: 'design',
+            editingId: null,
+            collapsed: {},
+
+            liveUpdatesEnabled: true,
+            eventsSubscribed: false,
+            lastEventTime: null,
+
+            selectedVersion: null,
+
+            stageExpanded: {
+                branchFeedback: true,
+                questions: true,
+                research: false,
+                design: true,
+                context: false,
+                iterations: false
+            },
+
+            feedbackModalVisible: false,
+            feedbackForm: {
+                question_id: null,
+                content: ''
+            },
+
+            rawDataFilter: '',
+            rawDataExpanded: {},
+            rawDataEditing: {},
+
+            async initialize() {
+                try {
+                    this.wippyApi = await window.initWippyApi();
+
+                    if (this.wippyApi?.config?.path) {
+                        const pathParts = this.wippyApi.config.path.split('/');
+                        this.workspaceId = pathParts[pathParts.length - 1];
+                    }
+
+                    if (!this.workspaceId || this.workspaceId === 'srcdoc') {
+                        throw new Error("Invalid workspace ID");
+                    }
+
+                    this.setupLiveUpdates();
+                    await this.loadWorkspace();
+                } catch (err) {
+                    console.error('Init error:', err);
+                    this.error = err.message;
+                } finally {
+                    this.isLoading = false;
+                }
+            },
+
+            toggleStage(stage) {
+                this.stageExpanded[stage] = !this.stageExpanded[stage];
+            },
+
+            getItemsByType(type) {
+                return (this.workspaceData || []).filter(item => item.type === type)
+                    .sort((a, b) => {
+                        if (type === 'design_version') {
+                            const aVersion = this.getMetadataField(a, 'version') || 0;
+                            const bVersion = this.getMetadataField(b, 'version') || 0;
+                            return bVersion - aVersion;
+                        }
+                        if (type === 'context') {
+                            return b.created_at.localeCompare(a.created_at);
+                        }
+                        return a.position - b.position;
+                    });
+            },
+
+            getMaterializeNode() {
+                return (this.workspaceData || []).find(item =>
+                    item.type === 'materialize' && item.discriminator === 'root'
+                );
+            },
+
+            getBranchFeedback() {
+                return (this.workspaceData || [])
+                    .filter(item => item.type === 'feedback' && this.isDirectChild(item))
+                    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+            },
+
+            isDirectChild(item) {
+                if (!item.parent_data_id) return true;
+                const parent = this.workspaceData.find(d => d.data_id === item.parent_data_id);
+                return !parent || parent.type === 'design';
+            },
+
+            getResearchFeedback(researchId) {
+                return (this.workspaceData || []).filter(item =>
+                    item.type === 'feedback' && item.parent_data_id === researchId
+                ).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+            },
+
+            getCurrentIteration() {
+                const iterations = this.getItemsByType('iteration');
+                return iterations.length > 0 ? iterations.length : 1;
+            },
+
+            getCurrentDesign() {
+                return this.getItemsByType('design_version').find(item => item.status === 'current');
+            },
+
+            getResearchByStatus(status) {
+                return this.getItemsByType('research').filter(item => item.status === status);
+            },
+
+            getQuestionsByStatus(status) {
+                return this.getItemsByType('question').filter(item => item.status === status);
+            },
+
+            getBlockingQuestions() {
+                return this.getItemsByType('question').filter(item =>
+                    item.status === 'open' && this.getMetadataField(item, 'blocking')
+                );
+            },
+
+            getAnswersForQuestion(questionId) {
+                return (this.workspaceData || []).filter(item =>
+                    item.type === 'feedback' && item.parent_data_id === questionId
+                ).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+            },
+
+            getMetadataField(item, field) {
+                return item.metadata && item.metadata[field] !== undefined ? item.metadata[field] : null;
+            },
+
+            getFilteredRawData() {
+                if (!this.rawDataFilter) return this.workspaceData || [];
+                const filter = this.rawDataFilter.toLowerCase();
+                return (this.workspaceData || []).filter(item =>
+                    item.type.toLowerCase().includes(filter) ||
+                    (item.discriminator && item.discriminator.toLowerCase().includes(filter))
+                );
+            },
+
+            toggleRawDataRow(dataId) {
+                this.rawDataExpanded[dataId] = !this.rawDataExpanded[dataId];
+            },
+
+            async toggleRawDataEdit(dataId) {
+                if (this.rawDataEditing[dataId]) {
+                    await this.saveData(dataId);
+                    this.rawDataEditing[dataId] = false;
+                } else {
+                    this.rawDataEditing[dataId] = true;
+                }
+            },
+
+            getStatusColor(status) {
+                const colors = {
+                    'active': 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200',
+                    'current': 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200',
+                    'completed': 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200',
+                    'pending': 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200',
+                    'failed': 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200',
+                    'blocked': 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200',
+                    'open': 'bg-primary-100 dark:bg-primary-900 text-primary-800 dark:text-primary-200',
+                    'answered': 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200',
+                    'superseded': 'bg-surface-100 dark:bg-surface-700 text-surface-600 dark:text-surface-400'
+                };
+                return colors[status] || 'bg-surface-100 dark:bg-surface-700 text-surface-600 dark:text-surface-400';
+            },
+
+            showFeedbackModalFn(questionId) {
+                this.feedbackForm.question_id = questionId;
+                this.feedbackForm.content = '';
+                this.feedbackModalVisible = true;
+            },
+
+            async saveFeedback() {
+                try {
+                    this.isSaving = true;
+
+                    const response = await this.wippyApi.api.post(
+                        `/api/v1/design/workspaces/${this.workspaceId}/data`,
+                        {
+                            type: 'feedback',
+                            discriminator: 'answer',
+                            content: this.feedbackForm.content,
+                            content_type: 'text/plain',
+                            parent_data_id: this.feedbackForm.question_id,
+                            status: 'active',
+                            metadata: {
+                                feedback_type: 'answer',
+                                target_node_type: 'question',
+                                title: 'Answer'
+                            }
+                        }
+                    );
+
+                    if (!response.data.success) throw new Error(response.data.error);
+                    await this.loadWorkspaceData();
+                } catch (err) {
+                    console.error('Save feedback error:', err);
+                    this.error = err.message;
+                } finally {
+                    this.isSaving = false;
+                }
+            },
+
+            async loadWorkspace() {
+                if (!this.workspaceId) return;
+
+                try {
+                    const response = await this.wippyApi.api.get(`/api/v1/design/workspaces/${this.workspaceId}`);
+                    if (!response.data.success) throw new Error(response.data.error);
+
+                    this.workspace = response.data.workspace || {};
+                    await this.loadWorkspaceData();
+                } catch (err) {
+                    console.error('Load workspace error:', err);
+                    this.error = err.message;
+                }
+            },
+
+            async loadWorkspaceData() {
+                if (!this.workspaceId) return;
+
+                try {
+                    const response = await this.wippyApi.api.get(`/api/v1/design/workspaces/${this.workspaceId}/data`);
+                    if (!response.data.success) throw new Error(response.data.error);
+
+                    this.workspaceData = (response.data.data || []).map(item => {
+                        if (!item.metadata || typeof item.metadata !== 'object' || Array.isArray(item.metadata)) {
+                            item.metadata = {};
+                        }
+                        return item;
+                    }).sort((a, b) => {
+                        if (a.path < b.path) return -1;
+                        if (a.path > b.path) return 1;
+                        return a.position - b.position;
+                    });
+
+                    this.collapsed = this.getItemsByType('research').reduce((acc, item) => {
+                        acc[item.data_id] = true;
+                        return acc;
+                    }, {});
+
+                    this.getItemsByType('context').forEach(item => {
+                        this.collapsed[item.data_id] = true;
+                    });
+
+                    const currentDesign = this.getCurrentDesign();
+                    if (currentDesign) {
+                        this.selectedVersion = currentDesign.data_id;
+                    }
+                } catch (err) {
+                    console.error('Load data error:', err);
+                    this.error = err.message;
+                }
+            },
+
+            async loadHistory() {
+                if (!this.workspaceId) return;
+
+                try {
+                    this.historyLoading = true;
+                    const response = await this.wippyApi.api.get(`/api/v1/design/workspaces/${this.workspaceId}/ops?limit=100`);
+                    if (!response.data.success) throw new Error(response.data.error);
+
+                    this.historyOps = response.data.operations || [];
+                } catch (err) {
+                    console.error('Load history error:', err);
+                    this.error = err.message;
+                } finally {
+                    this.historyLoading = false;
+                }
+            },
+
+            async saveWorkspace() {
+                try {
+                    const response = await this.wippyApi.api.put(`/api/v1/design/workspaces/${this.workspaceId}`, {
+                        title: this.workspace.title,
+                        description: this.workspace.description,
+                        status: this.workspace.status
+                    });
+                    if (!response.data.success) throw new Error(response.data.error);
+                } catch (err) {
+                    console.error('Save workspace error:', err);
+                }
+            },
+
+            async toggleEdit(dataId) {
+                if (this.editingId === dataId) {
+                    await this.saveData(dataId);
+                    this.editingId = null;
+                } else {
+                    this.editingId = dataId;
+                }
+            },
+
+            async saveData(dataId) {
+                const item = this.workspaceData.find(d => d.data_id === dataId);
+                if (!item) return;
+
+                if (!item.metadata || typeof item.metadata !== 'object' || Array.isArray(item.metadata)) {
+                    item.metadata = {};
+                }
+
+                try {
+                    this.isSaving = true;
+                    const response = await this.wippyApi.api.put(
+                        `/api/v1/design/workspaces/${this.workspaceId}/data/${dataId}`,
+                        {
+                            content: item.content,
+                            content_type: item.content_type,
+                            type: item.type,
+                            discriminator: item.discriminator || null,
+                            status: item.status || null,
+                            metadata: item.metadata
+                        }
+                    );
+                    if (!response.data.success) throw new Error(response.data.error);
+                } catch (err) {
+                    console.error('Save data error:', err);
+                    this.error = err.message;
+                } finally {
+                    this.isSaving = false;
+                }
+            },
+
+            async deleteData(dataId) {
+                try {
+                    const response = await this.wippyApi.api.delete(`/api/v1/design/workspaces/${this.workspaceId}/data/${dataId}`);
+                    if (!response.data.success) throw new Error(response.data.error);
+                    await this.loadWorkspaceData();
+                } catch (err) {
+                    console.error('Delete error:', err);
+                    this.error = err.message;
+                }
+            },
+
+            setupLiveUpdates() {
+                if (!this.workspaceId) return;
+                const topic = `design:workspace:${this.workspaceId}`;
+
+                try {
+                    this.wippyApi.on(topic, (event) => {
+                        console.log('Received workspace event:', event);
+                        this.lastEventTime = new Date();
+
+                        if (this.liveUpdatesEnabled && this.editingId === null) {
+                            if (event.data && event.data.type === 'workspace_updated' && event.data.data) {
+                                if (event.data.data.title !== undefined) this.workspace.title = event.data.data.title;
+                                if (event.data.data.description !== undefined) this.workspace.description = event.data.data.description;
+                                if (event.data.data.status !== undefined) this.workspace.status = event.data.data.status;
+                            } else {
+                                setTimeout(() => this.loadWorkspaceData(), 300);
+                            }
+                        }
+                    });
+                    this.eventsSubscribed = true;
+                } catch (err) {
+                    console.error('Subscribe error:', err);
+                }
+            },
+
+            toggleLiveUpdates() {
+                this.liveUpdatesEnabled = !this.liveUpdatesEnabled;
+            },
+
+            toggleCollapse(dataId) {
+                this.collapsed[dataId] = !this.collapsed[dataId];
+            },
+
+            isCollapsed(dataId) {
+                return !!this.collapsed[dataId];
+            },
+
+            renderMarkdown(content) {
+                if (!content) return '';
+                try {
+                    return marked.parse(content);
+                } catch (err) {
+                    return `<pre>${content}</pre>`;
+                }
+            },
+
+            formatRelativeTime(dateString) {
+                if (!dateString) return '';
+                try {
+                    const date = new Date(dateString);
+                    const now = new Date();
+                    const seconds = Math.floor((now - date) / 1000);
+
+                    if (seconds < 60) return 'just now';
+                    if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+                    if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+                    if (seconds < 604800) return Math.floor(seconds / 86400) + 'd ago';
+                    return date.toLocaleDateString();
+                } catch (err) {
+                    return dateString;
+                }
+            },
+
+            formatOperationType(type) {
+                if (!type) return '';
+                return type.replace(/_/g, ' ').toLowerCase()
+                    .split(' ')
+                    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                    .join(' ');
+            },
+
+            getOperationIcon(type) {
+                const icons = {
+                    'CREATE_WORKSPACE': 'tabler:folder-plus',
+                    'UPDATE_WORKSPACE': 'tabler:pencil',
+                    'DELETE_WORKSPACE': 'tabler:folder-x',
+                    'CREATE_WORKSPACE_DATA': 'tabler:file-plus',
+                    'UPDATE_WORKSPACE_DATA': 'tabler:edit',
+                    'DELETE_WORKSPACE_DATA': 'tabler:file-x',
+                    'MOVE_WORKSPACE_DATA': 'tabler:arrows-move'
+                };
+                return icons[type] || 'tabler:circle-dot';
+            },
+
+            getOperationIconColor(type) {
+                const colors = {
+                    'CREATE_WORKSPACE': 'text-green-600 dark:text-green-400',
+                    'UPDATE_WORKSPACE': 'text-blue-600 dark:text-blue-400',
+                    'DELETE_WORKSPACE': 'text-red-600 dark:text-red-400',
+                    'CREATE_WORKSPACE_DATA': 'text-emerald-600 dark:text-emerald-400',
+                    'UPDATE_WORKSPACE_DATA': 'text-amber-600 dark:text-amber-400',
+                    'DELETE_WORKSPACE_DATA': 'text-red-600 dark:text-red-400',
+                    'MOVE_WORKSPACE_DATA': 'text-purple-600 dark:text-purple-400'
+                };
+                return colors[type] || 'text-surface-500 dark:text-surface-400';
+            }
+        }));
+    });
+</script>
+{{ end }}

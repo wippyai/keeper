@@ -1,0 +1,82 @@
+version: "1.0"
+namespace: keeper.context
+
+entries:
+  # keeper.context:format_context
+  - name: format_context
+    kind: function.lua
+    meta:
+      title: Format Context Results
+      comment: Formats context outputs and resolves embed tags
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": ["array", "string"]
+            }
+          },
+          "required": ["content"]
+        }
+      output_schema: |
+        {
+          "type": "string"
+        }
+    source: file://format_context.lua
+    modules:
+      - ctx
+    imports:
+      materialize: keeper.state.persist:materialize
+      state_reader: keeper.state.persist:reader
+      text: text
+    method: run
+    traits:
+      - keeper.state.traits.explore:explorer
+    
+  # keeper.context:search
+  - name: search
+    kind: function.lua
+    meta:
+      type: tool
+      title: Search Context
+      comment: Gather context from specialized agents
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "description": "What context to search for"
+            },
+            "classes": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Domain hints"
+            },
+            "system_instructions": {
+              "type": "string",
+              "description": "Additional context"
+            },
+            "max_agents": {
+              "type": "integer",
+              "default": 5,
+              "description": "Maximum agents to invoke"
+            }
+          },
+          "required": ["prompt"]
+        }
+      llm_alias: search_context
+      llm_description: Gather context from specialized agents before implementing features.
+      output_schema: |
+        {
+          "type": "string",
+          "description": "Formatted context"
+        }
+    source: file://search.lua
+    modules:
+      - json
+      - ctx
+    imports:
+      flow: userspace.dataflow.flow:flow
+    method: handler
+    

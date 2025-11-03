@@ -1,0 +1,270 @@
+version: "1.0"
+namespace: keeper.design.traits.data
+
+entries:
+  # keeper.design.traits.data:data
+  - name: data
+    kind: function.lua
+    meta:
+      type: tool
+      title: Workspace Data Operations
+      comment: Create, update, delete, move, and query hierarchical data in active workspace
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "operation": {
+              "type": "string",
+              "enum": ["create", "update", "delete", "move", "list", "get"],
+              "description": "Data operation"
+            },
+            "data_id": {
+              "type": "string",
+              "description": "Data ID (UUID, required for update, delete, move, get)"
+            },
+            "parent_data_id": {
+              "type": "string",
+              "description": "Parent data ID (UUID) for hierarchy. Null for root entries."
+            },
+            "type": {
+              "type": "string",
+              "description": "Data type classifier (required for create)"
+            },
+            "discriminator": {
+              "type": "string",
+              "description": "Data subtype"
+            },
+            "content": {
+              "type": "string",
+              "description": "Data content"
+            },
+            "content_type": {
+              "type": "string",
+              "enum": ["text/plain", "text/markdown", "application/json", "application/yaml"],
+              "description": "Content MIME type"
+            },
+            "status": {
+              "type": "string",
+              "description": "Data status"
+            },
+            "position": {
+              "type": "integer",
+              "description": "Sort position within parent"
+            },
+            "metadata": {
+              "type": "object",
+              "description": "Additional metadata"
+            },
+            "depth": {
+              "type": "integer",
+              "description": "Filter by depth level (list only)"
+            },
+            "types": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Filter by types (list only)"
+            },
+            "discriminators": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Filter by discriminators (list only)"
+            },
+            "parent_direct": {
+              "type": "boolean",
+              "default": false,
+              "description": "Direct children only vs all descendants (list only)"
+            },
+            "order_by": {
+              "type": "string",
+              "enum": ["path", "position", "created"],
+              "description": "Sort order for list"
+            },
+            "limit": {
+              "type": "integer",
+              "default": 100,
+              "description": "Max results for list"
+            }
+          },
+          "required": ["operation"]
+        }
+      llm_alias: workspace_data_operations
+      llm_description: Manage hierarchical data in active workspace. Must open workspace first. Data IDs and parent IDs are UUIDs.
+    source: file://data.lua
+    modules:
+      - json
+      - ctx
+    imports:
+      consts: keeper.design:consts
+      design_reader: keeper.design.persist:reader
+      design_writer: keeper.design.persist:writer
+    method: handler
+    
+  # keeper.design.traits.data:data_manager
+  - name: data_manager
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Workspace Data Manager
+      comment: Hierarchical data management in active workspace
+      tags:
+        - design
+        - data
+        - hierarchy
+        - tree
+      icon: tabler:hierarchy
+    prompt: |
+      Manage hierarchical data in active workspace. Must open workspace first.
+    
+      ## Prerequisites
+      Open workspace before using data operations:
+      ```json
+      {"operation": "open", "workspace_id": "01234567-89ab-cdef-0123-456789abcdef"}
+      ```
+    
+      ## Data Operations
+    
+      **create** - New data entry (returns UUID data_id)
+      ```json
+      {
+        "operation": "create",
+        "type": "section",
+        "discriminator": "header",
+        "content": "Introduction",
+        "parent_data_id": null
+      }
+      ```
+    
+      **update** - Modify data
+      ```json
+      {
+        "operation": "update",
+        "data_id": "fedcba98-7654-3210-fedc-ba9876543210",
+        "content": "Updated text",
+        "status": "reviewed"
+      }
+      ```
+    
+      **delete** - Remove data
+      ```json
+      {"operation": "delete", "data_id": "fedcba98-7654-3210-fedc-ba9876543210"}
+      ```
+    
+      **move** - Change parent
+      ```json
+      {
+        "operation": "move",
+        "data_id": "fedcba98-7654-3210-fedc-ba9876543210",
+        "parent_data_id": "12345678-1234-1234-1234-123456789abc"
+      }
+      ```
+    
+      **list** - Query with filters
+      ```json
+      {
+        "operation": "list",
+        "types": ["section"],
+        "depth": 0,
+        "order_by": "position"
+      }
+      ```
+    
+      **get** - Get single entry
+      ```json
+      {"operation": "get", "data_id": "fedcba98-7654-3210-fedc-ba9876543210"}
+      ```
+    
+      ## Hierarchy
+      - Root entries: `parent_data_id: null`, `depth: 0`
+      - Children: set `parent_data_id` to parent's UUID `data_id`
+      - Query descendants: `parent_data_id` + `parent_direct: false` (all descendants)
+      - Query direct children: `parent_data_id` + `parent_direct: true` (immediate children only)
+      - Filter by depth: `depth: 0` (roots), `depth: 1` (level 1), etc
+    
+      ## ID Format
+      - All data_id and parent_data_id are UUIDs
+      - Example: `fedcba98-7654-3210-fedc-ba9876543210`
+    
+      ## Content Types
+      - `text/plain` - Plain text (default)
+      - `text/markdown` - Markdown
+      - `application/json` - JSON
+      - `application/yaml` - YAML
+    
+      ## Workflow
+      1. Open workspace
+      2. Create root entries → get UUID data_id
+      3. Create children with parent_data_id (UUID)
+      4. Query by type/discriminator/depth
+      5. Move/update/delete as needed
+      6. Close workspace when done
+    tools:
+      - keeper.design.traits.data:data
+    
+  # keeper.design.traits.data:data_reader
+  - name: data_reader
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Data Reader
+      comment: Read collapsed data nodes by UUID
+      tags:
+        - design
+        - data
+        - read
+      icon: tabler:book-2
+    prompt: |
+      Read full content of collapsed data nodes by UUID.
+    
+      ## Usage
+    
+      **Read multiple nodes**
+      ```json
+      {"data_ids": ["019a2dbc-ecb2-7cf9-a627-f699d13add12", "019a2dbc-ecb2-7d21-801d-b8d694d3963c"]}
+      ```
+    
+      ## When to Use
+    
+      Use when context shows collapsed sections with DATA_ID:
+      - Previous Research Results (with DATA_ID)
+      - Previous Design Versions (with DATA_ID)
+    
+      ## Returns
+    
+      Full content of each node:
+      - Type and discriminator
+      - Status
+      - Complete content
+      - Metadata
+    
+      Not found nodes listed separately.
+    tools:
+      - keeper.design.traits.data:read
+    
+  # keeper.design.traits.data:read
+  - name: read
+    kind: function.lua
+    meta:
+      type: tool
+      title: Read Data Nodes
+      comment: Read multiple data nodes by UUID in active workspace
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "data_ids": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Array of data UUIDs to read"
+            }
+          },
+          "required": ["data_ids"]
+        }
+      llm_alias: read_data_nodes
+      llm_description: Read full content of multiple data nodes by UUID. Use to retrieve collapsed previous research or designs.
+    source: file://read.lua
+    modules:
+      - ctx
+    imports:
+      design_reader: keeper.design.persist:reader
+    method: handler
+    

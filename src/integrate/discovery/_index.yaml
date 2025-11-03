@@ -1,0 +1,80 @@
+version: "1.0"
+namespace: keeper.integrate.discovery
+
+entries:
+  # keeper.integrate.discovery:env_variable_handler
+  - name: env_variable_handler
+    kind: function.lua
+    meta:
+      type: integration.handler
+      title: Mount Environment Variables
+      icon: tabler:variable
+      order: 200
+      handles:
+        kind: env.variable
+      mode: batch
+      operations:
+        - up
+        - down
+    source: file://env_variable_handler.lua
+    modules:
+      - json
+    method: handler
+    
+  # keeper.integrate.discovery:migration_handler
+  - name: migration_handler
+    kind: function.lua
+    meta:
+      type: integration.handler
+      title: Execute Migrations
+      comment: Executes database migrations
+      icon: tabler:database-import
+      order: 100
+      handles:
+        meta.type: migration
+      mode: batch
+      operations:
+        - up
+        - down
+    source: file://migration_handler.lua
+    modules:
+      - json
+      - registry
+    imports:
+      runner: wippy.migration:runner
+    method: handler
+    
+  # keeper.integrate.discovery:registry
+  - name: registry
+    kind: library.lua
+    meta:
+      type: library
+      title: Handler Discovery Registry
+      comment: Discovers and matches integration handlers to entries
+    source: file://registry.lua
+    modules:
+      - registry
+      - json
+    
+  # keeper.integrate.discovery:view_handler
+  - name: view_handler
+    kind: function.lua
+    meta:
+      type: integration.handler
+      title: Validate Views
+      comment: Renders and validates view entries
+      icon: tabler:browser-check
+      order: 300
+      handles:
+        meta.type: view.page
+      mode: batch
+      operations:
+        - up
+        - down
+    source: file://view_handler.lua
+    modules:
+      - json
+    imports:
+      renderer: wippy.views:renderer
+    method: handler
+    

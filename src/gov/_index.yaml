@@ -49,8 +49,8 @@ entries:
       comment: Governance process execution host
       description: Dedicated process host for all governance service operations
     host:
-      max_processes: 5
-      workers: 2
+      max_processes: 500
+      workers: 8
     lifecycle:
       auto_start: true
       security:
