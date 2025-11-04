@@ -39,28 +39,6 @@ local function handler(params)
         end
     end
 
-    -- Check if agent is publicly accessible
-    if agent_exists and agent_entry then
-        local is_public = false
-        if agent_entry.meta and agent_entry.meta.class then
-            if type(agent_entry.meta.class) == "string" then
-                is_public = agent_entry.meta.class == "public"
-            elseif type(agent_entry.meta.class) == "table" then
-                for _, cls in ipairs(agent_entry.meta.class) do
-                    if cls == "public" then
-                        is_public = true
-                        break
-                    end
-                end
-            end
-        end
-
-        if not is_public then
-            response.error = "Agent is not publicly accessible: " .. params.agent_id
-            return response
-        end
-    end
-
     -- Fail if agent doesn't exist
     if not agent_exists then
         response.error = "Agent not found: " .. params.agent_id
