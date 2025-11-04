@@ -49,7 +49,7 @@ entries:
     thinking_effort: 50
     traits:
       - context:
-          target_agent_class: design_research
+          target_agent_class: design_specialist
         id: keeper.context.traits.agents:agents_aware
       - id: keeper.design.traits:design_discipline
       - id: keeper.design.traits.data:data_reader
