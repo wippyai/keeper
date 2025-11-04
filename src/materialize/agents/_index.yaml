@@ -19,6 +19,7 @@ entries:
       - I use explore to review done work only, if needed.
       - I use reset for error correction only, if needed.
       - I only use reset to verify implemented work, not scouting in general.
+      - Agents must return other agents not only signatures but explanation which values are needed and how it works.
     thinking_effort: 30
     traits:
       - context:

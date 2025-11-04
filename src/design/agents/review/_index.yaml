@@ -165,7 +165,7 @@ entries:
     max_tokens: 8000
     traits:
       - context:
-          target_agent_class: design_research
+          target_agent_class: design_specialist
         id: keeper.context.traits.agents:agents_aware
       - keeper.design.traits:execution_limits
       - keeper.design.traits:design_review_discipline

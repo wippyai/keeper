@@ -16,7 +16,7 @@ entries:
       icon: tabler:robot
       capabilities: Agents are registry-defined building blocks that combine prompt, model, tools, traits, memory, and delegation rules. The platform already provides multi‑agent chat, shared session context, step execution, and tool‑calling orchestration. Discovers available agents, distinguishes orchestrators from focused specialists, understands redirection and delegation paths, and plans visibility and discoverability. Returns agent inventories, team architectures with delegation structures, model characteristics including capabilities and token limits, and visibility patterns. Invoke when designing team structures, choosing model and trait/tool bindings, deciding escalation or redirect boundaries, and selecting which agents should be publicly visible.
       class:
-        - design_research
+        - design_specialist
     prompt: |
       **Goal:** Discover available agents, models, and agent architecture patterns.
     
@@ -94,7 +94,7 @@ entries:
       - keeper.context.traits.models:models_aware
       - keeper.context.traits.agents:agents_aware
       - keeper.design.traits:execution_limits
-      - keeper.design.traits:design_research_discipline
+      - keeper.design.traits:design_specialist_discipline
       - keeper.state.traits.explore:explorer
     
   # keeper.design.agents.domain:database_schema_specialist
@@ -111,7 +111,7 @@ entries:
       icon: tabler:database-search
       capabilities: The platform's migration subsystem applies declared schema changes transactionally where supported and manages numbering, direction, engine differences, and idempotent re‑runs. Discovers database resource identifiers, schema conventions including ownership patterns, referential integrity strategies, constraints and indexes, data organization approaches, and rollback/seeding patterns with environment safeguards. Invoke when proposing schema changes, aligning constraints and referential integrity, or planning rollback paths and data backfills.
       class:
-        - design_research
+        - design_specialist
     prompt: |
       **Goal:** Find the database resource ID and migration patterns from specified namespace.
     
@@ -179,7 +179,7 @@ entries:
       - keeper.state.traits.explore:explorer
       - keeper.context.traits.migrations:migrations_aware
       - keeper.design.traits:execution_limits
-      - keeper.design.traits:design_research_discipline
+      - keeper.design.traits:design_specialist_discipline
       - keeper.context.traits:embed_support
     
   # keeper.design.agents.domain:documentation_specialist
@@ -196,7 +196,7 @@ entries:
       icon: tabler:book-2
       capabilities: Major source of platform documentation, when functionality touches low level modules this agent can help.
       class:
-        - design_research
+        - design_specialist
     prompt: |
       **Goal:** Extract relevant module specifications for design.
     
@@ -242,7 +242,7 @@ entries:
       - keeper.design.traits:grounded_discovery
       - keeper.context.traits.specs:specs_aware
       - keeper.design.traits:execution_limits
-      - keeper.design.traits:design_research_discipline
+      - keeper.design.traits:design_specialist_discipline
     
   # keeper.design.agents.domain:external_integration_specialist
   - name: external_integration_specialist
@@ -260,7 +260,7 @@ entries:
       icon: tabler:plug-connected
       capabilities: The platform provides per-user component-based connection management with declarative registration and automatic lifecycle handling. Each user configures their own connections through the component subsystem with secure credential storage and automatic token refresh for OAuth. Discovers integration patterns including OAuth flows with token management, credential-based authentication with validation, client library conventions using component discovery by metadata classes, connection registration with class-based discoverability, service layer patterns for complex integrations, and trait composition for tool exposure. Returns authentication patterns, component discovery conventions via metadata filters, class assignment strategies for connection types, client implementation separating transport from business logic, and how connections are opened without hardcoded IDs using class-based lookup. Invoke when designing per-user external service integrations, planning connection discovery patterns, or structuring API client libraries that work across different user contexts. Always run when working with integrations, connections and etc.
       class:
-        - design_research
+        - design_specialist
     prompt: |
       **Goal:** Discover patterns for per-user external service connections through OAuth or credential-based authentication.
     
@@ -418,7 +418,7 @@ entries:
       - keeper.design.traits:grounded_discovery
       - keeper.state.traits.explore:explorer
       - keeper.design.traits:execution_limits
-      - keeper.design.traits:design_research_discipline
+      - keeper.design.traits:design_specialist_discipline
       - keeper.context.traits:embed_support
     
   # keeper.design.agents.domain:external_reference_specialist
@@ -435,7 +435,7 @@ entries:
       icon: tabler:world-search
       capabilities: Discovers and analyzes external resources beyond platform boundaries. Searches web for API documentation, service recommendations, integration guides, and technical references. Reads uploaded files for specifications, schemas, examples, and patterns. Returns structured findings from external sources only - documentation URLs, API endpoints, file contents, service comparisons, integration patterns. Invoke when task requires external service research, third-party API discovery, documentation lookup, or analysis of uploaded reference materials. Does not explore platform internals.
       class:
-        - design_research
+        - design_specialist
     prompt: |
       **Goal:** Find and analyze external resources outside the platform.
     
@@ -481,7 +481,7 @@ entries:
       - userspace.webscout.traits:web_researcher
       - userspace.uploads.traits:file_manager
       - keeper.design.traits:execution_limits
-      - keeper.design.traits:design_research_discipline
+      - keeper.design.traits:design_specialist_discipline
     
   # keeper.design.agents.domain:http_routing_specialist
   - name: http_routing_specialist
@@ -497,7 +497,7 @@ entries:
       icon: tabler:api
       capabilities: The HTTP layer auto‑registers routers and endpoints from the registry; path matching, middleware stacks, and transport upgrades for streaming or websockets are platform‑managed. Discovers routing surfaces, methods and path conventions, middleware chain alignment, handler linkage patterns, and request/response envelope structures. Invoke when placing or extending endpoints, selecting transport bindings, and coordinating with persistence for data shapes and realtime for event exposure.
       class:
-        - design_research
+        - design_specialist
     prompt: |
       **Goal:** Find router ID and endpoint-handler patterns from specified namespace.
     
@@ -571,7 +571,7 @@ entries:
       - keeper.state.traits.explore:explorer
       - keeper.context.traits.endpoints:endpoints_aware
       - keeper.design.traits:execution_limits
-      - keeper.design.traits:design_research_discipline
+      - keeper.design.traits:design_specialist_discipline
       - keeper.context.traits:embed_support
     
   # keeper.design.agents.domain:namespace_structure_specialist
@@ -588,7 +588,7 @@ entries:
       icon: tabler:folder-search
       capabilities: Components are organized into namespaces and entry kinds; once declared, the platform wires routing, rendering, and execution automatically. Discovers where similar features live, how logic binds to surfaces, and how domains are grouped. Returns organization patterns and naming heuristics so new work lands in appropriate locations without hardcoded identifiers.
       class:
-        - design_research
+        - design_specialist
     prompt: |
       **Goal:** Discover how existing features organize components across namespaces.
     
@@ -639,7 +639,7 @@ entries:
       - keeper.design.traits:grounded_discovery
       - keeper.state.traits.explore:explorer
       - keeper.design.traits:execution_limits
-      - keeper.design.traits:design_research_discipline
+      - keeper.design.traits:design_specialist_discipline
       - keeper.context.traits:embed_support
     
   # keeper.design.agents.domain:persist_layer_specialist
@@ -656,7 +656,7 @@ entries:
       icon: tabler:database-cog
       capabilities: Connection management, SQL building, and transaction lifecycles are platform‑provided. Discovers data access patterns separating reads from writes - immutable readers with scoping methods, filters, ordering, and pagination that express and enforce scope on retrieval; domain operations that validate intent, enforce invariants, and attach audit metadata; writers that group operations into explicit atomic units executed within transaction boundaries and emit post‑commit signals for clients. Returns scoping semantics, read‑model versus write‑intent separation, transactional boundary patterns, validation and audit conventions, idempotency approaches, error shape structures, and post‑commit event payload expectations. Invoke when defining data access layers, modeling domain operations, or coordinating persistence with HTTP bindings and client updates.
       class:
-        - design_research
+        - design_specialist
     prompt: |
       **Goal:** Discover database access patterns from specified namespace.
     
@@ -731,7 +731,7 @@ entries:
       - keeper.state.traits.explore:explorer
       - keeper.context.traits.persist:persist_aware
       - keeper.design.traits:execution_limits
-      - keeper.design.traits:design_research_discipline
+      - keeper.design.traits:design_specialist_discipline
       - keeper.context.traits:embed_support
     
   # keeper.design.agents.domain:realtime_pattern_specialist
@@ -748,7 +748,7 @@ entries:
       icon: tabler:cpu
       capabilities: Transports, connection lifecycle, and per‑user relays are platform‑managed. Discovers addressing patterns, topic conventions and wildcarding, event types and payload shapes, and the flow from backend through relay to client. Returns how session and authorization context inform addressing, batching and coalescing strategies, delivery expectations, sequencing and versioning metadata, correlation for joining with persistence events, and resume/replay token patterns. Invoke when defining real-time communication patterns; topic strings are expressed as conventions and persistence decides when to emit.
       class:
-        - design_research
+        - design_specialist
     prompt: |
       **Goal:** Discover complete realtime communication pattern: backend → user process → client.
     
@@ -840,7 +840,7 @@ entries:
       - keeper.design.traits:grounded_discovery
       - keeper.state.traits.explore:explorer
       - keeper.design.traits:execution_limits
-      - keeper.design.traits:design_research_discipline
+      - keeper.design.traits:design_specialist_discipline
       - keeper.context.traits:embed_support
     
   # keeper.design.agents.domain:toolkit_specialist
@@ -857,7 +857,7 @@ entries:
       icon: tabler:toolbox
       capabilities: Agents gain capabilities via tools and traits, and the platform drives tool‑calling with schema‑validated inputs and structured outputs. Discovers which capabilities can be bound and how to bind them statically or dynamically per agent, session, or request; awareness traits that inject live context; and governance patterns for scoping, authorization, timeouts, retries, concurrency limits, and audit of invocations. Returns type‑level constraints, error semantics, and composition patterns including chaining, delegating, or composing tools. Invoke when designing agent capabilities and tool/trait composition strategies.
       class:
-        - design_research
+        - design_specialist
     prompt: |
       **Goal:** Discover available tools and traits for agent design.
     
@@ -948,7 +948,7 @@ entries:
       - keeper.context.traits.tools:tools_aware
       - keeper.context.traits.traits:traits_aware
       - keeper.design.traits:execution_limits
-      - keeper.design.traits:design_research_discipline
+      - keeper.design.traits:design_specialist_discipline
       - keeper.state.traits.explore:explorer
     
   # keeper.design.agents.domain:view_template_specialist
@@ -965,7 +965,7 @@ entries:
       icon: tabler:layout
       capabilities: Templates are registry resources; the platform handles rendering, asset loading, discovery, and navigation based on per‑view metadata. Discovers template sets, base layouts, block inheritance structures, partials and component patterns, and navigation metadata that drives discovery including titles, icons, ordering, grouping, and access hints. Returns template organization conventions and minimal navigation metadata fields needed for proper discovery and presentation. Invoke when defining views and templates; data loading and shapes are coordinated with persistence, endpoint paths and registration with HTTP routing, and topic/subscription decisions with realtime. You dont need to create custom endpoints or routing to render normal pages, they are handled as part of the platform toolkit.
       class:
-        - design_research
+        - design_specialist
     prompt: |
       **Goal:** Find template set ID and view rendering patterns from specified namespace.
     
@@ -1045,6 +1045,6 @@ entries:
       - keeper.state.traits.explore:explorer
       - keeper.context.traits.views:views_aware
       - keeper.design.traits:execution_limits
-      - keeper.design.traits:design_research_discipline
+      - keeper.design.traits:design_specialist_discipline
       - keeper.context.traits:embed_support
     
