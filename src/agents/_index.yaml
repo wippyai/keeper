@@ -177,6 +177,7 @@ entries:
     traits:
       - keeper.context.traits:context_search
       - keeper.materialize.traits:materializer
+      - keeper.design.traits.feedback:feedback_provider
 
   # keeper.agents:coder
   - name: coder
