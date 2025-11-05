@@ -12,7 +12,7 @@ entries:
       comment: Analyzes system logs, finds patterns, diagnoses issues
       icon: tabler:file-search
       class:
-        - context_gatherer
+        - context_specialist
     prompt: |-
       You analyze system logs to find patterns, diagnose issues, and provide insights.
     

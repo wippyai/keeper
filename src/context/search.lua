@@ -71,7 +71,7 @@ local function handler(params)
             on_error = "continue",
             filter = "successes",
             template = flow.template()
-                :agent("keeper.context.traits:context_gatherer", {
+                :agent("keeper.context.traits:context_specialist", {
                     input_transform = {
                         agent_id = "input.agent_id",
                         prompt = "input.prompt"

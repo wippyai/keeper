@@ -1,7 +1,7 @@
 local ctx = require("ctx")
 local agent_registry = require("agent_registry")
 
-local DEFAULT_CLASS = "context_gatherer"
+local DEFAULT_CLASS = "context_specialist"
 
 local function handler(params)
     local target_class = params and params.target_agent_class
