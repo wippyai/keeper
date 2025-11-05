@@ -16,7 +16,6 @@ entries:
     model: gpt-5-mini
     temperature: 0.2
     max_tokens: 32000
-    thinking_effort: 30
     traits:
       - context:
           target_agent_class: develop_specialist
@@ -102,7 +101,6 @@ entries:
     model: claude-4-5-sonnet
     temperature: 0.3
     max_tokens: 16000
-    thinking_effort: 20
     traits:
       - keeper.state.traits.editor:editor
       - keeper.develop.traits:primitive_discipline
@@ -339,7 +337,6 @@ entries:
       - Endpoint entry uses kind http.endpoint
       - imports use namespace:entry format
       - I can store multiple files using parallel tool call
-    thinking_effort: 12
     traits:
       - keeper.state.traits.editor:editor
       - keeper.develop.traits:primitive_discipline
@@ -486,7 +483,6 @@ entries:
       - Always error(err) after db operations
       - Drop indexes before tables
       - Work on 1 migration per iteration
-    thinking_effort: 12
     traits:
       - keeper.state.traits.editor:editor
       - keeper.develop.traits:primitive_discipline
@@ -764,7 +760,6 @@ entries:
       - Always encode JSON before SQL
       - Always release db before return
       - Work on 1 file per iteration
-    thinking_effort: 12
     traits:
       - keeper.state.traits.editor:editor
       - keeper.develop.traits:primitive_discipline
@@ -1010,7 +1005,6 @@ entries:
       - Return (result, nil) or (nil, error)
       - Work on 1 tool per iteration
       - Follow patterns from examples
-    thinking_effort: 12
     traits:
       - keeper.state.traits.editor:editor
       - keeper.develop.traits:primitive_discipline
@@ -1055,7 +1049,6 @@ entries:
       - I read parts from request on a page using
       - iframe.navigate('/c/ns:page-id/uuid')
       - Reading params use this.wippyApi.config.path string (split it to get needed chunk)
-    thinking_effort: 12
     traits:
       - keeper.state.traits.editor:editor
       - keeper.develop.traits:primitive_discipline
