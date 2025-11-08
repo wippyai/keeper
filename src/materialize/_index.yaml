@@ -22,7 +22,7 @@ entries:
             },
             "max_iterations": {
               "type": "integer",
-              "default": 5,
+              "default": 16,
               "description": "Maximum implementation cycles"
             }
           }

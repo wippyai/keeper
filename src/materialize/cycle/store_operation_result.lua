@@ -28,34 +28,30 @@ local function run(inputs)
 
     local reader = design_reader.for_workspace(workspace_id)
 
-    local existing_iterations = reader
-        :with_type("materialize_iteration")
+    local existing_reasoning = reader
+        :with_type("materialize_reasoning")
         :with_parent_direct(materialize_node_id)
         :count()
 
-    local iteration = (existing_iterations or 0) + 1
+    local iteration = (existing_reasoning or 0) + 1
 
     local ws = design_writer.existing_workspace(workspace_id)
 
     local result_status = "completed"
 
-    if operation_type == "implement_graph" then
+    if operation_type == "implement" then
         if result.failures and #result.failures > 0 then
             result_status = "failed"
         end
 
         ws:data({
-            type = "materialize_iteration",
-            discriminator = "implementation_result",
+            type = "materialize_implementation",
             parent_data_id = materialize_node_id,
             content = json.encode(result),
             content_type = "application/json",
             status = result_status,
-            position = iteration,
             metadata = {
-                iteration_number = iteration,
-                operation = operation_type,
-                entry_type = "execution_result"
+                iteration_number = iteration
             }
         })
 
@@ -65,17 +61,44 @@ local function run(inputs)
         end
 
         ws:data({
-            type = "materialize_iteration",
-            discriminator = "integration_result",
+            type = "materialize_integration",
             parent_data_id = materialize_node_id,
             content = json.encode(result),
             content_type = "application/json",
             status = result_status,
             position = iteration,
             metadata = {
-                iteration_number = iteration,
-                operation = operation_type,
-                entry_type = "integration_result"
+                iteration_number = iteration
+            }
+        })
+
+    elseif operation_type == "test" then
+        if result.success ~= true then
+            result_status = "failed"
+        end
+
+        ws:data({
+            type = "materialize_test",
+            parent_data_id = materialize_node_id,
+            content = json.encode(result),
+            content_type = "application/json",
+            status = result_status,
+            position = iteration,
+            metadata = {
+                iteration_number = iteration
+            }
+        })
+
+    elseif operation_type == "debug" then
+        ws:data({
+            type = "materialize_debug",
+            parent_data_id = materialize_node_id,
+            content = result,
+            content_type = "text/plain",
+            status = result_status,
+            position = iteration,
+            metadata = {
+                iteration_number = iteration
             }
         })
     end

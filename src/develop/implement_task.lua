@@ -63,8 +63,6 @@ local function handler(args)
         enriched_task = task .. "\n\n" .. table.concat(context_parts, "\n\n")
     end
 
-    print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>AGENT TASK:".. enriched_task .. "\n\n\n")
-
     local agent_id = args.agent_id
 
     local agent_options = args.agent_options or {}
@@ -165,7 +163,6 @@ local function handler(args)
             prompt = agent_arena_prompt,
             max_iterations = agent_max_iterations,
             tool_calling = "any",
-            exit_func_id = "keeper.develop:validate_agent_completion",
             exit_schema = {
                 type = "object",
                 properties = {

@@ -2,6 +2,255 @@ local json = require("json")
 local ctx = require("ctx")
 local design_reader = require("design_reader")
 
+local type_renderers = {}
+
+function type_renderers.materialize_reasoning(child, output)
+    table.insert(output, "### Reasoning")
+    table.insert(output, "")
+    table.insert(output, child.content or "")
+    table.insert(output, "")
+end
+
+function type_renderers.materialize_plan(child, output)
+    table.insert(output, "### Implementation Plan")
+    table.insert(output, "")
+    if child.content and child.content_type == "application/json" then
+        local plan = json.decode(child.content)
+        if plan.steps then
+            for i, step in ipairs(plan.steps) do
+                table.insert(output, string.format("%d. **%s** (`%s`)", i, step.title or step.id, step.agent_id or "unknown"))
+                if step.needs and #step.needs > 0 then
+                    table.insert(output, string.format("   Depends on: %s", table.concat(step.needs, ", ")))
+                end
+            end
+        end
+    end
+    table.insert(output, "")
+end
+
+function type_renderers.materialize_implementation(child, output)
+    table.insert(output, "### Implementation Result")
+    table.insert(output, "")
+    table.insert(output, string.format("Status: %s", child.status or "unknown"))
+    table.insert(output, "")
+
+    if child.content and child.content_type == "application/json" then
+        local result = json.decode(child.content)
+
+        if result.has_failures then
+            table.insert(output, string.format("**ERROR**: %s", result.error_summary or "Implementation failed"))
+            table.insert(output, "")
+        end
+
+        if result.total_steps then
+            table.insert(output, string.format("Summary: %d/%d steps succeeded (%.0f%%)",
+                result.succeeded or 0, result.total_steps, (result.success_rate or 0) * 100))
+            table.insert(output, "")
+        end
+
+        if result.successes and #result.successes > 0 then
+            table.insert(output, "#### Successful Steps")
+            table.insert(output, "")
+            for _, s in ipairs(result.successes) do
+                table.insert(output, string.format("**%s**", s.step))
+                table.insert(output, "")
+                if s.result and s.result.output then
+                    table.insert(output, s.result.output)
+                    table.insert(output, "")
+                end
+            end
+        end
+
+        if result.failures and #result.failures > 0 then
+            table.insert(output, "#### Failed Steps")
+            table.insert(output, "")
+            for _, f in ipairs(result.failures) do
+                table.insert(output, string.format("**%s** - FAILED", f.step))
+                table.insert(output, "")
+
+                if f.error then
+                    table.insert(output, string.format("Error: %s", f.error))
+                    table.insert(output, "")
+                end
+
+                if f.details then
+                    if f.details.code then
+                        table.insert(output, string.format("Code: %s", f.details.code))
+                    end
+                    if f.details.message then
+                        table.insert(output, string.format("Message: %s", f.details.message))
+                    end
+                    table.insert(output, "")
+                end
+
+                if f.result then
+                    if f.result.error then
+                        table.insert(output, string.format("Result Error: %s", f.result.error))
+                        table.insert(output, "")
+                    end
+                    if f.result.output then
+                        table.insert(output, f.result.output)
+                        table.insert(output, "")
+                    end
+                end
+            end
+        end
+    end
+end
+
+function type_renderers.materialize_integration(child, output)
+    table.insert(output, "### Integration Result")
+    table.insert(output, "")
+    table.insert(output, string.format("Status: %s", child.status or "unknown"))
+    table.insert(output, "")
+
+    if child.content and child.content_type == "application/json" then
+        local result = json.decode(child.content)
+
+        if result.success ~= nil then
+            table.insert(output, string.format("**%s**", result.success and "SUCCESS" or "FAILED"))
+            table.insert(output, "")
+        end
+
+        if result.message then
+            table.insert(output, result.message)
+            table.insert(output, "")
+        end
+
+        if result.pipeline and not result.pipeline.success then
+            table.insert(output, "**Pipeline Error:**")
+            table.insert(output, "")
+            for _, exec in ipairs(result.pipeline.execution or {}) do
+                if exec.error then
+                    table.insert(output, string.format("Handler: `%s`", exec.handler_id))
+                    table.insert(output, string.format("Error: %s", exec.error))
+                    table.insert(output, "")
+                end
+            end
+        end
+
+        if result.rollback then
+            table.insert(output, "**Rollback Applied:**")
+            if result.rollback.version_restored then
+                table.insert(output, string.format("- Registry version restored: %s", result.rollback.message or "yes"))
+            end
+            if result.rollback.pipeline_reverted then
+                table.insert(output, "- Pipeline changes reverted")
+            end
+            table.insert(output, "")
+        end
+
+        if result.push then
+            table.insert(output, "**Push Summary:**")
+            table.insert(output, string.format("- Branch: `%s` → `%s`", result.push.branch or "unknown", result.push.base_branch or "unknown"))
+            table.insert(output, string.format("- Changes: +%d ~%d -%d",
+                result.push.added or 0, result.push.modified or 0, result.push.deleted or 0))
+            if result.push.version then
+                table.insert(output, string.format("- Registry version: %d", result.push.version))
+            end
+            table.insert(output, "")
+        end
+
+        if result.diff then
+            table.insert(output, "**Changes:**")
+            table.insert(output, "```")
+            table.insert(output, result.diff)
+            table.insert(output, "```")
+            table.insert(output, "")
+        end
+    end
+end
+
+function type_renderers.materialize_test(child, output)
+    table.insert(output, "### Test Result")
+    table.insert(output, "")
+    table.insert(output, string.format("Status: %s", child.status or "unknown"))
+    table.insert(output, "")
+
+    if child.content and child.content_type == "application/json" then
+        local result = json.decode(child.content)
+
+        if result.passed or result.failed or result.total then
+            table.insert(output, string.format("Results: %d passed, %d failed (total: %d)",
+                result.passed or 0, result.failed or 0, result.total or 0))
+            table.insert(output, "")
+        end
+
+        if result.tests then
+            for _, test in ipairs(result.tests) do
+                local status = test.success and "PASS" or "FAIL"
+                table.insert(output, string.format("**[%s] %s**", status, test.title or test.id))
+                table.insert(output, "")
+
+                if test.error then
+                    table.insert(output, string.format("Error Code: %s", test.error.code or "unknown"))
+                    table.insert(output, string.format("Error Message: %s", test.error.message or "unknown"))
+                    table.insert(output, "")
+                elseif test.result and test.result.details then
+                    table.insert(output, test.result.details)
+                    table.insert(output, "")
+                end
+            end
+        elseif result.details then
+            table.insert(output, result.details)
+            table.insert(output, "")
+        end
+    end
+end
+
+function type_renderers.materialize_test_plan(child, output)
+    table.insert(output, "### Test Plan")
+    table.insert(output, "")
+    if child.content and child.content_type == "application/json" then
+        local plan = json.decode(child.content)
+        if plan.steps then
+            for i, step in ipairs(plan.steps) do
+                table.insert(output, string.format("%d. %s", i, step.title or step.id))
+            end
+        end
+    end
+    table.insert(output, "")
+end
+
+function type_renderers.materialize_integration_request(child, output)
+    table.insert(output, "### Integration Request")
+    table.insert(output, "")
+end
+
+function type_renderers.materialize_debug(child, output)
+    table.insert(output, "### Debug Result")
+    table.insert(output, "")
+    table.insert(output, string.format("Status: %s", child.status or "unknown"))
+    table.insert(output, "")
+
+    if child.content then
+        table.insert(output, child.content)
+        table.insert(output, "")
+    end
+end
+
+function type_renderers.feedback(child, output)
+    local child_meta = child.metadata or {}
+    local fb_type = child_meta.feedback_type or child.discriminator or "feedback"
+    local fb_title = child_meta.title or fb_type
+
+    table.insert(output, string.format("### [%s] %s", string.upper(fb_type), fb_title))
+    table.insert(output, "")
+    table.insert(output, child.content or "")
+    table.insert(output, "")
+end
+
+function type_renderers.default(child, output)
+    table.insert(output, string.format("### %s", child.type or "unknown"))
+    table.insert(output, "")
+    table.insert(output, string.format("Status: %s | Position: %s", child.status or "unknown", tostring(child.position)))
+    table.insert(output, "")
+    if child.content then
+        table.insert(output, child.content)
+        table.insert(output, "")
+    end
+end
+
 local function run(args)
     local branch_id = args.branch_id
     local materialize_node_id = args.materialize_node_id
@@ -34,41 +283,6 @@ local function run(args)
     local mat_meta = materialize_node.metadata or {}
     local overlay_branch = mat_meta.overlay_branch or "unknown"
 
-    local all_iterations = reader
-        :with_type("materialize_iteration")
-        :with_parent_direct(materialize_node_id)
-        :order_by_position()
-        :all()
-
-    local current_iteration = 0
-    local total_implementations = 0
-    local successful_implementations = 0
-    local failed_implementations = 0
-    local has_integrated = false
-    local integration_success = nil
-
-    for _, iter in ipairs(all_iterations or {}) do
-        local meta = iter.metadata or {}
-        local iter_num = meta.iteration_number or 0
-        if iter_num > current_iteration then
-            current_iteration = iter_num
-        end
-
-        if meta.operation == "implement_graph" and meta.entry_type == "execution_result" then
-            total_implementations = total_implementations + 1
-            if iter.status == "completed" then
-                successful_implementations = successful_implementations + 1
-            else
-                failed_implementations = failed_implementations + 1
-            end
-        elseif meta.operation == "integrate" and meta.entry_type == "integration_result" then
-            has_integrated = true
-            integration_success = (iter.status == "completed")
-        end
-    end
-
-    current_iteration = current_iteration + 1
-
     local output = {}
 
     table.insert(output, "# IMPLEMENTATION CONTEXT")
@@ -76,28 +290,12 @@ local function run(args)
     table.insert(output, "## Design Target")
     table.insert(output, "")
     table.insert(output, "**Target**: " .. (branch.metadata.title or branch_id))
-    table.insert(output, "**Target ID**: `" .. branch_id .. "`")
     table.insert(output, "")
     table.insert(output, "## State Overlay Branch")
     table.insert(output, "")
     table.insert(output, "**Branch**: `" .. overlay_branch .. "`")
     table.insert(output, "")
-    table.insert(output, "*Use this branch when verifying implemented state or resetting implementation.*")
-    table.insert(output, "")
     table.insert(output, "---")
-    table.insert(output, "")
-    table.insert(output, "# IMPLEMENTATION ITERATION: " .. current_iteration)
-    table.insert(output, "")
-    table.insert(output, "## Current Status")
-    table.insert(output, "")
-    table.insert(output, "- **Total Iterations Completed**: " .. #(all_iterations or {}))
-    table.insert(output, "- **Implementation Attempts**: " .. total_implementations)
-    table.insert(output, "  - Successful: " .. successful_implementations)
-    table.insert(output, "  - Failed: " .. failed_implementations)
-    table.insert(output, "- **Integration Run**: " .. (has_integrated and "Yes" or "No"))
-    if has_integrated then
-        table.insert(output, "  - Integration Status: " .. (integration_success and "Success" or "Failed"))
-    end
     table.insert(output, "")
 
     table.insert(output, "# Design Specification")
@@ -114,7 +312,7 @@ local function run(args)
         :with_type("context")
         :with_parent_direct(branch_id)
         :with_statuses("current")
-        :order_by_position()
+        :order_by_created("asc")
         :all()
 
     if #(context_docs or {}) > 0 then
@@ -148,208 +346,43 @@ local function run(args)
         return nil, "No current design version found"
     end
 
-    local materialize_feedback = reader
-        :with_type("feedback")
+    table.insert(output, "---")
+    table.insert(output, "")
+    table.insert(output, "# Implementation History")
+    table.insert(output, "")
+
+    local all_children = reader
         :with_parent_direct(materialize_node_id)
-        :order_by_position()
+        :order_by_created("asc")
         :all()
 
-    if #(materialize_feedback or {}) > 0 then
-        table.insert(output, "## Implementation Feedback")
+    if #(all_children or {}) == 0 then
+        table.insert(output, "*No implementation history*")
         table.insert(output, "")
-        for _, fb in ipairs(materialize_feedback) do
-            local fb_meta = fb.metadata or {}
-            local fb_type = fb_meta.feedback_type or fb.discriminator or "feedback"
-            table.insert(output, "**" .. fb_type:gsub("^%l", string.upper) .. "**: " .. (fb.content or ""))
+    else
+        local current_iteration = nil
+
+        for _, child in ipairs(all_children) do
+            local child_meta = child.metadata or {}
+            local iter = child_meta.iteration_number
+
+            if iter and iter ~= current_iteration then
+                if current_iteration then
+                    table.insert(output, "")
+                    table.insert(output, "---")
+                end
+                current_iteration = iter
+                table.insert(output, "")
+                table.insert(output, string.format("# ITERATION %d", iter))
+                table.insert(output, "")
+            end
+
+            local renderer = type_renderers[child.type] or type_renderers.default
+            renderer(child, output)
             table.insert(output, "")
         end
     end
 
-    if #(all_iterations or {}) > 0 then
-        table.insert(output, "## Previous Implementation Iterations")
-        table.insert(output, "")
-
-        local grouped = {}
-        for _, iter in ipairs(all_iterations) do
-            local meta = iter.metadata or {}
-            local iter_num = meta.iteration_number or 0
-            if not grouped[iter_num] then
-                grouped[iter_num] = {}
-            end
-            table.insert(grouped[iter_num], iter)
-        end
-
-        local sorted_keys = {}
-        for k in pairs(grouped) do
-            table.insert(sorted_keys, k)
-        end
-        table.sort(sorted_keys)
-
-        for _, iter_num in ipairs(sorted_keys) do
-            local entries = grouped[iter_num]
-            table.insert(output, "### Iteration " .. iter_num)
-            table.insert(output, "")
-
-            local execution_result = nil
-            local integration_result = nil
-            local operation = "unknown"
-
-            for _, entry in ipairs(entries) do
-                local meta = entry.metadata or {}
-                local entry_type = meta.entry_type
-                operation = meta.operation or operation
-
-                if entry_type == "execution_result" then
-                    execution_result = entry
-                elseif entry_type == "integration_result" then
-                    integration_result = entry
-                end
-            end
-
-            table.insert(output, "**Operation**: " .. operation)
-            table.insert(output, "")
-
-            if execution_result then
-                table.insert(output, "#### Implementation Result")
-                table.insert(output, "")
-                table.insert(output, "**Status**: " .. (execution_result.status or "unknown"))
-                table.insert(output, "")
-
-                if execution_result.content and execution_result.content_type == "application/json" then
-                    local result_data = json.decode(execution_result.content)
-
-                    if result_data.total_steps then
-                        table.insert(output, string.format("**Total Steps**: %d", result_data.total_steps))
-                        table.insert(output, string.format("**Succeeded**: %d", result_data.succeeded or 0))
-                        table.insert(output, string.format("**Failed**: %d", result_data.failed or 0))
-                        table.insert(output, string.format("**Success Rate**: %.1f%%", (result_data.success_rate or 0) * 100))
-                        table.insert(output, "")
-                    end
-
-                    if result_data.successes and #result_data.successes > 0 then
-                        table.insert(output, "##### Successful Steps")
-                        table.insert(output, "")
-                        for _, success in ipairs(result_data.successes) do
-                            table.insert(output, string.format("###### %s", success.step))
-                            table.insert(output, "")
-                            if success.result then
-                                for key, value in pairs(success.result) do
-                                    table.insert(output, string.format("**%s**:", key))
-                                    table.insert(output, "```")
-                                    table.insert(output, tostring(value))
-                                    table.insert(output, "```")
-                                    table.insert(output, "")
-                                end
-                            end
-                        end
-                    end
-
-                    if result_data.failures and #result_data.failures > 0 then
-                        table.insert(output, "##### Failed Steps")
-                        table.insert(output, "")
-                        for _, failure in ipairs(result_data.failures) do
-                            table.insert(output, string.format("###### %s", failure.step))
-                            table.insert(output, "")
-                            if failure.result then
-                                for key, value in pairs(failure.result) do
-                                    table.insert(output, string.format("**%s**:", key))
-                                    table.insert(output, "```")
-                                    table.insert(output, tostring(value))
-                                    table.insert(output, "```")
-                                    table.insert(output, "")
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-
-            if integration_result then
-                table.insert(output, "#### Integration Result")
-                table.insert(output, "")
-                table.insert(output, "**Status**: " .. (integration_result.status or "unknown"))
-                table.insert(output, "")
-
-                if integration_result.content and integration_result.content_type == "application/json" then
-                    local result_data = json.decode(integration_result.content)
-
-                    if result_data.code == "CHILD_WORKFLOW_FAILED" and type(result_data.message) == "string" then
-                        local ok, parsed_message = pcall(json.decode, result_data.message)
-                        if ok and type(parsed_message) == "table" then
-                            table.insert(output, "**Error Code**: CHILD_WORKFLOW_FAILED")
-                            table.insert(output, "")
-
-                            if parsed_message.success ~= nil then
-                                table.insert(output, "**Success**: " .. tostring(parsed_message.success))
-                                table.insert(output, "")
-                            end
-
-                            if parsed_message.message then
-                                table.insert(output, "**Message**: " .. parsed_message.message)
-                                table.insert(output, "")
-                            end
-
-                            if parsed_message.push then
-                                table.insert(output, "**Push Error**:")
-                                table.insert(output, "```")
-                                if type(parsed_message.push) == "table" then
-                                    if parsed_message.push.code then
-                                        table.insert(output, "Code: " .. parsed_message.push.code)
-                                    end
-                                    if parsed_message.push.message then
-                                        table.insert(output, parsed_message.push.message)
-                                    end
-                                else
-                                    table.insert(output, tostring(parsed_message.push))
-                                end
-                                table.insert(output, "```")
-                                table.insert(output, "")
-                            end
-
-                            if parsed_message.pipeline then
-                                table.insert(output, "**Pipeline**:")
-                                table.insert(output, "```json")
-                                table.insert(output, json.encode(parsed_message.pipeline))
-                                table.insert(output, "```")
-                                table.insert(output, "")
-                            end
-
-                            if parsed_message.rollback then
-                                table.insert(output, "**Rollback**:")
-                                table.insert(output, "```json")
-                                table.insert(output, json.encode(parsed_message.rollback))
-                                table.insert(output, "```")
-                                table.insert(output, "")
-                            end
-                        else
-                            table.insert(output, "**Error Code**: " .. result_data.code)
-                            table.insert(output, "")
-                            table.insert(output, "**Message**:")
-                            table.insert(output, "```")
-                            table.insert(output, result_data.message)
-                            table.insert(output, "```")
-                            table.insert(output, "")
-                        end
-                    else
-                        for key, value in pairs(result_data) do
-                            if type(value) == "table" then
-                                table.insert(output, string.format("**%s**:", key))
-                                table.insert(output, "```json")
-                                table.insert(output, json.encode(value))
-                                table.insert(output, "```")
-                                table.insert(output, "")
-                            else
-                                table.insert(output, string.format("**%s**: %s", key, tostring(value)))
-                                table.insert(output, "")
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    print(table.concat(output, "\n"))
     return table.concat(output, "\n")
 end
 

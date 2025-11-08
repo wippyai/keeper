@@ -49,10 +49,21 @@ local function handler(args)
     local overlay_branch = ctx.get("overlay_branch")
 
     if not materialize_node_id or not overlay_branch then
-        local materialize_node = reader
+        local materialize_nodes = reader
             :with_type("materialize")
             :with_discriminator("root")
-            :one()
+            :all()
+
+        local materialize_node = nil
+        if materialize_nodes and #materialize_nodes > 0 then
+            for _, node in ipairs(materialize_nodes) do
+                local node_meta = node.metadata or {}
+                if node_meta.parent_branch_id == branch_id then
+                    materialize_node = node
+                    break
+                end
+            end
+        end
 
         if not materialize_node then
             local new_branch = "impl-" .. uuid.v7():sub(1, 8)
@@ -64,7 +75,6 @@ local function handler(args)
                 content = "Implementation materialization for: " .. (meta.title or branch_id),
                 content_type = "text/plain",
                 status = "active",
-                position = 0,
                 metadata = {
                     parent_branch_id = branch_id,
                     overlay_branch = new_branch,

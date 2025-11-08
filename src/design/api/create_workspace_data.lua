@@ -65,7 +65,6 @@ local function create_workspace_data_handler()
         content = body.content,
         content_type = body.content_type,
         status = body.status,
-        position = body.position,
         metadata = body.metadata
     }
 

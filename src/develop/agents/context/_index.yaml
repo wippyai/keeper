@@ -128,11 +128,10 @@ entries:
     model: gpt-5-nano
     temperature: 0.1
     max_tokens: 32000
-    tools:
-      - keeper.agents.docs:get_docs
     traits:
       - keeper.context.traits:context_specialist_discipline
       - keeper.context.traits:execution_limits
+      - keeper.context.traits.specs:specs_aware
     
   # keeper.develop.agents.context:generic_context
   - name: generic_context

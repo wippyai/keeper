@@ -24,16 +24,6 @@ entries:
       type: tool
       title: Integrate
       comment: Integrates and tests changes with automatic rollback on failure
-      input_schema: |
-        {
-          "type": "object",
-          "properties": {
-            "test_scenario": {
-              "type": "string",
-              "description": "Optional test scenario to run after integration"
-            }
-          }
-        }
       llm_alias: integrate
       llm_description: Run integration pipeline with automatic rollback on failure. Optionally run test scenario after pipeline execution.
       output_schema: |
@@ -60,13 +50,6 @@ entries:
                 "applied_ids": {"type": "array"},
                 "error": {"type": ["string", "null"]},
                 "execution": {"type": "object"}
-              }
-            },
-            "test": {
-              "type": "object",
-              "properties": {
-                "success": {"type": "boolean"},
-                "details": {"type": "string"}
               }
             },
             "rollback": {

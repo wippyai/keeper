@@ -8,6 +8,7 @@ local function run(inputs)
     local materialize_node_id = inputs.materialize_node_id
     local operation = inputs.operation or {}
     local has_integrated = inputs.has_integrated or false
+    local has_tested = inputs.has_tested or false
 
     if not branch_id then
         return nil, "branch_id required"
@@ -25,7 +26,7 @@ local function run(inputs)
     local reader = design_reader.for_workspace(workspace_id)
 
     local existing_iterations = reader
-        :with_type("implementation_iteration")
+        :with_type("materialize_reasoning")
         :with_parent_direct(materialize_node_id)
         :count()
 
@@ -41,47 +42,58 @@ local function run(inputs)
     local ws = design_writer.existing_workspace(workspace_id)
 
     ws:data({
-        type = "implementation_iteration",
+        type = "materialize_reasoning",
         parent_data_id = materialize_node_id,
         content = reasoning,
         content_type = "text/markdown",
         status = "completed",
-        position = iteration - 1,
         metadata = {
             iteration_number = iteration,
-            operation = op_type,
-            entry_type = "reasoning"
+            operation = op_type
         }
     })
 
-    if op_type == "implement_graph" and operation.implementation_plan then
+    if op_type == "implement" and operation.implementation_plan then
         ws:data({
-            type = "implementation_iteration",
+            type = "materialize_plan",
             parent_data_id = materialize_node_id,
             content = json.encode(operation.implementation_plan),
             content_type = "application/json",
             status = "completed",
-            position = iteration - 1,
             metadata = {
-                iteration_number = iteration,
-                operation = op_type,
-                entry_type = "plan"
+                iteration_number = iteration
             }
         })
-    end
-
-    if op_type == "integrate" and operation.integration_prompt then
+    elseif op_type == "test" and operation.test_plan then
         ws:data({
-            type = "implementation_iteration",
+            type = "materialize_test_plan",
             parent_data_id = materialize_node_id,
-            content = operation.integration_prompt,
-            content_type = "text/markdown",
+            content = json.encode(operation.test_plan),
+            content_type = "application/json",
             status = "completed",
-            position = iteration - 1,
             metadata = {
-                iteration_number = iteration,
-                operation = op_type,
-                entry_type = "integration_prompt"
+                iteration_number = iteration
+            }
+        })
+    elseif op_type == "debug" and operation.debug_prompt then
+        ws:data({
+            type = "materialize_debug_prompt",
+            parent_data_id = materialize_node_id,
+            content = operation.debug_prompt,
+            content_type = "text/plain",
+            status = "completed",
+            metadata = {
+                iteration_number = iteration
+            }
+        })
+    elseif op_type == "integrate" and operation.integration_prompt then
+        ws:data({
+            type = "materialize_integration_request",
+            parent_data_id = materialize_node_id,
+            content_type = "text/plain",
+            status = "completed",
+            metadata = {
+                iteration_number = iteration
             }
         })
     end
@@ -94,10 +106,13 @@ local function run(inputs)
     local should_stop = false
     local final_status = "active"
     local new_has_integrated = has_integrated
+    local new_has_tested = has_tested
 
     if op_type == "integrate" then
         new_has_integrated = true
-        print("\n→ Integration recorded")
+    elseif op_type == "test" then
+        new_has_tested = true
+    elseif op_type == "debug" then
     elseif op_type == "finish" then
         local materialize_node = reader:with_data(materialize_node_id):one()
         local node_meta = materialize_node.metadata or {}
@@ -120,25 +135,22 @@ local function run(inputs)
 
         should_stop = true
         final_status = "complete"
-        print("\n→ MATERIALIZATION COMPLETE")
-    else
-        print("\n→ Operation recorded, continuing cycle")
     end
-
-    print("=== ITERATION COMPLETE ===\n")
 
     return {
         state = {
             branch_id = branch_id,
             materialize_node_id = materialize_node_id,
             iterations_run = iteration,
-            has_integrated = new_has_integrated
+            has_integrated = new_has_integrated,
+            has_tested = new_has_tested
         },
         result = {
             should_stop = should_stop,
             status = final_status,
             iterations_run = iteration,
-            operation = op_type
+            operation = op_type,
+            reasoning = reasoning
         },
         continue = not should_stop
     }

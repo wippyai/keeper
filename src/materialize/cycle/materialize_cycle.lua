@@ -11,6 +11,7 @@ local function run(cycle_context)
         state.materialize_node_id = cycle_context.input.materialize_node_id
         state.iterations_run = 0
         state.has_integrated = false
+        state.has_tested = false
     end
 
     if last_result and last_result.should_stop then
@@ -24,13 +25,15 @@ local function run(cycle_context)
     local branch_id = state.branch_id
     local materialize_node_id = state.materialize_node_id
     local has_integrated = state.has_integrated or false
+    local has_tested = state.has_tested or false
 
     return flow.create()
         :with_title("Working on Your Design")
         :with_input({
             branch_id = branch_id,
             materialize_node_id = materialize_node_id,
-            has_integrated = has_integrated
+            has_integrated = has_integrated,
+            has_tested = has_tested
         })
         :as("cycle_input")
         :to("context_loader", "cycle_input")
@@ -69,7 +72,7 @@ local function run(cycle_context)
                     properties = {
                         operation = {
                             type = "string",
-                            enum = { "implement_graph", "integrate", "finish" },
+                            enum = { "implement", "integrate", "test", "debug", "finish" },
                             description = "Next operation"
                         },
                         reasoning = {
@@ -99,7 +102,7 @@ local function run(cycle_context)
                                 }
                             }
                         },
-                        integration_prompt = {
+                        debug_prompt = {
                             type = "string"
                         }
                     },
@@ -125,7 +128,8 @@ local function run(cycle_context)
                 branch_id = "inputs.cycle_input.branch_id",
                 materialize_node_id = "inputs.cycle_input.materialize_node_id",
                 operation = "inputs.orchestrator_output",
-                has_integrated = "inputs.cycle_input.has_integrated"
+                has_integrated = "inputs.cycle_input.has_integrated",
+                has_tested = "inputs.cycle_input.has_tested"
             },
             metadata = {
                 title = "Saving Progress",

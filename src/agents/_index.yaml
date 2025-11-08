@@ -69,6 +69,8 @@ entries:
     max_tokens: 4000
     tools:
       - keeper.agents.manager:redirect_to_agent
+    traits:
+      - keeper.context.traits:context_search
 
   # keeper.agents:engineer
   - name: engineer
@@ -178,6 +180,7 @@ entries:
       - keeper.context.traits:context_search
       - keeper.materialize.traits:materializer
       - keeper.design.traits.feedback:feedback_provider
+      - keeper.design.traits.workspace:workspace_manager
 
   # keeper.agents:coder
   - name: coder
@@ -297,5 +300,6 @@ entries:
       - keeper.develop.traits:implementer
       - keeper.integrate.traits:integrator
       - wippy.agent.traits:time_aware
+      - keeper.debug.traits:debugger
     tools:
       - keeper.agents.manager:redirect_to_agent
