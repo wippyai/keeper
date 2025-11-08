@@ -717,6 +717,8 @@ entries:
     
       **Critical:**
       All IDs from tree. All patterns from actual code. No invented signatures.
+      
+      I use proper time types to store time (TEXT in SQLite for ISO or ISO NANO).
     model: gpt-5-nano
     temperature: 0.1
     max_tokens: 16000
@@ -974,7 +976,6 @@ entries:
       - Layout patterns
       - Template entry structure
       - View meta patterns (for navigation)
-      - Alpine.js usage patterns
       - Component patterns
       - Styling approaches
       - Any subscription patterns
@@ -995,7 +996,7 @@ entries:
       **Pattern Extraction:**
       From template sources:
       - Layout references (which layouts used)
-      - Alpine.js patterns (x-data, x-on, etc.)
+      - java script patterns (x-data, x-on, etc.)
       - Component organization
       - Styling approaches
       - Any subscription patterns
@@ -1014,7 +1015,7 @@ entries:
       - Template set ID: [exact ID from tree]
       - Layout patterns: [from actual template sources]
       - **EXAMPLE:** [template entry showing meta structure]
-      - **EXAMPLE:** [template showing Alpine.js patterns]
+      - **EXAMPLE:** [template showing patterns]
       - Resource IDs: [from entries]
     
       Use embed tags: <embed id="namespace:template_name" mode="source" />

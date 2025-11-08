@@ -2,8 +2,8 @@ version: "1.0"
 namespace: keeper.context.traits
 
 entries:
-  # keeper.context.traits:context_gatherer_discipline
-  - name: context_gatherer_discipline
+  # keeper.context.traits:context_specialist_discipline
+  - name: context_specialist_discipline
     kind: registry.entry
     meta:
       type: agent.trait

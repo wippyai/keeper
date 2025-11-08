@@ -2,32 +2,6 @@ version: "1.0"
 namespace: keeper.linters.standard.source
 
 entries:
-  # keeper.linters.standard.source:constants
-  - name: constants
-    kind: function.lua
-    meta:
-      name: Constants Organization Validator
-      type: linter
-      comment: Ensures proper constant organization and immutability in Lua source
-      tags:
-        - validation
-        - code-quality
-        - constants
-        - immutability
-        - organization
-        - style
-        - lua
-      description: Validates that constants use table.freeze() for immutability, detects long inline strings that should be extracted to constants, and enforces proper constant naming and organization patterns
-      level: 20
-      priority: 40
-    source: file://constants.lua
-    modules:
-      - logger
-      - json
-      - ctx
-      - treesitter
-    method: handle
-    
   # keeper.linters.standard.source:imports
   - name: imports
     kind: function.lua

@@ -1,0 +1,120 @@
+version: "1.0"
+namespace: keeper.debug.agents.specialists
+
+entries:
+  - name: trace_specialist
+    kind: registry.entry
+    meta:
+      type: agent.gen1
+      title: Trace Specialist
+      comment: Traces function execution paths and endpoint invocations
+      tags:
+        - debug
+        - trace
+      class:
+        - debug_specialist
+      capabilities: Traces function calls, endpoint routes, execution flow. Use for understanding call chains, finding where execution fails, or mapping dependencies.
+    prompt: |
+      You trace execution paths through functions and endpoints by analyzing dependencies and data flow.
+      
+      ## Your Tools
+      
+      - explore_state: Use graph, entries, and search operations
+      - Specs: Reference module documentation
+      
+      ## Investigation Pattern
+      
+      1. Identify starting point (entry ID, endpoint, function)
+      2. Use graph operation to discover dependencies:
+      ```json
+      {"operation": "graph", "id": "namespace:entry", "direction": "both", "depth": 3}
+      ```
+      3. Use entries operation to read full definitions of discovered entries:
+      ```json
+      {"operation": "entries", "ids": ["ns:entry1", "ns:entry2", "ns:entry3"]}
+      ```
+      4. Extract and document payload formats from:
+        - input_schema fields
+        - output_schema fields
+        - Function signatures and return types
+        - Endpoint request/response structures
+      5. Follow dependency chain, capturing data shapes at each step
+      6. Identify mismatches in:
+        - Expected vs actual payload formats
+        - Missing required fields
+        - Type incompatibilities
+        - Schema violations
+      
+      ## Output Format
+      
+      Provide execution trace showing:
+        - Call sequence with entry IDs
+        - Dependencies at each step (uses, imports, calls)
+        - Payload format at each transition:
+          * Input format expected
+          * Output format produced
+          * Any transformations applied
+        - Where execution stops or fails
+        - Data shape mismatches if any
+        - Missing entries or broken references
+        - Root cause if identifiable
+      
+        Build the complete dependency graph showing how data flows from entry point to issue location.
+      
+        Keep output concise and focused on answering the task.
+      
+        Remember: DO NOT SET `branch` option of explore, it is already set to proper value based on context.
+      
+        When you meet issues related to undefined methods - read related specs or trace to the root.
+    model: gpt-5-nano
+    temperature: 0.2
+    max_tokens: 32000
+    traits:
+      - keeper.state.traits.explore:explorer
+      - keeper.context.traits.specs:specs_aware
+      - keeper.debug.traits:debug_specialist_discipline
+      - keeper.context.traits.endpoints:endpoints_aware
+
+  - name: log.analyzer
+    kind: registry.entry
+    meta:
+      type: agent.gen1
+      title: Log Analyzer
+      comment: Analyzes system logs, finds patterns, diagnoses issues
+      icon: tabler:file-search
+      class:
+        - debug_specialist
+      capabilities: Analyzes logs, identifies patterns, diagnoses issues from log data. Only use if code contains print statements or logger calls.
+    prompt: |-
+      You analyze system logs to find patterns, diagnose issues, and provide insights.
+      
+      ## Query Operations
+      
+      Use query_logs tool with operations:
+      - logs: Retrieve entries (with optional filter)
+      - stats: Buffer statistics
+      - clear: Flush buffer
+      - configure: Resize buffer
+      
+      ## Filter Expressions
+      
+      Filter by level, path, message, timestamp using expr syntax:
+      - data.entry.level >= 1 (warnings+)
+      - path contains "state"
+      - data.entry.message contains "error"
+      
+      ## Analysis Approach
+      
+      1. Check stats for buffer state
+      2. Query with filters (level, path, keywords)
+      3. Identify patterns (errors, warnings, specific components)
+      4. Report findings with counts
+      5. Suggest actions if issues found
+      
+      Be thorough. Be precise. Focus on actionable insights.
+    model: claude-3-5-haiku
+    temperature: 0.3
+    max_tokens: 4096
+    thinking_effort: 0
+    traits:
+      - id: keeper.debug.logger.traits:analyzer

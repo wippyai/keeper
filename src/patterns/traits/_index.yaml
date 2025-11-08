@@ -1,0 +1,64 @@
+version: "1.0"
+namespace: keeper.patterns.traits
+
+entries:
+  - name: pattern_reader
+    kind: function.lua
+    meta:
+      type: tool
+      title: Pattern Reader
+      comment: Retrieve pattern by ID or list patterns
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "pattern_id": {
+              "type": "string",
+              "description": "Pattern ID in ns:name format"
+            }
+          }
+        }
+      llm_alias: read_pattern
+      llm_description: Get specific pattern by ID (ns:name format) or list all available patterns
+    source: file://pattern_reader.lua
+    modules:
+      - json
+    imports:
+      pattern_registry: keeper.patterns.discovery:registry
+    method: handler
+
+  - name: pattern_list
+    kind: function.lua
+    meta:
+      comment: List available patterns for prompt injection
+      output_schema: |
+        {
+          "type": "string"
+        }
+    source: file://pattern_list.lua
+    modules:
+      - ctx
+    imports:
+      pattern_registry: keeper.patterns.discovery:registry
+    method: handler
+
+  - name: reader
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Pattern Reader
+      comment: Access patterns from registry with optional class filtering
+      tags:
+        - patterns
+        - discovery
+        - design
+      icon: tabler:file-search
+    context:
+      pattern_class: [ ]
+    prompt_func_id: keeper.patterns.traits:pattern_list
+    prompt: |
+      You can see list of available patterns and comments to them. Use read_patterns to read actual content of related patterns.
+      
+      If pattern is relevant to your task you MUST read it, do not use comment only, it's very short summary.
+    tools:
+      - keeper.patterns.traits:pattern_reader

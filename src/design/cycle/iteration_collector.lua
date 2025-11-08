@@ -30,10 +30,6 @@ local function run(inputs)
     local reasoning = agent_output.reasoning or ""
     local operations = agent_output.operations or {}
 
-    print(string.format("\n=== ITERATION %d COLLECTOR ===", iteration))
-    print(string.format("Branch: %s", branch_id))
-    print(string.format("Operations: %d", #operations))
-
     local branch, err = reader:with_data(branch_id):one()
     if err or not branch then
         return nil, "Failed to load branch: " .. (err or branch_id)
@@ -48,7 +44,6 @@ local function run(inputs)
         parent_data_id = branch_id,
         content = reasoning,
         status = "completed",
-        position = iteration - 1,
         metadata = {
             iteration_number = iteration,
             parent_branch_id = branch_id,
@@ -65,7 +60,6 @@ local function run(inputs)
 
         if op_type == "research" then
             local title = op.title or "Research"
-            print(string.format("  [OP] Research: %s", title))
 
             ws:data({
                 type = "research",
@@ -87,7 +81,6 @@ local function run(inputs)
 
         elseif op_type == "context" then
             local key = op.key or "context"
-            print(string.format("  [OP] Context: %s", key))
 
             local existing_context = reader
                 :with_type("context")
@@ -98,9 +91,6 @@ local function run(inputs)
 
             if existing_context then
                 ws:update_data(existing_context.data_id, { status = "superseded" })
-                print(string.format("    → Updated existing context: %s", key))
-            else
-                print(string.format("    → Created new context: %s", key))
             end
 
             ws:data({
@@ -120,7 +110,6 @@ local function run(inputs)
 
         elseif op_type == "delete_context" then
             local key = op.key
-            print(string.format("  [OP] Delete Context: %s", key))
 
             local existing = reader
                 :with_type("context")
@@ -131,14 +120,9 @@ local function run(inputs)
 
             if existing then
                 ws:delete_data(existing.data_id)
-                print(string.format("    → Deleted: %s", key))
-            else
-                print(string.format("    → Not found: %s", key))
             end
 
         elseif op_type == "question" then
-            print(string.format("  [OP] Question (blocking: %s)", tostring(op.blocking or false)))
-
             ws:data({
                 type = "question",
                 parent_data_id = branch_id,
@@ -158,8 +142,6 @@ local function run(inputs)
             end
 
         elseif op_type == "answer" then
-            print(string.format("  [OP] Answer to: %s", op.question_id))
-
             local question, _ = reader:with_data(op.question_id):one()
             if question then
                 local is_child_question = question.parent_data_id ~= branch_id
@@ -183,13 +165,10 @@ local function run(inputs)
                 if is_child_question then
                     local child_branch_id = question.parent_data_id
                     ws:update_data(child_branch_id, { status = "scheduled" })
-                    print(string.format("    → Scheduled child branch: %s", child_branch_id))
                 end
             end
 
         elseif op_type == "design_spec" then
-            print(string.format("  [OP] Design Spec (final: %s)", tostring(op.is_final or false)))
-
             local existing = reader
                 :with_type("design_version")
                 :with_parent_direct(branch_id)
@@ -265,16 +244,7 @@ local function run(inputs)
         should_stop = true
         final_status = "blocked"
         stop_reason = "blocking_questions"
-        print("\n→ STOP: Blocking questions created")
-    elseif marked_final then
-        print("\n→ CONTINUE TO REVIEW: Design marked as final")
-    elseif scheduled_research > 0 then
-        print(string.format("\n→ CONTINUE: %d research tasks scheduled", scheduled_research))
-    else
-        print("\n→ CONTINUE: Processing operations")
     end
-
-    print("=== COLLECTION COMPLETE ===\n")
 
     return {
         state = {

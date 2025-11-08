@@ -23,7 +23,7 @@ entries:
       ```json
       {
         "branch_id": "design-branch-uuid",
-        "max_iterations": 5
+        "max_iterations": 12
       }
       ```
     
@@ -42,7 +42,8 @@ entries:
     
       ## Returns
     
-      Iteration results with final status and operations performed.
+      Iteration results with final status and operations performed. Pay attention to final result, if no information
+      provided you most likely reached max iterations - continue.
     tools:
       - keeper.materialize:materialize
     

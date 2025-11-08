@@ -27,6 +27,40 @@ local function get_user_id()
     return actor:id(), nil
 end
 
+local function get_next_position(workspace_id, parent_data_id)
+    local db, err = get_db()
+    if err then
+        return 0
+    end
+
+    local query
+    if parent_data_id then
+        query = sql.builder.select("MAX(position) as max_pos")
+            :from("design_workspace_data")
+            :where("workspace_id = ?", workspace_id)
+            :where("parent_data_id = ?", parent_data_id)
+    else
+        query = sql.builder.select("MAX(position) as max_pos")
+            :from("design_workspace_data")
+            :where("workspace_id = ?", workspace_id)
+            :where("parent_data_id IS NULL")
+    end
+
+    local executor = query:run_with(db)
+    local result, query_err = executor:query()
+    db:release()
+
+    if query_err or not result or #result == 0 then
+        return 0
+    end
+
+    local max_pos = result[1].max_pos
+    if max_pos == nil then
+        return 0
+    end
+
+    return max_pos + 1
+end
 
 local node_builder_mt = {__index = {}}
 
@@ -45,6 +79,11 @@ function node_builder_mt.__index:data(spec)
 
     local data_id = uuid.v7()
 
+    local position = spec.position
+    if position == nil then
+        position = get_next_position(self._workspace._workspace_id, self._node_id)
+    end
+
     table.insert(self._workspace._commands, {
         type = consts.OPERATION_TYPE.CREATE_WORKSPACE_DATA,
         payload = {
@@ -57,7 +96,7 @@ function node_builder_mt.__index:data(spec)
             content = spec.content,
             content_type = spec.content_type or consts.DEFAULTS.CONTENT_TYPE,
             status = spec.status,
-            position = spec.position or 0,
+            position = position,
             metadata = spec.metadata
         }
     })
@@ -295,6 +334,11 @@ function workspace_builder_mt.__index:data(spec)
 
     local data_id = uuid.v7()
 
+    local position = spec.position
+    if position == nil then
+        position = get_next_position(self._workspace_id, spec.parent_data_id)
+    end
+
     table.insert(self._commands, {
         type = consts.OPERATION_TYPE.CREATE_WORKSPACE_DATA,
         payload = {
@@ -307,7 +351,7 @@ function workspace_builder_mt.__index:data(spec)
             content = spec.content,
             content_type = spec.content_type or consts.DEFAULTS.CONTENT_TYPE,
             status = spec.status,
-            position = spec.position or 0,
+            position = position,
             metadata = spec.metadata
         }
     })

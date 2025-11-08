@@ -36,6 +36,9 @@ entries:
         "selected": ["namespace:agent1"]
       }
       ```
+      
+      If tasks implies bug fix or change related to invalid API or module use or it's new complex feature based on some existing module - try to load docs agent when available to ensure that 
+      developer agent has proper grounding.
     model: gpt-5-nano
     temperature: 0.2
     max_tokens: 8000

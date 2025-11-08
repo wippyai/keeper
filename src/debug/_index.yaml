@@ -1,0 +1,47 @@
+version: "1.0"
+namespace: keeper.debug
+
+entries:
+  - name: debug
+    kind: function.lua
+    meta:
+      type: tool
+      title: Debug
+      comment: Investigate issues and trace execution
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Debug query with namespace, entry IDs, or behavior to investigate"
+            },
+            "design_spec": {
+              "type": "string",
+              "description": "Design specification context"
+            }
+          },
+          "required": ["query"]
+        }
+      llm_alias: debug
+      llm_description: Investigate issues, trace execution paths, and identify root causes of failures.
+      output_schema: |
+        {
+          "type": "string"
+        }
+    source: file://debug.lua
+    modules:
+      - json
+    imports:
+      flow: userspace.dataflow.flow:flow
+    method: run
+
+  - name: consolidate_findings
+    kind: function.lua
+    meta:
+      title: Consolidate Debug Findings
+      comment: Combines debug specialist results into final report
+    source: file://consolidate_findings.lua
+    modules:
+      - json
+    method: run

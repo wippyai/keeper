@@ -31,6 +31,6 @@ entries:
         - routing
       icon: tabler:users
     context:
-      target_agent_class: context_gatherer
+      target_agent_class: context_specialist
     prompt_func_id: keeper.context.traits.agents:agent_list
     

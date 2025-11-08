@@ -105,6 +105,7 @@ function design_reader.for_workspace(workspace_id)
         _fetch_metadata = true,
         _limit = nil,
         _order_by = nil,
+        _order_created_dir = "desc",
         _mode = "data"
     }
     return setmetatable(instance, reader_mt), nil
@@ -209,6 +210,17 @@ function methods:order_by_position()
 
     local new_instance = self:_copy()
     new_instance._order_by = "position"
+    return new_instance
+end
+
+function methods:order_by_created(direction)
+    if self._mode ~= "data" then
+        return self
+    end
+
+    local new_instance = self:_copy()
+    new_instance._order_by = "created"
+    new_instance._order_created_dir = (direction == "asc") and "asc" or "desc"
     return new_instance
 end
 
@@ -355,6 +367,9 @@ function methods:_build_data_query()
         query_builder = query_builder:order_by("wd.path ASC")
     elseif self._order_by == "position" then
         query_builder = query_builder:order_by("wd.position ASC")
+    elseif self._order_by == "created" then
+        local dir = (self._order_created_dir == "asc") and "ASC" or "DESC"
+        query_builder = query_builder:order_by("wd.created_at " .. dir)
     else
         query_builder = query_builder:order_by("wd.created_at DESC")
     end

@@ -308,7 +308,6 @@ local function run(args)
         end
     end
 
-    print(table.concat(output, "\n"))
     return table.concat(output, "\n")
 end
 

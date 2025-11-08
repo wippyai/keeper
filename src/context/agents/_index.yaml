@@ -17,7 +17,7 @@ entries:
       icon: tabler:book-2
       capabilities: Retrieves module specifications and API documentation. Use when working with unfamiliar modules, need API reference, or require technical specifications outside agent domain knowledge.
       class:
-        - context_gatherer
+        - context_specialist
         - documentation
         - specs
         - modules
@@ -45,7 +45,7 @@ entries:
     temperature: 0.2
     max_tokens: 64000
     traits:
-      - keeper.context.traits:context_gatherer_discipline
+      - keeper.context.traits:context_specialist_discipline
       - keeper.context.traits:execution_limits
       - keeper.context.traits:embed_support
       - keeper.context.traits.specs:specs_aware
@@ -65,7 +65,7 @@ entries:
       icon: tabler:api
       capabilities: Finds HTTP endpoints, routers, request handlers, and API functions. Use for API development, endpoint creation or modification, understanding request and response schemas, or analyzing routing patterns and middleware.
       class:
-        - context_gatherer
+        - context_specialist
         - http
     prompt: |
       Gather HTTP endpoint context. Extract and digest API information.
@@ -110,7 +110,7 @@ entries:
     temperature: 0.1
     max_tokens: 64000
     traits:
-      - keeper.context.traits:context_gatherer_discipline
+      - keeper.context.traits:context_specialist_discipline
       - keeper.context.traits.endpoints:endpoints_aware
       - keeper.context.traits:execution_limits
       - keeper.context.traits:embed_support
@@ -131,7 +131,7 @@ entries:
       icon: tabler:database-cog
       capabilities: Finds database migrations, schema evolution patterns, and table structures. Use for creating or modifying migrations, understanding existing schema, learning about table definitions, or analyzing migration history and ordering.
       class:
-        - context_gatherer
+        - context_specialist
     prompt: |
       Gather migration context for database schema work. You find patterns, you do not implement.
     
@@ -173,7 +173,7 @@ entries:
     temperature: 0.1
     max_tokens: 64000
     traits:
-      - keeper.context.traits:context_gatherer_discipline
+      - keeper.context.traits:context_specialist_discipline
       - keeper.context.traits.migrations:migrations_aware
       - keeper.context.traits:execution_limits
       - keeper.context.traits:embed_support
@@ -194,7 +194,7 @@ entries:
       icon: tabler:database
       capabilities: Finds persist layer entries including repositories, CQRS operations, readers, and writers. Use for database query building, transaction patterns, SQL operations, or data access layer work.
       class:
-        - context_gatherer
+        - context_specialist
     prompt: |
       Gather persist layer context. You find patterns, you do not implement.
     
@@ -233,7 +233,7 @@ entries:
     temperature: 0.1
     max_tokens: 64000
     traits:
-      - keeper.context.traits:context_gatherer_discipline
+      - keeper.context.traits:context_specialist_discipline
       - keeper.context.traits.persist:persist_aware
       - keeper.context.traits:execution_limits
       - keeper.context.traits:embed_support
@@ -252,7 +252,7 @@ entries:
       icon: tabler:database
       capabilities: Finds registry entries, functions, agents, libraries, and system components. Use for discovering namespaces, exploring entry relationships, searching across registry, or when domain is unknown. Handles tree navigation, search operations, and cross-namespace discovery. Heavy duty, use when other agents are insufficient.
       class:
-        - context_gatherer
+        - context_specialist
         - registry
         - general
         - system
@@ -289,7 +289,7 @@ entries:
     temperature: 0.2
     max_tokens: 64000
     traits:
-      - keeper.context.traits:context_gatherer_discipline
+      - keeper.context.traits:context_specialist_discipline
       - keeper.context.traits:execution_limits
       - keeper.context.traits:entry_structure
       - keeper.context.traits:embed_support
@@ -490,7 +490,7 @@ entries:
     traits:
       - keeper.context.traits:entry_structure
       - context:
-          target_agent_class: context_gatherer
+          target_agent_class: context_specialist
         id: keeper.context.traits.agents:agents_aware
     
   # keeper.context.agents:summarizer
@@ -556,7 +556,7 @@ entries:
       icon: tabler:layout-dashboard
       capabilities: Finds views, templates, layouts, and resource definitions. Use for UI work, page creation, template editing, styling patterns, or frontend resource loading.
       class:
-        - context_gatherer
+        - context_specialist
       requirements: Needs task description (create/modify what), target namespace if known, desired functionality.
     prompt: |
       Assemble view context from actual system entries for developer implementation.
@@ -600,7 +600,7 @@ entries:
     temperature: 0.1
     max_tokens: 64000
     traits:
-      - keeper.context.traits:context_gatherer_discipline
+      - keeper.context.traits:context_specialist_discipline
       - keeper.context.traits.views:views_aware
       - keeper.context.traits:execution_limits
       - keeper.context.traits:embed_support

@@ -42,7 +42,6 @@ local function handler(args)
                 source = "user_upload"
             }),
             status = "collected",
-            position = i - 1,
             metadata = {
                 reference_type = "upload_file",
                 needs_processing = true

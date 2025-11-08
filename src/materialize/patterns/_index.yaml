@@ -1,0 +1,107 @@
+version: "1.0"
+namespace: keeper.materialize.agents
+
+entries:
+  - name: layered_implementation
+    kind: registry.entry
+    meta:
+      type: pattern
+      title: Layered Implementation Strategy
+      comment: Strategy for when to validate during implementation - defines layer boundaries for testing based on what test agents can verify, includes temporary test functions for untestable layers
+      class: [ "materialize" ]
+      tags: [ "implementation", "testing", "validation" ]
+    content: |
+      ## Layered Implementation
+      
+      Build incrementally. Test after each layer where test agents can verify.
+      
+      **Concept:**
+      
+      Layer = logical boundary where validation makes sense (data access ready, APIs exposed, etc.)
+      Test only where test_specialist agents can execute verification.
+      
+      **Process:**
+      
+      1. Identify layer boundary in design (foundation before features)
+      2. Check agents_aware for available test_specialist agents
+      3. Can they test this layer? 
+         - Yes → implement layer, integrate, test
+         - No → add temporary testable function, implement both, integrate, test, delete temp
+      4. Next layer depends on validated previous layer
+      
+      **Within Layer:**
+      
+      Entries still follow technical dependencies. If entry B needs entry A output, B waits for A.
+      Layer boundary is about WHEN to validate, not about removing dependencies.
+      
+      **Example:**
+      
+      Design has: schema definitions, data access code, API handlers, views
+      
+      Layer 1: Schema + data access + temp test function
+      → implement (respecting schema before data access dependency)
+      → integrate
+      → test with available test agent
+      
+      Layer 2: API handlers (uses validated data access)
+      → implement 
+      → integrate
+      → test
+      
+      Layer 3: Views (uses validated APIs)
+      → implement
+      → integrate  
+      → test
+      
+      **Key:**
+      
+      Layer boundaries for validation gates. Dependencies within layers still enforced.
+      Temporary test functions minimize harm if forgotten vs other artifacts.
+      
+      **Apply when:** Multi-layer architecture, external dependencies, or complex data flow
+
+  - name: circular_drift
+    kind: registry.entry
+    meta:
+      type: pattern
+      title: Circular Drift Resolution
+      comment: Detect when agents repeat same ineffective fixes (2-3 attempts with no progress) and break the loop via debug investigation, entry reset, and fresh recreation with learned insights
+      class: [ "materialize" ]
+      tags: [ "debugging", "error-recovery" ]
+    content: |
+      ## Circular Drift Resolution
+      
+      Agent stuck repeating same ineffective fix? Reset and recreate.
+      
+      **Detect:**
+      
+      - 2-3 attempts with no progress
+      - Same errors persist
+      - Test results don't improve
+      
+      **Why:**
+      
+      Agents ground on existing code. Broken conceptual foundation can't be fixed incrementally.
+      
+      **Fix:**
+      
+      1. Use debug operation: "What's wrong AND what's the right approach?"
+      2. Reset broken entry
+      3. Recreate with debug insights in task prompt
+      
+      **Format:**
+      
+      ```
+      "reasoning": "Agent X stuck after 3 attempts. Resetting entry Y."
+      "operation": "debug"
+      "debug_prompt": "Entry Y fails repeatedly with [error]. What's conceptually wrong? What's correct approach?"
+      ```
+      
+      Next iteration:
+      ```
+      "operation": "implement"  
+      "task": "Recreate Y. Previous failed because [debug finding]. Use [debug recommendation]."
+      ```
+      
+      **Reset when:** No progress after 2-3 attempts, conceptual approach flawed
+      **Continue when:** First fix attempt, different errors each iteration (progressing)

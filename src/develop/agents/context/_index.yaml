@@ -128,11 +128,10 @@ entries:
     model: gpt-5-nano
     temperature: 0.1
     max_tokens: 32000
-    tools:
-      - keeper.agents.docs:get_docs
     traits:
-      - keeper.context.traits:context_gatherer_discipline
+      - keeper.context.traits:context_specialist_discipline
       - keeper.context.traits:execution_limits
+      - keeper.context.traits.specs:specs_aware
     
   # keeper.develop.agents.context:generic_context
   - name: generic_context
@@ -536,7 +535,7 @@ entries:
         - entries
       icon: tabler:database
       class:
-        - context_gatherer
+        - context_specialist
     prompt: |
       Find and embed target entry and relevant examples.
     
@@ -588,7 +587,7 @@ entries:
     temperature: 0.1
     max_tokens: 64000
     traits:
-      - keeper.context.traits:context_gatherer_discipline
+      - keeper.context.traits:context_specialist_discipline
       - keeper.state.traits.explore:explorer
       - keeper.context.traits:execution_limits
       - keeper.context.traits:embed_support
