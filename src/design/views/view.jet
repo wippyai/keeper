@@ -17,13 +17,13 @@
             <!-- Stage Progress -->
             <div class="flex items-center gap-2 flex-1">
                 <div class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all"
-                     :class="hasDesign() ? 'bg-green-500 text-white' : 'bg-surface-200 dark:bg-surface-700 text-surface-600 dark:text-surface-400'">
+                     :class="getDesignStageClass()">
                     <iconify-icon icon="tabler:brain" width="14"></iconify-icon>
                     <span>Design</span>
                 </div>
                 <iconify-icon icon="tabler:chevron-right" width="12" class="text-surface-400"></iconify-icon>
                 <div class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all"
-                     :class="hasImpl() ? 'bg-green-500 text-white' : hasDesign() ? 'bg-blue-500 text-white' : 'bg-surface-200 dark:bg-surface-700 text-surface-400'">
+                     :class="hasImpl() ? 'bg-green-500 text-white' : hasDesignComplete() ? 'bg-blue-500 text-white' : 'bg-surface-200 dark:bg-surface-700 text-surface-400'">
                     <iconify-icon icon="tabler:code" width="14"></iconify-icon>
                     <span>Implementation</span>
                 </div>
@@ -83,7 +83,8 @@
         <!-- TOC -->
         <div class="col-span-2">
             <div class="sticky top-4 bg-white dark:bg-surface-800 rounded-lg border border-surface-200 dark:border-surface-700 p-4">
-                <div @click="scrollTo('spec')"
+                <div x-show="hasDesignSpec()"
+                     @click="scrollTo('spec')"
                      class="flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer text-sm font-medium text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-700 transition-colors">
                     <iconify-icon icon="tabler:file-text" width="16"></iconify-icon>
                     <span>Design Spec</span>
@@ -108,8 +109,8 @@
 
         <!-- Content -->
         <div class="col-span-10 space-y-6">
-            <!-- Design Spec -->
-            <div id="spec" class="bg-white dark:bg-surface-800 rounded-lg border border-surface-200 dark:border-surface-700 p-6">
+            <!-- Design Spec - Only show if exists -->
+            <div x-show="hasDesignSpec()" id="spec" class="bg-white dark:bg-surface-800 rounded-lg border border-surface-200 dark:border-surface-700 p-6">
                 <div class="flex items-center gap-2 text-lg font-bold text-surface-900 dark:text-surface-100 mb-4 pb-3 border-b-2 border-blue-500">
                     <iconify-icon icon="tabler:file-text" width="22"></iconify-icon>
                     <span>Design Specification</span>
@@ -460,25 +461,52 @@
             data: [],
             tab: 'design',
             expanded: {},
+            polling: null,
 
             async init() {
                 this.api = await window.initWippyApi();
                 const parts = this.api.config.path.split('/');
                 this.wsId = parts[parts.length - 1];
                 await this.load();
+                this.startPolling();
             },
 
             async load() {
-                const r1 = await this.api.api.get(`/api/v1/design/workspaces/${this.wsId}`);
-                this.workspace = r1.data.workspace || {};
-                const r2 = await this.api.api.get(`/api/v1/design/workspaces/${this.wsId}/data`);
-                this.data = (r2.data.data || []).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                try {
+                    const r1 = await this.api.api.get(`/api/v1/design/workspaces/${this.wsId}`);
+                    this.workspace = r1.data.workspace || {};
+                    const r2 = await this.api.api.get(`/api/v1/design/workspaces/${this.wsId}/data`);
+                    this.data = (r2.data.data || []).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                } catch (error) {
+                    console.error('Failed to load workspace:', error);
+                }
+            },
+
+            startPolling() {
+                // Poll every 2 seconds for updates
+                this.polling = setInterval(async () => {
+                    try {
+                        const r = await this.api.api.get(`/api/v1/design/workspaces/${this.wsId}/data`);
+                        const newData = (r.data.data || []).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+                        // Check if data changed
+                        if (JSON.stringify(newData) !== JSON.stringify(this.data)) {
+                            this.data = newData;
+                        }
+                    } catch (error) {
+                        console.error('Polling error:', error);
+                    }
+                }, 2000);
             },
 
             async save() {
-                await this.api.api.put(`/api/v1/design/workspaces/${this.wsId}`, {
-                    title: this.workspace.title
-                });
+                try {
+                    await this.api.api.put(`/api/v1/design/workspaces/${this.wsId}`, {
+                        title: this.workspace.title
+                    });
+                } catch (error) {
+                    console.error('Failed to save workspace:', error);
+                }
             },
 
             meta(item, field) {
@@ -499,6 +527,29 @@
 
             getDesign() {
                 return this.data.find(d => d.type === 'design_version' && d.status === 'current');
+            },
+
+            hasDesignSpec() {
+                return !!this.getDesign();
+            },
+
+            hasDesignInProgress() {
+                // Has iterations but no final spec
+                return this.getIters().length > 0 && !this.hasDesignSpec();
+            },
+
+            hasDesignComplete() {
+                return this.hasDesignSpec();
+            },
+
+            getDesignStageClass() {
+                if (this.hasDesignComplete()) {
+                    return 'bg-green-500 text-white';
+                } else if (this.hasDesignInProgress()) {
+                    return 'bg-yellow-500 text-white';
+                } else {
+                    return 'bg-blue-500 text-white';
+                }
             },
 
             getQuestions() {
@@ -527,23 +578,19 @@
                 );
             },
 
-            // NEW: Group materialize entries by reasoning blocks
             getMatIterGroups() {
                 const root = this.data.find(d => d.type === 'materialize' && d.discriminator === 'root');
                 if (!root) return [];
 
-                // Get all reasoning blocks sorted by creation time
                 const reasonings = this.data
                     .filter(d => d.type === 'materialize_reasoning' && d.parent_data_id === root.data_id)
                     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
-                // Group entries between reasoning blocks
                 const groups = [];
                 for (let i = 0; i < reasonings.length; i++) {
                     const reasoning = reasonings[i];
                     const nextReasoning = reasonings[i + 1];
 
-                    // Get all materialize entries between this reasoning and the next
                     const entries = this.data.filter(d => {
                         if (!d.type.startsWith('materialize_') || d.type === 'materialize_reasoning') return false;
                         if (d.parent_data_id !== root.data_id) return false;
@@ -563,7 +610,6 @@
                 return groups;
             },
 
-            // Determine iteration type from entries
             getIterationType(group) {
                 const types = group.entries.map(e => e.type);
 
@@ -572,7 +618,7 @@
                 if (types.includes('materialize_integration')) return 'integrate';
                 if (types.includes('materialize_implementation') || types.includes('materialize_plan')) return 'implement';
 
-                return 'implement'; // default
+                return 'implement';
             },
 
             getIterTitle(group, idx) {
@@ -642,10 +688,6 @@
                     'bg-amber-600': type === 'test',
                     'bg-red-600': type === 'debug'
                 };
-            },
-
-            hasDesign() {
-                return !!this.getDesign();
             },
 
             hasImpl() {
