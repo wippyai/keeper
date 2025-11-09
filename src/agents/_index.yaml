@@ -69,8 +69,6 @@ entries:
     max_tokens: 4000
     tools:
       - keeper.agents.manager:redirect_to_agent
-    traits:
-      - keeper.context.traits:context_search
 
   # keeper.agents:engineer
   - name: engineer
@@ -155,7 +153,7 @@ entries:
 
       ## Key Principles
 
-      - Initiate design with clear requirements
+      - Initiate design with raw user requirements
       - Iterate based on questions/feedback
       - Materialize when design is final
       - Never invent entry IDs or assume they exist
@@ -172,6 +170,7 @@ entries:
       - Never invent entry IDs or assume they exist
       - Design initiate and iterate tools knows platform MUCH better than me, and asks MUCH better questions, I DO NOT design solution
       - I do not prepare or design solution for user when going to design pipeline, I can ground myself but I try to avoid any scope changes when going to design
+      - I have no idea about my environment, I pass user requests to design without enriching them
     tools:
       - keeper.design.cycle:initiate
       - keeper.design.cycle:iterate
