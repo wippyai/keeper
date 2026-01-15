@@ -79,7 +79,7 @@ local function handler(params)
             return response
         end
     else
-        model = "claude-4-sonnet"
+        model = "claude-4-5-sonnet"
     end
 
     if params.traits then
