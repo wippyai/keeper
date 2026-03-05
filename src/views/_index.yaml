@@ -58,7 +58,7 @@ entries:
       public: false
       secure: true
     source: file://token_usage.jet
-    set: app.views.common:templates
+    set: keeper.views.common:templates
     resources: {}
     data_func: ""
     
