@@ -30,7 +30,7 @@ entries:
       type: view.resource
       order: 12
       resource_type: script
-      template_set: app.views.common:templates
+      template_set: keeper.views.common:templates
       url: https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js
     
   # keeper.views.session:view
