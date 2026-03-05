@@ -2,6 +2,20 @@ version: "1.0"
 namespace: keeper
 
 entries:
+  - name: definition
+    kind: ns.definition
+    meta:
+      title: Keeper
+      description: AI agent development and management framework
+
+  # keeper:__dependency.wippy.actor
+  - version: '>=v0.0.7'
+    name: __dependency.wippy.actor
+    kind: ns.dependency
+    meta:
+      description: Actor pattern library
+    component: wippy/actor
+
   # keeper:__dependency.wippy.agent
   - version: '>=v0.0.7'
     name: __dependency.wippy.agent
