@@ -74,7 +74,7 @@ local function handler()
     end
 
     -- Use the governance client to request applying the next version
-    local success, err = client.request_version(next_version:id(), {}, 90000) -- 90 second timeout
+    local success, err = client.request_version(next_version:id(), {}, "90s") -- 90 second timeout
 
     if not success then
         res:set_status(http.STATUS.INTERNAL_ERROR)

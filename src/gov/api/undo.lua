@@ -40,7 +40,7 @@ local function handler()
 
     -- Use the governance client to request applying the previous version
     -- This uses the correct central process architecture
-    local success, err = client.request_version(prev_version:id(), {}, 90000) -- 90 second timeout
+    local success, err = client.request_version(prev_version:id(), {}, "90s") -- 90 second timeout
 
     if not success then
         res:set_status(http.STATUS.INTERNAL_ERROR)

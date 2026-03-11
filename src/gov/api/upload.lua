@@ -11,7 +11,7 @@ local function handler()
     res:set_content_type(http.CONTENT.JSON)
 
     -- Use the client library to request an upload
-    local stats, err = gov_client.request_upload({}, 90000)  -- 90 second timeout
+    local stats, err = gov_client.request_upload({}, "90s")  -- 90 second timeout
 
     if not stats then
         res:set_status(http.STATUS.INTERNAL_ERROR)
