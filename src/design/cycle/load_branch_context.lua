@@ -82,7 +82,8 @@ local function run(args)
         for _, fb in ipairs(branch_feedback) do
             local fb_meta = fb.metadata or {}
             local fb_type = fb_meta.feedback_type or fb.discriminator or "feedback"
-            table.insert(output, "**" .. fb_type:gsub("^%l", string.upper) .. "**: " .. (fb.content or ""))
+            local fb_label = fb_type:sub(1, 1):upper() .. fb_type:sub(2)
+            table.insert(output, "**" .. fb_label .. "**: " .. (fb.content or ""))
             table.insert(output, "")
         end
     end
@@ -211,7 +212,8 @@ local function run(args)
                 for _, fb in ipairs(research_feedback) do
                     local fb_meta = fb.metadata or {}
                     local fb_type = fb_meta.feedback_type or fb.discriminator or "feedback"
-                    table.insert(output, "*" .. fb_type:gsub("^%l", string.upper) .. "*: " .. (fb.content or ""))
+                    local fb_label = fb_type:sub(1, 1):upper() .. fb_type:sub(2)
+                    table.insert(output, "*" .. fb_label .. "*: " .. (fb.content or ""))
                     table.insert(output, "")
                 end
             end
@@ -271,7 +273,8 @@ local function run(args)
                 for _, fb in ipairs(feedback) do
                     local fb_meta = fb.metadata or {}
                     local fb_type = fb_meta.feedback_type or fb.discriminator or "feedback"
-                    table.insert(output, "**" .. fb_type:gsub("^%l", string.upper) .. "**: " .. (fb.content or ""))
+                    local fb_label = fb_type:sub(1, 1):upper() .. fb_type:sub(2)
+                    table.insert(output, "**" .. fb_label .. "**: " .. (fb.content or ""))
                     table.insert(output, "")
                 end
             end
