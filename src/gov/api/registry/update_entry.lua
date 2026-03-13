@@ -197,7 +197,7 @@ local function handler()
     -- Apply the update to the changeset
     changes:update(updated_entry)
     -- Request changes through the governance client
-    local result, err = client.request_changes(changes, {}, 30000)
+    local result, err = client.request_changes(changes, {}, "30s")
 
     if not result then
         res:set_status(http.STATUS.INTERNAL_ERROR)
