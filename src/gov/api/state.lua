@@ -39,7 +39,7 @@ local function handler()
     if governance_pid then
         governance_status = "running"
 
-        local system_state, err = gov_client.get_state({}, 5000)  -- 5 second timeout
+        local system_state, err = gov_client.get_state({}, "5s")  -- 5 second timeout
 
         if system_state then
             -- Extract change status information
