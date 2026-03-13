@@ -7,7 +7,7 @@ local function handler(params)
     end
 
     if params.operation == "clear" then
-        local success, err = logger_client.clear(5000)
+        local success, err = logger_client.clear("5s")
         if not success then
             return nil, "Failed to clear logs: " .. err
         end
@@ -18,7 +18,7 @@ local function handler(params)
         if not params.buffer_size then
             return nil, "buffer_size required for configure"
         end
-        local success, err = logger_client.configure(params.buffer_size, 5000)
+        local success, err = logger_client.configure(params.buffer_size, "5s")
         if not success then
             return nil, "Failed to configure: " .. err
         end

@@ -80,7 +80,7 @@ local function run(args)
         }
     end
 
-    local timeout = time.after(30000)
+    local timeout = time.after("30s")
 
     local select_result = channel.select({
         response_channel:case_receive(),
