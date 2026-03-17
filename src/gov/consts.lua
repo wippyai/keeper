@@ -50,7 +50,7 @@ local consts = {
 
     -- Default Values
     DEFAULTS = {
-        TIMEOUT_MS = 600000, -- 10 minutes
+        TIMEOUT = "10m",
         LINTER_LEVEL = 100,
         MANAGED_NAMESPACES = {"app"},
     },

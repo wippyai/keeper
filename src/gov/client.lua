@@ -128,8 +128,8 @@ local function extract_changeset(changeset)
     return nil, "Invalid changeset format"
 end
 
-local function send_and_wait(message, timeout_ms)
-    timeout_ms = timeout_ms or consts.DEFAULTS.TIMEOUT_MS
+local function send_and_wait(message, timeout)
+    timeout = timeout or consts.DEFAULTS.TIMEOUT
 
     local response_channel_name = generate_channel_name()
     message.respond_to = response_channel_name
@@ -143,19 +143,19 @@ local function send_and_wait(message, timeout_ms)
 
     log:debug("Sent message, waiting for response", {
         operation = message.operation,
-        timeout_ms = timeout_ms
+        timeout = timeout
     })
 
-    local timeout = time.after(timeout_ms)
+    local timeout_ch = time.after(timeout)
 
     local result = channel.select({
         response_channel:case_receive(),
-        timeout:case_receive()
+        timeout_ch:case_receive()
     })
 
-    if result.channel == timeout then
-        log:error("Operation timed out", { timeout_seconds = timeout_ms / 1000 })
-        return nil, "Operation timed out after " .. (timeout_ms / 1000) .. " seconds"
+    if result.channel == timeout_ch then
+        log:error("Operation timed out", { timeout = timeout })
+        return nil, "Operation timed out after " .. timeout
     end
 
     local response = result.value
@@ -176,7 +176,7 @@ local function send_and_wait(message, timeout_ms)
     return response
 end
 
-function client.get_state(options, timeout_ms)
+function client.get_state(options, timeout)
     local ok, err = check_permission(consts.PERMISSIONS.READ, "state")
     if not ok then
         return nil, err
@@ -194,7 +194,7 @@ function client.get_state(options, timeout_ms)
 
     log:debug("Requesting registry system state", { user_id = user_id })
 
-    local response, err = send_and_wait(message, timeout_ms)
+    local response, err = send_and_wait(message, timeout)
     if not response then
         return nil, err
     end
@@ -210,7 +210,7 @@ function client.get_state(options, timeout_ms)
     end
 end
 
-function client.request_changes(changeset, options, timeout_ms)
+function client.request_changes(changeset, options, timeout)
     local ok, err = check_permission(consts.PERMISSIONS.WRITE, "changeset")
     if not ok then
         return nil, err
@@ -238,7 +238,7 @@ function client.request_changes(changeset, options, timeout_ms)
         user_id = user_id
     })
 
-    local response, err = send_and_wait(message, timeout_ms)
+    local response, err = send_and_wait(message, timeout)
     if not response then
         return nil, err
     end
@@ -246,7 +246,7 @@ function client.request_changes(changeset, options, timeout_ms)
     return handle_response(response, "Changes application")
 end
 
-function client.request_version(version_id, options, timeout_ms)
+function client.request_version(version_id, options, timeout)
     local ok, err = check_permission(consts.PERMISSIONS.VERSION, "version")
     if not ok then
         return nil, err
@@ -272,7 +272,7 @@ function client.request_version(version_id, options, timeout_ms)
         user_id = user_id
     })
 
-    local response, err = send_and_wait(message, timeout_ms)
+    local response, err = send_and_wait(message, timeout)
     if not response then
         return nil, err
     end
@@ -280,7 +280,7 @@ function client.request_version(version_id, options, timeout_ms)
     return handle_response(response, "Version application")
 end
 
-function client.request_download(options, timeout_ms)
+function client.request_download(options, timeout)
     local ok, err = check_permission(consts.PERMISSIONS.SYNC, "download")
     if not ok then
         return nil, err
@@ -298,7 +298,7 @@ function client.request_download(options, timeout_ms)
 
     log:info("Requesting download", { user_id = user_id })
 
-    local response, err = send_and_wait(message, timeout_ms)
+    local response, err = send_and_wait(message, timeout)
     if not response then
         return nil, err
     end
@@ -306,7 +306,7 @@ function client.request_download(options, timeout_ms)
     return handle_response(response, "Download")
 end
 
-function client.request_upload(options, timeout_ms)
+function client.request_upload(options, timeout)
     local ok, err = check_permission(consts.PERMISSIONS.SYNC, "upload")
     if not ok then
         return nil, err
@@ -324,7 +324,7 @@ function client.request_upload(options, timeout_ms)
 
     log:info("Requesting upload", { user_id = user_id })
 
-    local response, err = send_and_wait(message, timeout_ms)
+    local response, err = send_and_wait(message, timeout)
     if not response then
         return nil, err
     end

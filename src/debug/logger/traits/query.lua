@@ -34,11 +34,11 @@ local function handler(params)
         operation = "logs"
     end
 
-    local timeout_ms = 5000
+    local timeout = "5s"
     local result, err
 
     if operation == "composition" then
-        result, err = logger_client.get_composition(params.filter, timeout_ms)
+        result, err = logger_client.get_composition(params.filter, timeout)
         if err then
             return nil, "Failed to retrieve composition: " .. err
         end
@@ -98,7 +98,7 @@ local function handler(params)
             count = 1000
         end
 
-        result, err = logger_client.get_logs(count, params.filter, reverse, timeout_ms)
+        result, err = logger_client.get_logs(count, params.filter, reverse, timeout)
         if err then
             return nil, "Failed to retrieve logs: " .. err
         end
@@ -154,7 +154,7 @@ local function handler(params)
         return table.concat(lines, "\n")
 
     elseif operation == "stats" then
-        result, err = logger_client.get_stats(timeout_ms)
+        result, err = logger_client.get_stats(timeout)
         if err then
             return nil, "Failed to retrieve stats: " .. err
         end

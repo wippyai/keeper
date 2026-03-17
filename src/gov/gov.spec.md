@@ -50,21 +50,21 @@ All client operations require appropriate security permissions:
 Most client functions accept these common parameters:
 
 - **options** (table, optional): Operation-specific configuration
-- **timeout_ms** (number, optional): Request timeout in milliseconds (default: 12000ms)
+- **timeout** (string, optional): Request timeout as a duration string (default: "600s"). Format: number followed by unit suffix (e.g., "5s", "30s", "10m")
 
 ### 2.4 Function Reference
 
 #### 2.4.1 Get System State
 
 ```lua
-local state, err = registry_client.get_state([options], [timeout_ms])
+local state, err = registry_client.get_state([options], [timeout])
 ```
 
 Retrieves the current state of the registry governance system.
 
 **Parameters:**
 - **options** (table, optional): Additional options (currently unused)
-- **timeout_ms** (number, optional): Request timeout in milliseconds
+- **timeout** (string, optional): Request timeout as a duration string (e.g., "5s", "30s")
 
 **Returns on success:**
 ```lua
@@ -94,7 +94,7 @@ Retrieves the current state of the registry governance system.
 #### 2.4.2 Request Changes
 
 ```lua
-local result, err = registry_client.request_changes(changeset, [options], [timeout_ms])
+local result, err = registry_client.request_changes(changeset, [options], [timeout])
 ```
 
 Applies a changeset to the registry.
@@ -104,7 +104,7 @@ Applies a changeset to the registry.
     - If passing a table, each entry should be a change operation (see Section 3)
     - If passing a changeset object (from `snapshot:changes()`), it will be automatically extracted
 - **options** (table, optional): Additional options
-- **timeout_ms** (number, optional): Request timeout in milliseconds
+- **timeout** (string, optional): Request timeout as a duration string (e.g., "30s", "10m")
 
 **Returns on success:**
 ```lua
@@ -122,7 +122,7 @@ Applies a changeset to the registry.
 #### 2.4.3 Request Version
 
 ```lua
-local result, err = registry_client.request_version(version_id, [options], [timeout_ms])
+local result, err = registry_client.request_version(version_id, [options], [timeout])
 ```
 
 Rolls back or forward to a specific registry version.
@@ -130,7 +130,7 @@ Rolls back or forward to a specific registry version.
 **Parameters:**
 - **version_id** (string or number): The version ID to apply
 - **options** (table, optional): Additional options
-- **timeout_ms** (number, optional): Request timeout in milliseconds
+- **timeout** (string, optional): Request timeout as a duration string (e.g., "30s", "10m")
 
 **Returns on success:**
 ```lua
@@ -148,7 +148,7 @@ Rolls back or forward to a specific registry version.
 #### 2.4.4 Request Download
 
 ```lua
-local result, err = registry_client.request_download([options], [timeout_ms])
+local result, err = registry_client.request_download([options], [timeout])
 ```
 
 Downloads registry data from an external source (if configured).
@@ -157,7 +157,7 @@ Downloads registry data from an external source (if configured).
 - **options** (table, optional): Additional options
     - source (string, optional): Download source
     - filters (table, optional): Filters to apply during download
-- **timeout_ms** (number, optional): Request timeout in milliseconds
+- **timeout** (string, optional): Request timeout as a duration string (e.g., "90s", "10m")
 
 **Returns on success:**
 ```lua
@@ -182,7 +182,7 @@ Downloads registry data from an external source (if configured).
 #### 2.4.5 Request Upload
 
 ```lua
-local result, err = registry_client.request_upload([options], [timeout_ms])
+local result, err = registry_client.request_upload([options], [timeout])
 ```
 
 Uploads registry data to an external destination (if configured).
@@ -191,7 +191,7 @@ Uploads registry data to an external destination (if configured).
 - **options** (table, optional): Additional options
     - destination (string, optional): Upload destination
     - filters (table, optional): Filters to apply during upload
-- **timeout_ms** (number, optional): Request timeout in milliseconds
+- **timeout** (string, optional): Request timeout as a duration string (e.g., "90s", "10m")
 
 **Returns on success:**
 ```lua

@@ -20,8 +20,8 @@ local function generate_channel_name()
     return "logger.response." .. id
 end
 
-local function send_and_wait(message, timeout_ms)
-    timeout_ms = timeout_ms or 5000
+local function send_and_wait(message, timeout)
+    timeout = timeout or "5s"
 
     local response_channel_name = generate_channel_name()
     message.respond_to = response_channel_name
@@ -34,15 +34,15 @@ local function send_and_wait(message, timeout_ms)
         return nil, "Failed to send message to logger service"
     end
 
-    local timeout = time.after(timeout_ms)
+    local timeout_ch = time.after(timeout)
 
     local result = channel.select({
         response_channel:case_receive(),
-        timeout:case_receive()
+        timeout_ch:case_receive()
     })
 
-    if result.channel == timeout then
-        return nil, "Operation timed out after " .. (timeout_ms / 1000) .. " seconds"
+    if result.channel == timeout_ch then
+        return nil, "Operation timed out after " .. timeout
     end
 
     local response = result.value
@@ -57,16 +57,16 @@ end
 ---@param count? number
 ---@param filter? string
 ---@param reverse? boolean
----@param timeout_ms? number
+---@param timeout? string, for example "10s"
 ---@return table? logs
 ---@return string? error
-function logger_client.get_logs(count, filter, reverse, timeout_ms)
+function logger_client.get_logs(count, filter, reverse, timeout)
     local response, err = send_and_wait({
         operation = consts.OPERATIONS.GET_LOGS,
         count = count,
         filter = filter,
         reverse = reverse,
-    }, timeout_ms)
+    }, timeout)
 
     if err then
         return nil, err
@@ -80,14 +80,14 @@ function logger_client.get_logs(count, filter, reverse, timeout_ms)
 end
 
 ---@param filter? string
----@param timeout_ms? number
+---@param timeout? string, for example "10s"
 ---@return table? composition
 ---@return string? error
-function logger_client.get_composition(filter, timeout_ms)
+function logger_client.get_composition(filter, timeout)
     local response, err = send_and_wait({
         operation = consts.OPERATIONS.COMPOSITION,
         filter = filter,
-    }, timeout_ms)
+    }, timeout)
 
     if err then
         return nil, err
@@ -98,13 +98,13 @@ function logger_client.get_composition(filter, timeout_ms)
     }, nil
 end
 
----@param timeout_ms? number
+---@param timeout? string, for example "10s"
 ---@return table? stats
 ---@return string? error
-function logger_client.get_stats(timeout_ms)
+function logger_client.get_stats(timeout)
     local response, err = send_and_wait({
         operation = consts.OPERATIONS.GET_STATS,
-    }, timeout_ms)
+    }, timeout)
 
     if err then
         return nil, err
@@ -113,13 +113,13 @@ function logger_client.get_stats(timeout_ms)
     return response.stats, nil
 end
 
----@param timeout_ms? number
+---@param timeout? string, for example "10s"
 ---@return boolean success
 ---@return string? error
-function logger_client.clear(timeout_ms)
+function logger_client.clear(timeout)
     local response, err = send_and_wait({
         operation = consts.OPERATIONS.CLEAR,
-    }, timeout_ms)
+    }, timeout)
 
     if err then
         return false, err
@@ -129,10 +129,10 @@ function logger_client.clear(timeout_ms)
 end
 
 ---@param buffer_size number
----@param timeout_ms? number
+---@param timeout? string, for example "10s"
 ---@return boolean success
 ---@return string? error
-function logger_client.configure(buffer_size, timeout_ms)
+function logger_client.configure(buffer_size, timeout)
     if not buffer_size or buffer_size <= 0 then
         return false, "Invalid buffer size"
     end
@@ -140,7 +140,7 @@ function logger_client.configure(buffer_size, timeout_ms)
     local response, err = send_and_wait({
         operation = consts.OPERATIONS.CONFIGURE,
         buffer_size = buffer_size,
-    }, timeout_ms)
+    }, timeout)
 
     if err then
         return false, err

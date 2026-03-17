@@ -12,8 +12,8 @@ local function generate_channel_name()
     return "state.response." .. id
 end
 
-local function send_and_wait(message, timeout_ms)
-    timeout_ms = timeout_ms or 5000
+local function send_and_wait(message, timeout)
+    timeout = timeout or "5s"
 
     local response_channel_name = generate_channel_name()
     message.respond_to = response_channel_name
@@ -24,15 +24,15 @@ local function send_and_wait(message, timeout_ms)
         return nil, "Failed to send message to orchestrator"
     end
 
-    local timeout = time.after(timeout_ms)
+    local timeout_ch = time.after(timeout)
 
     local result = channel.select({
         response_channel:case_receive(),
-        timeout:case_receive()
+        timeout_ch:case_receive()
     })
 
-    if result.channel == timeout then
-        return nil, "Operation timed out after " .. (timeout_ms / 1000) .. " seconds"
+    if result.channel == timeout_ch then
+        return nil, "Operation timed out after " .. timeout
     end
 
     local response = result.value
