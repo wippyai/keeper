@@ -1197,6 +1197,22 @@
                                             <p class="mt-1 text-xs text-surface-500 dark:text-surface-400">Context values passed to this tool (must be valid JSON)</p>
                                             <p x-show="toolContextErrors[index]" class="mt-1 text-xs text-red-600 dark:text-red-400" x-text="toolContextErrors[index]"></p>
                                         </div>
+
+                                        <!-- Schema JSON Field -->
+                                        <div>
+                                            <label :for="'tool-schema-' + index" class="block text-xs font-medium text-surface-700 dark:text-surface-300 mb-1">
+                                                Schema (JSON)
+                                            </label>
+                                            <textarea :id="'tool-schema-' + index"
+                                                      x-model="getToolConfigSchemaString(toolConfig)"
+                                                      @input="updateToolConfigSchema(index, $event.target.value)"
+                                                      rows="3"
+                                                      placeholder='{"key": "value"}'
+                                                      class="block w-full text-xs border rounded-md shadow-sm py-1.5 px-2 font-mono focus:outline-none"
+                                                      :class="getToolSchemaInputClasses(index)"></textarea>
+                                            <p class="mt-1 text-xs text-surface-500 dark:text-surface-400">Schema definition for this tool (must be valid JSON)</p>
+                                            <p x-show="toolSchemaErrors[index]" class="mt-1 text-xs text-red-600 dark:text-red-400" x-text="toolSchemaErrors[index]"></p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1377,6 +1393,7 @@
             // Context validation errors
             traitContextErrors: {},
             toolContextErrors: {},
+            toolSchemaErrors: {},
             delegateContextErrors: {},
             editableDelegateContexts: {},
 
@@ -1510,7 +1527,8 @@
             hasAdvancedToolConfig(toolConfig) {
                 if (typeof toolConfig === 'string') return false;
                 return !!(toolConfig.alias || toolConfig.description ||
-                    (toolConfig.context && Object.keys(toolConfig.context).length > 0));
+                    (toolConfig.context && Object.keys(toolConfig.context).length > 0) ||
+                    (toolConfig.schema && Object.keys(toolConfig.schema).length > 0));
             },
 
             getToolDisplayTitle(toolConfig) {
@@ -1542,6 +1560,18 @@
                 return 'border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 focus:ring-primary-500 focus:border-primary-500';
             },
 
+            getToolConfigSchemaString(toolConfig) {
+                if (typeof toolConfig === 'string') return '{}';
+                return JSON.stringify(toolConfig.schema || {}, null, 2);
+            },
+
+            getToolSchemaInputClasses(index) {
+                if (this.toolSchemaErrors[index]) {
+                    return 'border-red-500 dark:border-red-400 bg-red-50 dark:bg-red-900/30 text-red-900 dark:text-red-100 focus:ring-red-500 focus:border-red-500';
+                }
+                return 'border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-100 focus:ring-primary-500 focus:border-primary-500';
+            },
+
             hasAdvancedDelegateConfig(delegate) {
                 return !!(delegate.context && Object.keys(delegate.context).length > 0);
             },
@@ -1568,6 +1598,7 @@
                         alias: config.alias || undefined,
                         description: config.description || undefined,
                         context: config.context || undefined,
+                        schema: config.schema || undefined,
                         name: config.name || undefined,
                         rule: config.rule || undefined
                     };
@@ -1677,6 +1708,38 @@
                 this.toolContextErrors = {...this.toolContextErrors};
             },
 
+            updateToolConfigSchema(index, schemaString) {
+                if (!this.agentTools[index]) return;
+
+                try {
+                    const parsedSchema = JSON.parse(schemaString);
+                    if (typeof parsedSchema !== 'object' || parsedSchema === null) {
+                        throw new Error('Schema must be a JSON object');
+                    }
+
+                    // Convert to object format if it's currently a string
+                    if (typeof this.agentTools[index] === 'string') {
+                        this.agentTools[index] = { id: this.agentTools[index] };
+                    }
+
+                    // Update schema
+                    if (Object.keys(parsedSchema).length > 0) {
+                        this.agentTools[index].schema = parsedSchema;
+                    } else {
+                        delete this.agentTools[index].schema;
+                    }
+
+                    this.toolSchemaErrors[index] = '';
+                    this.dataDirty = true;
+                    this.agentTools = [...this.agentTools]; // Trigger reactivity
+
+                } catch (error) {
+                    this.toolSchemaErrors[index] = error.message;
+                }
+
+                this.toolSchemaErrors = {...this.toolSchemaErrors};
+            },
+
             updateDelegateContext(uid, contextString) {
                 const delegate = this.agentDelegates.find(d => d._uid === uid);
                 if (!delegate) return;
@@ -1761,6 +1824,7 @@
                 this.showAdvancedToolConfig = {};
                 this.traitContextErrors = {};
                 this.toolContextErrors = {};
+                this.toolSchemaErrors = {};
                 this.delegateContextErrors = {};
                 this.editableDelegateContexts = {};
 
@@ -1940,6 +2004,9 @@
                     if (toolConfig.context && Object.keys(toolConfig.context).length > 0) {
                         cleaned.context = toolConfig.context;
                     }
+                    if (toolConfig.schema && Object.keys(toolConfig.schema).length > 0) {
+                        cleaned.schema = toolConfig.schema;
+                    }
                     return cleaned;
                 });
             },
@@ -1965,9 +2032,10 @@
                 // Check for context errors
                 const hasTraitContextErrors = Object.values(this.traitContextErrors).some(error => error && error.trim());
                 const hasToolContextErrors = Object.values(this.toolContextErrors).some(error => error && error.trim());
+                const hasToolSchemaErrors = Object.values(this.toolSchemaErrors).some(error => error && error.trim());
                 const hasDelegateContextErrors = Object.values(this.delegateContextErrors).some(error => error && error.trim());
 
-                if (hasTraitContextErrors || hasToolContextErrors || hasDelegateContextErrors) {
+                if (hasTraitContextErrors || hasToolContextErrors || hasToolSchemaErrors || hasDelegateContextErrors) {
                     this.showNotification('error', 'Please fix JSON errors in contexts before saving.');
                     return;
                 }
@@ -2452,10 +2520,12 @@
                         delete this.expandedItems.tools[removedToolId];
                         delete this.showAdvancedToolConfig[index];
                         delete this.toolContextErrors[index];
+                        delete this.toolSchemaErrors[index];
 
-                        // Reindex advanced config and context errors
+                        // Reindex advanced config and context/schema errors
                         const newShowAdvanced = {};
                         const newContextErrors = {};
+                        const newSchemaErrors = {};
                         Object.keys(this.showAdvancedToolConfig).forEach(key => {
                             const idx = parseInt(key);
                             if (idx > index) {
@@ -2472,9 +2542,18 @@
                                 newContextErrors[idx] = this.toolContextErrors[key];
                             }
                         });
+                        Object.keys(this.toolSchemaErrors).forEach(key => {
+                            const idx = parseInt(key);
+                            if (idx > index) {
+                                newSchemaErrors[idx - 1] = this.toolSchemaErrors[key];
+                            } else if (idx < index) {
+                                newSchemaErrors[idx] = this.toolSchemaErrors[key];
+                            }
+                        });
 
                         this.showAdvancedToolConfig = newShowAdvanced;
                         this.toolContextErrors = newContextErrors;
+                        this.toolSchemaErrors = newSchemaErrors;
 
                         if (removedToolId.endsWith(':*')) {
                             delete this.loadedWildcardTools[removedToolId];
