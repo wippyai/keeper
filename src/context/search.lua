@@ -63,7 +63,7 @@ local function handler(params)
             }
         })
         :as("router")
-        :to("gather", "assignments", "output.assignments")
+        :to("gather", "assignments")
 
         :parallel({
             source_array_key = "assignments",
