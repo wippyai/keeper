@@ -38,6 +38,7 @@ local function run(args)
         :as("input")
         :to("orchestrator")
         :to("consolidator", "original")
+        :to("investigators", "design_spec", "output.design_spec")
 
         :agent("keeper.debug.agents:orchestrator", {
             input_transform = {
@@ -59,16 +60,20 @@ local function run(args)
         :to("investigators", "assignments", "output.assignments")
 
         :parallel({
+            inputs = { required = { "assignments", "design_spec" } },
             source_array_key = "assignments",
+            iteration_input_key = "assignment",
+            passthrough_keys = { "design_spec" },
             batch_size = 5,
             on_error = "continue",
             filter = "all",
             unwrap = false,
             template = flow.template()
                 :agent("", {
+                    inputs = { required = { "assignment", "design_spec" } },
                     input_transform = {
-                        agent_id = "input.agent_id",
-                        task = "input.task",
+                        agent_id = "inputs.assignment.agent_id",
+                        task = "inputs.assignment.task",
                         design_spec = "inputs.design_spec"
                     },
                     arena = {
