@@ -1,0 +1,18 @@
+version: "1.0"
+namespace: keeper.changeset.persist
+
+entries:
+  # keeper.changeset.persist:repo
+  - name: repo
+    kind: library.lua
+    meta:
+      comment: CRUD over workspace tables (workspaces, changes, baselines, merges, fs_manifests, fs_deletes)
+    source: file://repo.lua
+    modules:
+      - sql
+      - json
+      - uuid
+      - time
+    imports:
+      consts: keeper.changeset:consts
+    

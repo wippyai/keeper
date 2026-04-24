@@ -14,7 +14,7 @@ local function get_db()
     return db, nil
 end
 
-local function parse_json_metadata(metadata_str)
+local function parse_json_metadata(metadata_str: string?)
     if not metadata_str or type(metadata_str) ~= "string" then
         return {}
     end
@@ -43,12 +43,20 @@ local function create_in_clause(field, values)
     return { field .. " IN (" .. table.concat(placeholders, ", ") .. ")", unpack(values) }
 end
 
+local function apply_in_filter(qb, field, values)
+    local clause = create_in_clause(field, values)
+    if clause then
+        qb = qb:where(sql.builder.expr(unpack(clause)))
+    end
+    return qb
+end
+
 local function sanitize_fts_query(query)
     if not query or query == "" then
         return nil
     end
 
-    local sanitized = query:gsub('[%^%$%(%)%%%.%[%]%*%+%-%?:]', ' ')
+    local sanitized = query:gsub('[%^%$%(%)%%%.%[%]%*%+%-%?:/!~&|<>=;#@\\,{}]', ' ')
     sanitized = sanitized:gsub('"', ' ')
     sanitized = sanitized:gsub('%s+', ' ')
     sanitized = sanitized:gsub('^%s+', '')
@@ -61,15 +69,15 @@ local function sanitize_fts_query(query)
     return sanitized
 end
 
-function methods:_copy()
+function methods:_copy(): StateReader
     local new_instance = {}
     for k, v in pairs(self) do
         new_instance[k] = v
     end
-    return setmetatable(new_instance, reader_mt)
+    return setmetatable(new_instance, reader_mt) :: StateReader
 end
 
-function state_reader.for_branch(...)
+function state_reader.for_branch(...): (StateReader, string?)
     local branches = {...}
     if #branches == 0 then
         branches = {"main"}
@@ -88,10 +96,10 @@ function state_reader.for_branch(...)
         _search_query = nil,
         _mode = "entries"
     }
-    return setmetatable(instance, reader_mt), nil
+    return setmetatable(instance, reader_mt) :: StateReader, nil
 end
 
-function state_reader.for_edges(...)
+function state_reader.for_edges(...): (StateReader, string?)
     local branches = {...}
     if #branches == 0 then
         branches = {"main"}
@@ -105,7 +113,7 @@ function state_reader.for_edges(...)
         _limit = nil,
         _mode = "edges"
     }
-    return setmetatable(instance, reader_mt), nil
+    return setmetatable(instance, reader_mt) :: StateReader, nil
 end
 
 function methods:with_entries(...)
@@ -250,16 +258,16 @@ function methods:_build_entries_query_for_branch(branch)
             return nil, "Invalid search query"
         end
 
-        table.insert(select_fields, "snippet(overlay_chunks_fts, -1, '', '', '...', 32) as snippet")
+        table.insert(select_fields, "snippet(keeper_overlay_chunks_fts, -1, '', '', '...', 32) as snippet")
 
         query_builder = sql.builder.select(unpack(select_fields))
-            :from("overlay_entries e")
-            :join("overlay_chunks_fts fts ON e.id = fts.entry_id AND e.branch = fts.branch")
-            :where("fts.overlay_chunks_fts MATCH ?", sanitized)
+            :from("keeper_overlay_entries e")
+            :join("keeper_overlay_chunks_fts fts ON e.id = fts.entry_id AND e.branch = fts.branch")
+            :where("fts.keeper_overlay_chunks_fts MATCH ?", sanitized)
             :where("e.branch = ?", branch)
     else
         query_builder = sql.builder.select(unpack(select_fields))
-            :from("overlay_entries e")
+            :from("keeper_overlay_entries e")
             :where("e.branch = ?", branch)
     end
 
@@ -267,19 +275,8 @@ function methods:_build_entries_query_for_branch(branch)
         query_builder = query_builder:where("e.deleted = 0")
     end
 
-    if self._entry_ids and #self._entry_ids > 0 then
-        local id_clause = create_in_clause("e.id", self._entry_ids)
-        if id_clause then
-            query_builder = query_builder:where(sql.builder.expr(unpack(id_clause)))
-        end
-    end
-
-    if self._kinds and #self._kinds > 0 then
-        local kind_clause = create_in_clause("e.kind", self._kinds)
-        if kind_clause then
-            query_builder = query_builder:where(sql.builder.expr(unpack(kind_clause)))
-        end
-    end
+    query_builder = apply_in_filter(query_builder, "e.id", self._entry_ids)
+    query_builder = apply_in_filter(query_builder, "e.kind", self._kinds)
 
     if self._namespaces and #self._namespaces > 0 then
         local conditions = {}
@@ -296,7 +293,7 @@ function methods:_build_entries_query_for_branch(branch)
         for key, value in pairs(self._attribute_filters) do
             query_builder = query_builder:where(
                 sql.builder.expr(
-                    "EXISTS (SELECT 1 FROM overlay_attributes a WHERE a.entry_id = e.id AND a.branch = e.branch AND a.attr_key = ? AND a.attr_value = ?)",
+                    "EXISTS (SELECT 1 FROM keeper_overlay_attributes a WHERE a.entry_id = e.id AND a.branch = e.branch AND a.attr_key = ? AND a.attr_value = ?)",
                     key, value
                 )
             )
@@ -306,7 +303,7 @@ function methods:_build_entries_query_for_branch(branch)
     query_builder = query_builder:order_by("e.id ASC")
 
     if self._limit then
-        query_builder = query_builder:limit(self._limit)
+        query_builder = query_builder:limit(tonumber(self._limit) or 0)
     end
 
     return query_builder
@@ -323,34 +320,17 @@ function methods:_build_edges_query_for_branch(branch)
     }
 
     local query_builder = sql.builder.select(unpack(select_fields))
-        :from("overlay_edges e")
+        :from("keeper_overlay_edges e")
         :where("e.branch = ?", branch)
 
-    if self._source_ids and #self._source_ids > 0 then
-        local source_clause = create_in_clause("e.source_id", self._source_ids)
-        if source_clause then
-            query_builder = query_builder:where(sql.builder.expr(unpack(source_clause)))
-        end
-    end
-
-    if self._target_ids and #self._target_ids > 0 then
-        local target_clause = create_in_clause("e.target_id", self._target_ids)
-        if target_clause then
-            query_builder = query_builder:where(sql.builder.expr(unpack(target_clause)))
-        end
-    end
-
-    if self._edge_types and #self._edge_types > 0 then
-        local type_clause = create_in_clause("e.edge_type", self._edge_types)
-        if type_clause then
-            query_builder = query_builder:where(sql.builder.expr(unpack(type_clause)))
-        end
-    end
+    query_builder = apply_in_filter(query_builder, "e.source_id", self._source_ids)
+    query_builder = apply_in_filter(query_builder, "e.target_id", self._target_ids)
+    query_builder = apply_in_filter(query_builder, "e.edge_type", self._edge_types)
 
     query_builder = query_builder:order_by("e.source_id ASC, e.target_id ASC")
 
     if self._limit then
-        query_builder = query_builder:limit(self._limit)
+        query_builder = query_builder:limit(tonumber(self._limit) or 0)
     end
 
     return query_builder
@@ -372,7 +352,7 @@ function methods:_fetch_chunks(db, entry_ids, branch)
         "c.content",
         "c.content_hash"
     )
-        :from("overlay_chunks c")
+        :from("keeper_overlay_chunks c")
         :where("c.branch = ?", branch)
         :where(sql.builder.expr(unpack(id_clause)))
 
@@ -413,7 +393,7 @@ function methods:_fetch_attributes(db, entry_ids, branch)
         "a.attr_key",
         "a.attr_value"
     )
-        :from("overlay_attributes a")
+        :from("keeper_overlay_attributes a")
         :where("a.branch = ?", branch)
         :where(sql.builder.expr(unpack(id_clause)))
 

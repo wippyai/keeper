@@ -2,18 +2,13 @@ local registry = require("registry")
 local json = require("json")
 local time = require("time")
 local logger = require("logger")
+local changelog_repo = require("changelog_repo")
+local gov_consts = require("gov_consts")
 
--- Create a named logger for this observer
 local log = logger:named("gov.observer.changeset")
 
--- Constants for operation types and notifications
 local CONST = {
-    -- Operation types
-    OPERATIONS = {
-        CREATE = "entry.create",
-        UPDATE = "entry.update",
-        DELETE = "entry.delete"
-    },
+    OPERATIONS = gov_consts.REGISTRY_OPERATIONS,
 
     -- Central topic to publish to
     CENTRAL_TOPIC = "wippy.central",
@@ -168,6 +163,14 @@ local function run(args)
             version = result.version,
             operations = summary.operation_counts.total
         })
+    end
+
+    -- Persist to changelog
+    local cl_ok, cl_err = pcall(function()
+        changelog_repo.record_changeset(args)
+    end)
+    if not cl_ok then
+        log:warn("Failed to persist changelog", { error = cl_err })
     end
 
     -- Log the summary

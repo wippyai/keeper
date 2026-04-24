@@ -1,0 +1,104 @@
+version: "1.0"
+namespace: keeper.debug.pm
+
+entries:
+  # keeper.debug.pm:stats
+  - name: stats
+    kind: function.lua
+    meta:
+      comment: Get process and service stats for system monitor
+      depends_on:
+        - ns:app
+      router: app:api
+    source: file://stats.lua
+    modules:
+      - http
+      - system
+      - security
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.debug.pm:stats.endpoint
+  - name: stats.endpoint
+    kind: http.endpoint
+    meta:
+      comment: Endpoint that returns system process and service stats
+      depends_on:
+        - ns:app
+      router: app:api
+    method: GET
+    func: stats
+    path: /keeper/pm/stats
+    
+  # keeper.debug.pm:system_info
+  - name: system_info
+    kind: function.lua
+    meta:
+      comment: System memory, CPU, and runtime information
+      router: app:api
+    source: file://system_info.lua
+    modules:
+      - http
+      - system
+      - security
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.debug.pm:system_info.endpoint
+  - name: system_info.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: system_info
+    path: /keeper/pm/system
+    
+  # keeper.debug.pm:terminate
+  - name: terminate
+    kind: function.lua
+    meta:
+      comment: Terminate a running process
+      depends_on:
+        - ns:app
+      router: app:api
+    source: file://terminate.lua
+    modules:
+      - http
+      - process
+      - security
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.debug.pm:terminate.endpoint
+  - name: terminate.endpoint
+    kind: http.endpoint
+    meta:
+      comment: Endpoint that terminates a process by PID
+      depends_on:
+        - ns:app
+      router: app:api
+    method: POST
+    func: terminate
+    path: /keeper/pm/terminate
+    
+  # keeper.debug.pm:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: PM API endpoint tests
+      depends_on:
+        - ns:app
+        - ns:wippy.test
+    source: file://test.lua
+    modules:
+      - json
+      - http_client
+      - security
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    

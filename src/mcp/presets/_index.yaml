@@ -1,0 +1,120 @@
+version: "1.0"
+namespace: keeper.mcp.presets
+
+entries:
+  # keeper.mcp.presets:developer
+  - name: developer
+    kind: registry.entry
+    meta:
+      type: mcp.preset
+      title: Developer
+      comment: Any trait tagged for state authoring from any namespace
+      icon: tabler:code
+    access_mode: traits
+    default_active:
+      - keeper.agents.traits.state:explorer
+    scopes:
+      - registry.read
+      - registry.write
+      - registry.sync
+      - state.read
+      - knowledge.read
+      - knowledge.write
+      - logger.read
+      - tests.run
+      - functions.call
+    trait_filter:
+      tags_any:
+        - state
+        - editor
+        - knowledge
+    
+  # keeper.mcp.presets:explorer_tools_only
+  - name: explorer_tools_only
+    kind: registry.entry
+    meta:
+      type: mcp.preset
+      title: Tools Only (Explorer)
+      comment: No trait UI — tool surface filtered by tag/namespace
+      icon: tabler:list-details
+    access_mode: tools_only
+    default_active: {}
+    scopes:
+      - registry.read
+      - state.read
+    tool_filter:
+      tags_any:
+        - exploration
+        - readonly
+    
+  # keeper.mcp.presets:knowledge_manager
+  - name: knowledge_manager
+    kind: registry.entry
+    meta:
+      type: mcp.preset
+      title: Knowledge Manager
+      comment: Knowledge base traits plus registry exploration
+      icon: tabler:brain
+    access_mode: traits
+    default_active: {}
+    scopes:
+      - registry.read
+      - knowledge.read
+      - knowledge.write
+    trait_filter:
+      tags_any:
+        - knowledge
+        - exploration
+    
+  # keeper.mcp.presets:observer
+  - name: observer
+    kind: registry.entry
+    meta:
+      type: mcp.preset
+      title: Observer
+      comment: Read-only exploration — traits tagged readonly/exploration/comparison
+      icon: tabler:eye
+    access_mode: traits
+    default_active: {}
+    scopes:
+      - registry.read
+      - state.read
+      - knowledge.read
+      - logger.read
+      - pm.read
+      - env.read
+    trait_filter:
+      tags_any:
+        - exploration
+        - comparison
+        - readonly
+    
+  # keeper.mcp.presets:root
+  - name: root
+    kind: registry.entry
+    meta:
+      type: mcp.preset
+      title: Root
+      comment: Full trait catalog, activate anything on demand
+      icon: tabler:shield-star
+    access_mode: any
+    default_active: {}
+    scopes:
+      - registry.read
+      - registry.write
+      - registry.sync
+      - state.read
+      - knowledge.read
+      - knowledge.write
+      - logger.read
+      - logger.write
+      - pm.read
+      - pm.write
+      - env.read
+      - env.write
+      - tests.run
+      - functions.call
+      - components.read
+      - components.build
+      - components.capture
+    

@@ -1,6 +1,6 @@
 local registry = require("registry")
-local json = require("json")
 local logger = require("logger")
+local funcs = require("funcs")
 
 local log = logger:named("gov.service.discovery.observers")
 
@@ -24,22 +24,16 @@ end
 -- Helper Functions
 ---------------------------
 
--- Internal: Check if an entry is a valid observer
-local function is_valid_observer(entry)
-    if not entry or not entry.meta or entry.meta.type ~= observers.OBSERVER_TYPE then
-        return false
-    end
-
-    -- Must have priority
-    if not entry.meta.priority then
-        return false
-    end
-
+function observers.is_valid_observer(entry)
+    if type(entry) ~= "table" then return false end
+    if type(entry.meta) ~= "table" then return false end
+    if entry.meta.type ~= observers.OBSERVER_TYPE then return false end
+    if not entry.meta.priority then return false end
     return true
 end
+local is_valid_observer = observers.is_valid_observer
 
--- Internal: Convert registry entry to observer info
-local function entry_to_observer_info(entry)
+function observers.entry_to_observer_info(entry)
     return {
         id = entry.id,
         name = (entry.meta and entry.meta.name) or "",
@@ -50,6 +44,38 @@ local function entry_to_observer_info(entry)
         namespace = entry.namespace,
         kind = entry.kind
     }
+end
+local entry_to_observer_info = observers.entry_to_observer_info
+
+-- Pure reduce over a list of observer info rows. Returns { total_count,
+-- by_namespace, priority_range = { min, max } }. Callers hand in the
+-- already-filtered observer list (raw_entries=false form from list_all).
+function observers.aggregate_stats(observer_list)
+    local stats = {
+        total_count    = 0,
+        by_namespace   = {},
+        priority_range = { min = nil, max = nil },
+    }
+    if type(observer_list) ~= "table" then return stats end
+
+    for _, observer in ipairs(observer_list) do
+        stats.total_count = stats.total_count + 1
+
+        local ns = observer.namespace or "unknown"
+        stats.by_namespace[ns] = (stats.by_namespace[ns] or 0) + 1
+
+        local p = observer.priority
+        if p ~= nil then
+            if stats.priority_range.min == nil or p < stats.priority_range.min then
+                stats.priority_range.min = p
+            end
+            if stats.priority_range.max == nil or p > stats.priority_range.max then
+                stats.priority_range.max = p
+            end
+        end
+    end
+
+    return stats
 end
 
 ---------------------------
@@ -62,7 +88,11 @@ function observers.get_by_id(observer_id)
     end
 
     local reg = get_registry()
-    local entry, err = reg.get(observer_id)
+    if not reg then
+        return nil, "Registry is not available"
+    end
+
+    local entry, err = reg.get(tostring(observer_id))
     if not entry then
         return nil, "No observer found with ID: " .. tostring(observer_id) .. (err and ", error: " .. tostring(err) or "")
     end
@@ -174,30 +204,7 @@ function observers.find_observers(criteria)
 end
 
 function observers.get_stats()
-    local all_observers = observers.list_all()
-    local stats = {
-        total_count = #all_observers,
-        by_namespace = {},
-        priority_range = { min = nil, max = nil }
-    }
-
-    for _, observer in ipairs(all_observers) do
-        -- Count by namespace
-        if not stats.by_namespace[observer.namespace] then
-            stats.by_namespace[observer.namespace] = 0
-        end
-        stats.by_namespace[observer.namespace] = stats.by_namespace[observer.namespace] + 1
-
-        -- Track priority range
-        if not stats.priority_range.min or observer.priority < stats.priority_range.min then
-            stats.priority_range.min = observer.priority
-        end
-        if not stats.priority_range.max or observer.priority > stats.priority_range.max then
-            stats.priority_range.max = observer.priority
-        end
-    end
-
-    return stats
+    return observers.aggregate_stats(observers.list_all())
 end
 
 -- Run all observers with changeset and result data
@@ -218,9 +225,14 @@ function observers.run_observers(changeset, result, request_id, user_id)
         return
     end
 
-    -- Create function executor
-    local funcs = require("funcs")
     local executor = funcs.new()
+    if not executor then
+        log:error("Failed to create function executor", {
+            request_id = request_id,
+            user_id = user_id
+        })
+        return
+    end
 
     -- Run each observer with entire batch
     for _, observer in ipairs(observer_list) do
@@ -232,7 +244,7 @@ function observers.run_observers(changeset, result, request_id, user_id)
         })
 
         -- Call the observer without waiting for response
-        local _, err = executor:call(observer.id, {
+        local _, err = executor:call(tostring(observer.id), {
             changeset = changeset,
             result = result,
             request_id = request_id,

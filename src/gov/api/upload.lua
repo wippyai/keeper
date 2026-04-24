@@ -1,19 +1,16 @@
 local http = require("http")
-local time = require("time")
 local gov_client = require("gov_client")
+local sys_cs = require("sys_cs")
 
--- Handler function for HTTP endpoint
 local function handler()
     local res = http.response()
     local req = http.request()
 
-    -- Set JSON content type
     res:set_content_type(http.CONTENT.JSON)
 
-    -- Use the client library to request an upload
-    local stats, err = gov_client.request_upload({}, "90s")  -- 90 second timeout
+    local result, err = gov_client.request_upload({}, "90s")
 
-    if not stats then
+    if not result then
         res:set_status(http.STATUS.INTERNAL_ERROR)
         res:write_json({
             success = false,
@@ -22,12 +19,16 @@ local function handler()
         return
     end
 
-    -- Success response
+    local diff_resp = sys_cs.record_upload_diff(result)
+    local journaled = diff_resp and diff_resp.ok and (diff_resp.rows_written or 0) or 0
+
     res:set_status(http.STATUS.OK)
     res:write_json({
         success = true,
         message = "Filesystem changes successfully uploaded to registry",
-        stats = stats
+        stats = result.stats,
+        version = result.version,
+        journaled = journaled
     })
 end
 

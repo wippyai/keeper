@@ -1,0 +1,174 @@
+version: "1.0"
+namespace: keeper.knowledge.tools
+
+entries:
+  # keeper.knowledge.tools:fetch_docs
+  - name: fetch_docs
+    kind: function.lua
+    meta:
+      type: tool
+      comment: Fetch Wippy platform documentation
+      tags:
+        - knowledge
+        - docs
+        - readonly
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["search", "fetch", "toc"],
+              "description": "search: keyword search, fetch: get page by path, toc: table of contents"
+            },
+            "query": {"type": "string", "description": "Search query (for search action)"},
+            "path": {"type": "string", "description": "Doc page path e.g. 'lua/storage/sql' (for fetch action)"}
+          },
+          "required": ["action"]
+        }
+      llm_alias: fetch_docs
+      llm_description: |
+        Fetch Wippy platform documentation from wippy.ai.
+        Use 'search' to find relevant docs by keyword.
+        Use 'fetch' to get a specific page by path.
+        Use 'toc' to see the documentation table of contents.
+    source: file://fetch_docs.lua
+    modules:
+      - http_client
+    imports:
+      audit: keeper.task:audit
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.knowledge.tools:kb_helpers
+  - name: kb_helpers
+    kind: library.lua
+    meta:
+      comment: Shared helpers for knowledge tools (kb id resolution)
+    source: file://kb_helpers.lua
+    imports:
+      kb_repo: keeper.knowledge:repo
+    
+  # keeper.knowledge.tools:kb_read
+  - name: kb_read
+    kind: function.lua
+    meta:
+      type: tool
+      comment: Search and read knowledge base nodes
+      tags:
+        - knowledge
+        - readonly
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["list_kbs", "list", "search", "get"],
+              "description": "list_kbs: list knowledge bases, list: list nodes, search: text search, get: get by ID"
+            },
+            "kb": {"type": "string", "description": "Knowledge base name to scope results (optional, omit to search all)"},
+            "query": {"type": "string", "description": "Search query for 'search' action"},
+            "node_type": {
+              "type": "string",
+              "enum": ["pattern", "convention", "learning", "anti_pattern"],
+              "description": "Filter by node type for 'list' action"
+            },
+            "node_id": {"type": "string", "description": "Node ID for 'get' action"},
+            "limit": {"type": "integer", "description": "Max results (default 20)"},
+            "scope_namespace": {"type": "string", "description": "Filter by namespace scope"},
+            "scope_kind": {"type": "string", "description": "Filter by entry kind scope"},
+            "goal": {"type": "string", "description": "What you are trying to learn. Used to filter/compress large result sets via a cheap LLM summarizer."},
+            "full": {"type": "boolean", "description": "If true, skip summarization and return raw concatenated node content (may be large)."}
+          },
+          "required": ["action"]
+        }
+      llm_alias: search_knowledge
+      llm_description: |
+        Search knowledge bases for patterns, conventions, decisions, and learnings.
+        Use 'list_kbs' to see available knowledge bases. Use 'list' to see nodes. Use 'search' for text search. Use 'get' for a specific node.
+        All actions except 'get' accept an optional 'kb' parameter to scope to a specific knowledge base by name.
+        Pass a 'goal' describing what you want to learn; large search results are compressed via a cheap LLM so only the relevant bits reach you. Use full=true to bypass.
+    source: file://kb_read.lua
+    imports:
+      audit: keeper.task:audit
+      kb_helpers: keeper.knowledge.tools:kb_helpers
+      kb_repo: keeper.knowledge:repo
+      summarize: keeper.llm:summarize
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.knowledge.tools:kb_write
+  - name: kb_write
+    kind: function.lua
+    meta:
+      type: tool
+      comment: Create or update knowledge base nodes
+      tags:
+        - knowledge
+        - write
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["create", "update", "delete"],
+              "description": "Operation to perform"
+            },
+            "kb": {"type": "string", "description": "Target knowledge base name (for create, optional - defaults to General)"},
+            "node_id": {"type": "string", "description": "Node ID for update/delete"},
+            "title": {"type": "string", "description": "Node title (required for create)"},
+            "summary": {"type": "string", "description": "One sentence description for quick scanning by agents"},
+            "content": {"type": "string", "description": "Node content - concise, actionable, 3-10 lines"},
+            "node_type": {
+              "type": "string",
+              "enum": ["pattern", "convention", "learning", "anti_pattern"],
+              "description": "pattern=how to build, convention=naming/structure rules, learning=non-obvious gotchas, anti_pattern=what breaks"
+            },
+            "confidence": {"type": "number", "description": "Confidence 0.0-1.0 (default 0.8)"},
+            "refs": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Referenced entry IDs (namespace:name format)"
+            },
+            "scope_namespace": {"type": "string", "description": "Namespace this knowledge applies to (e.g. app.api, keeper.state)"},
+            "scope_kind": {"type": "string", "description": "Entry kind this knowledge applies to (e.g. http.endpoint, function.lua)"},
+            "scope_meta_type": {"type": "string", "description": "Meta type this knowledge applies to (e.g. agent.gen1, tool, migration)"}
+          },
+          "required": ["action"]
+        }
+      llm_alias: write_knowledge
+      llm_description: |
+        Write to a knowledge base. Create new nodes for discovered patterns, conventions,
+        decisions, learnings, or anti-patterns. Update existing nodes with corrections or additions.
+        Specify 'kb' parameter to target a specific knowledge base by name.
+    source: file://kb_write.lua
+    imports:
+      audit: keeper.task:audit
+      embedder: keeper.knowledge:embedder
+      kb_consts: keeper.knowledge:consts
+      kb_helpers: keeper.knowledge.tools:kb_helpers
+      kb_repo: keeper.knowledge:repo
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.knowledge.tools:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Knowledge tool suite tests
+      suite: knowledge_tools
+    source: file://test.lua
+    imports:
+      kb_read: keeper.knowledge.tools:kb_read
+      kb_write: keeper.knowledge.tools:kb_write
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

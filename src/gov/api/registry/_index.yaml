@@ -12,8 +12,8 @@ entries:
     source: file://get_entry.lua
     modules:
       - http
-      - json
-      - registry
+    imports:
+      registry_ops: keeper.gov.service:registry_ops
     method: handler
     pool:
       size: 2
@@ -30,35 +30,6 @@ entries:
     func: get_entry
     path: /keeper/registry/entry
     
-  # keeper.gov.api.registry:get_entry_editors
-  - name: get_entry_editors
-    kind: function.lua
-    meta:
-      comment: Gets a single registry entry dynamic editors
-      depends_on:
-        - app:api
-    source: file://get_entry_editors.lua
-    modules:
-      - http
-      - json
-    imports:
-      entry_editor_registry: keeper.editors:entry_editor_registry
-    method: handler
-    pool:
-      size: 2
-    
-  # keeper.gov.api.registry:get_entry_editors.endpoint
-  - name: get_entry_editors.endpoint
-    kind: http.endpoint
-    meta:
-      comment: Endpoint that retrieves a single registry entry editors by ID
-      depends_on:
-        - app:api
-      router: app:api
-    method: GET
-    func: get_entry_editors
-    path: /keeper/registry/entry/editors
-    
   # keeper.gov.api.registry:list_entries
   - name: list_entries
     kind: function.lua
@@ -69,8 +40,8 @@ entries:
     source: file://list_entries.lua
     modules:
       - http
-      - json
-      - registry
+    imports:
+      registry_ops: keeper.gov.service:registry_ops
     method: handler
     pool:
       size: 2
@@ -97,8 +68,8 @@ entries:
     source: file://list_namespaces.lua
     modules:
       - http
-      - json
-      - registry
+    imports:
+      registry_ops: keeper.gov.service:registry_ops
     method: handler
     pool:
       size: 2
@@ -125,10 +96,8 @@ entries:
     source: file://update_entry.lua
     modules:
       - http
-      - json
-      - registry
     imports:
-      governance_client: keeper.gov:client
+      registry_ops: keeper.gov.service:registry_ops
     method: handler
     pool:
       size: 2

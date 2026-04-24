@@ -16,7 +16,36 @@ entries:
     source: file://observers.lua
     modules:
       - registry
-      - json
       - logger
       - funcs
+    
+  # keeper.gov.discovery:observers_test
+  - name: observers_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for observer discovery helpers (is_valid_observer, entry_to_observer_info, aggregate_stats)
+      suite: gov_discovery
+    source: file://observers_test.lua
+    imports:
+      observers: keeper.gov.discovery:observers
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.gov.discovery:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Observer discovery tests
+      suite: gov_discovery
+    source: file://test.lua
+    imports:
+      observers: keeper.gov.discovery:observers
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
     

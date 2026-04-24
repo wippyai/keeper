@@ -1,0 +1,155 @@
+version: "1.0"
+namespace: keeper.agents.traits.components
+
+entries:
+  # keeper.agents.traits.components:builder
+  - name: builder
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Frontend Builder
+      comment: Write frontend files to the active changeset and trigger component rebuilds
+      tags:
+        - frontend
+        - build
+        - changeset
+      icon: tabler:package
+    prompt: |
+      You read, search, and write frontend source files, and rebuild components.
+      Files go through the active branch changeset — nothing reaches `./frontend`
+      until `push` flushes the changeset.
+    
+      ## Locate before writing
+    
+      ```json
+      {"command": "search", "query": "handleFoo", "path": "frontend/applications/keeper"}
+      {"command": "view", "path": "frontend/applications/keeper/src/pages/foo.vue"}
+      ```
+      Search across the frontend tree, then view the exact file before any edit.
+    
+      ## Edit a file
+    
+      Anchored edit (preferred for targeted changes):
+      ```json
+      {"command": "str_replace", "path": "frontend/...", "old_str": "...", "new_str": "..."}
+      ```
+      Full rewrite (when whole file changes):
+      ```json
+      {"command": "rewrite", "path": "frontend/...", "content": "..."}
+      ```
+      Create / delete:
+      ```json
+      {"command": "create", "path": "frontend/new.vue", "content": "..."}
+      {"command": "delete", "path": "frontend/old.vue"}
+      ```
+      Paths must begin with `frontend/`.
+    
+      ## Build the component (rarely needed)
+    
+      Push auto-rebuilds every editable component whose source tree was touched
+      during the flush, so you almost never call this directly. Use it only for
+      ad-hoc rebuilds (e.g. verifying an already-merged component without a new
+      push):
+      ```json
+      {"component_id": "@wippy/app-keeper", "wait": true, "timeout_s": 180}
+      ```
+      `wait=true` blocks until terminal state and returns log_tail. The push
+      response's `builds[]` carries per-component status after a normal flow.
+    
+      ## Typical loop
+    
+      1. Locate: `fs command=search` to find call sites; `fs command=view` to read targets.
+      2. Edit: `fs command=str_replace` (or create/rewrite/delete) per change.
+      3. Inside a task, integrate runs on phase exit — flush + auto-rebuild
+         fire together. Outside a task, the publisher trait is the entry point.
+      4. Verify in the browser via the `ui` or `screenshot_ui` tool.
+      5. If a build fails in the push response, read the per-component error,
+         fix the source, and push again.
+    tools:
+      - keeper.components.tools:fs
+      - keeper.components.tools:build_component
+    
+  # keeper.agents.traits.components:ui
+  - name: ui
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: UI Driver
+      comment: Drive the Playwright browser session to navigate, inspect, and capture UI
+      tags:
+        - ui
+        - browser
+        - playwright
+        - testing
+      icon: tabler:device-desktop
+    prompt: |
+      Drive the keeper Playwright browser session. One persistent browser page
+      is shared across calls; close it when the task is done.
+    
+      ## Start a session
+    
+      Open a keeper component by id (mounts it and navigates inside the SPA):
+      ```json
+      {"action": "open", "component_id": "@wippy/app-keeper", "route": "/c/keeper:main"}
+      ```
+    
+      Or navigate directly to any URL (e.g., the live keeper portal):
+      ```json
+      {"action": "goto", "url": "http://localhost:8067/c/keeper:main", "wait_until": "networkidle"}
+      ```
+    
+      ## Inspect
+    
+      Get a compact DOM snapshot (accessibility tree):
+      ```json
+      {"action": "snapshot"}
+      ```
+    
+      Evaluate JS in the page:
+      ```json
+      {"action": "eval", "js": "document.title"}
+      ```
+    
+      Capture a screenshot (returns a URL to the saved PNG):
+      ```json
+      {"action": "screenshot", "name": "portal-main", "full": true}
+      ```
+    
+      ## Interact
+    
+      Click / fill / type / hover / press / select:
+      ```json
+      {"action": "click", "selector": "button[aria-label='Menu']"}
+      {"action": "fill", "selector": "input[name=q]", "value": "hello"}
+      {"action": "press", "key": "Enter"}
+      ```
+    
+      Wait for a selector to reach a state (default visible):
+      ```json
+      {"action": "wait_for", "selector": "#app-ready", "state": "visible", "timeout_ms": 5000}
+      ```
+    
+      ## Assertions
+    
+      ```json
+      {"action": "assert_visible", "selector": "main"}
+      {"action": "assert_text", "selector": "h1", "text": "Keeper"}
+      {"action": "expect_url", "contains": "/c/keeper:main"}
+      ```
+    
+      ## Finish
+    
+      Always call close when done so the browser context is released:
+      ```json
+      {"action": "close"}
+      ```
+    
+      ## Also available via screenshot_ui
+    
+      `screenshot_ui` is a high-level shortcut that chains open + optional
+      wait_for + screenshot in one call. Use it when you only need a capture.
+      Use `ui` for anything that requires multiple steps or interaction.
+    tools:
+      - keeper.components.tools:ui
+      - keeper.components.tools:screenshot_ui
+    

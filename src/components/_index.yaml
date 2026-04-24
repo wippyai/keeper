@@ -1,0 +1,90 @@
+version: "1.0"
+namespace: keeper.components
+
+entries:
+  # keeper.components:consts
+  - name: consts
+    kind: library.lua
+    meta:
+      comment: Shared constants for the FE components subsystem
+    source: file://consts.lua
+    
+  # keeper.components:fe_fs
+  - name: fe_fs
+    kind: fs.directory
+    meta:
+      comment: Writable filesystem scoped to ./frontend for session apply
+      description: Only surface sessions should use to write FE component files.
+    auto_init: true
+    directory: ./frontend
+    mode: "0755"
+    
+  # keeper.components:host_shell
+  - name: host_shell
+    kind: exec.native
+    meta:
+      comment: Host shell for running docker build commands. No command whitelist — the build_runner constructs them safely from resolved paths.
+    
+  # keeper.components:os_env
+  - name: os_env
+    kind: env.storage.os
+    meta: {}
+    
+  # keeper.components:previews_fs
+  - name: previews_fs
+    kind: fs.directory
+    meta:
+      comment: Writable filesystem for component thumbnail screenshots
+      description: Served by the main HTTP server at /public/previews (auto-cleanup after TTL).
+    auto_init: true
+    directory: ./static/public/previews
+    mode: "0755"
+    
+  # keeper.components:project_fs
+  - name: project_fs
+    kind: fs.directory
+    meta:
+      comment: Read-only project root filesystem (used by the scanner)
+    auto_init: true
+    directory: ./
+    mode: "0755"
+    
+  # keeper.components:project_root
+  - name: project_root
+    kind: env.variable
+    meta:
+      comment: Absolute host path to the app-keeper project root. Resolved from PWD at wippy startup.
+    default: ""
+    storage: keeper.components:os_env
+    variable: PWD
+    
+  # keeper.components:pw_runtime_fs
+  - name: pw_runtime_fs
+    kind: fs.directory
+    meta:
+      comment: Host bind-mount dir for the Playwright runtime
+      description: ./.wippy/fe-playwright-runtime — holds the npm-installed playwright node_modules plus the ui_runner.cjs that the supervisor writes before spawning the container. Mounted at /pw inside the container. First call populates it; later calls reuse the warm install.
+    auto_init: true
+    directory: ./.wippy/fe-playwright-runtime
+    mode: "0755"
+    
+  # keeper.components:siblings_fs
+  - name: siblings_fs
+    kind: fs.directory
+    meta:
+      comment: Read-only parent directory (sibling repos like app-template / be-common-components)
+      description: Used to resolve origin.source_path for linked prebuilt bundles.
+    auto_init: false
+    directory: ..
+    mode: "0755"
+    
+  # keeper.components:staging_fs
+  - name: staging_fs
+    kind: fs.directory
+    meta:
+      comment: Writable filesystem for docker build staging directories (M3)
+      description: Agent edit sessions materialize here before docker build. Disposable.
+    auto_init: true
+    directory: ./.wippy/fe-sessions
+    mode: "0755"
+    

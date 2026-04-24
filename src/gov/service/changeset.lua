@@ -1,104 +1,100 @@
 local registry = require("registry")
-local json = require("json")
-local time = require("time")
 local logger = require("logger")
-local contract = require("contract")
 local consts = require("consts")
 local observers = require("observers")
+local sync = require("sync")
+local contracts = require("contracts")
 
 local log = logger:named("gov.service.changeset")
 
-local function merge_options(base_options, override_options)
+local M = {}
+
+function M.merge_options(base_options, override_options)
     local merged = {}
-
-    if base_options then
-        for k, v in pairs(base_options) do
-            merged[k] = v
-        end
+    if type(base_options) == "table" then
+        for k, v in pairs(base_options) do merged[k] = v end
     end
-
-    if override_options then
-        for k, v in pairs(override_options) do
-            merged[k] = v
-        end
+    if type(override_options) == "table" then
+        for k, v in pairs(override_options) do merged[k] = v end
     end
-
     return merged
 end
 
-local function validate_changeset(changeset, request_id, options, user_id)
-    log:debug("Validating changeset", {
-        count = #changeset,
-        request_id = request_id,
-        original_options = options
-    })
-
-    local issues = {}
-    local managed_namespaces = consts.get_managed_namespaces()
-
-    if not changeset or #changeset == 0 then
-        table.insert(issues, {
-            id = "changeset",
-            type = "error",
-            message = consts.ERRORS.NO_CHANGESET
-        })
-        return nil, consts.ERRORS.NO_CHANGESET, issues
+function M.count_errors(issues)
+    if type(issues) ~= "table" then return 0 end
+    local n = 0
+    for _, issue in ipairs(issues) do
+        if issue.type == "error" then n = n + 1 end
     end
+    return n
+end
+
+-- Pure shape validation for a changeset array. Returns a list of issue rows
+-- (same shape as logger-bound validate_changeset emits). Does not call into
+-- contracts.validate_registry — that's the caller's responsibility after
+-- shape errors come back clean.
+function M.check_basic_shape(changeset)
+    local issues = {}
+
+    if type(changeset) ~= "table" or #changeset == 0 then
+        table.insert(issues, {
+            id = "changeset", type = "error",
+            message = consts.ERRORS.NO_CHANGESET,
+        })
+        return issues
+    end
+
+    local managed_namespaces = consts.get_managed_namespaces()
 
     for i, item in ipairs(changeset) do
         local item_id = "item:" .. i
 
         if not item.kind or not item.entry then
             table.insert(issues, {
-                id = item_id,
-                type = "error",
-                message = "Missing kind or entry field"
+                id = item_id, type = "error",
+                message = "Missing kind or entry field",
             })
-            goto continue
-        end
-
-        if item.kind ~= consts.REGISTRY_OPERATIONS.CREATE and
-           item.kind ~= consts.REGISTRY_OPERATIONS.UPDATE and
-           item.kind ~= consts.REGISTRY_OPERATIONS.DELETE then
+        elseif item.kind ~= consts.REGISTRY_OPERATIONS.CREATE
+            and item.kind ~= consts.REGISTRY_OPERATIONS.UPDATE
+            and item.kind ~= consts.REGISTRY_OPERATIONS.DELETE then
             table.insert(issues, {
-                id = item.entry.id or item_id,
-                type = "error",
-                message = consts.ERRORS.INVALID_OPERATION .. ": " .. tostring(item.kind)
+                id = item.entry.id or item_id, type = "error",
+                message = consts.ERRORS.INVALID_OPERATION .. ": " .. tostring(item.kind),
             })
-            goto continue
-        end
-
-        if item.kind == consts.REGISTRY_OPERATIONS.DELETE and not item.entry.id then
+        elseif item.kind == consts.REGISTRY_OPERATIONS.DELETE and not item.entry.id then
             table.insert(issues, {
-                id = item_id,
-                type = "error",
-                message = consts.ERRORS.MISSING_ENTRY_ID
+                id = item_id, type = "error",
+                message = consts.ERRORS.MISSING_ENTRY_ID,
             })
-            goto continue
-        end
-
-        if item.entry.id then
+        elseif item.entry.id then
             local namespace = item.entry.id:match("^([^:]+):")
             if namespace and not consts.is_namespace_managed(namespace) then
                 table.insert(issues, {
-                    id = item.entry.id,
-                    type = "error",
+                    id = item.entry.id, type = "error",
                     message = consts.ERRORS.UNMANAGED_NAMESPACE .. ": '" .. namespace ..
-                             "'. Managed namespaces: " .. table.concat(managed_namespaces, ", ")
+                        "'. Managed namespaces: " .. table.concat(managed_namespaces, ", "),
                 })
             end
         end
-
-        ::continue::
     end
 
-    local error_count = 0
-    for _, issue in ipairs(issues) do
-        if issue.type == "error" then
-            error_count = error_count + 1
-        end
+    return issues
+end
+
+local function validate_changeset(changeset, request_id, options, user_id)
+    log:debug("Validating changeset", {
+        count = changeset and #changeset or 0,
+        request_id = request_id,
+        original_options = options
+    })
+
+    local issues = M.check_basic_shape(changeset)
+
+    if #issues == 1 and issues[1].id == "changeset" then
+        return nil, consts.ERRORS.NO_CHANGESET, issues
     end
 
+    local error_count = M.count_errors(issues)
     if error_count > 0 then
         log:error("Basic validation failed", {
             error_count = error_count,
@@ -107,84 +103,19 @@ local function validate_changeset(changeset, request_id, options, user_id)
         return nil, "Changeset validation failed", issues
     end
 
-    local pipeline_contract, err = contract.get("keeper.linters:pipeline")
-    if err then
-        log:error("Failed to get linters pipeline contract", { error = err })
-        table.insert(issues, {
-            id = "linters",
-            type = "error",
-            message = consts.ERRORS.LINTER_PIPELINE_UNAVAILABLE .. ": " .. err
-        })
-        return nil, consts.ERRORS.LINTER_PIPELINE_UNAVAILABLE, issues
-    end
-
-    local pipeline_instance, err = pipeline_contract:open()
-    if err then
-        log:error("Failed to open linting pipeline", { error = err })
-        table.insert(issues, {
-            id = "linters",
-            type = "error",
-            message = "Failed to initialize linting pipeline: " .. err
-        })
-        return nil, "Linting pipeline initialization failed", issues
-    end
-
-    local lint_options = merge_options(options, {
-        level = 100,
-        halt_on_error = false,
-        halt_on_warning = false
-    })
-
-    local lint_request = {
-        changeset = changeset,
-        options = lint_options
-    }
-
-    log:debug("Executing linting pipeline", {
-        original_options = options,
-        merged_options = lint_options,
-        request_id = request_id
-    })
-
-    local lint_result, err = pipeline_instance:lint(lint_request)
-    if err then
-        log:error("Linting execution failed", {
-            error = err,
-            request_id = request_id
-        })
-        table.insert(issues, {
-            id = "linters",
-            type = "error",
-            message = consts.ERRORS.LINTER_EXECUTION_FAILED .. ": " .. err
-        })
-        return nil, consts.ERRORS.LINTER_EXECUTION_FAILED, issues
-    end
-
-    if lint_result.issues then
-        for _, lint_issue in ipairs(lint_result.issues) do
-            table.insert(issues, {
-                id = lint_issue.entry_id or "unknown",
-                type = lint_issue.level,
-                message = lint_issue.message
-            })
+    for _, item in ipairs(changeset) do
+        if item.kind ~= consts.REGISTRY_OPERATIONS.DELETE and item.entry then
+            for _, e in ipairs(contracts.validate_registry(item.entry)) do
+                table.insert(issues, {
+                    id      = e.target or item.entry.id or "unknown",
+                    type    = "error",
+                    message = e.code .. ": " .. e.message .. (e.fix_hint and (" -- " .. e.fix_hint) or ""),
+                })
+            end
         end
     end
 
-    if not lint_result.success then
-        log:error("Linting validation failed", {
-            request_id = request_id,
-            lint_message = lint_result.message
-        })
-        return nil, consts.ERRORS.LINTING_VALIDATION_FAILED, issues
-    end
-
-    local final_error_count = 0
-    for _, issue in ipairs(issues) do
-        if issue.type == "error" then
-            final_error_count = final_error_count + 1
-        end
-    end
-
+    local final_error_count = M.count_errors(issues)
     if final_error_count > 0 then
         log:error("Validation completed with errors", {
             error_count = final_error_count,
@@ -195,12 +126,11 @@ local function validate_changeset(changeset, request_id, options, user_id)
 
     log:info("Changeset validation completed successfully", {
         changeset_count = #changeset,
-        final_changeset_count = lint_result.changeset and #lint_result.changeset or #changeset,
         issue_count = #issues,
         request_id = request_id
     })
 
-    return lint_result.changeset or changeset, nil, issues
+    return changeset, nil, issues
 end
 
 local function validate_version_id(version_id)
@@ -227,7 +157,7 @@ local function validate_version_id(version_id)
         return nil, consts.ERRORS.REGISTRY_HISTORY_UNAVAILABLE, issues
     end
 
-    local version, err = history:get_version(version_id)
+    local version, err = history:get_version(tonumber(version_id) or 0)
     if not version then
         table.insert(issues, {
             id = "version:" .. version_id,
@@ -361,18 +291,28 @@ local function execute_version(version_id, options, request_id, user_id)
     })
 
     local history = registry.history()
-    local version, err = history:get_version(version_id)
+    if not history then
+        return {
+            success = false,
+            message = "Registry history unavailable",
+            error = "Failed to get registry history",
+            request_id = request_id,
+            user_id = user_id
+        }
+    end
+
+    local version, ver_err = history:get_version(tonumber(version_id) or 0)
     if not version then
         log:error("Failed to get registry version", {
             version_id = version_id,
-            error = err,
+            error = ver_err,
             request_id = request_id,
             user_id = user_id
         })
         return {
             success = false,
             message = "Failed to get registry version: " .. version_id,
-            error = err or "Unknown error",
+            error = ver_err or "Unknown error",
             request_id = request_id,
             user_id = user_id
         }
@@ -487,7 +427,7 @@ local function run(args)
         changeset = validated_changeset
 
     elseif args.version_id then
-        local validated_version, err, issues = validate_version_id(args.version_id)
+        local validated_version, err, issues = validate_version_id(tostring(args.version_id))
 
         validation_details = issues or {}
 
@@ -528,6 +468,28 @@ local function run(args)
     result.details = validation_details
     result.changeset = changeset
 
+    -- Auto-sync affected namespaces to filesystem after successful apply.
+    -- Default true; opt out with options.sync = false (used by upload/download workflows).
+    local should_sync = result.success
+        and changeset
+        and #changeset > 0
+        and (args.options == nil or args.options.sync ~= false)
+
+    if should_sync then
+        local sync_stats, sync_err = sync.sync_changeset(changeset)
+        if sync_err then
+            log:error("Auto-sync to filesystem failed", {
+                error = sync_err,
+                request_id = request_id,
+                user_id = user_id,
+            })
+            result.sync_error = sync_err
+        else
+            result.sync_stats = sync_stats
+            log:info("Auto-synced changeset to filesystem", sync_stats or {})
+        end
+    end
+
     run_post_processing(changeset, result, request_id, user_id)
 
     log:info("Completed changeset process", {
@@ -539,4 +501,5 @@ local function run(args)
     return result
 end
 
-return { run = run }
+M.run = run
+return M

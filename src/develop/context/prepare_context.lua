@@ -107,7 +107,7 @@ local function handler(params)
                 :to("formatter", "content", [[join(output, "\n\n---\n\n")]])
             :error_to("@fail")
 
-            :func("keeper.context:format_context", {
+            :func("keeper.develop.context:format_context", {
                 inputs = { required = { "content" } },
                 input_transform = {
                     content = "inputs.content"
@@ -125,6 +125,114 @@ local function handler(params)
     end
 
     local conditional_text = format_conditional_list(conditional)
+
+    -- No unconditional specs: skip the exec_unconditional parallel step.
+    -- Otherwise it fires with an empty array and flow rejects the node.
+    if #unconditional == 0 then
+        return flow.create()
+            :with_title("Execute Context Agents with Routing (conditional only)")
+
+            :with_data(prompt):as("task")
+                :to("router", "task")
+                :to("exec_conditional", "task")
+
+            :with_data(conditional):as("all_conditional_specs")
+                :to("exec_conditional", "all_specs")
+
+            :with_data(conditional_text):as("conditional_text")
+                :to("router", "conditional_agents")
+
+            :with_data(""):as("no_prior_context")
+                :to("router", "gathered_context")
+                :to("exec_conditional", "gathered_context")
+
+            :agent("keeper.develop.context:context_router", {
+                inputs = { required = { "task", "conditional_agents", "gathered_context" } },
+                arena = {
+                    prompt = "Decide which conditional context agents should run for this task.",
+                    max_iterations = 5,
+                    tool_calling = "any",
+                    exit_schema = {
+                        type = "object",
+                        properties = {
+                            selected = {
+                                type = "array",
+                                items = { type = "string" },
+                                description = "Array of selected agent IDs"
+                            },
+                            reasoning = {
+                                type = "string",
+                                description = "Explanation of why each agent was selected or not"
+                            }
+                        },
+                        required = { "selected", "reasoning" }
+                    }
+                },
+                metadata = {
+                    title = "Select Context Agents",
+                    icon = "tabler:route"
+                }
+            })
+                :as("router")
+                    :to("exec_conditional", "selected"):when("len(output.selected) > 0")
+                    :to("formatter", "content", '""'):when("len(output.selected) == 0")
+                :error_to("@fail")
+
+            :parallel({
+                inputs = { required = { "selected", "all_specs", "task", "gathered_context" } },
+                input_transform = {
+                    specs = [[filter(inputs.all_specs, {#.agent_id in inputs.selected.selected})]],
+                    task = "inputs.task",
+                    gathered_context = "inputs.gathered_context"
+                },
+                source_array_key = "specs",
+                iteration_input_key = "spec",
+                passthrough_keys = { "task", "gathered_context" },
+                batch_size = 10,
+                on_error = "continue",
+                filter = "successes",
+                unwrap = true,
+                template = flow.template()
+                    :agent("", {
+                        inputs = { required = { "spec", "task", "gathered_context" } },
+                        input_transform = {
+                            agent_id = "inputs.spec.agent_id",
+                            instructions = "inputs.spec.instructions",
+                            task = "inputs.task",
+                            gathered_context = "inputs.gathered_context"
+                        },
+                        arena = {
+                            prompt = "Follow the provided instructions to gather context for the task.",
+                            max_iterations = 25,
+                            tool_calling = "auto"
+                        }
+                    })
+                    :to("@success"),
+                metadata = {
+                    title = "Query Selected Context",
+                    icon = "tabler:search"
+                }
+            })
+                :as("exec_conditional")
+                    :to("formatter", "content", [[join(output, "\n\n---\n\n")]])
+                :error_to("@fail")
+
+            :func("keeper.develop.context:format_context", {
+                inputs = { required = { "content" } },
+                input_transform = {
+                    content = "inputs.content"
+                },
+                metadata = {
+                    title = "Format Context",
+                    icon = "tabler:file-text"
+                }
+            })
+                :as("formatter")
+                    :to("@success")
+                :error_to("@fail")
+
+                :run()
+    end
 
     return flow.create()
         :with_title("Execute Context Agents with Routing")
@@ -260,7 +368,7 @@ local function handler(params)
             :to("formatter", "content", [[output.unconditional + "\n\n---\n\n" + output.conditional]])
         :error_to("@fail")
 
-        :func("keeper.context:format_context", {
+        :func("keeper.develop.context:format_context", {
             inputs = { required = { "content" } },
             input_transform = {
                 content = "inputs.content"

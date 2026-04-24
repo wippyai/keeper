@@ -23,13 +23,6 @@ local consts = {
         DELETE = "entry.delete"
     },
 
-    -- Worker Process Paths
-    WORKERS = {
-        CHANGE_PROCESS = "keeper.gov.change:process",
-        SYNC_UPLOADER = "keeper.gov.sync:uploader.process",
-        SYNC_DOWNLOADER = "keeper.gov.sync:downloader.process"
-    },
-
     -- Process and Topic Names
     PROCESS_NAME = "registry.governance",
     PROCESS_HOST = "keeper.gov:processes",
@@ -62,19 +55,14 @@ local consts = {
         PERMISSION_DENIED = "Permission denied",
 
         -- Workspace
-        NO_WORKSPACE_CONTEXT = "No active workspace. Use workspace manager to open one first",
-        WORKSPACE_ACCESS_FAILED = "Failed to open workspace session",
+        NO_WORKSPACE_CONTEXT = "No active changeset context",
+        WORKSPACE_ACCESS_FAILED = "Failed to open changeset session",
 
         -- Changeset Validation
         NO_CHANGESET = "No changeset items provided",
         INVALID_OPERATION = "Invalid operation kind",
         MISSING_ENTRY_ID = "Delete operation missing ID",
         UNMANAGED_NAMESPACE = "Namespace is not managed by governance",
-
-        -- Linting
-        LINTER_PIPELINE_UNAVAILABLE = "Failed to access linting pipeline",
-        LINTER_EXECUTION_FAILED = "Linting execution failed",
-        LINTING_VALIDATION_FAILED = "Linting validation failed",
 
         -- Version Operations
         INVALID_VERSION_ID = "Invalid version_id provided",

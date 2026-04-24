@@ -10,7 +10,6 @@ entries:
       description: Client interface for interacting with the registry governance process
     source: file://client.lua
     modules:
-      - json
       - time
       - uuid
       - security

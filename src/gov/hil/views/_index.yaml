@@ -1,8 +1,8 @@
 version: "1.0"
-namespace: keeper.hil.views
+namespace: keeper.gov.hil.views
 
 entries:
-  # keeper.hil.views:alpine.js
+  # keeper.gov.hil.views:alpine.js
   - name: alpine.js
     kind: registry.entry
     meta:
@@ -11,14 +11,14 @@ entries:
       order: 6
       defer: true
       resource_type: script
-      template_set: keeper.hil.views:templates
+      template_set: keeper.gov.hil.views:templates
       url: https://unpkg.com/alpinejs@3.13.0/dist/cdn.min.js
     
-  # keeper.hil.views:approval
+  # keeper.gov.hil.views:approval
   - name: approval
     kind: template.jet
     meta:
-      name: keeper.hil.views.approval
+      name: keeper.gov.hil.views.approval
       type: view.page
       title: Registry Push Approval
       icon: tabler:check-circle
@@ -26,10 +26,10 @@ entries:
       content_type: text/html
       secure: true
     source: file://approval.jet
-    set: keeper.hil.views:templates
-    data_func: keeper.hil.views:approval.data
+    set: keeper.gov.hil.views:templates
+    data_func: keeper.gov.hil.views:approval.data
     
-  # keeper.hil.views:approval.data
+  # keeper.gov.hil.views:approval.data
   - name: approval.data
     kind: function.lua
     meta:
@@ -37,7 +37,7 @@ entries:
     source: file://approval.data.lua
     method: handler
     
-  # keeper.hil.views:tailwindcss
+  # keeper.gov.hil.views:tailwindcss
   - name: tailwindcss
     kind: registry.entry
     meta:
@@ -45,10 +45,10 @@ entries:
       type: view.resource
       order: 5
       resource_type: script
-      template_set: keeper.hil.views:templates
+      template_set: keeper.gov.hil.views:templates
       url: https://cdn.tailwindcss.com
     
-  # keeper.hil.views:templates
+  # keeper.gov.hil.views:templates
   - name: templates
     kind: template.set
     meta:
@@ -56,7 +56,7 @@ entries:
     engine:
       development_mode: true
     
-  # keeper.hil.views:wippy-api
+  # keeper.gov.hil.views:wippy-api
   - name: wippy-api
     kind: registry.entry
     meta:
@@ -64,6 +64,6 @@ entries:
       type: view.resource
       order: 10
       resource_type: script
-      template_set: keeper.hil.views:templates
+      template_set: keeper.gov.hil.views:templates
       url: https://front.wippy.ai/proxy.js
     

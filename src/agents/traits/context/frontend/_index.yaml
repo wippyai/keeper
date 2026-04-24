@@ -1,0 +1,36 @@
+version: "1.0"
+namespace: keeper.agents.traits.context.frontend
+
+entries:
+  # keeper.agents.traits.context.frontend:frontend_aware
+  - name: frontend_aware
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Frontend Aware
+      comment: Inject Vue SPA tree (routes, pages, components) into system prompt
+      tags:
+        - frontend
+        - vue
+        - router
+        - context
+      icon: tabler:brand-vue
+    prompt: You are aware of the keeper Vue SPA — its route table, page files, and component folders.
+    tools:
+      - keeper.components.tools:fs
+    prompt_func_id: keeper.agents.traits.context.frontend:get_frontend_tree
+    
+  # keeper.agents.traits.context.frontend:get_frontend_tree
+  - name: get_frontend_tree
+    kind: function.lua
+    meta:
+      comment: Returns tree of routes, pages, and top-level components for the keeper SPA
+      output_schema: |
+        {
+          "type": "string"
+        }
+    source: file://get_frontend_tree.lua
+    modules:
+      - fs
+    method: handler
+    

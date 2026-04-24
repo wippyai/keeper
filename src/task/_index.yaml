@@ -1,0 +1,44 @@
+version: "1.0"
+namespace: keeper.task
+
+entries:
+  # keeper.task:audit
+  - name: audit
+    kind: library.lua
+    meta:
+      comment: audit.wrap(cfg, fn) — wraps a tool handler body, emits tool_call rows into keeper_task_nodes with status and timing. No-op when ctx.task_id is absent.
+    source: file://audit.lua
+    modules:
+      - ctx
+      - json
+      - time
+    imports:
+      nodes_writer: keeper.task.persist:nodes_writer
+    
+  # keeper.task:audit_test
+  - name: audit_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for keeper.task:audit — no-task no-op, success/failure paths, raised error re-raise, custom summarise, visibility, parent_node_id
+      suite: task
+    source: file://audit_test.lua
+    modules:
+      - sql
+      - uuid
+    imports:
+      audit: keeper.task:audit
+      nodes_reader: keeper.task.persist:nodes_reader
+      nodes_writer: keeper.task.persist:nodes_writer
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.task:consts
+  - name: consts
+    kind: library.lua
+    meta:
+      comment: Task entity constants — statuses, node types, content types, limits
+    source: file://consts.lua
+    

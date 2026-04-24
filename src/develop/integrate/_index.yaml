@@ -1,0 +1,32 @@
+version: "1.0"
+namespace: keeper.develop.integrate
+
+entries:
+  # keeper.develop.integrate:rollback_run
+  - name: rollback_run
+    kind: function.lua
+    meta:
+      comment: Function-phase runner for rollback — restores registry version, emits rollback_stage nodes, routes task back to implement
+    source: file://rollback_run.lua
+    imports:
+      governance: keeper.state.publish:governance
+      lifecycle: keeper.task.phases:lifecycle
+      nodes_reader: keeper.task.persist:nodes_reader
+      nodes_writer: keeper.task.persist:nodes_writer
+    method: handler
+    
+  # keeper.develop.integrate:run
+  - name: run
+    kind: function.lua
+    meta:
+      comment: Function-phase runner for integrate — snapshot, publish, handlers up; on failure handlers down + restore_version. Emits integrate_stage subtree and advances the task via lifecycle.handle_exit.
+    source: file://run.lua
+    modules:
+      - funcs
+    imports:
+      changeset_repo: keeper.changeset.persist:repo
+      governance: keeper.state.publish:governance
+      lifecycle: keeper.task.phases:lifecycle
+      nodes_writer: keeper.task.persist:nodes_writer
+    method: handler
+    

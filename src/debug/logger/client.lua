@@ -1,6 +1,6 @@
 local time = require("time")
 local uuid = require("uuid")
-local consts = require("consts")
+local consts = require("logger_consts")
 
 local logger_client = {}
 
@@ -54,13 +54,7 @@ local function send_and_wait(message, timeout)
     return response, nil
 end
 
----@param count? number
----@param filter? string
----@param reverse? boolean
----@param timeout? string, for example "10s"
----@return table? logs
----@return string? error
-function logger_client.get_logs(count, filter, reverse, timeout)
+function logger_client.get_logs(count: number?, filter: string?, reverse: boolean?, timeout: string?): (table?, string?)
     local response, err = send_and_wait({
         operation = consts.OPERATIONS.GET_LOGS,
         count = count,
@@ -79,11 +73,7 @@ function logger_client.get_logs(count, filter, reverse, timeout)
     }, nil
 end
 
----@param filter? string
----@param timeout? string, for example "10s"
----@return table? composition
----@return string? error
-function logger_client.get_composition(filter, timeout)
+function logger_client.get_composition(filter: string?, timeout: string?): (table?, string?)
     local response, err = send_and_wait({
         operation = consts.OPERATIONS.COMPOSITION,
         filter = filter,
@@ -98,10 +88,7 @@ function logger_client.get_composition(filter, timeout)
     }, nil
 end
 
----@param timeout? string, for example "10s"
----@return table? stats
----@return string? error
-function logger_client.get_stats(timeout)
+function logger_client.get_stats(timeout: string?): (table?, string?)
     local response, err = send_and_wait({
         operation = consts.OPERATIONS.GET_STATS,
     }, timeout)
@@ -110,13 +97,10 @@ function logger_client.get_stats(timeout)
         return nil, err
     end
 
-    return response.stats, nil
+    return response.stats :: table?, nil
 end
 
----@param timeout? string, for example "10s"
----@return boolean success
----@return string? error
-function logger_client.clear(timeout)
+function logger_client.clear(timeout: string?): (boolean, string?)
     local response, err = send_and_wait({
         operation = consts.OPERATIONS.CLEAR,
     }, timeout)
@@ -128,11 +112,7 @@ function logger_client.clear(timeout)
     return true, nil
 end
 
----@param buffer_size number
----@param timeout? string, for example "10s"
----@return boolean success
----@return string? error
-function logger_client.configure(buffer_size, timeout)
+function logger_client.configure(buffer_size: number, timeout: string?): (boolean, string?)
     if not buffer_size or buffer_size <= 0 then
         return false, "Invalid buffer size"
     end
@@ -147,6 +127,22 @@ function logger_client.configure(buffer_size, timeout)
     end
 
     return true, nil
+end
+
+function logger_client.get_counters(timeout)
+    local response, err = send_and_wait({
+        operation = consts.OPERATIONS.GET_COUNTERS,
+    }, timeout or "2s")
+
+    if err then
+        return nil, err
+    end
+
+    return {
+        counters = response.counters,
+        total_received = response.total_received,
+        stored_count = response.stored_count,
+    }, nil
 end
 
 return logger_client

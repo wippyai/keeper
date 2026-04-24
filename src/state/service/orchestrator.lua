@@ -1,5 +1,4 @@
 local registry = require("registry")
-local json = require("json")
 local time = require("time")
 local logger = require("logger")
 local sql = require("sql")
@@ -147,23 +146,12 @@ local function handle_get_state(state, from, request_id, respond_to)
                 last_sync_time = state.last_sync_time,
                 database_ready = state.database_ready,
                 reconcile_worker_pid = state.reconcile_worker_pid,
-                sync_worker_pid = state.sync_worker_pid,
-                executor_pid = state.executor_pid
+                sync_worker_pid = state.sync_worker_pid
             }
         },
         request_id = request_id,
         timestamp = time.now():format("RFC3339Nano")
     })
-end
-
-local function handle_execute_commands(state, from, payload)
-    log:debug("Delegating execute_commands to executor", {
-        requester = from,
-        request_id = payload.id,
-        command_count = payload.commands and #payload.commands or 0
-    })
-
-    process.send(state.executor_pid, consts.TOPICS.COMMANDS, payload)
 end
 
 local function handle_sync_branch(state, from, payload)
@@ -219,7 +207,7 @@ end
 local function handle_registry_change(state, from, payload)
     local is_version_operation = payload.is_version_operation or false
     local version = payload.version
-    local changeset = payload.changeset or {}
+    local changeset: table = payload.changeset or {}
     local respond_to = payload.respond_to
 
     log:info("Registry change notification", {
@@ -270,7 +258,7 @@ local function handle_registry_change(state, from, payload)
         return
     end
 
-    local spawned = spawn_sync_worker(state, changeset, version, is_version_operation)
+    local spawned = spawn_sync_worker(state, changeset :: any, version, is_version_operation)
     if spawned then
         state.last_sync_version = version
         state.last_sync_time = time.now():format("RFC3339Nano")
@@ -304,20 +292,9 @@ local function run()
         database_ready = false,
         reconcile_worker_pid = nil,
         sync_worker_pid = nil,
-        executor_pid = nil,
         last_sync_version = nil,
         last_sync_time = nil
     }
-
-    log:info("Spawning executor worker")
-    local executor_pid, err = process.spawn_linked("keeper.state.service:executor", consts.PROCESS_HOST)
-    if not executor_pid then
-        log:error("Failed to spawn executor", { error = err })
-        return nil, "Failed to spawn executor"
-    end
-
-    state.executor_pid = executor_pid
-    log:info("Executor worker spawned and linked", { pid = executor_pid })
 
     local db, err = sql.get(consts.DATABASE.RESOURCE_ID)
     if err then
@@ -346,8 +323,7 @@ local function run()
 
     log:info("Orchestrator initialized", {
         registry_version = state.last_sync_version,
-        database_ready = state.database_ready,
-        executor_pid = state.executor_pid
+        database_ready = state.database_ready
     })
 
     local inbox = process.inbox()
@@ -368,8 +344,6 @@ local function run()
             if topic == consts.TOPICS.COMMANDS then
                 if payload.operation == consts.OPERATIONS.GET_STATE then
                     handle_get_state(state, from, payload.id, payload.respond_to)
-                elseif payload.operation == consts.OPERATIONS.EXECUTE_COMMANDS then
-                    handle_execute_commands(state, from, payload)
                 elseif payload.operation == consts.OPERATIONS.SYNC_BRANCH then
                     handle_sync_branch(state, from, payload)
                 else
@@ -396,9 +370,6 @@ local function run()
                 end
                 if state.sync_worker_pid then
                     process.terminate(state.sync_worker_pid)
-                end
-                if state.executor_pid then
-                    process.cancel(state.executor_pid, "1s")
                 end
 
                 return {

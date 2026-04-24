@@ -72,13 +72,6 @@ local function handler()
         return
     end
 
-    -- Print for now as requested
-    print("HIL REQUEST REJECTED:", json.encode({
-        request_id = request_id,
-        user_id = user_id,
-        reason = reason
-    }))
-
     res:set_content_type(http.CONTENT.JSON)
     res:set_status(http.STATUS.OK)
     res:write_json({

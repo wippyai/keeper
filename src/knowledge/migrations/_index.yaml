@@ -1,0 +1,17 @@
+version: "1.0"
+namespace: keeper.knowledge.migrations
+
+entries:
+  # keeper.knowledge.migrations:migration_01
+  - name: migration_01
+    kind: function.lua
+    meta:
+      type: migration
+      comment: Knowledge base tables (kbs, nodes, fts, embeddings, changelog)
+      order: 2
+      target_db: app:db
+    source: file://migration_01.lua
+    imports:
+      migration: wippy.migration:migration
+    method: define
+    

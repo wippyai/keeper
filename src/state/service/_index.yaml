@@ -2,32 +2,15 @@ version: "1.0"
 namespace: keeper.state.service
 
 entries:
-  # keeper.state.service:executor
-  - name: executor
-    kind: process.lua
-    meta:
-      comment: State command executor worker
-      description: Private worker that executes state commands with DB transactions
-    source: file://executor.lua
-    modules:
-      - json
-      - logger
-      - sql
-    imports:
-      consts: keeper.state:consts
-      state_ops: keeper.state.persist:ops
-    method: run
-    
   # keeper.state.service:orchestrator
   - name: orchestrator
     kind: process.lua
     meta:
       comment: State system orchestrator process
-      description: Main coordinator that spawns executor worker and manages reconciliation/sync
+      description: Main coordinator that manages reconciliation and sync workers
     source: file://orchestrator.lua
     modules:
       - registry
-      - json
       - time
       - logger
       - sql
@@ -41,9 +24,13 @@ entries:
     meta:
       comment: State system orchestrator service
       description: Always-running coordinator for state synchronization
+      depends_on:
+        - keeper.state:db
     host: keeper.gov:processes
     lifecycle:
       auto_start: true
+      requires:
+        - keeper.state:db
       security:
         actor:
           id: state.orchestrator
@@ -65,7 +52,7 @@ entries:
     imports:
       consts: keeper.state:consts
       materialize: keeper.state.persist:materialize
-      state_client: keeper.state:client
+      state_ops: keeper.state.persist:ops
       state_reader: keeper.state.persist:reader
     method: run
     
@@ -77,11 +64,10 @@ entries:
       description: Worker process that applies incremental registry changes to state database
     source: file://sync.lua
     modules:
-      - json
       - logger
-      - sql
     imports:
       consts: keeper.state:consts
+      gov_consts: keeper.gov:consts
       materialize: keeper.state.persist:materialize
       state_ops: keeper.state.persist:ops
     method: run
@@ -95,12 +81,26 @@ entries:
     source: file://sync_branch.lua
     modules:
       - registry
-      - json
       - logger
-      - time
     imports:
-      consts: keeper.state:consts
       materialize: keeper.state.persist:materialize
-      state_client: keeper.state:client
+      state_ops: keeper.state.persist:ops
     method: run
+    
+  # keeper.state.service:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for state service helpers (reconcile/sync/sync_branch)
+      suite: state.service
+    source: file://test.lua
+    imports:
+      reconcile: keeper.state.service:reconcile
+      sync: keeper.state.service:sync
+      sync_branch: keeper.state.service:sync_branch
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
     

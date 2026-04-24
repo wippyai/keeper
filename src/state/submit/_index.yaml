@@ -1,0 +1,44 @@
+version: "1.0"
+namespace: keeper.state.submit
+
+entries:
+  # keeper.state.submit:library
+  - name: library
+    kind: library.lua
+    meta:
+      comment: |
+        Submit primitive. One call performs validate -> stage -> preflight -> lint ->
+        (dry-run return) or -> publish, returning a structured response with diffs,
+        lint, persistence, and errors[]. Phase A: facade over edit/lint/push +
+        changeset drop. Phase B: preflight runs kind-specific schema contracts
+        against each staged entry so "missing method" / "function config unpack"
+        fails at submit time with a fix_hint rather than deep in the runner.
+    source: file://library.lua
+    modules:
+      - ctx
+      - funcs
+    imports:
+      contracts: keeper.state.contracts:library
+      cs_client: keeper.changeset:client
+      materialize: keeper.state.persist:materialize
+      state_reader: keeper.state.persist:reader
+    
+  # keeper.state.submit:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Submit library tests — validation, stage+lint preview, commit, abandon, structured errors
+      suite: submit
+    source: file://test.lua
+    modules:
+      - sql
+      - json
+      - uuid
+    imports:
+      submit_lib: keeper.state.submit:library
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

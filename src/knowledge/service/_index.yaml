@@ -1,0 +1,19 @@
+version: "1.0"
+namespace: keeper.knowledge.service
+
+entries:
+  # keeper.knowledge.service:service
+  - name: service
+    kind: library.lua
+    meta:
+      comment: Knowledge service — validation, KB resolution, research+learn orchestration
+    source: file://service.lua
+    modules:
+      - sql
+    imports:
+      embedder: keeper.knowledge:embedder
+      flow: userspace.dataflow.flow:flow
+      kb_consts: keeper.knowledge:consts
+      kb_repo: keeper.knowledge:repo
+      llm: wippy.llm:llm
+    

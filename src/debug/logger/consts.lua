@@ -14,6 +14,7 @@ local consts = {
         GET_LOGS = "get_logs",
         COMPOSITION = "composition",
         GET_STATS = "get_stats",
+        GET_COUNTERS = "get_counters",
         CLEAR = "clear",
         CONFIGURE = "configure",
     },

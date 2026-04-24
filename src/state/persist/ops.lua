@@ -26,13 +26,13 @@ handlers[state_ops.COMMAND.SET_ENTRY] = function(tx, cmd)
     local branch = p.branch or consts.BRANCH.MAIN
     local now = time.now():format("RFC3339Nano")
 
-    local def_hash, err = hash.sha256(p.definition)
+    local def_hash, err = hash.sha256(tostring(p.definition))
     if err then
         return nil, "Definition hash failed: " .. err
     end
 
     local success, err = tx:execute([[
-        INSERT OR REPLACE INTO overlay_entries
+        INSERT OR REPLACE INTO keeper_overlay_entries
         (id, branch, kind, deleted, created_at, updated_at)
         VALUES (?, ?, ?, 0, ?, ?)
     ]], {
@@ -48,17 +48,22 @@ handlers[state_ops.COMMAND.SET_ENTRY] = function(tx, cmd)
     end
 
     tx:execute([[
-        DELETE FROM overlay_chunks
+        DELETE FROM keeper_overlay_edges
+        WHERE source_id = ? AND branch = ?
+    ]], {p.id, branch})
+
+    tx:execute([[
+        DELETE FROM keeper_overlay_chunks
         WHERE entry_id = ? AND branch = ?
     ]], {p.id, branch})
 
     tx:execute([[
-        DELETE FROM overlay_chunks_fts
+        DELETE FROM keeper_overlay_chunks_fts
         WHERE entry_id = ? AND branch = ?
     ]], {p.id, branch})
 
     success, err = tx:execute([[
-        INSERT INTO overlay_chunks
+        INSERT INTO keeper_overlay_chunks
         (entry_id, branch, chunk_type, content, content_hash, created_at)
         VALUES (?, ?, 'definition', ?, ?, ?)
     ]], {
@@ -74,7 +79,7 @@ handlers[state_ops.COMMAND.SET_ENTRY] = function(tx, cmd)
     end
 
     success, err = tx:execute([[
-        INSERT INTO overlay_chunks_fts
+        INSERT INTO keeper_overlay_chunks_fts
         (entry_id, branch, content)
         VALUES (?, ?, ?)
     ]], {p.id, branch, p.definition})
@@ -84,13 +89,13 @@ handlers[state_ops.COMMAND.SET_ENTRY] = function(tx, cmd)
     end
 
     if p.content and p.content ~= "" then
-        local content_hash, hash_err = hash.sha256(p.content)
+        local content_hash, hash_err = hash.sha256(tostring(p.content))
         if hash_err then
             return nil, "Content hash failed: " .. hash_err
         end
 
         success, err = tx:execute([[
-            INSERT INTO overlay_chunks
+            INSERT INTO keeper_overlay_chunks
             (entry_id, branch, chunk_type, content, content_hash, created_at)
             VALUES (?, ?, 'content', ?, ?, ?)
         ]], {
@@ -106,7 +111,7 @@ handlers[state_ops.COMMAND.SET_ENTRY] = function(tx, cmd)
         end
 
         success, err = tx:execute([[
-            INSERT INTO overlay_chunks_fts
+            INSERT INTO keeper_overlay_chunks_fts
             (entry_id, branch, content)
             VALUES (?, ?, ?)
         ]], {p.id, branch, p.content})
@@ -118,13 +123,13 @@ handlers[state_ops.COMMAND.SET_ENTRY] = function(tx, cmd)
 
     if p.attributes and type(p.attributes) == "table" then
         tx:execute([[
-            DELETE FROM overlay_attributes
+            DELETE FROM keeper_overlay_attributes
             WHERE entry_id = ? AND branch = ?
         ]], {p.id, branch})
 
         for k, v in pairs(p.attributes) do
             success, err = tx:execute([[
-                INSERT INTO overlay_attributes
+                INSERT INTO keeper_overlay_attributes
                 (entry_id, branch, attr_key, attr_value)
                 VALUES (?, ?, ?, ?)
             ]], {p.id, branch, k, tostring(v)})
@@ -152,7 +157,7 @@ handlers[state_ops.COMMAND.DELETE_ENTRY] = function(tx, cmd)
     local now = time.now():format("RFC3339Nano")
 
     local kind_result, err = tx:query([[
-        SELECT kind FROM overlay_entries
+        SELECT kind FROM keeper_overlay_entries
         WHERE id = ? AND branch IN (?, 'main')
         ORDER BY CASE WHEN branch = ? THEN 0 ELSE 1 END
         LIMIT 1
@@ -168,7 +173,7 @@ handlers[state_ops.COMMAND.DELETE_ENTRY] = function(tx, cmd)
 
     local kind = kind_result[1].kind
     local success, err = tx:execute([[
-        INSERT OR REPLACE INTO overlay_entries
+        INSERT OR REPLACE INTO keeper_overlay_entries
         (id, branch, kind, deleted, created_at, updated_at)
         VALUES (?, ?, ?, 1, ?, ?)
     ]], {p.id, branch, kind, now, now})
@@ -216,7 +221,7 @@ handlers[state_ops.COMMAND.SET_EDGE] = function(tx, cmd)
     end
 
     local check_result, check_err = tx:query([[
-        SELECT metadata FROM overlay_edges
+        SELECT metadata FROM keeper_overlay_edges
         WHERE source_id = ? AND target_id = ? AND branch = ? AND edge_type = ?
     ]], {p.source_id, p.target_id, branch, p.edge_type})
 
@@ -228,7 +233,7 @@ handlers[state_ops.COMMAND.SET_EDGE] = function(tx, cmd)
     end
 
     local success, err = tx:execute([[
-        INSERT OR REPLACE INTO overlay_edges
+        INSERT OR REPLACE INTO keeper_overlay_edges
         (source_id, target_id, branch, edge_type, metadata, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
     ]], {
@@ -262,7 +267,7 @@ handlers[state_ops.COMMAND.DELETE_EDGE] = function(tx, cmd)
     local branch = p.branch or consts.BRANCH.MAIN
 
     local success, err = tx:execute([[
-        DELETE FROM overlay_edges
+        DELETE FROM keeper_overlay_edges
         WHERE source_id = ? AND target_id = ? AND branch = ? AND edge_type = ?
     ]], {p.source_id, p.target_id, branch, p.edge_type})
 
@@ -288,7 +293,7 @@ handlers[state_ops.COMMAND.SET_ATTRIBUTE] = function(tx, cmd)
     local branch = p.branch or consts.BRANCH.MAIN
 
     local success, err = tx:execute([[
-        INSERT OR REPLACE INTO overlay_attributes
+        INSERT OR REPLACE INTO keeper_overlay_attributes
         (entry_id, branch, attr_key, attr_value)
         VALUES (?, ?, ?, ?)
     ]], {
@@ -319,7 +324,7 @@ handlers[state_ops.COMMAND.DELETE_ATTRIBUTE] = function(tx, cmd)
     local branch = p.branch or consts.BRANCH.MAIN
 
     local success, err = tx:execute([[
-        DELETE FROM overlay_attributes
+        DELETE FROM keeper_overlay_attributes
         WHERE entry_id = ? AND branch = ? AND attr_key = ?
     ]], {p.entry_id, branch, p.attr_key})
 
@@ -381,6 +386,41 @@ function state_ops.execute(tx, commands)
         results = results,
         changes_made = changes_made
     }
+end
+
+-- Open a transaction against keeper.state:db, run execute(tx, commands), commit,
+-- and release the connection. Returns (result, nil) on success where result is
+-- whatever state_ops.execute returned, or (nil, err) on any failure (connection,
+-- begin, execute, or commit). Used by sync / sync_branch workers so they do not
+-- reimplement the tx lifecycle per call site.
+function state_ops.apply_commands(commands)
+    local db, err = sql.get(consts.DATABASE.RESOURCE_ID)
+    if err then
+        return nil, consts.ERRORS.DB_CONNECTION_FAILED .. ": " .. err
+    end
+
+    local tx, tx_err = db:begin()
+    if tx_err then
+        db:release()
+        return nil, "Failed to begin transaction: " .. tx_err
+    end
+
+    local result, exec_err = state_ops.execute(tx, commands)
+    if exec_err then
+        tx:rollback()
+        db:release()
+        return nil, "Command execution failed: " .. exec_err
+    end
+
+    local _, commit_err = tx:commit()
+    if commit_err then
+        tx:rollback()
+        db:release()
+        return nil, "Failed to commit transaction: " .. commit_err
+    end
+
+    db:release()
+    return result, nil
 end
 
 return state_ops

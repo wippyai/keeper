@@ -1,0 +1,89 @@
+version: "1.0"
+namespace: keeper.develop.integrate.pipeline
+
+entries:
+  # keeper.develop.integrate.pipeline:execute
+  - name: execute
+    kind: function.lua
+    meta:
+      comment: Given pushed entry_ids, groups by matched integration.handler (via discovery:match_handlers) and runs each handler in order. Returns {success, applied_ids, execution:{handlers}}.
+    source: file://execute.lua
+    modules:
+      - json
+      - registry
+    imports:
+      discovery: keeper.develop.integrate.discovery:match_handlers
+      flow: userspace.dataflow.flow:flow
+    method: handler
+    
+  # keeper.develop.integrate.pipeline:execute_handler
+  - name: execute_handler
+    kind: function.lua
+    meta:
+      comment: Calls a single integration.handler entry with {entry_ids, operation}. Used as a node inside the execute + rollback flows.
+    source: file://execute_handler.lua
+    modules:
+      - json
+      - funcs
+    method: handler
+    
+  # keeper.develop.integrate.pipeline:execute_handler_test
+  - name: execute_handler_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for execute_handler — success result, error capture, defaults
+      suite: develop
+    source: file://execute_handler_test.lua
+    modules:
+      - funcs
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.develop.integrate.pipeline:execute_test
+  - name: execute_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for execute — empty input, missing entry, no-handler short-circuit
+      suite: develop
+    source: file://execute_test.lua
+    modules:
+      - funcs
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.develop.integrate.pipeline:rollback
+  - name: rollback
+    kind: function.lua
+    meta:
+      comment: Inverse of pipeline:execute — walks execute's handler results in reverse and runs operation=down per handler group. Used when integrate needs to revert applied handlers.
+    source: file://rollback.lua
+    modules:
+      - json
+    imports:
+      flow: userspace.dataflow.flow:flow
+    method: handler
+    
+  # keeper.develop.integrate.pipeline:rollback_test
+  - name: rollback_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for rollback — empty execution, nil execution, missing entry
+      suite: develop
+    source: file://rollback_test.lua
+    modules:
+      - funcs
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

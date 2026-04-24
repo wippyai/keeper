@@ -1,0 +1,113 @@
+version: "1.0"
+namespace: keeper.debug.logger.api
+
+entries:
+  # keeper.debug.logger.api:clear
+  - name: clear
+    kind: function.lua
+    meta:
+      comment: Clear the logger buffer
+      depends_on:
+        - ns:app
+        - ns:keeper.debug.logger
+      router: app:api
+    source: file://clear.lua
+    modules:
+      - http
+      - security
+    imports:
+      logger_client: keeper.debug.logger:client
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.debug.logger.api:clear.endpoint
+  - name: clear.endpoint
+    kind: http.endpoint
+    meta:
+      depends_on:
+        - ns:app
+      router: app:api
+    method: POST
+    func: clear
+    path: /keeper/logger/clear
+    
+  # keeper.debug.logger.api:get_logs
+  - name: get_logs
+    kind: function.lua
+    meta:
+      comment: Query logs from the logger buffer
+      depends_on:
+        - ns:app
+        - ns:keeper.debug.logger
+      router: app:api
+    source: file://get_logs.lua
+    modules:
+      - http
+      - security
+    imports:
+      logger_client: keeper.debug.logger:client
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.debug.logger.api:get_logs.endpoint
+  - name: get_logs.endpoint
+    kind: http.endpoint
+    meta:
+      depends_on:
+        - ns:app
+      router: app:api
+    method: GET
+    func: get_logs
+    path: /keeper/logger/logs
+    
+  # keeper.debug.logger.api:get_stats
+  - name: get_stats
+    kind: function.lua
+    meta:
+      comment: Get logger buffer stats and counters
+      depends_on:
+        - ns:app
+        - ns:keeper.debug.logger
+      router: app:api
+    source: file://get_stats.lua
+    modules:
+      - http
+      - security
+    imports:
+      logger_client: keeper.debug.logger:client
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.debug.logger.api:get_stats.endpoint
+  - name: get_stats.endpoint
+    kind: http.endpoint
+    meta:
+      depends_on:
+        - ns:app
+      router: app:api
+    method: GET
+    func: get_stats
+    path: /keeper/logger/stats
+    
+  # keeper.debug.logger.api:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Logger API endpoint tests
+      depends_on:
+        - ns:app
+        - ns:wippy.test
+    source: file://test.lua
+    modules:
+      - json
+      - http_client
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

@@ -11,9 +11,9 @@ entries:
     source: file://download.lua
     modules:
       - http
-      - time
     imports:
       gov_client: keeper.gov:client
+      sys_cs: keeper.state.system_changeset:library
     method: handler
     pool:
       size: 1
@@ -29,6 +29,18 @@ entries:
     func: download
     path: /keeper/sync/download
     
+  # keeper.gov.api:helpers
+  - name: helpers
+    kind: library.lua
+    meta:
+      comment: Shared gov.api helpers — version-revert journaling wrapper used by undo/redo
+    source: file://helpers.lua
+    modules:
+      - registry
+    imports:
+      gov_client: keeper.gov:client
+      sys_cs: keeper.state.system_changeset:library
+    
   # keeper.gov.api:redo
   - name: redo
     kind: function.lua
@@ -38,11 +50,9 @@ entries:
     source: file://redo.lua
     modules:
       - http
-      - json
-      - time
       - registry
     imports:
-      gov_client: keeper.gov:client
+      helpers: keeper.gov.api:helpers
     method: handler
     pool:
       size: 1
@@ -67,7 +77,6 @@ entries:
     source: file://state.lua
     modules:
       - http
-      - json
       - registry
       - time
     imports:
@@ -96,11 +105,9 @@ entries:
     source: file://undo.lua
     modules:
       - http
-      - json
-      - time
       - registry
     imports:
-      gov_client: keeper.gov:client
+      helpers: keeper.gov.api:helpers
     method: handler
     pool:
       size: 1
@@ -125,9 +132,9 @@ entries:
     source: file://upload.lua
     modules:
       - http
-      - time
     imports:
       gov_client: keeper.gov:client
+      sys_cs: keeper.state.system_changeset:library
     method: handler
     pool:
       size: 1

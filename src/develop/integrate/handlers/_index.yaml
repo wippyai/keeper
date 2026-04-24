@@ -1,0 +1,225 @@
+version: "1.0"
+namespace: keeper.develop.integrate.handlers
+
+entries:
+  # keeper.develop.integrate.handlers:build_handler
+  - name: build_handler
+    kind: function.lua
+    meta:
+      type: integration.handler
+      title: Rebuild Frontend Components
+      comment: Resolves the component owning every pushed view.page source path and rebuilds it via keeper.components.tools:build_component. Down = record-only until keeper_fe_builds history lookup lands.
+      icon: tabler:package
+      order: 400
+      handles:
+        meta.type: view.page
+      mode: batch
+      operations:
+        - up
+        - down
+    source: file://build_handler.lua
+    modules:
+      - registry
+      - funcs
+    method: handler
+    
+  # keeper.develop.integrate.handlers:build_handler_test
+  - name: build_handler_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for build_handler — empty input, down no-op, missing entry reference
+      suite: develop
+    source: file://build_handler_test.lua
+    modules:
+      - funcs
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.develop.integrate.handlers:endpoint_handler
+  - name: endpoint_handler
+    kind: function.lua
+    meta:
+      type: integration.handler
+      title: Probe Pushed Endpoints
+      comment: Synthetic probe via keeper.components.tools:test_endpoint per pushed http.endpoint. Non-5xx response passes; 5xx fails the handler so the integrate runner rolls back.
+      icon: tabler:world-code
+      order: 600
+      handles:
+        kind: http.endpoint
+      mode: batch
+      operations:
+        - up
+        - down
+    source: file://endpoint_handler.lua
+    modules:
+      - registry
+      - funcs
+    method: handler
+    
+  # keeper.develop.integrate.handlers:endpoint_handler_test
+  - name: endpoint_handler_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for endpoint_handler — empty input, down no-op, missing entry reference
+      suite: develop
+    source: file://endpoint_handler_test.lua
+    modules:
+      - funcs
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.develop.integrate.handlers:env_variable_handler
+  - name: env_variable_handler
+    kind: function.lua
+    meta:
+      type: integration.handler
+      title: Mount Environment Variables
+      comment: Applies env.variable kind entries; idempotent for the up direction
+      icon: tabler:variable
+      order: 200
+      handles:
+        kind: env.variable
+      mode: batch
+      operations:
+        - up
+        - down
+    source: file://env_variable_handler.lua
+    modules:
+      - registry
+    method: handler
+    
+  # keeper.develop.integrate.handlers:env_variable_handler_test
+  - name: env_variable_handler_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for env_variable_handler — empty input, up/down operation propagation
+      suite: develop
+    source: file://env_variable_handler_test.lua
+    modules:
+      - funcs
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.develop.integrate.handlers:migration_handler
+  - name: migration_handler
+    kind: function.lua
+    meta:
+      type: integration.handler
+      title: Run Migrations
+      comment: Groups pushed migration entries by meta.target_db and runs wippy.migration:runner for each group
+      icon: tabler:database-import
+      order: 100
+      handles:
+        meta.type: migration
+      mode: batch
+      operations:
+        - up
+        - down
+    source: file://migration_handler.lua
+    modules:
+      - registry
+    imports:
+      runner: wippy.migration:runner
+    method: handler
+    
+  # keeper.develop.integrate.handlers:migration_handler_test
+  - name: migration_handler_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for migration_handler — empty input, missing entry reference
+      suite: develop
+    source: file://migration_handler_test.lua
+    modules:
+      - funcs
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.develop.integrate.handlers:test_handler
+  - name: test_handler
+    kind: function.lua
+    meta:
+      type: integration.handler
+      title: Run Pushed Tests
+      comment: Invokes keeper.debug.tools:run_test on every pushed entry whose meta.type == test. Any failing assertion fails the handler so the integrate runner rolls back.
+      icon: tabler:test-pipe
+      order: 500
+      handles:
+        meta.type: test
+      mode: batch
+      operations:
+        - up
+        - down
+    source: file://test_handler.lua
+    modules:
+      - funcs
+    method: handler
+    
+  # keeper.develop.integrate.handlers:test_handler_test
+  - name: test_handler_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for test_handler — empty input, down no-op, up runs a real passing test
+      suite: develop
+    source: file://test_handler_test.lua
+    modules:
+      - funcs
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.develop.integrate.handlers:view_handler
+  - name: view_handler
+    kind: function.lua
+    meta:
+      type: integration.handler
+      title: Verify Views
+      comment: Confirms pushed view.page entries have their file on disk; rollback is the fs restore handled elsewhere
+      icon: tabler:browser-check
+      order: 300
+      handles:
+        meta.type: view.page
+      mode: batch
+      operations:
+        - up
+        - down
+    source: file://view_handler.lua
+    modules:
+      - registry
+      - fs
+    method: handler
+    
+  # keeper.develop.integrate.handlers:view_handler_test
+  - name: view_handler_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for view_handler — empty input, missing entry reference
+      suite: develop
+    source: file://view_handler_test.lua
+    modules:
+      - funcs
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

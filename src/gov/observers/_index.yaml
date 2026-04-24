@@ -21,5 +21,8 @@ entries:
       - json
       - time
       - logger
+    imports:
+      changelog_repo: keeper.knowledge.changelog:changelog
+      gov_consts: keeper.gov:consts
     method: run
     

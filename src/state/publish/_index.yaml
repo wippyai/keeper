@@ -1,0 +1,28 @@
+version: "1.0"
+namespace: keeper.state.publish
+
+entries:
+  # keeper.state.publish:governance
+  - name: governance
+    kind: library.lua
+    meta:
+      comment: Pure governance publisher — request_changes / request_version / current_version. Shared primitive for push.lua and the integrate runner; no inline migration/test/build side effects.
+    source: file://governance.lua
+    imports:
+      gov_client: keeper.gov:client
+    
+  # keeper.state.publish:governance_test
+  - name: governance_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: governance primitive — current_version shape, input guards on publish / restore_version
+      suite: publish
+    source: file://governance_test.lua
+    imports:
+      governance: keeper.state.publish:governance
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

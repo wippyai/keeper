@@ -1,0 +1,76 @@
+version: "1.0"
+namespace: keeper.knowledge
+
+entries:
+  # keeper.knowledge:consts
+  - name: consts
+    kind: library.lua
+    meta:
+      comment: Knowledge base constants
+    source: file://consts.lua
+    
+  # keeper.knowledge:embedder
+  - name: embedder
+    kind: function.lua
+    meta:
+      comment: Generates and stores embeddings for knowledge nodes
+    source: file://embedder.lua
+    modules:
+      - sql
+      - json
+    imports:
+      kb_consts: keeper.knowledge:consts
+      kb_repo: keeper.knowledge:repo
+      llm: wippy.llm:llm
+    method: embed
+    pool:
+      size: 1
+    
+  # keeper.knowledge:repo
+  - name: repo
+    kind: library.lua
+    meta:
+      comment: Knowledge base CRUD with CQRS publish
+    source: file://repo.lua
+    modules:
+      - sql
+      - json
+      - uuid
+      - time
+      - registry
+    imports:
+      kb_consts: keeper.knowledge:consts
+    
+  # keeper.knowledge:seeder
+  - name: seeder
+    kind: function.lua
+    meta:
+      comment: Seeds knowledge base with standard Wippy patterns
+    source: file://seeder.lua
+    modules:
+      - json
+      - registry
+    imports:
+      kb_repo: keeper.knowledge:repo
+    method: seed
+    pool:
+      size: 1
+    
+  # keeper.knowledge:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Knowledge base repository tests
+      suite: knowledge
+    source: file://test.lua
+    modules:
+      - sql
+      - uuid
+    imports:
+      kb_repo: keeper.knowledge:repo
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

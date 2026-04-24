@@ -1,0 +1,28 @@
+version: "1.0"
+namespace: keeper.develop.integrate.discovery
+
+entries:
+  # keeper.develop.integrate.discovery:match_handlers
+  - name: match_handlers
+    kind: library.lua
+    meta:
+      comment: Match registry entries to integration.handler entries by meta.handles (kind or meta.* filter); returns ordered handler list
+    source: file://match_handlers.lua
+    modules:
+      - registry
+    
+  # keeper.develop.integrate.discovery:match_handlers_test
+  - name: match_handlers_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for match_handlers — routing by kind + meta.type, ordering, unknown ops, empty input
+      suite: develop
+    source: file://match_handlers_test.lua
+    imports:
+      discovery: keeper.develop.integrate.discovery:match_handlers
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

@@ -1,0 +1,96 @@
+version: "1.0"
+namespace: keeper.changeset.migrations
+
+entries:
+  # keeper.changeset.migrations:01_create_workspace_tables
+  - name: 01_create_workspace_tables
+    kind: function.lua
+    meta:
+      type: migration
+      comment: Changeset tables — workspaces, changes, baselines, merges, fs_manifests, fs_deletes
+      description: Adds workspace journal + baseline snapshots + reconciliation audit tables to the state DB.
+      target_db: keeper.state:db
+      timestamp: "2026-04-15T00:00:00Z"
+    source: file://01_create_workspace_tables.lua
+    imports:
+      migration: wippy.migration:migration
+    method: migrate
+    
+  # keeper.changeset.migrations:02_add_fs_content_table
+  - name: 02_add_fs_content_table
+    kind: function.lua
+    meta:
+      type: migration
+      comment: Changeset FS content stored in DB instead of staging_fs disk
+      target_db: keeper.state:db
+      timestamp: "2026-04-16T12:00:00Z"
+    source: file://02_add_fs_content_table.lua
+    imports:
+      migration: wippy.migration:migration
+    method: migrate
+    
+  # keeper.changeset.migrations:03_add_lock_columns
+  - name: 03_add_lock_columns
+    kind: function.lua
+    meta:
+      type: migration
+      comment: Exclusive lock columns for agent workspace ownership
+      target_db: keeper.state:db
+      timestamp: "2026-04-17T00:00:00Z"
+    source: file://03_add_lock_columns.lua
+    imports:
+      migration: wippy.migration:migration
+    method: migrate
+    
+  # keeper.changeset.migrations:04_fs_history_columns
+  - name: 04_fs_history_columns
+    kind: function.lua
+    meta:
+      type: migration
+      comment: FS prior-content + flushed_at columns, changeset pre_push_version anchor
+      target_db: keeper.state:db
+      timestamp: "2026-04-20T00:00:00Z"
+    source: file://04_fs_history_columns.lua
+    imports:
+      migration: wippy.migration:migration
+    method: migrate
+    
+  # keeper.changeset.migrations:05_drop_design_id_column
+  - name: 05_drop_design_id_column
+    kind: function.lua
+    meta:
+      type: migration
+      comment: Drop obsolete design_id column from keeper_changesets (post design->task rename)
+      target_db: keeper.state:db
+      timestamp: "2026-04-21T00:00:00Z"
+    source: file://05_drop_design_id_column.lua
+    imports:
+      migration: wippy.migration:migration
+    method: migrate
+    
+  # keeper.changeset.migrations:06_add_task_id_column
+  - name: 06_add_task_id_column
+    kind: function.lua
+    meta:
+      type: migration
+      comment: Add task_id column + index to keeper_changesets — one changeset per task, idempotent add
+      target_db: keeper.state:db
+      timestamp: "2026-04-24T00:00:00Z"
+    source: file://06_add_task_id_column.lua
+    imports:
+      migration: wippy.migration:migration
+    method: migrate
+    
+  # keeper.changeset.migrations:07_drop_legacy_columns
+  - name: 07_drop_legacy_columns
+    kind: function.lua
+    meta:
+      type: migration
+      comment: Drop git_branch, git_pr_id, pre_push_version from keeper_changesets — unreferenced legacy columns. Baselines live in keeper_changeset_baselines; current version comes from governance.
+      target_db: keeper.state:db
+      timestamp: "2026-04-24T12:00:00Z"
+    source: file://07_drop_legacy_columns.lua
+    imports:
+      migration: wippy.migration:migration
+    method: migrate
+    

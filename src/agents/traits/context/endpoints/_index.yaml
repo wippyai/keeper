@@ -1,0 +1,40 @@
+version: "1.0"
+namespace: keeper.agents.traits.context.endpoints
+
+entries:
+  # keeper.agents.traits.context.endpoints:endpoints_aware
+  - name: endpoints_aware
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Endpoints Aware
+      comment: Inject complete HTTP endpoint tree into system prompt
+      tags:
+        - endpoints
+        - http
+        - api
+        - context
+      icon: tabler:api
+    prompt: You are aware of the HTTP endpoint ecosystem showing routers, endpoints, and function associations organized by namespace.
+    tools:
+      - keeper.state.tools:get_entries
+    prompt_func_id: keeper.agents.traits.context.endpoints:get_endpoint_tree
+    
+  # keeper.agents.traits.context.endpoints:get_endpoint_tree
+  - name: get_endpoint_tree
+    kind: function.lua
+    meta:
+      comment: Returns tree structure of all HTTP routers and endpoints
+      output_schema: |
+        {
+          "type": "string"
+        }
+    source: file://get_endpoint_tree.lua
+    modules:
+      - yaml
+    imports:
+      branch_ctx: keeper.state.tools:branch_ctx
+      entry_lib: keeper.state.tools:entry_lib
+      state_reader: keeper.state.persist:reader
+    method: handler
+    

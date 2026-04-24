@@ -1,0 +1,290 @@
+version: "1.0"
+namespace: keeper.changeset.service
+
+entries:
+  # keeper.changeset.service:central
+  - name: central
+    kind: process.lua
+    meta:
+      comment: Changeset central supervisor — serialises all workspace mutations one at a time
+    source: file://central.lua
+    modules:
+      - process
+      - channel
+      - time
+      - logger
+    imports:
+      consts: keeper.changeset:consts
+      diff: keeper.changeset:diff
+      drop: keeper.changeset.service:drop
+      edit: keeper.changeset.service:edit
+      open: keeper.changeset.service:open
+      repo: keeper.changeset.persist:repo
+      transitions: keeper.changeset.service:transitions
+    method: run
+    
+  # keeper.changeset.service:central.service
+  - name: central.service
+    kind: process.service
+    meta:
+      comment: Always-running changeset supervisor
+    host: keeper.gov:processes
+    lifecycle:
+      auto_start: true
+      security:
+        actor:
+          id: workspace.supervisor
+        groups:
+          - keeper.gov.service.security:governance
+    process: central
+    
+  # keeper.changeset.service:diff_render
+  - name: diff_render
+    kind: library.lua
+    meta:
+      comment: Render baseline vs current content for a changeset target (registry overlay or fs)
+    source: file://diff_render.lua
+    modules:
+      - sql
+      - fs
+    imports:
+      consts: keeper.changeset:consts
+      fs_view: keeper.changeset:fs_view
+      repo: keeper.changeset.persist:repo
+    
+  # keeper.changeset.service:diff_render_test
+  - name: diff_render_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for diff_render helpers (language detection + param validation)
+      suite: changeset.service
+    source: file://diff_render_test.lua
+    imports:
+      diff_render: keeper.changeset.service:diff_render
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.changeset.service:drive_to_accepted
+  - name: drive_to_accepted
+    kind: function.lua
+    meta:
+      comment: Drive a workspace from its current live state up to ACCEPTED, running every required transition. Called by push before publish so push_start/push_success always fire from a canonical ACCEPTED state.
+    source: file://drive_to_accepted.lua
+    imports:
+      consts: keeper.changeset:consts
+      repo: keeper.changeset.persist:repo
+      transitions: keeper.changeset.service:transitions
+    method: handler
+    
+  # keeper.changeset.service:drop
+  - name: drop
+    kind: library.lua
+    meta:
+      comment: Changeset drop — delegates overlay + FS teardown to repo.drop_changeset
+    source: file://drop.lua
+    imports:
+      consts: keeper.changeset:consts
+      repo: keeper.changeset.persist:repo
+    
+  # keeper.changeset.service:edit
+  - name: edit
+    kind: library.lua
+    meta:
+      comment: Changeset edit — writes to overlay branch (registry) or scratch FS, and emits a pending journal row per mutation so every edit is captured before push
+    source: file://edit.lua
+    modules:
+      - hash
+    imports:
+      consts: keeper.changeset:consts
+      fs_view: keeper.changeset:fs_view
+      repo: keeper.changeset.persist:repo
+      state_ops: keeper.state.persist:ops
+    
+  # keeper.changeset.service:edit_test
+  - name: edit_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for edit helpers (validate_args, assert_live, compute_entry_hash)
+      suite: changeset.service
+    source: file://edit_test.lua
+    modules:
+      - hash
+    imports:
+      consts: keeper.changeset:consts
+      edit: keeper.changeset.service:edit
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.changeset.service:fire_transition
+  - name: fire_transition
+    kind: function.lua
+    meta:
+      comment: Function wrapper for the transitions library so callers can invoke state machine events via funcs without adding transitive consts imports to their pool
+    source: file://fire_transition.lua
+    imports:
+      transitions: keeper.changeset.service:transitions
+    method: handler
+    
+  # keeper.changeset.service:janitor
+  - name: janitor
+    kind: library.lua
+    meta:
+      comment: Empty-open changeset sweep — enumerates TTL-expired candidates via repo and drops them through the central client
+    source: file://janitor.lua
+    modules:
+      - time
+    imports:
+      client: keeper.changeset:client
+      consts: keeper.changeset:consts
+      repo: keeper.changeset.persist:repo
+    
+  # keeper.changeset.service:lookup_by_branch
+  - name: lookup_by_branch
+    kind: function.lua
+    meta:
+      comment: Read-only lookup of a live workspace by state_branch. Called via funcs so callers can resolve changeset_id from overlay_branch without dragging keeper.changeset:consts into their pool.
+    source: file://lookup_by_branch.lua
+    imports:
+      consts: keeper.changeset:consts
+      repo: keeper.changeset.persist:repo
+    method: handler
+    
+  # keeper.changeset.service:open
+  - name: open
+    kind: library.lua
+    meta:
+      comment: Changeset open — snapshot baselines, allocate branch name, create scratch dir
+    source: file://open.lua
+    modules:
+      - fs
+      - uuid
+      - registry
+    imports:
+      consts: keeper.changeset:consts
+      fs_hash: keeper.changeset:fs_hash
+      fs_view: keeper.changeset:fs_view
+      repo: keeper.changeset.persist:repo
+    
+  # keeper.changeset.service:open_or_resume
+  - name: open_or_resume
+    kind: function.lua
+    meta:
+      comment: Function wrapper that delegates to cs_client.open_or_resume so callers serialize through the central supervisor. Resumes a live workspace when state_branch already matches, otherwise opens a new workspace.
+    source: file://open_or_resume.lua
+    imports:
+      cs_client: keeper.changeset:client
+    method: handler
+    
+  # keeper.changeset.service:open_test
+  - name: open_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for open helpers (validate_args, resolve_state_branch)
+      suite: changeset.service
+    source: file://open_test.lua
+    imports:
+      consts: keeper.changeset:consts
+      open: keeper.changeset.service:open
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.changeset.service:reader
+  - name: reader
+    kind: library.lua
+    meta:
+      comment: Read-side facade for changeset HTTP handlers — input validation, DTO sanitization, and diff.compute + repo composition
+    source: file://reader.lua
+    imports:
+      consts: keeper.changeset:consts
+      diff: keeper.changeset:diff
+      repo: keeper.changeset.persist:repo
+    
+  # keeper.changeset.service:reader_test
+  - name: reader_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for reader helpers (clamp_limit, validate_changeset_id, sanitize, ERR)
+      suite: changeset.service
+    source: file://reader_test.lua
+    imports:
+      reader: keeper.changeset.service:reader
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.changeset.service:record_changes
+  - name: record_changes
+    kind: function.lua
+    meta:
+      comment: Sole path for batch INSERTs into keeper_changeset_changes. Replaces three raw-SQL bypassers (sys_cs.record_diff + push.lua:record_push_to_changeset + record_fs_push_to_changeset). Accepts workspace-owned rows (non-nil changeset_id) and orphan system-journal rows (NULL changeset_id) uniformly.
+    source: file://record_changes.lua
+    imports:
+      consts: keeper.changeset:consts
+      repo: keeper.changeset.persist:repo
+    method: handler
+    
+  # keeper.changeset.service:record_changes_test
+  - name: record_changes_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for record_changes validation helpers
+      suite: changeset.service
+    source: file://record_changes_test.lua
+    imports:
+      record_changes: keeper.changeset.service:record_changes
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.changeset.service:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Changeset service integration tests — open, edit, transitions, diff, drop, repo constraints
+      suite: changeset
+    source: file://test.lua
+    modules:
+      - sql
+      - uuid
+    imports:
+      consts: keeper.changeset:consts
+      diff: keeper.changeset:diff
+      drop: keeper.changeset.service:drop
+      edit: keeper.changeset.service:edit
+      fs_hash: keeper.changeset:fs_hash
+      fs_view: keeper.changeset:fs_view
+      open: keeper.changeset.service:open
+      repo: keeper.changeset.persist:repo
+      state_machine: keeper.changeset:state_machine
+      state_ops: keeper.state.persist:ops
+      test: wippy.test:test
+      transitions: keeper.changeset.service:transitions
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.changeset.service:transitions
+  - name: transitions
+    kind: library.lua
+    meta:
+      comment: Sole state mutator — applies state machine transitions with guards
+    source: file://transitions.lua
+    imports:
+      consts: keeper.changeset:consts
+      repo: keeper.changeset.persist:repo
+      state_machine: keeper.changeset:state_machine
+    

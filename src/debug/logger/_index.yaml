@@ -13,7 +13,7 @@ entries:
       - time
       - uuid
     imports:
-      consts: keeper.debug.logger:consts
+      logger_consts: keeper.debug.logger:consts
     method: logger_client
     
   # keeper.debug.logger:consts
@@ -36,9 +36,9 @@ entries:
       - json
       - expr
       - events
+      - channel
     imports:
-      actor: wippy.actor:actor
-      consts: keeper.debug.logger:consts
+      logger_consts: keeper.debug.logger:consts
     method: run
     
   # keeper.debug.logger:service

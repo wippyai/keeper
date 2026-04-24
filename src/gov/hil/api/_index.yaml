@@ -13,8 +13,6 @@ entries:
       - http
       - security
       - json
-    imports:
-      hil_linter: keeper.hil:linter
     method: handler
     
   # keeper.gov.hil.api:approve.endpoint
@@ -38,8 +36,6 @@ entries:
       - http
       - security
       - json
-    imports:
-      hil_linter: keeper.hil:linter
     method: handler
     
   # keeper.gov.hil.api:reject.endpoint

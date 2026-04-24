@@ -1,11 +1,67 @@
-local json = require("json")
 local logger = require("logger")
-local sql = require("sql")
 local consts = require("consts")
 local materialize = require("materialize")
 local state_ops = require("state_ops")
+local gov_consts = require("gov_consts")
 
 local log = logger:named("state.sync")
+
+local REGISTRY_OPS = gov_consts.REGISTRY_OPERATIONS
+
+local M = {}
+
+function M.convert_ops(changeset, mat, branch)
+    local commands = {}
+    local delete_commands = {}
+    local errors = {}
+
+    for i, op in ipairs(changeset) do
+        if op.kind == REGISTRY_OPS.CREATE or op.kind == REGISTRY_OPS.UPDATE then
+            local m, mat_err = mat.entry(op.entry)
+            if not m then
+                table.insert(errors, {
+                    index = i,
+                    entry_id = op.entry.id,
+                    error = "Materialization failed: " .. (mat_err or "unknown error"),
+                })
+            else
+                local cmd, cmd_err = mat.to_set_command(m, branch)
+                if not cmd then
+                    table.insert(errors, {
+                        index = i,
+                        entry_id = op.entry.id,
+                        error = "Command creation failed: " .. (cmd_err or "unknown error"),
+                    })
+                else
+                    table.insert(commands, cmd)
+                    local edges = mat.extract_edges(op.entry)
+                    local edge_commands = mat.edges_to_commands(edges, branch)
+                    for _, edge_cmd in ipairs(edge_commands) do
+                        table.insert(commands, edge_cmd)
+                    end
+                end
+            end
+        elseif op.kind == REGISTRY_OPS.DELETE then
+            local cmd, cmd_err = mat.to_delete_command(op.entry.id, branch)
+            if not cmd then
+                table.insert(errors, {
+                    index = i,
+                    entry_id = op.entry.id,
+                    error = "Delete command creation failed: " .. (cmd_err or "unknown error"),
+                })
+            else
+                table.insert(delete_commands, cmd)
+            end
+        end
+    end
+
+    for _, cmd in ipairs(delete_commands) do
+        table.insert(commands, cmd)
+    end
+
+    return commands, errors
+end
+local convert_ops = M.convert_ops
 
 local function run(args)
     log:info("Registry changeset sync worker starting", {
@@ -27,66 +83,10 @@ local function run(args)
         changeset_count = #args.changeset
     })
 
-    local commands = {}
-    local conversion_errors = {}
+    local commands, conversion_errors = convert_ops(args.changeset, materialize, consts.BRANCH.MAIN)
 
-    for i, op in ipairs(args.changeset) do
-        log:debug("Processing changeset operation", {
-            index = i,
-            kind = op.kind,
-            entry_id = op.entry and op.entry.id or "unknown"
-        })
-
-        if op.kind == "entry.create" or op.kind == "entry.update" then
-            local mat, mat_err = materialize.entry(op.entry)
-            if not mat then
-                log:warn("Failed to materialize entry", {
-                    entry_id = op.entry.id,
-                    error = mat_err
-                })
-                table.insert(conversion_errors, {
-                    index = i,
-                    entry_id = op.entry.id,
-                    error = "Materialization failed: " .. (mat_err or "unknown error")
-                })
-            else
-                local cmd, cmd_err = materialize.to_set_command(mat, consts.BRANCH.MAIN)
-                if not cmd then
-                    log:warn("Failed to create set command", {
-                        entry_id = op.entry.id,
-                        error = cmd_err
-                    })
-                    table.insert(conversion_errors, {
-                        index = i,
-                        entry_id = op.entry.id,
-                        error = "Command creation failed: " .. (cmd_err or "unknown error")
-                    })
-                else
-                    table.insert(commands, cmd)
-
-                    local edges = materialize.extract_edges(op.entry)
-                    local edge_commands = materialize.edges_to_commands(edges, consts.BRANCH.MAIN)
-                    for _, edge_cmd in ipairs(edge_commands) do
-                        table.insert(commands, edge_cmd)
-                    end
-                end
-            end
-        elseif op.kind == "entry.delete" then
-            local cmd, cmd_err = materialize.to_delete_command(op.entry.id, consts.BRANCH.MAIN)
-            if not cmd then
-                log:warn("Failed to create delete command", {
-                    entry_id = op.entry.id,
-                    error = cmd_err
-                })
-                table.insert(conversion_errors, {
-                    index = i,
-                    entry_id = op.entry.id,
-                    error = "Delete command creation failed: " .. (cmd_err or "unknown error")
-                })
-            else
-                table.insert(commands, cmd)
-            end
-        end
+    for _, e in ipairs(conversion_errors) do
+        log:warn("Changeset op failed", { index = e.index, entry_id = e.entry_id, error = e.error })
     end
 
     if #conversion_errors > 0 then
@@ -113,48 +113,14 @@ local function run(args)
         command_count = #commands
     })
 
-    local db, err = sql.get(consts.DATABASE.RESOURCE_ID)
-    if err then
-        log:error("Failed to connect to database", {error = err})
+    local result, apply_err = state_ops.apply_commands(commands)
+    if apply_err then
+        log:error("Failed to apply commands", { error = apply_err })
         return {
             success = false,
-            error = consts.ERRORS.DB_CONNECTION_FAILED .. ": " .. err
+            error = apply_err
         }
     end
-
-    local tx, tx_err = db:begin()
-    if tx_err then
-        db:release()
-        log:error("Failed to begin transaction", {error = tx_err})
-        return {
-            success = false,
-            error = "Failed to begin transaction: " .. tx_err
-        }
-    end
-
-    local result, exec_err = state_ops.execute(tx, commands)
-    if exec_err then
-        tx:rollback()
-        db:release()
-        log:error("Command execution failed", {error = exec_err})
-        return {
-            success = false,
-            error = "Command execution failed: " .. exec_err
-        }
-    end
-
-    local commit_success, commit_err = tx:commit()
-    if commit_err then
-        tx:rollback()
-        db:release()
-        log:error("Failed to commit transaction", {error = commit_err})
-        return {
-            success = false,
-            error = "Failed to commit transaction: " .. commit_err
-        }
-    end
-
-    db:release()
 
     log:info("Changeset synced successfully", {
         command_count = #commands,
@@ -170,4 +136,5 @@ local function run(args)
     }
 end
 
-return { run = run }
+M.run = run
+return M

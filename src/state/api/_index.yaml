@@ -1,0 +1,64 @@
+version: "1.0"
+namespace: keeper.state.api
+
+entries:
+  # keeper.state.api:graph
+  - name: graph
+    kind: function.lua
+    meta:
+      comment: Query state dependency graph
+      depends_on:
+        - ns:app
+        - keeper.state:db
+      router: app:api
+    source: file://graph.lua
+    modules:
+      - http
+      - security
+    imports:
+      state_reader: keeper.state.persist:reader
+    method: handler
+    
+  # keeper.state.api:graph.endpoint
+  - name: graph.endpoint
+    kind: http.endpoint
+    meta:
+      comment: Endpoint that returns dependency graph nodes and edges
+      depends_on:
+        - ns:app
+      router: app:api
+    method: GET
+    func: graph
+    path: /keeper/state/graph
+    
+  # keeper.state.api:search
+  - name: search
+    kind: function.lua
+    meta:
+      comment: Full-text search across state entries
+      depends_on:
+        - ns:app
+        - keeper.state:db
+      router: app:api
+    source: file://search.lua
+    modules:
+      - http
+      - security
+    imports:
+      state_reader: keeper.state.persist:reader
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.state.api:search.endpoint
+  - name: search.endpoint
+    kind: http.endpoint
+    meta:
+      comment: FTS search endpoint
+      depends_on:
+        - ns:app
+      router: app:api
+    method: GET
+    func: search
+    path: /keeper/state/search
+    

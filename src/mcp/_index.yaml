@@ -1,0 +1,97 @@
+version: "1.0"
+namespace: keeper.mcp
+
+entries:
+  # keeper.mcp:access_token
+  - name: access_token
+    kind: env.variable
+    meta:
+      comment: Bearer token for MCP access (grants full tool access)
+      icon: tabler:key
+      private: true
+    default: ""
+    storage: app.env:store
+    variable: MCP_ACCESS_TOKEN
+    
+  # keeper.mcp:admin_identity
+  - name: admin_identity
+    kind: env.variable
+    meta:
+      comment: User id (app_users.user_id in app.security:admin group) the env MCP bearer impersonates. Required for the env token to authenticate.
+      icon: tabler:user-shield
+    default: ""
+    storage: app.env:store
+    variable: MCP_ADMIN_IDENTITY
+    
+  # keeper.mcp:consts
+  - name: consts
+    kind: library.lua
+    meta:
+      comment: MCP protocol constants (server info, version, db id)
+    source: file://consts.lua
+    
+  # keeper.mcp:gateway
+  - name: gateway
+    kind: http.service
+    meta:
+      comment: Dedicated MCP gateway on :9067 (kept alongside app:gateway/mcp mount)
+    addr: :9067
+    lifecycle:
+      auto_start: true
+    
+  # keeper.mcp:router
+  - name: router
+    kind: http.router
+    meta:
+      comment: MCP router on the dedicated :9067 gateway; handler does its own bearer auth
+      server: keeper.mcp:gateway
+    middleware:
+      - cors
+    options:
+      allow_credentials: "true"
+      allow_headers: Authorization,Content-Type,Mcp-Session-Id,Last-Event-Id,Accept
+      allow_methods: '*'
+      allow_origins: '*'
+    prefix: /
+    
+  # keeper.mcp:router.app
+  - name: router.app
+    kind: http.router
+    meta:
+      comment: MCP mount on the main app:gateway (:8067) under /mcp/ for external reachability; no token_auth middleware — handler enforces bearer
+      server: app:gateway
+    middleware:
+      - cors
+    options:
+      allow_credentials: "true"
+      allow_headers: Authorization,Content-Type,Mcp-Session-Id,Last-Event-Id,Accept
+      allow_methods: '*'
+      allow_origins: '*'
+    prefix: /mcp/
+    
+  # keeper.mcp:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: MCP tokens, filters, traits, and preset tests
+      suite: mcp
+    source: file://test.lua
+    modules:
+      - sql
+      - uuid
+      - registry
+      - env
+    imports:
+      mcp_auth: keeper.mcp.auth:auth
+      mcp_consts: keeper.mcp:consts
+      mcp_meta: keeper.mcp.surface:meta
+      mcp_policy: keeper.mcp.auth:policy
+      mcp_surface: keeper.mcp.surface:surface
+      mcp_tokens: keeper.mcp.auth:tokens
+      mcp_traits: keeper.mcp.surface:traits
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

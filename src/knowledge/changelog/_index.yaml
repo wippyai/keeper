@@ -1,0 +1,37 @@
+version: "1.0"
+namespace: keeper.knowledge.changelog
+
+entries:
+  # keeper.knowledge.changelog:changelog
+  - name: changelog
+    kind: library.lua
+    meta:
+      comment: Changelog recording and querying
+    source: file://changelog.lua
+    modules:
+      - sql
+      - json
+      - time
+      - registry
+    imports:
+      gov_consts: keeper.gov:consts
+      kb_consts: keeper.knowledge:consts
+    
+  # keeper.knowledge.changelog:changelog_test
+  - name: changelog_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Changelog repository tests
+      suite: knowledge
+    source: file://changelog_test.lua
+    modules:
+      - sql
+      - uuid
+    imports:
+      changelog: keeper.knowledge.changelog:changelog
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

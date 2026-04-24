@@ -1,0 +1,28 @@
+version: "1.0"
+namespace: keeper
+
+entries:
+  - name: main
+    kind: registry.entry
+    meta:
+      name: keeper
+      type: view.page
+      title: Keeper
+      icon: tabler:shield-code
+      order: 5
+      announced: true
+      base_path: ""
+      entry_point: app.html
+      secure: false
+      url: /app/keeper
+    proxy:
+      css:
+        custom_css: true
+        custom_variables: true
+        fonts: true
+        iframe: true
+        prime_vue: true
+        theme_config: true
+      enabled: true
+      iconify_icons: true
+      tailwind_config: true

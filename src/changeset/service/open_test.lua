@@ -1,0 +1,71 @@
+local test = require("test")
+local open = require("open")
+local consts = require("consts")
+
+local function define_tests()
+    describe("open helpers", function()
+        describe("validate_args", function()
+            it("returns nil for valid args", function()
+                test.is_nil(open.validate_args({ title = "My workspace", kind = consts.KINDS.MANUAL }))
+                test.is_nil(open.validate_args({ title = "w", kind = consts.KINDS.SESSION }))
+            end)
+
+            it("rejects non-table args", function()
+                local err = open.validate_args(nil)
+                test.is_true(err:find("title", 1, true) ~= nil)
+                err = open.validate_args("x")
+                test.is_true(err:find("title", 1, true) ~= nil)
+            end)
+
+            it("rejects missing title", function()
+                local err = open.validate_args({ kind = consts.KINDS.MANUAL })
+                test.is_true(err:find("title", 1, true) ~= nil)
+            end)
+
+            it("rejects empty title", function()
+                local err = open.validate_args({ title = "", kind = consts.KINDS.MANUAL })
+                test.is_true(err:find("title", 1, true) ~= nil)
+            end)
+
+            it("rejects missing kind", function()
+                local err = open.validate_args({ title = "w" })
+                test.is_true(err:find("kind", 1, true) ~= nil)
+            end)
+
+            it("rejects empty kind", function()
+                local err = open.validate_args({ title = "w", kind = "" })
+                test.is_true(err:find("kind", 1, true) ~= nil)
+            end)
+        end)
+
+        describe("resolve_state_branch", function()
+            it("defaults to consts.branch_for(changeset_id) when explicit is nil", function()
+                local branch, err = open.resolve_state_branch("cs-1", nil)
+                test.is_nil(err)
+                test.eq(branch, consts.branch_for("cs-1"))
+            end)
+
+            it("defaults to consts.branch_for when explicit is empty string", function()
+                local branch, err = open.resolve_state_branch("cs-1", "")
+                test.is_nil(err)
+                test.eq(branch, consts.branch_for("cs-1"))
+            end)
+
+            it("preserves a caller-supplied branch name", function()
+                local branch, err = open.resolve_state_branch("cs-1", "ws/custom-branch")
+                test.is_nil(err)
+                test.eq(branch, "ws/custom-branch")
+            end)
+
+            it("rejects explicit MAIN_BRANCH", function()
+                local branch, err = open.resolve_state_branch("cs-1", consts.MAIN_BRANCH)
+                test.is_nil(branch)
+                test.is_true(err:find(consts.MAIN_BRANCH, 1, true) ~= nil)
+                test.is_true(err:find("reserved", 1, true) ~= nil)
+            end)
+        end)
+    end)
+end
+
+local run = test.run_cases(define_tests)
+return { define_tests = run }

@@ -1,6 +1,5 @@
 local json = require("json")
 local uuid = require("uuid")
-local ctx = require("ctx")
 local logger = require("logger")
 local time = require("time")
 local artifact_repo = require("artifact_repo")
@@ -32,7 +31,7 @@ local function create_approval_artifact(request_id, session_id, changeset, optio
             content_type = "text/html",
             description = "Human-in-loop approval for registry changes",
             status = "active",
-            page_id = "keeper.hil.views:approval",
+            page_id = "keeper.gov.hil.views:approval",
             display_type = "inline-interactive",
             urgent = true
         }

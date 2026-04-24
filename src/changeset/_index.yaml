@@ -1,0 +1,137 @@
+version: "1.0"
+namespace: keeper.changeset
+
+entries:
+  # keeper.changeset:client
+  - name: client
+    kind: library.lua
+    meta:
+      comment: IPC client to the workspace central supervisor (request-response with uuid reply channel)
+    source: file://client.lua
+    modules:
+      - time
+      - uuid
+    imports:
+      cs_consts: keeper.changeset:consts
+    
+  # keeper.changeset:consts
+  - name: consts
+    kind: library.lua
+    meta:
+      comment: Changeset constants (states, categories, ops, sources, mailbox topics)
+    source: file://consts.lua
+    
+  # keeper.changeset:diff
+  - name: diff
+    kind: library.lua
+    meta:
+      comment: Computed change list — branch vs main via state reader + scratch vs fe_fs via fs_hash
+    source: file://diff.lua
+    imports:
+      consts: keeper.changeset:consts
+      fs_hash: keeper.changeset:fs_hash
+      fs_view: keeper.changeset:fs_view
+      repo: keeper.changeset.persist:repo
+    
+  # keeper.changeset:diff_test
+  - name: diff_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for diff helpers (has_any_chunk, classify_part_change, fs_sort_order, arg guards)
+      suite: changeset
+    source: file://diff_test.lua
+    imports:
+      consts: keeper.changeset:consts
+      diff: keeper.changeset:diff
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.changeset:fs_flush
+  - name: fs_flush
+    kind: library.lua
+    meta:
+      comment: Stage-flush workspace fs content to fe_fs inside state_db txn; reverts on any error
+    source: file://fs_flush.lua
+    modules:
+      - sql
+      - fs
+      - time
+      - hash
+    imports:
+      consts: keeper.changeset:consts
+    
+  # keeper.changeset:fs_hash
+  - name: fs_hash
+    kind: library.lua
+    meta:
+      comment: Recursive directory walk producing per-path sha256 manifest and tree hash
+    source: file://fs_hash.lua
+    modules:
+      - fs
+      - hash
+      - json
+    
+  # keeper.changeset:fs_view
+  - name: fs_view
+    kind: library.lua
+    meta:
+      comment: Per-workspace filesystem wrapper — scratch-first read with fe_fs fallthrough, copy-on-first-write, path validation
+    source: file://fs_view.lua
+    modules:
+      - fs
+      - hash
+      - sql
+    imports:
+      consts: keeper.changeset:consts
+      repo: keeper.changeset.persist:repo
+    
+  # keeper.changeset:state_machine
+  - name: state_machine
+    kind: library.lua
+    meta:
+      comment: Pure workspace state machine — transition table, guards, and apply_transition
+    source: file://state_machine.lua
+    imports:
+      consts: keeper.changeset:consts
+    
+  # keeper.changeset:state_machine_test
+  - name: state_machine_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure state-machine tests; guards fs-only push transition (regression for changeset stuck in editing)
+      suite: changeset
+    source: file://state_machine_test.lua
+    imports:
+      consts: keeper.changeset:consts
+      state_machine: keeper.changeset:state_machine
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.changeset:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Changeset unit tests — state machine, repo, fs_hash, fs_view path validation
+      suite: changeset
+    source: file://test.lua
+    modules:
+      - sql
+      - uuid
+    imports:
+      consts: keeper.changeset:consts
+      fs_hash: keeper.changeset:fs_hash
+      fs_view: keeper.changeset:fs_view
+      repo: keeper.changeset.persist:repo
+      state_machine: keeper.changeset:state_machine
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

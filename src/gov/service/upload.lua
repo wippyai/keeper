@@ -1,5 +1,4 @@
 local registry = require("registry")
-local json = require("json")
 local loader = require("loader")
 local logger = require("logger")
 local consts = require("consts")
@@ -7,21 +6,25 @@ local fs_module = require("fs")
 
 local log = logger:named("gov.service.upload")
 
--- Operation types
-local OP = {
-    CREATE = "entry.create",
-    UPDATE = "entry.update",
-    DELETE = "entry.delete"
-}
+local M = {}
 
--- Filter entries to only include managed namespaces (including child namespaces)
-local function filter_managed_entries(entries)
+M.OP = consts.REGISTRY_OPERATIONS
+local OP = M.OP
+
+-- Pure: split entries into { filtered, skipped } using the supplied
+-- is_managed(namespace) predicate. `skipped` rows carry {id, namespace}
+-- with "unknown" fallbacks so callers can log them consistently.
+function M.compute_managed_partition(entries, is_managed_fn)
     local filtered = {}
     local skipped = {}
+    if type(entries) ~= "table" then return filtered, skipped end
 
     for _, entry in ipairs(entries) do
-        local namespace = entry.namespace or (entry.id and entry.id:match("^([^:]+):"))
-        if namespace and consts.is_namespace_managed(namespace) then
+        local namespace = nil
+        if entry.id then
+            namespace = entry.id:match("^([^:]+):")
+        end
+        if namespace and is_managed_fn(namespace) then
             table.insert(filtered, entry)
         else
             table.insert(skipped, {
@@ -30,6 +33,52 @@ local function filter_managed_entries(entries)
             })
         end
     end
+
+    return filtered, skipped
+end
+
+-- Pure: sort ops so CREATEs apply before UPDATEs before DELETEs.
+-- registry.build_delta returns ops grouped by target entry, which can place
+-- a DELETE ahead of an UPDATE that removes its incoming dependency. apply()
+-- validates each op against the live graph, so the DELETE rejects. This
+-- sort keeps relative order inside a kind (stable) and guarantees
+-- dependency-removing UPDATEs land first.
+local OP_ORDER = { [OP.CREATE] = 1, [OP.UPDATE] = 2, [OP.DELETE] = 3 }
+
+function M.order_changeset(changeset)
+    if type(changeset) ~= "table" then return changeset end
+    local indexed = {}
+    for i, op in ipairs(changeset) do indexed[i] = { i = i, op = op } end
+    table.sort(indexed, function(a, b)
+        local pa = OP_ORDER[a.op.kind] or 99
+        local pb = OP_ORDER[b.op.kind] or 99
+        if pa ~= pb then return pa < pb end
+        return a.i < b.i
+    end)
+    local out = {}
+    for i, entry in ipairs(indexed) do out[i] = entry.op end
+    return out
+end
+
+-- Pure: tally entry.create / entry.update / entry.delete op counts from a changeset.
+function M.compute_changeset_stats(changeset)
+    local stats = { create = 0, update = 0, delete = 0 }
+    if type(changeset) ~= "table" then return stats end
+    for _, op in ipairs(changeset) do
+        if op.kind == OP.CREATE then
+            stats.create = stats.create + 1
+        elseif op.kind == OP.UPDATE then
+            stats.update = stats.update + 1
+        elseif op.kind == OP.DELETE then
+            stats.delete = stats.delete + 1
+        end
+    end
+    return stats
+end
+
+-- Filter entries to only include managed namespaces (including child namespaces)
+local function filter_managed_entries(entries)
+    local filtered, skipped = M.compute_managed_partition(entries, consts.is_namespace_managed)
 
     if #skipped > 0 then
         log:info("Skipped unmanaged namespace entries", {
@@ -54,7 +103,7 @@ local function get_registry_entries()
     end
 
     local all_entries = snapshot:entries()
-    local filtered_entries = filter_managed_entries(all_entries)
+    local filtered_entries = filter_managed_entries(all_entries :: any)
 
     log:info("Retrieved registry entries", {
         total_count = #all_entries,
@@ -97,8 +146,7 @@ local function get_filesystem_entries(options)
         return nil, "Failed to load entries from directory '" .. directory .. "': " .. tostring(err)
     end
 
-    -- Filter to only managed namespaces (including child namespaces)
-    local filtered_entries = filter_managed_entries(all_entries)
+    local filtered_entries = filter_managed_entries(all_entries :: any)
 
     log:info("Retrieved filesystem entries", {
         total_count = #all_entries,
@@ -111,14 +159,16 @@ end
 -- Compare registry entries with filesystem entries
 local function compare_entries(currentEntries, targetEntries)
     log:debug("Comparing registry and filesystem entries", {
-        registry_count = #currentEntries,
-        filesystem_count = #targetEntries
+        registry_count = #((currentEntries :: any) or {}),
+        filesystem_count = #((targetEntries :: any) or {})
     })
 
     local changeset, err = registry.build_delta(currentEntries, targetEntries)
     if not changeset then
         return nil, "Failed to build delta: " .. tostring(err)
     end
+
+    changeset = M.order_changeset(changeset)
 
     log:info("Built changeset", {
         operations_count = #changeset
@@ -221,22 +271,7 @@ local function upload(options)
         }
     end
 
-    -- Calculate operation stats for reporting
-    local stats = {
-        create = 0,
-        update = 0,
-        delete = 0
-    }
-
-    for _, op in ipairs(comparison.changeset) do
-        if op.kind == OP.CREATE then
-            stats.create = stats.create + 1
-        elseif op.kind == OP.UPDATE then
-            stats.update = stats.update + 1
-        elseif op.kind == OP.DELETE then
-            stats.delete = stats.delete + 1
-        end
-    end
+    local stats = M.compute_changeset_stats(comparison.changeset)
 
     log:info("Upload operation completed", {
         changeset_size = comparison.count,
@@ -313,5 +348,5 @@ local function run(args)
     end
 end
 
--- Export the run function
-return { run = run }
+M.run = run
+return M

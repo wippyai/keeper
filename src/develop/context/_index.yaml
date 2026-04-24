@@ -8,66 +8,103 @@ entries:
     meta:
       type: agent.gen1
       title: Context Chain Router
-      comment: Evaluates conditions to filter context agents
+      comment: Decides which conditional context agents should run for a given task
     prompt: |
-      Decide which context agents should run based on their conditions.
+      Decide which conditional context agents should run based on their conditions and the task.
     
       ## Input
     
-      - task: Implementation task
-      - conditional_agents: Formatted text list of agents
+      - task: the developer's task prompt
+      - conditional_agents: formatted list of candidates with their conditions
     
       Format:
       ```
       N. agent_id: namespace:agent
-         instructions: what agent does
+         instructions: what agent provides
          condition: when to use
       ```
     
-      ## Job
-    
-      Check if task matches each condition.
-      Return agent_ids for matching agents.
+      Return the ids of agents whose condition matches the task.
     
       ## Output
     
       ```json
-      {
-        "selected": ["namespace:agent1"]
-      }
+      { "selected": ["ns:agent1"], "reasoning": "why" }
       ```
-      
-      If tasks implies bug fix or change related to invalid API or module use or it's new complex feature based on some existing module - try to load docs agent when available to ensure that 
-      developer agent has proper grounding.
-    model: gpt-5-nano
-    temperature: 0.2
-    max_tokens: 8000
+    model: class:fast
+    temperature: 0.1
+    max_tokens: 2000
+    
+  # keeper.develop.context:e2e_context_chain_test
+  - name: e2e_context_chain_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: E2E test for orchestrator context_chain mechanism
+      suite: develop
+    source: file://e2e_context_chain_test.lua
+    modules:
+      - funcs
+      - json
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.develop.context:format_context
+  - name: format_context
+    kind: function.lua
+    meta:
+      comment: Formats gathered context and resolves <embed id="..."/> tags against the live state reader
+    source: file://format_context.lua
+    modules:
+      - ctx
+      - text
+    imports:
+      materialize: keeper.state.persist:materialize
+      state_reader: keeper.state.persist:reader
+    method: run
+    
+  # keeper.develop.context:format_context_test
+  - name: format_context_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for format_context — nil/empty handling, array joining, embed resolution against live state
+      suite: develop
+    source: file://format_context_test.lua
+    modules:
+      - ctx
+      - text
+    imports:
+      format_context: keeper.develop.context:format_context
+      materialize: keeper.state.persist:materialize
+      state_reader: keeper.state.persist:reader
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
     
   # keeper.develop.context:prepare_context
   - name: prepare_context
     kind: function.lua
     meta:
       title: Prepare Context
-      comment: Loads context chain and executes all relevant agents
+      comment: Reads the target agent's meta.context_chain, spawns its context-gathering agents in parallel, returns formatted context blob. Called by develop:implement_task.
       input_schema: |
         {
           "type": "object",
           "properties": {
-            "agent_id": {
-              "type": "string",
-              "description": "Developer agent ID"
-            },
-            "prompt": {
-              "type": "string",
-              "description": "Task description"
-            }
+            "agent_id": {"type": "string", "description": "Target developer agent id whose context_chain is prepared"},
+            "prompt":   {"type": "string", "description": "Task description / prompt"}
           },
           "required": ["agent_id", "prompt"]
         }
       output_schema: |
         {
           "type": "string",
-          "description": "Formatted context"
+          "description": "Formatted context blob ready to prepend to the developer's system prompt"
         }
     source: file://prepare_context.lua
     modules:
@@ -76,4 +113,20 @@ entries:
       agent_registry: wippy.agent.discovery:registry
       flow: userspace.dataflow.flow:flow
     method: handler
+    
+  # keeper.develop.context:prepare_context_test
+  - name: prepare_context_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for prepare_context — input guards, missing agent, empty context_chain short-circuit
+      suite: develop
+    source: file://prepare_context_test.lua
+    modules:
+      - funcs
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
     

@@ -9,7 +9,7 @@ entries:
       comment: Default linter strictness level for governance validation
       icon: tabler:shield-check
     default: "100"
-    storage: app.env:router
+    storage: app.env:store
     variable: GOV_LINTER_LEVEL
     
   # keeper.gov.env:managed_namespaces
@@ -18,7 +18,7 @@ entries:
     meta:
       comment: Comma-separated list of namespaces managed by governance
       icon: tabler:list
-    default: app
-    storage: app.env:router
+    default: app,keeper
+    storage: app.env:store
     variable: GOV_MANAGED_NAMESPACES
     

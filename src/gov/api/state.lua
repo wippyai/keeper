@@ -1,5 +1,4 @@
 local http = require("http")
-local json = require("json")
 local registry = require("registry")
 local time = require("time")
 local gov_client = require("gov_client")

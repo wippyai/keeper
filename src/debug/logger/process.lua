@@ -3,12 +3,12 @@ local time = require("time")
 local json = require("json")
 local expr = require("expr")
 local events = require("events")
-local consts = require("consts")
+local consts = require("logger_consts")
 
 local log = logger:named("keeper.debug.logger")
 
 local function create_circular_buffer(size)
-    local buffer = table.create(size, 0)
+    local buffer = (table :: any).create(size, 0)
     return {
         data = buffer,
         size = size,
@@ -129,7 +129,7 @@ local function handle_get_logs(state, payload, from)
     local was_filtered = false
 
     if payload.filter then
-        local filtered, err = apply_filter(all_logs, payload.filter)
+        local filtered, err = apply_filter(all_logs, tostring(payload.filter))
         if err then
             process.send(from, payload.respond_to or consts.TOPICS.RESPONSE, {
                 success = false,
@@ -173,7 +173,7 @@ local function handle_composition(state, payload, from)
     local logs = all_logs
 
     if payload.filter then
-        local filtered, err = apply_filter(all_logs, payload.filter)
+        local filtered, err = apply_filter(all_logs, tostring(payload.filter))
         if err then
             process.send(from, payload.respond_to or consts.TOPICS.RESPONSE, {
                 success = false,
@@ -202,6 +202,7 @@ local function handle_get_stats(state, payload, from)
             stored_count = state.buffer.count,
             total_received = state.total_received,
             uptime_ns = time.now():unix_nano() - state.start_time,
+            counters = state.counters,
         },
         request_id = payload.id,
     })
@@ -218,15 +219,19 @@ end
 
 local function handle_configure(state, payload, from)
     if payload.buffer_size and payload.buffer_size > 0 then
-        local new_buffer = create_circular_buffer(payload.buffer_size)
+        local buf_size = tonumber(payload.buffer_size) or 0
+        local new_buffer = create_circular_buffer(buf_size)
         local existing = buffer_get_all(state.buffer)
 
-        for i = math.max(1, #existing - payload.buffer_size + 1), #existing do
-            buffer_add(new_buffer, existing[i])
+        for i = math.max(1, #existing - buf_size + 1), #existing do
+            local entry = existing[i]
+            if entry then
+                buffer_add(new_buffer, entry)
+            end
         end
 
         state.buffer = new_buffer
-        state.buffer_size = payload.buffer_size
+        state.buffer_size = buf_size
     end
 
     process.send(from, payload.respond_to or consts.TOPICS.RESPONSE, {
@@ -270,13 +275,14 @@ end
 
 local function run()
     log:info("Starting logger service")
-    process.registry.register(consts.PROCESS_NAMES.LOGGER, process.pid())
+    process.registry.register(consts.PROCESS_NAMES.LOGGER)
 
     local state = {
         buffer = create_circular_buffer(consts.DEFAULT_BUFFER_SIZE),
         buffer_size = consts.DEFAULT_BUFFER_SIZE,
         total_received = 0,
         start_time = time.now():unix_nano(),
+        counters = { debug = 0, info = 0, warn = 0, error = 0 },
     }
 
     log:info("Initializing logger service")
@@ -309,10 +315,22 @@ local function run()
             local evt = result.value
             local flattened = flatten_log_entry(evt)
             buffer_add(state.buffer, flattened)
+
+            local lvl = flattened.level
+            if lvl == -1 then state.counters.debug = state.counters.debug + 1
+            elseif lvl == 0 then state.counters.info = state.counters.info + 1
+            elseif lvl == 1 then state.counters.warn = state.counters.warn + 1
+            elseif lvl >= 2 then state.counters.error = state.counters.error + 1
+            end
+
+            process.send("wippy.central", "keeper.logs", {
+                entry = flattened,
+                counters = state.counters,
+            })
         elseif result.channel == inbox then
             local msg = result.value
             local payload = msg:payload():data()
-            local from = msg:from()
+            local from = tostring(msg:from())
 
             if payload.operation == consts.OPERATIONS.GET_LOGS then
                 handle_get_logs(state, payload, from)
@@ -324,6 +342,14 @@ local function run()
                 handle_clear(state, payload, from)
             elseif payload.operation == consts.OPERATIONS.CONFIGURE then
                 handle_configure(state, payload, from)
+            elseif payload.operation == consts.OPERATIONS.GET_COUNTERS then
+                process.send(from, payload.respond_to or consts.TOPICS.RESPONSE, {
+                    success = true,
+                    counters = state.counters,
+                    total_received = state.total_received,
+                    stored_count = state.buffer.count,
+                    request_id = payload.id,
+                })
             else
                 process.send(from, payload.respond_to or consts.TOPICS.RESPONSE, {
                     success = false,

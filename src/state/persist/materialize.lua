@@ -115,7 +115,7 @@ function materialize.entry(entry)
         end
     end
 
-    local entry_yaml, err = build_yaml_entry(entry)
+    local entry_yaml, err = build_yaml_entry(entry :: any)
     if err then
         return nil, err
     end
@@ -171,6 +171,9 @@ function materialize.format_entry_structured(entry, include_filename)
     if definition_content then
         table.insert(lines, "<definition>")
 
+        -- Dedent each entry block by 4 chars. The entry list marker `  - ` is 4
+        -- chars; continuation lines are 4-space indented. Nested lists like
+        -- `      - http` dedent to `  - http`, preserving YAML list structure.
         local in_entries_section = false
         local entry_lines = {}
 
@@ -179,15 +182,11 @@ function materialize.format_entry_structured(entry, include_filename)
                 in_entries_section = true
             elseif in_entries_section then
                 if line:match("^%s*#") then
-                    -- skip
-                elseif line:match("^%s*%-") then
-                    local clean = line:match("^%s*%-%s*(.+)$")
-                    if clean then
-                        table.insert(entry_lines, clean)
-                    end
-                elseif line:match("^%s%s%s%s") then
-                    local clean = line:match("^%s%s%s%s(.*)$")
-                    table.insert(entry_lines, clean)
+                    -- skip comments
+                elseif line:match("^  %- ") then
+                    table.insert(entry_lines, line:sub(5))
+                elseif line:match("^    ") then
+                    table.insert(entry_lines, line:sub(5))
                 end
             end
         end
@@ -476,6 +475,23 @@ function materialize.state_entry_to_registry(state_entry)
                 -- No source field in data, add it
                 registry_entry.data[source_field] = source_content
             end
+        end
+    end
+
+    -- function.lua config normalization. 99% of entries want `method = "handler"`
+    -- and empty `modules`/`imports` tables make Go unmarshal reject the config
+    -- (slices reject `{}`, maps reject `[]`). Defaulting here means every caller
+    -- — submit preflight, push, test — sees a well-formed registry entry.
+    if registry_entry.kind == "function.lua" then
+        local data = registry_entry.data
+        if not data.method or data.method == "" then
+            data.method = "handler"
+        end
+        if type(data.modules) == "table" and next(data.modules) == nil then
+            data.modules = nil
+        end
+        if type(data.imports) == "table" and next(data.imports) == nil then
+            data.imports = nil
         end
     end
 

@@ -1,0 +1,157 @@
+version: "1.0"
+namespace: keeper.mcp.scopes
+
+entries:
+  # keeper.mcp.scopes:components.build
+  - name: components.build
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Components Build
+      comment: Trigger docker builds and view live logs
+    id: components.build
+    
+  # keeper.mcp.scopes:components.capture
+  - name: components.capture
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Components Capture
+      comment: Capture screenshots and run UI scripts via Playwright
+    id: components.capture
+    
+  # keeper.mcp.scopes:components.read
+  - name: components.read
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Components Read
+      comment: List FE components, view builds, fetch screenshots
+    id: components.read
+    
+  # keeper.mcp.scopes:env.read
+  - name: env.read
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Env Read
+      comment: List environment variables
+    id: env.read
+    
+  # keeper.mcp.scopes:env.write
+  - name: env.write
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Env Write
+      comment: Set environment variables
+    id: env.write
+    
+  # keeper.mcp.scopes:functions.call
+  - name: functions.call
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Function Call
+      comment: Call any registered Wippy function
+    id: functions.call
+    
+  # keeper.mcp.scopes:knowledge.read
+  - name: knowledge.read
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Knowledge Read
+      comment: Read and search knowledge base
+    id: knowledge.read
+    
+  # keeper.mcp.scopes:knowledge.write
+  - name: knowledge.write
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Knowledge Write
+      comment: Create, update, delete knowledge nodes
+    id: knowledge.write
+    
+  # keeper.mcp.scopes:logger.read
+  - name: logger.read
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Logger Read
+      comment: Read logs and statistics
+    id: logger.read
+    
+  # keeper.mcp.scopes:logger.write
+  - name: logger.write
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Logger Write
+      comment: Clear log buffer
+    id: logger.write
+    
+  # keeper.mcp.scopes:pm.read
+  - name: pm.read
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Process Monitor
+      comment: Process stats and system info
+    id: pm.read
+    
+  # keeper.mcp.scopes:pm.write
+  - name: pm.write
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Process Control
+      comment: Terminate processes
+    id: pm.write
+    
+  # keeper.mcp.scopes:registry.read
+  - name: registry.read
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Registry Read
+      comment: Browse entries, namespaces, entry details
+    id: registry.read
+    
+  # keeper.mcp.scopes:registry.sync
+  - name: registry.sync
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Registry Sync
+      comment: Upload and download filesystem sync
+    id: registry.sync
+    
+  # keeper.mcp.scopes:registry.write
+  - name: registry.write
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Registry Write
+      comment: Create, update, delete entries via governance
+    id: registry.write
+    
+  # keeper.mcp.scopes:state.read
+  - name: state.read
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: State Read
+      comment: Query dependency graph, search state
+    id: state.read
+    
+  # keeper.mcp.scopes:tests.run
+  - name: tests.run
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Tests
+      comment: Discover and run tests
+    id: tests.run
+    

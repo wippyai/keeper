@@ -1,12 +1,52 @@
 local registry = require("registry")
-local json = require("json")
 local logger = require("logger")
-local time = require("time")
-local consts = require("consts")
 local materialize = require("materialize")
-local state_client = require("state_client")
+local state_ops = require("state_ops")
 
 local log = logger:named("state.sync_branch")
+
+local M = {}
+
+function M.validate_args(args)
+    if not args or not args.branch or args.branch == "" then
+        return "Branch parameter required"
+    end
+    if not args.entry_ids or type(args.entry_ids) ~= "table" or #args.entry_ids == 0 then
+        return "entry_ids parameter required (non-empty array)"
+    end
+    return nil
+end
+local validate_args = M.validate_args
+
+function M.build_branch_commands(entries, entry_ids, mat, branch)
+    local entry_id_set = {}
+    for _, id in ipairs(entry_ids) do entry_id_set[id] = true end
+
+    local commands = {}
+    local errors = {}
+
+    for _, entry in ipairs(entries) do
+        if entry_id_set[entry.id] then
+            local m, mat_err = mat.entry(entry)
+            if not m then
+                table.insert(errors, {
+                    entry_id = entry.id,
+                    error = "Materialization failed: " .. (mat_err or "unknown error"),
+                })
+            else
+                table.insert(commands, mat.to_set_command(m, branch))
+                local edges = mat.extract_edges(entry)
+                local edge_commands = mat.edges_to_commands(edges, branch)
+                for _, edge_cmd in ipairs(edge_commands) do
+                    table.insert(commands, edge_cmd)
+                end
+            end
+        end
+    end
+
+    return commands, errors
+end
+local build_branch_commands = M.build_branch_commands
 
 local function run(args)
     log:info("Branch sync worker starting", {
@@ -14,20 +54,10 @@ local function run(args)
         entry_count = args.entry_ids and #args.entry_ids or 0
     })
 
-    if not args.branch or args.branch == "" then
-        log:error("Missing branch parameter")
-        return {
-            success = false,
-            error = "Branch parameter required"
-        }
-    end
-
-    if not args.entry_ids or type(args.entry_ids) ~= "table" or #args.entry_ids == 0 then
-        log:error("Missing or invalid entry_ids parameter")
-        return {
-            success = false,
-            error = "entry_ids parameter required (non-empty array)"
-        }
+    local verr = validate_args(args)
+    if verr then
+        log:error("Invalid sync_branch args", { error = verr })
+        return { success = false, error = verr }
     end
 
     log:info("Getting registry snapshot")
@@ -41,42 +71,16 @@ local function run(args)
     end
 
     local entries = snapshot:entries()
-    local entry_id_set = {}
-    for _, id in ipairs(args.entry_ids) do
-        entry_id_set[id] = true
-    end
 
     log:info("Materializing entries for branch", {
         branch = args.branch,
         total_entries = #entries
     })
 
-    local commands = {}
-    local materialization_errors = {}
+    local commands, materialization_errors = build_branch_commands(entries, args.entry_ids, materialize, args.branch)
 
-    for _, entry in ipairs(entries) do
-        if entry_id_set[entry.id] then
-            local mat, mat_err = materialize.entry(entry)
-            if not mat then
-                log:warn("Failed to materialize entry", {
-                    entry_id = entry.id,
-                    error = mat_err
-                })
-                table.insert(materialization_errors, {
-                    entry_id = entry.id,
-                    error = "Materialization failed: " .. (mat_err or "unknown error")
-                })
-            else
-                local cmd = materialize.to_set_command(mat, args.branch)
-                table.insert(commands, cmd)
-
-                local edges = materialize.extract_edges(entry)
-                local edge_commands = materialize.edges_to_commands(edges, args.branch)
-                for _, edge_cmd in ipairs(edge_commands) do
-                    table.insert(commands, edge_cmd)
-                end
-            end
-        end
+    for _, e in ipairs(materialization_errors) do
+        log:warn("Failed to materialize entry", { entry_id = e.entry_id, error = e.error })
     end
 
     if #materialization_errors > 0 then
@@ -104,12 +108,12 @@ local function run(args)
         branch = args.branch
     })
 
-    local success, exec_err = state_client.execute_commands(commands)
-    if not success then
-        log:error("Failed to execute commands", { error = exec_err })
+    local _, apply_err = state_ops.apply_commands(commands)
+    if apply_err then
+        log:error("Failed to apply commands", { error = apply_err })
         return {
             success = false,
-            error = "Failed to execute commands: " .. exec_err
+            error = apply_err
         }
     end
 
@@ -126,4 +130,5 @@ local function run(args)
     }
 end
 
-return { run = run }
+M.run = run
+return M

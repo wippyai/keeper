@@ -1,0 +1,54 @@
+version: "1.0"
+namespace: keeper.components.ui
+
+entries:
+  # keeper.components.ui:client
+  - name: client
+    kind: library.lua
+    meta:
+      comment: Client library for the UI supervisor (one-op-at-a-time UI automation)
+    source: file://client.lua
+    modules:
+      - process
+      - channel
+      - time
+      - uuid
+      - json
+    
+  # keeper.components.ui:supervisor
+  - name: supervisor
+    kind: process.lua
+    meta:
+      comment: Long-lived supervisor owning a single Playwright container
+    source: file://supervisor.lua
+    modules:
+      - process
+      - channel
+      - exec
+      - env
+      - fs
+      - http_client
+      - json
+      - time
+      - uuid
+      - logger
+    imports:
+      consts: keeper.components:consts
+      scanner: keeper.components.build:scanner
+    method: run
+    
+  # keeper.components.ui:supervisor.service
+  - name: supervisor.service
+    kind: process.service
+    meta:
+      comment: Always-running UI supervisor (lazy-spawns Playwright container)
+    host: keeper.gov:processes
+    lifecycle:
+      auto_start: true
+      security:
+        actor:
+          id: ui.supervisor
+        groups:
+          - keeper.gov.service.security:governance
+    process: supervisor
+    

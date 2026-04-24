@@ -1,0 +1,21 @@
+version: "1.0"
+namespace: keeper.agents.traits.context
+
+entries:
+  # keeper.agents.traits.context:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Context tree trait tests
+      suite: context
+    source: file://test.lua
+    imports:
+      endpoints: keeper.agents.traits.context.endpoints:get_endpoint_tree
+      frontend: keeper.agents.traits.context.frontend:get_frontend_tree
+      migrations: keeper.agents.traits.context.migrations:get_migration_tree
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

@@ -1,7 +1,6 @@
 local consts = {
     PROCESS_NAMES = {
         ORCHESTRATOR = "keeper.state.service.orchestrator",
-        INIT_WORKER = "keeper.state.service.init_worker",
     },
 
     PROCESS_HOST = "keeper.gov:processes",
@@ -13,12 +12,8 @@ local consts = {
     },
 
     OPERATIONS = {
-        EXECUTE_COMMANDS = "execute_commands",
         SYNC_BRANCH = "sync_branch",
-        SYNC_STATE = "sync_state",
         GET_STATE = "get_state",
-        REINDEX = "reindex",
-        SEARCH = "search",
     },
 
     DATABASE = {
