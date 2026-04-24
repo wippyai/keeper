@@ -11,38 +11,38 @@ entries:
       comment: Evaluates conditions to filter context agents
     prompt: |
       Decide which context agents should run based on their conditions.
-    
+
       ## Input
-    
+
       - task: Implementation task
       - conditional_agents: Formatted text list of agents
-    
+
       Format:
       ```
       N. agent_id: namespace:agent
          instructions: what agent does
          condition: when to use
       ```
-    
+
       ## Job
-    
+
       Check if task matches each condition.
       Return agent_ids for matching agents.
-    
+
       ## Output
-    
+
       ```json
       {
         "selected": ["namespace:agent1"]
       }
       ```
-      
-      If tasks implies bug fix or change related to invalid API or module use or it's new complex feature based on some existing module - try to load docs agent when available to ensure that 
+
+      If tasks implies bug fix or change related to invalid API or module use or it's new complex feature based on some existing module - try to load docs agent when available to ensure that
       developer agent has proper grounding.
-    model: gpt-5-nano
+    model: gpt-5.4-nano
     temperature: 0.2
     max_tokens: 8000
-    
+
   # keeper.develop.context:prepare_context
   - name: prepare_context
     kind: function.lua
@@ -76,4 +76,3 @@ entries:
       agent_registry: wippy.agent.discovery:registry
       flow: userspace.dataflow.flow:flow
     method: handler
-    

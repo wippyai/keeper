@@ -82,7 +82,7 @@ entries:
     imports:
       flow: userspace.dataflow.flow:flow
     method: run
-    
+
   # keeper.develop:implement
   - name: implement
     kind: function.lua
@@ -123,7 +123,7 @@ entries:
     imports:
       flow: userspace.dataflow.flow:flow
     method: handler
-    
+
   # keeper.develop:implement_task
   - name: implement_task
     kind: function.lua
@@ -189,7 +189,7 @@ entries:
       agent_registry: wippy.agent.discovery:registry
       flow: userspace.dataflow.flow:flow
     method: handler
-    
+
   # keeper.develop:router
   - name: router
     kind: registry.entry
@@ -202,20 +202,20 @@ entries:
         - development
     prompt: |
       Select development specialist for the task.
-    
+
       Review available agents and choose most appropriate specialist.
-    
+
       Match task requirements to agent capabilities.
       Read agent's requirements field to understand what context they need.
-    
+
       Return:
       - agent_id: Selected agent
       - classes: Domain classes for context filtering
       - description: Why this agent was selected
       - requirements: What context this agent needs (from meta.requirements)
-    
+
       Only select development specialists.
-    model: gpt-5-mini
+    model: gpt-5.4-mini
     temperature: 0.2
     max_tokens: 32000
     thinking_effort: 40
@@ -223,7 +223,7 @@ entries:
       - context:
           target_agent_class: develop_specialist
         id: keeper.context.traits.agents:agents_aware
-    
+
   # keeper.develop:validate_execution
   - name: validate_execution
     kind: function.lua
@@ -285,4 +285,3 @@ entries:
     modules:
       - json
     method: handler
-    

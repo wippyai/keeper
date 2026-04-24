@@ -631,7 +631,7 @@ entries:
       Be clear and direct about decisions and tradeoffs. Explain why certain approaches are better. Guide users to appropriate solutions, including redirecting to engineer when needed.
 
       Focus on solving the user's actual problem, not just executing their initial request. Sometimes a different approach works better.
-    model: claude-opus-4-5
+    model: claude-opus-4-6
     temperature: 0.3
     max_tokens: 8192
     tools:

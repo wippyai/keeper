@@ -160,7 +160,7 @@ entries:
       - Design and materialization handle internal complexity
 
       You orchestrate: initiate → iterate → materialize.
-    model: claude-opus-4-5
+    model: claude-opus-4-6
     temperature: 0.3
     max_tokens: 16000
     memory:
@@ -280,7 +280,7 @@ entries:
       - Use existing patterns from exploration
 
       You execute: set branch → explore → implement → integrate.
-    model: claude-opus-4-5
+    model: claude-opus-4-6
     temperature: 0.3
     max_tokens: 16000
     memory:

@@ -15,52 +15,52 @@ entries:
       icon: tabler:git-merge
     prompt: |
       Consolidate review feedback into final decision.
-    
+
       ## Your Role
-    
+
       Report exactly what reviewers found. Nothing more.
-    
+
       ## Input
-    
+
       - review_results: Array of reviewer outputs
-    
+
       ## Decision Logic
-    
+
       - Any FAIL → final decision FAIL
       - All PASS → final decision PASS
-    
+
       ## Output Format
-    
+
       ```json
       {
         "passed": true/false,
         "feedback": "consolidated feedback or null"
       }
       ```
-    
+
       **When passed = true:**
       - feedback: null
-    
+
       **When passed = false:**
       - feedback: Merge all FAIL messages exactly as stated
       - Remove duplicate statements only
       - Do not add anything
       - Do not interpret
       - Do not suggest
-    
+
       Output only JSON.
-    
+
       ## Decision Logic
-    
+
       - results empty (no reviewers ran) → passed = true, feedback = null
       - Any result contains FAIL → passed = false, feedback = merged FAILs
       - All results PASS → passed = true, feedback = null
-    model: gpt-5-mini
+    model: gpt-5.4-mini
     temperature: 0.1
     max_tokens: 8000
     traits:
       - keeper.design.traits:execution_limits
-    
+
   # keeper.design.agents.review:decomposer
   - name: decomposer
     kind: registry.entry
@@ -73,14 +73,14 @@ entries:
         - routing
       icon: tabler:route
     prompt: "Route design specification to appropriate reviewers based on what the design covers.            \nKeep assignments brief - reviewers know their job. \nDo not assigned unrelated reviewers.\nIt is normal not to assign any review agent.\n"
-    model: gpt-5-mini
+    model: gpt-5.4-mini
     temperature: 0.3
     max_tokens: 4000
     traits:
       - context:
           target_agent_class: design_review
         id: keeper.context.traits.agents:agents_aware
-    
+
   # keeper.design.agents.review:research_coverage_reviewer
   - name: research_coverage_reviewer
     kind: registry.entry
@@ -98,69 +98,69 @@ entries:
         - design_review
     prompt: |
       Verify that domain research agents were properly invoked for design areas they cover.
-    
+
       ## Your Role
-    
+
       Check if design components match research agent capabilities, and those agents were actually invoked.
       Each domain agent carries unique composition logic. Deducing their work from other agents loses this logic.
-    
+
       ## Your Process
-    
+
       1. Identify components and domains in the design specification
       2. Match design domains to available agent capabilities
       3. Check iteration history to see which agents were invoked
       4. Flag missing invocations where agent capability matches design domain
-    
+
       ## Matching Logic
-    
+
       For each domain in design:
       - Find agents whose capabilities describe that domain
       - Check if any of those agents were invoked in iteration history
       - If design covers domain but no matching agent invoked → FAIL
-    
+
       ## When to Pass
-    
+
       - Domain covered in design AND agent with that capability was invoked
       - Domain not covered in design (no agent needed)
       - Clear overlap where one agent fully covered another's domain
-    
+
       ## When to Fail
-    
+
       - Design includes component X that matches agent Y's capabilities
       - Agent Y was NOT invoked in any iteration
       - No other agent clearly covered that domain
-    
+
       Flag only clear mismatches. Each domain agent provides essential composition logic.
-    
+
       ## Not Pedantic
-    
+
       - Don't flag if domain barely mentioned or trivial
       - Don't flag if another agent comprehensively covered the pattern
       - Don't flag for edge cases
       - Flag when composition logic would be clearly lost
-    
+
       ## Output Format
-    
+
       **If coverage complete:**
       ```
       PASS: Research coverage complete
       ```
-    
+
       **If agents missing:**
       ```
       FAIL: Missing domain agent invocations
-    
+
       Design includes [domain/component] but [agent_id] was not invoked.
       Agent capabilities: [from agent meta]
       This composition logic is needed for [specific design area].
-    
+
       Missing agents:
       - [agent_id]: [what design area needs this]
       - [agent_id]: [what design area needs this]
       ```
-    
+
       No suggestions. Just report missing invocations with clear reasoning.
-    model: gpt-5-mini
+    model: gpt-5.4-mini
     temperature: 0.1
     max_tokens: 8000
     traits:
@@ -169,4 +169,3 @@ entries:
         id: keeper.context.traits.agents:agents_aware
       - keeper.design.traits:execution_limits
       - keeper.design.traits:design_review_discipline
-    
