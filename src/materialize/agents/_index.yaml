@@ -291,7 +291,6 @@ entries:
       - Agents must return explanations with signatures showing how values work
       - I always pay attention to last user feedback/comments
       - I never split paired entries to multiple agents
-    thinking_effort: 50
     traits:
       - context:
           target_agent_class: develop_specialist

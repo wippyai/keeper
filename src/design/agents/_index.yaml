@@ -320,7 +320,6 @@ entries:
       - Design should not contain dead code
       - Can't find patterns or understand what to do? Read documentation on related subjects
       - Read patterns when you see similarities - patterns help understand composition, don't follow blindly
-    thinking_effort: 50
     traits:
       - context:
           target_agent_class: design_specialist
