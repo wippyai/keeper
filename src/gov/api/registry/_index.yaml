@@ -25,7 +25,6 @@ entries:
       comment: Endpoint that retrieves a single registry entry by ID
       depends_on:
         - app:api
-      router: app:api
     method: GET
     func: get_entry
     path: /keeper/registry/entry
@@ -53,7 +52,6 @@ entries:
       comment: Endpoint that lists registry entries with optional namespace filter
       depends_on:
         - app:api
-      router: app:api
     method: GET
     func: list_entries
     path: /keeper/registry/entries
@@ -81,7 +79,6 @@ entries:
       comment: Endpoint that lists all namespaces with entry counts
       depends_on:
         - app:api
-      router: app:api
     method: GET
     func: list_namespaces
     path: /keeper/registry/namespaces
@@ -109,7 +106,6 @@ entries:
       comment: Endpoint that updates a registry entry
       depends_on:
         - app:api
-      router: app:api
     method: PUT
     func: update_entry
     path: /keeper/registry/entry

@@ -10,8 +10,9 @@ local dataflow_repo = require("dataflow_repo")
 local node_reader = require("node_reader")
 local data_reader = require("data_reader")
 local commit_repo = require("commit_repo")
+local env = require("env")
 
-local APP_DB = "app:db"
+local APP_DB = env.get("keeper.env:database_resource") or "app:db"
 
 local M = {}
 

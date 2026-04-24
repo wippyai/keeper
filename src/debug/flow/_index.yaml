@@ -70,6 +70,7 @@ entries:
       data_reader: userspace.dataflow.persist:data_reader
       dataflow_repo: userspace.dataflow.persist:dataflow_repo
       node_reader: userspace.dataflow.persist:node_reader
+      - env
     
   # keeper.debug.flow:repo_test
   - name: repo_test

@@ -7,7 +7,6 @@ entries:
     kind: function.lua
     meta:
       comment: Archive or restore a task (soft-hide from default list)
-      router: app:api
     source: file://archive_task.lua
     modules:
       - http
@@ -22,7 +21,6 @@ entries:
   - name: archive_task.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: archive_task
     path: /keeper/tasks/:id/archive
@@ -32,7 +30,6 @@ entries:
     kind: function.lua
     meta:
       comment: Create a new task
-      router: app:api
     source: file://create_task.lua
     modules:
       - http
@@ -47,7 +44,6 @@ entries:
   - name: create_task.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: create_task
     path: /keeper/tasks
@@ -57,7 +53,6 @@ entries:
     kind: function.lua
     meta:
       comment: Get a task with node-based stats (counts types in keeper_task_nodes + changeset state)
-      router: app:api
     source: file://get_task.lua
     modules:
       - http
@@ -73,7 +68,6 @@ entries:
   - name: get_task.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: get_task
     path: /keeper/tasks/:id
@@ -83,7 +77,6 @@ entries:
     kind: function.lua
     meta:
       comment: List keeper_task_nodes for a task (unified trail + payloads). Filter by visibility, types, since_seq, parent.
-      router: app:api
     source: file://list_nodes.lua
     modules:
       - http
@@ -97,7 +90,6 @@ entries:
   - name: list_nodes.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: list_nodes
     path: /keeper/tasks/:id/nodes
@@ -107,7 +99,6 @@ entries:
     kind: function.lua
     meta:
       comment: List tasks with optional filters
-      router: app:api
     source: file://list_tasks.lua
     modules:
       - http
@@ -121,7 +112,6 @@ entries:
   - name: list_tasks.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: list_tasks
     path: /keeper/tasks
@@ -131,7 +121,6 @@ entries:
     kind: function.lua
     meta:
       comment: Start a research dataflow for a task (spawns keeper.agents:researcher)
-      router: app:api
     source: file://research.lua
     modules:
       - http
@@ -146,7 +135,6 @@ entries:
   - name: research.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: research
     path: /keeper/tasks/:id/research
@@ -156,7 +144,6 @@ entries:
     kind: function.lua
     meta:
       comment: User responds to question — resume the current phase orchestrator
-      router: app:api
     source: file://respond.lua
     modules:
       - http
@@ -171,7 +158,6 @@ entries:
   - name: respond.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: respond
     path: /keeper/tasks/:id/respond
@@ -181,7 +167,6 @@ entries:
     kind: function.lua
     meta:
       comment: Full-text search across keeper_task_nodes for a task (task_id query param required; FTS scoped search)
-      router: app:api
     source: file://search.lua
     modules:
       - http
@@ -195,7 +180,6 @@ entries:
   - name: search.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: search
     path: /keeper/tasks/search
@@ -205,7 +189,6 @@ entries:
     kind: function.lua
     meta:
       comment: Start the AI-orchestrated development cycle for a task
-      router: app:api
     source: file://start_cycle.lua
     modules:
       - http
@@ -220,7 +203,6 @@ entries:
   - name: start_cycle.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: start_cycle
     path: /keeper/tasks/:id/start
@@ -230,7 +212,6 @@ entries:
     kind: function.lua
     meta:
       comment: Aggregate task counts (total / open / completed / cancelled / by_phase / archived)
-      router: app:api
     source: file://stats.lua
     modules:
       - http
@@ -246,7 +227,6 @@ entries:
   - name: stats.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: stats
     path: /keeper/tasks/stats
@@ -276,7 +256,6 @@ entries:
     kind: function.lua
     meta:
       comment: Return keeper status (version / uptime_seconds / task_count)
-      router: app:api
     source: file://status.lua
     modules:
       - http
@@ -291,7 +270,6 @@ entries:
   - name: status.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: status
     path: /keeper/status
@@ -319,7 +297,6 @@ entries:
     kind: function.lua
     meta:
       comment: Sync research dataflow status back to task log nodes
-      router: app:api
     source: file://sync_research.lua
     modules:
       - http
@@ -333,7 +310,6 @@ entries:
   - name: sync_research.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: sync_research
     path: /keeper/tasks/:id/sync
@@ -343,7 +319,6 @@ entries:
     kind: function.lua
     meta:
       comment: Update a task (phase, status, spec, acceptance, etc.)
-      router: app:api
     source: file://update_task.lua
     modules:
       - http
@@ -358,7 +333,6 @@ entries:
   - name: update_task.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: PUT
     func: update_task
     path: /keeper/tasks/:id

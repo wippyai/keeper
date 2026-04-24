@@ -29,6 +29,8 @@ entries:
     meta:
       comment: MCP protocol constants (server info, version, db id)
     source: file://consts.lua
+    modules:
+      - env
     
   # keeper.mcp:gateway
   - name: gateway

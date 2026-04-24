@@ -1,3 +1,4 @@
+local env = require("env")
 -- keeper.components:consts
 --
 -- Shared constants for the FE components subsystem: filesystem volume ids,
@@ -58,7 +59,7 @@ local consts = {
     PREVIEW_TTL_SECONDS = 24 * 60 * 60,
 
     -- App database id (shared with the rest of keeper)
-    DB_ID = "app:db",
+    DB_ID = env.get("keeper.env:database_resource") or "app:db",
 
     -- Host shell executor id (exec.native)
     HOST_SHELL_ID = "keeper.components:host_shell",

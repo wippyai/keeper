@@ -7,7 +7,6 @@ entries:
     kind: function.lua
     meta:
       comment: Approve HIL request
-      router: app:api
     source: file://approve.lua
     modules:
       - http
@@ -20,7 +19,6 @@ entries:
     kind: http.endpoint
     meta:
       comment: Approve HIL request endpoint
-      router: app:api
     method: POST
     func: approve
     path: /hil/{request_id}/approve
@@ -30,7 +28,6 @@ entries:
     kind: function.lua
     meta:
       comment: Reject HIL request
-      router: app:api
     source: file://reject.lua
     modules:
       - http
@@ -43,7 +40,6 @@ entries:
     kind: http.endpoint
     meta:
       comment: Reject HIL request endpoint
-      router: app:api
     method: POST
     func: reject
     path: /hil/{request_id}/reject

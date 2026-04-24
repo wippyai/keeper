@@ -7,7 +7,6 @@ entries:
     kind: function.lua
     meta:
       comment: Create a new changeset
-      router: app:api
     source: file://create_changeset.lua
     modules:
       - http
@@ -22,7 +21,6 @@ entries:
   - name: create_changeset.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: create_changeset
     path: /keeper/changesets
@@ -32,7 +30,6 @@ entries:
     kind: function.lua
     meta:
       comment: Drop a changeset — tear down overlay branch + scratch dir
-      router: app:api
     source: file://drop_changeset.lua
     modules:
       - http
@@ -47,7 +44,6 @@ entries:
   - name: drop_changeset.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: DELETE
     func: drop_changeset
     path: /keeper/changesets/:id
@@ -57,7 +53,6 @@ entries:
     kind: function.lua
     meta:
       comment: Stage an edit in a changeset (registry_set/delete or fs_write/delete)
-      router: app:api
     source: file://edit_changeset.lua
     modules:
       - http
@@ -72,7 +67,6 @@ entries:
   - name: edit_changeset.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: edit_changeset
     path: /keeper/changesets/:id/edits
@@ -82,7 +76,6 @@ entries:
     kind: function.lua
     meta:
       comment: Get baseline + current content for a changeset change target (for diff view)
-      router: app:api
     source: file://get_change_diff.lua
     modules:
       - http
@@ -96,7 +89,6 @@ entries:
   - name: get_change_diff.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: get_change_diff
     path: /keeper/changesets/:id/diff
@@ -106,7 +98,6 @@ entries:
     kind: function.lua
     meta:
       comment: Get a changeset by id
-      router: app:api
     source: file://get_changeset.lua
     modules:
       - http
@@ -120,7 +111,6 @@ entries:
   - name: get_changeset.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: get_changeset
     path: /keeper/changesets/:id
@@ -130,7 +120,6 @@ entries:
     kind: function.lua
     meta:
       comment: Admin endpoint — drop empty-open changesets older than TTL
-      router: app:api
     source: file://janitor_sweep.lua
     modules:
       - http
@@ -144,7 +133,6 @@ entries:
   - name: janitor_sweep.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: janitor_sweep
     path: /keeper/changesets/janitor/sweep
@@ -154,7 +142,6 @@ entries:
     kind: function.lua
     meta:
       comment: List computed changes + journal rows for a changeset
-      router: app:api
     source: file://list_changes.lua
     modules:
       - http
@@ -168,7 +155,6 @@ entries:
   - name: list_changes.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: list_changes
     path: /keeper/changesets/:id/changes
@@ -178,7 +164,6 @@ entries:
     kind: function.lua
     meta:
       comment: List changesets with optional filters (state, kind, actor_id, session_id)
-      router: app:api
     source: file://list_changesets.lua
     modules:
       - http
@@ -192,7 +177,6 @@ entries:
   - name: list_changesets.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: list_changesets
     path: /keeper/changesets
@@ -202,7 +186,6 @@ entries:
     kind: function.lua
     meta:
       comment: Transition changeset state (submit_for_review, accept, reject, reopen, push_success)
-      router: app:api
     source: file://transition.lua
     modules:
       - http
@@ -217,7 +200,6 @@ entries:
   - name: transition.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: transition
     path: /keeper/changesets/:id/transition

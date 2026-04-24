@@ -9,7 +9,6 @@ entries:
       comment: Discover available test suites and cases
       depends_on:
         - ns:app
-      router: app:api
     source: file://discover.lua
     modules:
       - http
@@ -26,7 +25,6 @@ entries:
       comment: GET endpoint for test discovery
       depends_on:
         - ns:app
-      router: app:api
     method: GET
     func: discover
     path: /keeper/tests/discover
@@ -38,7 +36,6 @@ entries:
       comment: Run tests with streaming results
       depends_on:
         - ns:app
-      router: app:api
     source: file://run.lua
     modules:
       - http
@@ -54,7 +51,6 @@ entries:
       comment: GET endpoint for running tests with chunked streaming
       depends_on:
         - ns:app
-      router: app:api
     method: GET
     func: run
     path: /keeper/tests/run

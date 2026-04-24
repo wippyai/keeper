@@ -9,7 +9,6 @@ entries:
       comment: List all agents with start tokens
       depends_on:
         - ns:app
-      router: app:api
     source: file://list.lua
     modules:
       - http
@@ -28,7 +27,6 @@ entries:
       comment: List all agents
       depends_on:
         - ns:app
-      router: app:api
     method: GET
     func: list
     path: /keeper/agents/list

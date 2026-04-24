@@ -9,7 +9,6 @@ entries:
       type: migration
       comment: FE component build tables (keeper_fe_builds, keeper_fe_build_lines)
       order: 4
-      target_db: app:db
     source: file://migration_01.lua
     imports:
       migration: wippy.migration:migration
@@ -22,7 +21,6 @@ entries:
       type: migration
       comment: Drop legacy screenshots tables (superseded by ui_supervisor)
       order: 5
-      target_db: app:db
     source: file://migration_02.lua
     imports:
       migration: wippy.migration:migration

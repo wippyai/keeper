@@ -30,6 +30,7 @@ entries:
     imports:
       consts: keeper.components:consts
       scanner: keeper.components.build:scanner
+      - env
     
   # keeper.components.build:scanner
   - name: scanner

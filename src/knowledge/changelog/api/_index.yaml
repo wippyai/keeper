@@ -7,7 +7,6 @@ entries:
     kind: function.lua
     meta:
       comment: List changelog entries with optional filtering
-      router: app:api
     source: file://list.lua
     modules:
       - http
@@ -23,7 +22,6 @@ entries:
     kind: http.endpoint
     meta:
       comment: List changelog entries
-      router: app:api
     method: GET
     func: list
     path: /keeper/changelog/list
@@ -53,7 +51,6 @@ entries:
     kind: function.lua
     meta:
       comment: List changelog grouped by version
-      router: app:api
     source: file://versions.lua
     modules:
       - http
@@ -69,7 +66,6 @@ entries:
     kind: http.endpoint
     meta:
       comment: List version history
-      router: app:api
     method: GET
     func: versions
     path: /keeper/changelog/versions

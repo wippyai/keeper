@@ -22,7 +22,7 @@ local consts = require("mcp_consts")
 local token_store = require("mcp_tokens")
 
 local BROKER_ID = "keeper.mcp.transport:broker"
-local BROKER_HOST = "app:processes"
+local BROKER_HOST = env.get("keeper.env:process_host") or "app:processes"
 
 local function authorize(req)
     local token = auth.extract_token(req)

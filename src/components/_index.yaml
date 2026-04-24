@@ -8,6 +8,8 @@ entries:
     meta:
       comment: Shared constants for the FE components subsystem
     source: file://consts.lua
+    modules:
+      - env
     
   # keeper.components:fe_fs
   - name: fe_fs

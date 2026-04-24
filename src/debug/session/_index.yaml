@@ -15,4 +15,5 @@ entries:
       artifact_repo: wippy.session.persist:artifact_repo
       message_repo: wippy.session.persist:message_repo
       session_repo: wippy.session.persist:session_repo
+      - env
     

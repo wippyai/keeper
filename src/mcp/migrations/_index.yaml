@@ -9,7 +9,6 @@ entries:
       type: migration
       comment: MCP token management table
       order: 3
-      target_db: app:db
     source: file://migration_01.lua
     imports:
       migration: wippy.migration:migration
@@ -22,7 +21,6 @@ entries:
       type: migration
       comment: Trait-based access control and session state
       order: 4
-      target_db: app:db
     source: file://migration_02.lua
     imports:
       migration: wippy.migration:migration
@@ -35,7 +33,6 @@ entries:
       type: migration
       comment: Session state overlay_branch column
       order: 5
-      target_db: app:db
     source: file://migration_03.lua
     imports:
       migration: wippy.migration:migration
@@ -48,7 +45,6 @@ entries:
       type: migration
       comment: Session state changeset_id column
       order: 6
-      target_db: app:db
     source: file://migration_04.lua
     imports:
       migration: wippy.migration:migration
@@ -61,7 +57,6 @@ entries:
       type: migration
       comment: Hash plaintext tokens at rest (sha256); re-key session_state
       order: 7
-      target_db: app:db
     source: file://migration_05.lua
     modules:
       - hash

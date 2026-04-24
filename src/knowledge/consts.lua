@@ -1,6 +1,7 @@
+local env = require("env")
 local M = {}
 
-M.DB_ID = "app:db"
+M.DB_ID = env.get("keeper.env:database_resource") or "app:db"
 
 M.CENTRAL = "wippy.central"
 M.TOPIC = "keeper.knowledge"

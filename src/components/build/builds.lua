@@ -19,6 +19,7 @@ local process = require("process")
 
 local consts = require("consts")
 local scanner = require("scanner")
+local env = require("env")
 
 local M = {}
 
@@ -128,7 +129,7 @@ function M.start(component_id, opts)
     M.append_line(build_id, consts.BUILD_STREAM.SYSTEM,
         "queued (trigger=" .. trigger .. " image=" .. image .. " path=" .. desc.path .. ")")
 
-    local pid, perr = process.spawn(consts.BUILD_RUNNER_ID, "app:processes", {
+    local pid, perr = process.spawn(consts.BUILD_RUNNER_ID, env.get("keeper.env:process_host") or "app:processes", {
         build_id = build_id,
         component_path = desc.path,
         out_dir = desc.out_dir,

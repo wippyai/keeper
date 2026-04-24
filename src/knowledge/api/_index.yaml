@@ -7,7 +7,6 @@ entries:
     kind: function.lua
     meta:
       comment: Create knowledge base node
-      router: app:api
     source: file://create.lua
     modules:
       - http
@@ -22,7 +21,6 @@ entries:
   - name: create.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: create
     path: /keeper/knowledge/nodes
@@ -32,7 +30,6 @@ entries:
     kind: function.lua
     meta:
       comment: Create a knowledge base
-      router: app:api
     source: file://create_kb.lua
     modules:
       - http
@@ -47,7 +44,6 @@ entries:
   - name: create_kb.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: create_kb
     path: /keeper/knowledge/kbs
@@ -57,7 +53,6 @@ entries:
     kind: function.lua
     meta:
       comment: Delete knowledge base node
-      router: app:api
     source: file://delete.lua
     modules:
       - http
@@ -72,7 +67,6 @@ entries:
   - name: delete.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: DELETE
     func: delete
     path: /keeper/knowledge/nodes/:id
@@ -82,7 +76,6 @@ entries:
     kind: function.lua
     meta:
       comment: Delete a knowledge base
-      router: app:api
     source: file://delete_kb.lua
     modules:
       - http
@@ -97,7 +90,6 @@ entries:
   - name: delete_kb.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: DELETE
     func: delete_kb
     path: /keeper/knowledge/kbs/:id
@@ -107,7 +99,6 @@ entries:
     kind: function.lua
     meta:
       comment: Embed knowledge nodes
-      router: app:api
     source: file://embed.lua
     modules:
       - http
@@ -122,7 +113,6 @@ entries:
   - name: embed.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: embed
     path: /keeper/knowledge/embed
@@ -132,7 +122,6 @@ entries:
     kind: function.lua
     meta:
       comment: Get knowledge base node by ID
-      router: app:api
     source: file://get.lua
     modules:
       - http
@@ -147,7 +136,6 @@ entries:
   - name: get.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: get
     path: /keeper/knowledge/nodes/:id
@@ -157,7 +145,6 @@ entries:
     kind: function.lua
     meta:
       comment: Analyze registry and auto-generate research topics
-      router: app:api
     source: file://learn.lua
     modules:
       - http
@@ -172,7 +159,6 @@ entries:
   - name: learn.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: learn
     path: /keeper/knowledge/learn
@@ -182,7 +168,6 @@ entries:
     kind: function.lua
     meta:
       comment: List knowledge base nodes
-      router: app:api
     source: file://list.lua
     modules:
       - http
@@ -197,7 +182,6 @@ entries:
   - name: list.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: list
     path: /keeper/knowledge/nodes
@@ -207,7 +191,6 @@ entries:
     kind: function.lua
     meta:
       comment: List knowledge bases
-      router: app:api
     source: file://list_kbs.lua
     modules:
       - http
@@ -222,7 +205,6 @@ entries:
   - name: list_kbs.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: list_kbs
     path: /keeper/knowledge/kbs
@@ -232,7 +214,6 @@ entries:
     kind: function.lua
     meta:
       comment: Start knowledge research dataflow
-      router: app:api
     source: file://research.lua
     modules:
       - http
@@ -247,7 +228,6 @@ entries:
   - name: research.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: research
     path: /keeper/knowledge/research
@@ -257,7 +237,6 @@ entries:
     kind: function.lua
     meta:
       comment: Text search knowledge base
-      router: app:api
     source: file://search.lua
     modules:
       - http
@@ -272,7 +251,6 @@ entries:
   - name: search.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: search
     path: /keeper/knowledge/search
@@ -282,7 +260,6 @@ entries:
     kind: function.lua
     meta:
       comment: Seed standard patterns
-      router: app:api
     source: file://seed.lua
     modules:
       - http
@@ -297,7 +274,6 @@ entries:
   - name: seed.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: seed
     path: /keeper/knowledge/seed
@@ -307,7 +283,6 @@ entries:
     kind: function.lua
     meta:
       comment: Semantic search
-      router: app:api
     source: file://semantic_search.lua
     modules:
       - http
@@ -322,7 +297,6 @@ entries:
   - name: semantic_search.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: semantic_search
     path: /keeper/knowledge/semantic-search
@@ -332,7 +306,6 @@ entries:
     kind: function.lua
     meta:
       comment: Knowledge base statistics
-      router: app:api
     source: file://stats.lua
     modules:
       - http
@@ -347,7 +320,6 @@ entries:
   - name: stats.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: stats
     path: /keeper/knowledge/stats
@@ -377,7 +349,6 @@ entries:
     kind: function.lua
     meta:
       comment: Update knowledge base node
-      router: app:api
     source: file://update.lua
     modules:
       - http
@@ -392,7 +363,6 @@ entries:
   - name: update.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: PUT
     func: update
     path: /keeper/knowledge/nodes/:id

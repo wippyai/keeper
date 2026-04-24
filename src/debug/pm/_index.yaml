@@ -9,7 +9,6 @@ entries:
       comment: Get process and service stats for system monitor
       depends_on:
         - ns:app
-      router: app:api
     source: file://stats.lua
     modules:
       - http
@@ -26,7 +25,6 @@ entries:
       comment: Endpoint that returns system process and service stats
       depends_on:
         - ns:app
-      router: app:api
     method: GET
     func: stats
     path: /keeper/pm/stats
@@ -36,7 +34,6 @@ entries:
     kind: function.lua
     meta:
       comment: System memory, CPU, and runtime information
-      router: app:api
     source: file://system_info.lua
     modules:
       - http
@@ -50,7 +47,6 @@ entries:
   - name: system_info.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: system_info
     path: /keeper/pm/system
@@ -62,7 +58,6 @@ entries:
       comment: Terminate a running process
       depends_on:
         - ns:app
-      router: app:api
     source: file://terminate.lua
     modules:
       - http
@@ -79,7 +74,6 @@ entries:
       comment: Endpoint that terminates a process by PID
       depends_on:
         - ns:app
-      router: app:api
     method: POST
     func: terminate
     path: /keeper/pm/terminate

@@ -24,7 +24,6 @@ entries:
     meta:
       comment: Registry download endpoint
       description: Initiates download of registry to filesystem
-      router: app:api
     method: POST
     func: download
     path: /keeper/sync/download
@@ -63,7 +62,6 @@ entries:
     meta:
       comment: Registry redo endpoint
       description: Advances to the next registry version
-      router: app:api
     method: POST
     func: redo
     path: /keeper/sync/redo
@@ -91,7 +89,6 @@ entries:
     meta:
       comment: Registry sync state endpoint
       description: Returns current registry synchronization state
-      router: app:api
     method: GET
     func: state
     path: /keeper/sync/state
@@ -118,7 +115,6 @@ entries:
     meta:
       comment: Registry undo endpoint
       description: Reverts to the previous registry version
-      router: app:api
     method: POST
     func: undo
     path: /keeper/sync/undo
@@ -145,7 +141,6 @@ entries:
     meta:
       comment: Registry upload endpoint
       description: Initiates upload of filesystem changes to registry
-      router: app:api
     method: POST
     func: upload
     path: /keeper/sync/upload

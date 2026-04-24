@@ -9,7 +9,6 @@ entries:
       type: migration
       comment: Knowledge base tables (kbs, nodes, fts, embeddings, changelog)
       order: 2
-      target_db: app:db
     source: file://migration_01.lua
     imports:
       migration: wippy.migration:migration

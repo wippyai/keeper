@@ -189,7 +189,6 @@ entries:
       name: entry_name
       kind: http.endpoint
       meta:
-        router: app:api
       method: GET
       func: handler_name
       path: /some/path

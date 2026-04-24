@@ -7,7 +7,6 @@ entries:
     kind: function.lua
     meta:
       comment: Get a single FE build with log lines (supports ?since= for tailing)
-      router: app:api
     source: file://get_build.lua
     modules:
       - http
@@ -22,7 +21,6 @@ entries:
   - name: get_build.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: get_build
     path: /keeper/components/build
@@ -32,7 +30,6 @@ entries:
     kind: function.lua
     meta:
       comment: Get a single FE component by package name
-      router: app:api
     source: file://get_component.lua
     modules:
       - http
@@ -47,7 +44,6 @@ entries:
   - name: get_component.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: get_component
     path: /keeper/components/component
@@ -57,7 +53,6 @@ entries:
     kind: function.lua
     meta:
       comment: Read a markdown doc from the frontend tree
-      router: app:api
     source: file://get_doc.lua
     modules:
       - http
@@ -72,7 +67,6 @@ entries:
   - name: get_doc.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: get_doc
     path: /keeper/components/doc
@@ -82,7 +76,6 @@ entries:
     kind: function.lua
     meta:
       comment: List FE component builds
-      router: app:api
     source: file://list_builds.lua
     modules:
       - http
@@ -97,7 +90,6 @@ entries:
   - name: list_builds.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: list_builds
     path: /keeper/components/builds
@@ -107,7 +99,6 @@ entries:
     kind: function.lua
     meta:
       comment: List discovered FE components
-      router: app:api
     source: file://list_components.lua
     modules:
       - http
@@ -122,7 +113,6 @@ entries:
   - name: list_components.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: GET
     func: list_components
     path: /keeper/components
@@ -132,7 +122,6 @@ entries:
     kind: function.lua
     meta:
       comment: Start a new FE component build
-      router: app:api
     source: file://start_build.lua
     modules:
       - http
@@ -147,7 +136,6 @@ entries:
   - name: start_build.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: start_build
     path: /keeper/components/builds
@@ -157,7 +145,6 @@ entries:
     kind: function.lua
     meta:
       comment: One-shot screenshot endpoint — thin wrapper over the ui supervisor
-      router: app:api
     source: file://start_screenshot.lua
     modules:
       - http
@@ -173,7 +160,6 @@ entries:
   - name: start_screenshot.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: start_screenshot
     path: /keeper/components/screenshot
@@ -183,7 +169,6 @@ entries:
     kind: function.lua
     meta:
       comment: HTTP dispatcher for UI automation actions
-      router: app:api
     source: file://ui_action.lua
     modules:
       - http
@@ -198,7 +183,6 @@ entries:
   - name: ui_action.endpoint
     kind: http.endpoint
     meta:
-      router: app:api
     method: POST
     func: ui_action
     path: /keeper/components/ui

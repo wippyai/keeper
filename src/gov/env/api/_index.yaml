@@ -20,7 +20,6 @@ entries:
     kind: http.endpoint
     meta:
       comment: Endpoint for listing environment variables with status
-      router: app:api
     method: GET
     func: list_variables
     path: /keeper/env/list
@@ -42,7 +41,6 @@ entries:
     kind: http.endpoint
     meta:
       comment: Endpoint for setting environment variable values
-      router: app:api
     method: POST
     func: set_variable
     path: /keeper/env/set

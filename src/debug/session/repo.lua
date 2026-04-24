@@ -11,8 +11,9 @@ local json = require("json")
 local session_repo = require("session_repo")
 local message_repo = require("message_repo")
 local artifact_repo = require("artifact_repo")
+local env = require("env")
 
-local APP_DB = "app:db"
+local APP_DB = env.get("keeper.env:database_resource") or "app:db"
 
 local M = {}
 
