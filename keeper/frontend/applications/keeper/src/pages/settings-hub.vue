@@ -15,7 +15,7 @@ import PageHeader from '../components/shared/PageHeader.vue'
 const api = useApi()
 const router = useRouter()
 
-const HUB_URL = 'https://hub.stage.wippy.ai/'
+const HUB_URL = 'https://hub.wippy.ai/'
 
 function navigateToModule(m: HubModule) {
   const ref = m.full_name || `${m.org}/${m.name}`
@@ -507,9 +507,9 @@ onMounted(() => {
       :loading="(tab === 'installed' && loading) || (tab === 'discover' && browseLoading)"
       @refresh="tab === 'installed' ? loadInstalled() : browse(true)"
     >
-      <button class="hub-link-btn" @click="openHub" title="Open hub.stage.wippy.ai">
+      <button class="hub-link-btn" @click="openHub" title="Open hub.wippy.ai">
         <Icon icon="tabler:external-link" class="w-3.5 h-3.5" />
-        hub.stage.wippy.ai
+        hub.wippy.ai
       </button>
     </PageHeader>
 

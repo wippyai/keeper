@@ -14,7 +14,7 @@ const route = useRoute()
 const router = useRouter()
 const api = useApi()
 
-const HUB_URL = 'https://hub.stage.wippy.ai/'
+const HUB_URL = 'https://hub.wippy.ai/'
 
 const orgName = computed(() => String(route.params.org || ''))
 const modName = computed(() => String(route.params.name || ''))
