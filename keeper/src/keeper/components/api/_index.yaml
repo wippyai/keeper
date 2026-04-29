@@ -1,0 +1,206 @@
+version: "1.0"
+namespace: keeper.components.api
+
+entries:
+  # keeper.components.api:get_build
+  - name: get_build
+    kind: function.lua
+    meta:
+      comment: Get a single FE build with log lines (supports ?since= for tailing)
+      router: app:api
+    source: file://get_build.lua
+    modules:
+      - http
+      - security
+    imports:
+      builds: keeper.components.build:builds
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.components.api:get_build.endpoint
+  - name: get_build.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: get_build
+    path: /keeper/components/build
+    
+  # keeper.components.api:get_component
+  - name: get_component
+    kind: function.lua
+    meta:
+      comment: Get a single FE component by package name
+      router: app:api
+    source: file://get_component.lua
+    modules:
+      - http
+      - security
+    imports:
+      scanner: keeper.components.build:scanner
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.components.api:get_component.endpoint
+  - name: get_component.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: get_component
+    path: /keeper/components/component
+    
+  # keeper.components.api:get_doc
+  - name: get_doc
+    kind: function.lua
+    meta:
+      comment: Read a markdown doc from the frontend tree
+      router: app:api
+    source: file://get_doc.lua
+    modules:
+      - http
+      - security
+    imports:
+      scanner: keeper.components.build:scanner
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.components.api:get_doc.endpoint
+  - name: get_doc.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: get_doc
+    path: /keeper/components/doc
+    
+  # keeper.components.api:list_builds
+  - name: list_builds
+    kind: function.lua
+    meta:
+      comment: List FE component builds
+      router: app:api
+    source: file://list_builds.lua
+    modules:
+      - http
+      - security
+    imports:
+      builds: keeper.components.build:builds
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.components.api:list_builds.endpoint
+  - name: list_builds.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: list_builds
+    path: /keeper/components/builds
+    
+  # keeper.components.api:list_components
+  - name: list_components
+    kind: function.lua
+    meta:
+      comment: List discovered FE components
+      router: app:api
+    source: file://list_components.lua
+    modules:
+      - http
+      - security
+    imports:
+      scanner: keeper.components.build:scanner
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.components.api:list_components.endpoint
+  - name: list_components.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: list_components
+    path: /keeper/components
+    
+  # keeper.components.api:start_build
+  - name: start_build
+    kind: function.lua
+    meta:
+      comment: Start a new FE component build
+      router: app:api
+    source: file://start_build.lua
+    modules:
+      - http
+      - security
+    imports:
+      builds: keeper.components.build:builds
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.components.api:start_build.endpoint
+  - name: start_build.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: start_build
+    path: /keeper/components/builds
+    
+  # keeper.components.api:start_screenshot
+  - name: start_screenshot
+    kind: function.lua
+    meta:
+      comment: One-shot screenshot endpoint — thin wrapper over the ui supervisor
+      router: app:api
+    source: file://start_screenshot.lua
+    modules:
+      - http
+      - security
+    imports:
+      filenames: keeper.components:filenames
+      scanner: keeper.components.build:scanner
+      ui: keeper.components.ui:client
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.components.api:start_screenshot.endpoint
+  - name: start_screenshot.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: start_screenshot
+    path: /keeper/components/screenshot
+    
+  # keeper.components.api:ui_action
+  - name: ui_action
+    kind: function.lua
+    meta:
+      comment: HTTP dispatcher for UI automation actions
+      router: app:api
+    source: file://ui_action.lua
+    modules:
+      - http
+      - security
+    imports:
+      ui: keeper.components.ui:client
+    method: handler
+    pool:
+      size: 4
+    
+  # keeper.components.api:ui_action.endpoint
+  - name: ui_action.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: ui_action
+    path: /keeper/components/ui
+    

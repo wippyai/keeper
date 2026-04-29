@@ -1,0 +1,19 @@
+version: "1.0"
+namespace: keeper.internal.session
+
+entries:
+  # keeper.internal.session:repo
+  - name: repo
+    kind: library.lua
+    meta:
+      comment: Query layer over sessions/messages/artifacts/usage for debug tooling
+    source: file://repo.lua
+    modules:
+      - sql
+      - json
+    imports:
+      artifact_repo: wippy.session.persist:artifact_repo
+      keeper_config: keeper:config
+      message_repo: wippy.session.persist:message_repo
+      session_repo: wippy.session.persist:session_repo
+    

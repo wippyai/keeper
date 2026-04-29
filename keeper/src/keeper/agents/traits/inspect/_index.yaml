@@ -1,0 +1,150 @@
+version: "1.0"
+namespace: keeper.agents.traits.inspect
+
+entries:
+  # keeper.agents.traits.inspect:agent_manager
+  - name: agent_manager
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Agent Manager
+      comment: Inspect public and internal Keeper agent catalog shape
+      tags:
+        - inspect
+        - agents
+        - readonly
+      icon: tabler:robot
+    prompt: |
+      Inspect available Keeper agents and their launch surface. Use
+      `public_only=true` when selecting user-facing agents, and use
+      `include_links=true` only when you need to understand traits, tools,
+      delegates, or context chains.
+    tools:
+      - keeper.agents.tools:manager
+    
+  # keeper.agents.traits.inspect:data_inspector
+  - name: data_inspector
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Data Inspector
+      comment: Read-only database and registry data inspection for debugging
+      tags:
+        - inspect
+        - data
+        - readonly
+      icon: tabler:database-search
+    prompt: |
+      Inspect data without mutating state. Use this when you need to query a
+      database resource, inspect row shape, or verify read-only evidence.
+    
+      Keep queries narrow. Prefer explicit columns and limits. Do not use this
+      trait for writes or schema changes.
+    tools:
+      - keeper.agents.tools:data
+    
+  # keeper.agents.traits.inspect:flow_debugger
+  - name: flow_debugger
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Flow Debugger
+      comment: Read dataflow and session execution traces
+      tags:
+        - inspect
+        - dataflow
+        - sessions
+        - readonly
+      icon: tabler:timeline-event-text
+    prompt: |
+      Debug execution by reading dataflows and session traces. Start with a
+      compact summary, then drill into failed nodes or payload search.
+    
+      Treat old failures as historical unless later accepted phase progress
+      proves they are still blocking.
+    tools:
+      - keeper.agents.tools:dataflow
+      - keeper.agents.tools:sessions
+    
+  # keeper.agents.traits.inspect:system_inspector
+  - name: system_inspector
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: System Inspector
+      comment: Inspect host processes, services, runtime info, and logs
+      tags:
+        - inspect
+        - system
+        - logs
+        - readonly
+      icon: tabler:server-cog
+    prompt: |
+      Inspect runtime state and logs. Use `system action=errors` for current
+      error visibility, `system action=services` for supervisor state, and
+      `system action=logs level=warn` when warnings matter.
+    tools:
+      - keeper.agents.tools:system
+    
+  # keeper.agents.traits.inspect:task_debugger
+  - name: task_debugger
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Task Debugger
+      comment: Inspect Keeper task lifecycle, blockers, dataflows, and integrate attempts
+      tags:
+        - inspect
+        - task
+        - dataflow
+        - readonly
+      icon: tabler:route
+    prompt: |
+      Use `task_debug` when diagnosing a Keeper task. Start with
+      `action=status` for the compact blocker view, `action=integrations` for
+      publish/handler rollback evidence, and `action=search` for scoped
+      evidence across task nodes and related dataflow payloads.
+    
+      Do not infer from one stale failure row. Check whether later phase
+      transitions or accepted exits superseded it.
+    tools:
+      - keeper.agents.tools.task:debug
+    
+  # keeper.agents.traits.inspect:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pins inspect traits referenced by agents and verifies their tool entries exist.
+      suite: agents.traits.inspect
+    source: file://test.lua
+    modules:
+      - registry
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.agents.traits.inspect:test_runner
+  - name: test_runner
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Test Runner
+      comment: Run registry tests and HTTP endpoint probes
+      tags:
+        - inspect
+        - tests
+        - http
+        - verify
+      icon: tabler:test-pipe
+    prompt: |
+      Verify behavior with the narrowest relevant test or endpoint probe.
+    
+      For registry tests, pass explicit entry ids. For HTTP endpoints, record
+      method, path, status, and the first useful error body or stack evidence.
+    tools:
+      - keeper.agents.tools:run_test
+      - keeper.agents.tools:test_endpoint
+    

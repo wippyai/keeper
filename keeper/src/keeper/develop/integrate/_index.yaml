@@ -1,0 +1,53 @@
+version: "1.0"
+namespace: keeper.develop.integrate
+
+entries:
+  # keeper.develop.integrate:rollback_run
+  - name: rollback_run
+    kind: function.lua
+    meta:
+      comment: Function-phase runner for rollback — restores registry version, emits rollback_stage nodes, routes task back to implement
+    source: file://rollback_run.lua
+    imports:
+      governance: keeper.state.publish:governance
+      lifecycle: keeper.task.phases:lifecycle
+      nodes_reader: keeper.task.persist:nodes_reader
+      nodes_writer: keeper.task.persist:nodes_writer
+    method: handler
+    
+  # keeper.develop.integrate:run
+  - name: run
+    kind: function.lua
+    meta:
+      comment: Function-phase runner for integrate — snapshot, publish, handlers up; on failure handlers down + restore_version. Emits integrate_stage subtree and advances the task via lifecycle.handle_exit. Synchronous pipeline:execute / pipeline:rollback; child-workflow visualisation is deferred until flow routing semantics are understood.
+    source: file://run.lua
+    modules:
+      - funcs
+    imports:
+      changeset_repo: keeper.changeset.persist:repo
+      fs_flush: keeper.changeset:fs_flush
+      governance: keeper.state.publish:governance
+      lifecycle: keeper.task.phases:lifecycle
+      nodes_writer: keeper.task.persist:nodes_writer
+    method: handler
+    
+  # keeper.develop.integrate:run_transition_test
+  - name: run_transition_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Changeset-state invariants that integrate/run.lua relies on (item-8 fix) — push_failure+reopen keeps changeset reusable on handler-fail, push_success on green path merges; guards against regressing into the orphan-branch cascade.
+      suite: develop
+    source: file://run_transition_test.lua
+    modules:
+      - sql
+      - funcs
+    imports:
+      changeset_client: keeper.changeset:client
+      changeset_repo: keeper.changeset.persist:repo
+      task_writer: keeper.task.persist:writer
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

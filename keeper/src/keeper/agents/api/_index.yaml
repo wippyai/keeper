@@ -1,0 +1,35 @@
+version: "1.0"
+namespace: keeper.agents.api
+
+entries:
+  # keeper.agents.api:list
+  - name: list
+    kind: function.lua
+    meta:
+      comment: List all agents with start tokens
+      depends_on:
+        - ns:app
+      router: app:api
+    source: file://list.lua
+    modules:
+      - http
+      - registry
+      - security
+    imports:
+      start_tokens: wippy.session:start_tokens
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.agents.api:list.endpoint
+  - name: list.endpoint
+    kind: http.endpoint
+    meta:
+      comment: List all agents
+      depends_on:
+        - ns:app
+      router: app:api
+    method: GET
+    func: list
+    path: /keeper/agents/list
+    

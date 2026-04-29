@@ -1,0 +1,30 @@
+version: "1.0"
+namespace: keeper.components.migrations
+
+entries:
+  # keeper.components.migrations:migration_01
+  - name: migration_01
+    kind: function.lua
+    meta:
+      type: migration
+      comment: FE component build tables (keeper_fe_builds, keeper_fe_build_lines)
+      order: 4
+      target_db: app:db
+    source: file://migration_01.lua
+    imports:
+      migration: wippy.migration:migration
+    method: define
+    
+  # keeper.components.migrations:migration_02
+  - name: migration_02
+    kind: function.lua
+    meta:
+      type: migration
+      comment: Drop legacy screenshots tables (superseded by ui_supervisor)
+      order: 5
+      target_db: app:db
+    source: file://migration_02.lua
+    imports:
+      migration: wippy.migration:migration
+    method: define
+    

@@ -1,0 +1,187 @@
+version: "1.0"
+namespace: keeper.task.phases
+
+entries:
+  # keeper.task.phases:context
+  - name: context
+    kind: library.lua
+    meta:
+      comment: Builds phase-specific prompt and arena context from task + changeset + keeper_task_nodes (phase events + findings + spec)
+    source: file://context.lua
+    imports:
+      changeset_repo: keeper.changeset.persist:repo
+      nodes_reader: keeper.task.persist:nodes_reader
+      state_machine: keeper.task.phases:state_machine
+      task_reader: keeper.task.persist:reader
+    
+  # keeper.task.phases:context_test
+  - name: context_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Phase context prompt builder — retry budget + prior research injection
+      suite: phases
+    source: file://context_test.lua
+    modules:
+      - sql
+    imports:
+      context: keeper.task.phases:context
+      nodes_writer: keeper.task.persist:nodes_writer
+      state_machine: keeper.task.phases:state_machine
+      task_consts: keeper.task:consts
+      task_writer: keeper.task.persist:writer
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.task.phases:flow_test
+  - name: flow_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Flow advance — bounce cap enforcement, ask_user, uncapped edges, zero-edit detection
+      suite: phases
+    source: file://flow_test.lua
+    modules:
+      - sql
+      - time
+      - uuid
+    imports:
+      changeset_consts: keeper.changeset:consts
+      changeset_repo: keeper.changeset.persist:repo
+      dataflow_flow: userspace.dataflow.flow:flow
+      lifecycle: keeper.task.phases:lifecycle
+      nodes_reader: keeper.task.persist:nodes_reader
+      nodes_writer: keeper.task.persist:nodes_writer
+      phase_spawner: keeper.task.service:phase_spawner
+      state_machine: keeper.task.phases:state_machine
+      task_consts: keeper.task:consts
+      task_reader: keeper.task.persist:reader
+      task_writer: keeper.task.persist:writer
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.task.phases:lifecycle
+  - name: lifecycle
+    kind: library.lua
+    meta:
+      comment: Task-pipeline control plane — phase spawn/dispatch, exit routing, business flows (start_cycle, respond, research). Single source of truth; former orchestration/flow/spawner collapsed here.
+    source: file://lifecycle.lua
+    modules:
+      - ctx
+      - logger
+      - process
+    imports:
+      agent_registry: wippy.agent.discovery:registry
+      changeset_client: keeper.changeset:client
+      changeset_consts: keeper.changeset:consts
+      changeset_repo: keeper.changeset.persist:repo
+      context: keeper.task.phases:context
+      dataflow_flow: userspace.dataflow.flow:flow
+      dataflow_repo: userspace.dataflow.persist:dataflow_repo
+      nodes_reader: keeper.task.persist:nodes_reader
+      nodes_writer: keeper.task.persist:nodes_writer
+      runners: keeper.task.phases:runners
+      scope: keeper.task:scope
+      state_machine: keeper.task.phases:state_machine
+      task_consts: keeper.task:consts
+      task_reader: keeper.task.persist:reader
+      task_writer: keeper.task.persist:writer
+    
+  # keeper.task.phases:nested_exit_probe
+  - name: nested_exit_probe
+    kind: function.lua
+    meta:
+      comment: Test helper — calls lifecycle.handle_exit from inside a dataflow function node
+    source: file://nested_exit_probe.lua
+    imports:
+      lifecycle: keeper.task.phases:lifecycle
+    method: handler
+    pool:
+      size: 1
+    
+  # keeper.task.phases:phase_failure
+  - name: phase_failure
+    kind: function.lua
+    meta:
+      comment: Dataflow error sink for task phases — pauses the task if a phase runner fails before calling keeper.task.tools:finish
+    source: file://phase_failure.lua
+    modules:
+      - ctx
+    imports:
+      lifecycle: keeper.task.phases:lifecycle
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.task.phases:phase_summary_test
+  - name: phase_summary_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: emit_phase_summary — surface failing integrate_stage error_messages into phase_summary_integrate so the next implement phase sees which handler broke
+      suite: phases
+    source: file://phase_summary_test.lua
+    modules:
+      - sql
+    imports:
+      lifecycle: keeper.task.phases:lifecycle
+      nodes_reader: keeper.task.persist:nodes_reader
+      nodes_writer: keeper.task.persist:nodes_writer
+      state_machine: keeper.task.phases:state_machine
+      task_writer: keeper.task.persist:writer
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.task.phases:runners
+  - name: runners
+    kind: library.lua
+    meta:
+      comment: PHASE_RUNNERS registry — agent vs function runner per phase, derived exit schema
+    source: file://runners.lua
+    imports:
+      state_machine: keeper.task.phases:state_machine
+    
+  # keeper.task.phases:runners_test
+  - name: runners_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Runners registry — agent/function kinds, exit signals, schema shape
+      suite: phases
+    source: file://runners_test.lua
+    imports:
+      runners: keeper.task.phases:runners
+      state_machine: keeper.task.phases:state_machine
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.task.phases:state_machine
+  - name: state_machine
+    kind: library.lua
+    meta:
+      comment: Phase state machine — transitions table and pure route function
+    source: file://state_machine.lua
+    
+  # keeper.task.phases:state_machine_test
+  - name: state_machine_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: State machine transition tests
+      suite: phases
+    source: file://state_machine_test.lua
+    imports:
+      state_machine: keeper.task.phases:state_machine
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

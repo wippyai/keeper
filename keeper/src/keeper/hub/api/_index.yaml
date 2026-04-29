@@ -1,0 +1,242 @@
+version: "1.0"
+namespace: keeper.hub.api
+
+entries:
+  # keeper.hub.api:browse_modules
+  - name: browse_modules
+    kind: function.lua
+    meta:
+      comment: Search or list modules from the wippy hub (proxies hub.modules.list / .search)
+      router: app:api
+    source: file://browse_modules.lua
+    modules:
+      - http
+      - hub
+    imports:
+      api_http: keeper.hub.api:http
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.hub.api:browse_modules.endpoint
+  - name: browse_modules.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: browse_modules
+    path: /keeper/hub/browse
+    
+  # keeper.hub.api:get_readme
+  - name: get_readme
+    kind: function.lua
+    meta:
+      comment: Fetch a hub module's README content (proxies hub.modules.readme)
+      router: app:api
+    source: file://get_readme.lua
+    modules:
+      - http
+      - hub
+    imports:
+      api_http: keeper.hub.api:http
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.hub.api:get_readme.endpoint
+  - name: get_readme.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: get_readme
+    path: /keeper/hub/readme
+    
+  # keeper.hub.api:http
+  - name: http
+    kind: library.lua
+    meta:
+      comment: Shared Hub API HTTP helpers for auth, JSON bodies, and service error mapping
+    source: file://http.lua
+    modules:
+      - http
+      - json
+      - security
+    imports:
+      mcp_auth: keeper.mcp.auth:auth
+    
+  # keeper.hub.api:install_dependency
+  - name: install_dependency
+    kind: function.lua
+    meta:
+      comment: Install or update a Hub dependency by publishing an ns.dependency entry
+      router: app:api
+    source: file://install_dependency.lua
+    modules:
+      - http
+    imports:
+      api_http: keeper.hub.api:http
+      hub_service: keeper.hub:service
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.hub.api:install_dependency.endpoint
+  - name: install_dependency.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: install_dependency
+    path: /keeper/hub/dependencies/install
+    
+  # keeper.hub.api:list_dependencies
+  - name: list_dependencies
+    kind: function.lua
+    meta:
+      comment: List installed Hub dependencies with loaded entries and migration status
+      router: app:api
+    source: file://list_dependencies.lua
+    modules:
+      - http
+    imports:
+      api_http: keeper.hub.api:http
+      hub_service: keeper.hub:service
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.hub.api:list_dependencies.endpoint
+  - name: list_dependencies.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: list_dependencies
+    path: /keeper/hub/dependencies
+    
+  # keeper.hub.api:list_migrations
+  - name: list_migrations
+    kind: function.lua
+    meta:
+      comment: List Hub-owned migrations with applied/pending status
+      router: app:api
+    source: file://list_migrations.lua
+    modules:
+      - http
+    imports:
+      api_http: keeper.hub.api:http
+      hub_service: keeper.hub:service
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.hub.api:list_migrations.endpoint
+  - name: list_migrations.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: list_migrations
+    path: /keeper/hub/migrations
+    
+  # keeper.hub.api:list_versions
+  - name: list_versions
+    kind: function.lua
+    meta:
+      comment: List available versions for a hub module (proxies hub.versions.list)
+      router: app:api
+    source: file://list_versions.lua
+    modules:
+      - http
+      - hub
+    imports:
+      api_http: keeper.hub.api:http
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.hub.api:list_versions.endpoint
+  - name: list_versions.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: list_versions
+    path: /keeper/hub/versions
+    
+  # keeper.hub.api:plan_install
+  - name: plan_install
+    kind: function.lua
+    meta:
+      comment: Resolve a Hub install plan including transitive module requirements and registry-backed suggestions
+      router: app:api
+    source: file://plan_install.lua
+    modules:
+      - http
+    imports:
+      api_http: keeper.hub.api:http
+      planner: keeper.hub:planner
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.hub.api:plan_install.endpoint
+  - name: plan_install.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: plan_install
+    path: /keeper/hub/dependencies/plan
+    
+  # keeper.hub.api:run_migrations
+  - name: run_migrations
+    kind: function.lua
+    meta:
+      comment: Run or unrun Hub-owned migrations by component or explicit migration IDs
+      router: app:api
+    source: file://run_migrations.lua
+    modules:
+      - http
+    imports:
+      api_http: keeper.hub.api:http
+      hub_service: keeper.hub:service
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.hub.api:run_migrations.endpoint
+  - name: run_migrations.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: run_migrations
+    path: /keeper/hub/migrations/run
+    
+  # keeper.hub.api:uninstall_dependency
+  - name: uninstall_dependency
+    kind: function.lua
+    meta:
+      comment: Uninstall a Hub dependency, with explicit migration block/down/leave policy
+      router: app:api
+    source: file://uninstall_dependency.lua
+    modules:
+      - http
+    imports:
+      api_http: keeper.hub.api:http
+      hub_service: keeper.hub:service
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.hub.api:uninstall_dependency.endpoint
+  - name: uninstall_dependency.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: uninstall_dependency
+    path: /keeper/hub/dependencies/uninstall
+    

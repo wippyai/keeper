@@ -1,0 +1,1 @@
+async function e(t){const{data:a}=await t.get("/api/v1/keeper/pm/stats");return a}async function s(t,a){await t.post("/api/v1/keeper/pm/terminate",{pid:a})}async function n(t){const{data:a}=await t.get("/api/v1/keeper/pm/system");return a}export{n as a,e as f,s as t};

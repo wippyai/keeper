@@ -1,0 +1,59 @@
+version: "1.0"
+namespace: keeper.agents.tools.task
+
+entries:
+  # keeper.agents.tools.task:debug
+  - name: debug
+    kind: function.lua
+    meta:
+      type: tool
+      title: Task Debugger
+      comment: 'One-shot task flight recorder: concise status, lifecycle row, lock/changeset, current blocker, historical failures, phase attempt verdicts, dataflows, integrate attempts, and scoped search'
+      tags:
+        - debug
+        - task
+        - dataflow
+        - readonly
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "action": {"type": "string", "enum": ["summary", "status", "nodes", "flows", "integrations", "search"], "description": "Operation to run; default summary; status is the compact high-signal view"},
+            "task_id": {"type": "string", "description": "Keeper task id"},
+            "query": {"type": "string", "description": "Search substring for task nodes and related dataflow payloads"},
+            "types": {"type": "string", "description": "Comma-separated task node types for nodes action"},
+            "limit": {"type": "integer", "description": "Row cap"}
+          },
+          "required": ["task_id"]
+        }
+      llm_alias: task_debug
+      llm_description: 'Inspect a Keeper task in one call: compact status, task row, active changeset/queue lock, current blocker, historical failures, phase attempt verdicts and counts, transitions, integrate attempts, related dataflows, and scoped search across task/dataflow evidence.'
+      mcp:
+        required_scopes:
+          - tasks.read
+    source: file://debug.lua
+    modules:
+      - json
+    imports:
+      changesets: keeper.changeset.persist:repo
+      flow_repo: keeper.internal.flow:repo
+      nodes: keeper.task.persist:nodes_reader
+      render: keeper.internal.flow:render
+      tasks: keeper.task.persist:reader
+    method: handler
+    
+  # keeper.agents.tools.task:debug_test
+  - name: debug_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for task debug aggregation helpers, current blocker classification, and phase attempt verdict summaries
+      suite: agents.tools.task
+    source: file://debug_test.lua
+    imports:
+      task_debug: keeper.agents.tools.task:debug
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

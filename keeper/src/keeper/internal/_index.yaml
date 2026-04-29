@@ -1,0 +1,19 @@
+version: "1.0"
+namespace: keeper.internal
+
+entries:
+  # keeper.internal:namespace_test
+  - name: namespace_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Architecture tests for internal helper namespace placement
+      suite: internal
+    source: file://namespace_test.lua
+    modules:
+      - registry
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1

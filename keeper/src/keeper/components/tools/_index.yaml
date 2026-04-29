@@ -1,0 +1,284 @@
+version: "1.0"
+namespace: keeper.components.tools
+
+entries:
+  # keeper.components.tools:build_component
+  - name: build_component
+    kind: function.lua
+    meta:
+      type: tool
+      title: Build FE Component
+      comment: Start (and optionally wait for) a frontend component docker build
+      tags:
+        - components
+        - build
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "component_id": {"type": "string", "description": "FE component id to build"},
+            "wait": {"type": "boolean", "default": true, "description": "Block until terminal state (default true)"},
+            "timeout_s": {"type": "integer", "description": "Max wait seconds when wait=true (10..600, default 180)"}
+          },
+          "required": ["component_id"]
+        }
+      llm_alias: build_component
+      llm_description: Kick off a docker-backed build for an FE component. Returns build_id, status, log_tail (last ~40 lines), and on failure error_output (filtered stderr/system lines). Pass wait=false for fire-and-forget.
+      mcp:
+        required_scopes:
+          - components.build
+    source: file://build_component.lua
+    modules:
+      - security
+      - time
+    imports:
+      audit: keeper.task:audit
+      builds: keeper.components.build:builds
+    method: handler
+    
+  # keeper.components.tools:fs
+  - name: fs
+    kind: function.lua
+    meta:
+      type: tool
+      title: Frontend Filesystem
+      comment: Read, search, and edit files under frontend/ — scratch-first reads via active changeset, writes staged through governance
+      tags:
+        - components
+        - fs
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "enum": ["view", "search", "str_replace", "create", "rewrite", "delete"],
+              "description": "Operation to perform"
+            },
+            "path": {"type": "string", "description": "Relative path under frontend/ (no traversal). For search, a directory prefix."},
+            "content": {"type": "string", "description": "File contents for create/rewrite (UTF-8, max 512KiB)"},
+            "old_str": {"type": "string", "description": "Anchored text to replace (str_replace) — must be unique in the file"},
+            "new_str": {"type": "string", "description": "Replacement text (str_replace)"},
+            "query": {"type": "string", "description": "Search query (literal by default; set regex=true for Lua patterns)"},
+            "regex": {"type": "boolean", "description": "Treat query as Lua pattern (default false = literal)"},
+            "case_insensitive": {"type": "boolean", "description": "Case-insensitive search"},
+            "glob": {"type": "string", "description": "Optional path glob filter (e.g. **/*.vue) applied to candidates"},
+            "limit": {"type": "integer", "description": "Max hits to return (default 200)"},
+            "view_range": {"type": "array", "items": {"type": "integer"}, "description": "[start_line, end_line] (1-indexed, end=-1 for tail)"},
+            "raw": {"type": "boolean", "description": "view without line-number prefix"},
+            "goal": {"type": "string", "description": "What you want to learn from this search (used to compress large hit sets)"},
+            "full": {"type": "boolean", "description": "Skip summarize compression and return every hit verbatim"}
+          },
+          "required": ["command"]
+        }
+      llm_alias: fs
+      llm_description: |
+        Unified frontend filesystem tool. Commands:
+          - view: read file with 1-indexed line numbers (use view_range for slices)
+          - search: literal/regex search across files under a path (respects .gitignore-equivalent skip dirs)
+          - str_replace: anchored edit (old_str must be unique; add surrounding lines for uniqueness)
+          - create: create a new file (errors if it exists)
+          - rewrite: overwrite an existing file
+          - delete: stage a deletion
+        Reads honor the active changeset (scratch-first, fe_fs fallback). Writes require an active changeset and flow through the governance pipeline.
+      mcp:
+        action_scopes:
+          create: components.write
+          delete: components.write
+          rewrite: components.write
+          str_replace: components.write
+        required_scopes:
+          - components.read
+    source: file://fs.lua
+    modules:
+      - fs
+    imports:
+      audit: keeper.task:audit
+      branch_ctx: keeper.state.tools:branch_ctx
+      cs_consts: keeper.changeset:consts
+      cs_repo: keeper.changeset.persist:repo
+      fs_view: keeper.changeset:fs_view
+      patch_engine: keeper.state.patch:engine
+      summarize: keeper.internal.llm:summarize
+    method: handler
+    
+  # keeper.components.tools:fs_test
+  - name: fs_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: fs tool unit tests — dispatch, path validation, view, search, write-ops gating
+      suite: components
+    source: file://fs_test.lua
+    modules:
+      - funcs
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    
+  # keeper.components.tools:helpers
+  - name: helpers
+    kind: library.lua
+    meta:
+      comment: Shared helpers for components tools (user-scoped token mint, etc.)
+    source: file://helpers.lua
+    modules:
+      - security
+    
+  # keeper.components.tools:resolve_touched
+  - name: resolve_touched
+    kind: function.lua
+    meta:
+      comment: Map changed filesystem paths to the editable component ids that own them (internal helper for push auto-rebuild)
+      tags:
+        - components
+        - build
+    source: file://resolve_touched.lua
+    imports:
+      scanner: keeper.components.build:scanner
+    method: handler
+    
+  # keeper.components.tools:resolve_touched_test
+  - name: resolve_touched_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: resolve_touched unit tests — path normalization, editable-only filter, dedup
+      suite: components
+    source: file://resolve_touched_test.lua
+    modules:
+      - funcs
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    
+  # keeper.components.tools:screenshot_ui
+  - name: screenshot_ui
+    kind: function.lua
+    meta:
+      type: tool
+      title: Screenshot Component
+      comment: Capture a one-shot screenshot of a component via transient Playwright
+      tags:
+        - components
+        - ui
+        - screenshot
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "component_id": {"type": "string", "description": "FE component id to capture"},
+            "route": {"type": "string", "description": "In-app route appended to the component URL"},
+            "wait_for": {"type": "string", "description": "Optional selector to await before the shot. Timing hint only — if it never resolves the tool still captures the screenshot and reports {observed:false, error:...} under wait_for in the response."},
+            "wait_timeout_ms": {"type": "integer", "description": "Wait timeout ms (default 10000)"},
+            "assert_selectors": {"type": "array", "items": {"type": "string"}, "description": "Probe these selectors in the rendered DOM and return present/visible/text_preview per selector under selectors[] in the response. Deterministic ground truth that complements the screenshot image."},
+            "selector": {"type": "string", "description": "Element selector for the screenshot crop (defaults to full viewport)"},
+            "full": {"type": "boolean", "description": "Fullpage screenshot"},
+            "name": {"type": "string", "description": "Output filename slug"}
+          },
+          "required": ["component_id"]
+        }
+      llm_alias: screenshot_ui
+      llm_description: |
+        Capture a one-shot screenshot of a component AND collect deterministic browser-state evidence in a single blocking call. Always returns the rendered image when navigation succeeds; tool errors are reserved for "no page reachable" cases. Response carries: screenshot_url, captured_at, route; wait_for (when passed) with {observed, timeout_ms, elapsed_s, error?}; selectors (when assert_selectors passed) with {present, visible, text_preview} per selector. Build verdicts on selectors[] + image together — wait_for is a timing hint, not a success criterion.
+      mcp:
+        required_scopes:
+          - components.capture
+    source: file://screenshot_ui.lua
+    modules:
+      - process
+      - channel
+      - json
+    imports:
+      audit: keeper.task:audit
+      comp_helpers: keeper.components.tools:helpers
+      filenames: keeper.components:filenames
+      scanner: keeper.components.build:scanner
+      ui: keeper.components.ui:client
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.components.tools:screenshot_ui_test
+  - name: screenshot_ui_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: screenshot_ui — single blocking call returning image OR error; wait_for is a hint not a gate; assert_selectors yields deterministic DOM facts. Pins the v17 false-positive regression.
+      suite: components.tools
+    source: file://screenshot_ui_test.lua
+    modules:
+      - process
+      - channel
+      - json
+    imports:
+      audit: keeper.task:audit
+      comp_helpers: keeper.components.tools:helpers
+      scanner: keeper.components.build:scanner
+      screenshot_ui: keeper.components.tools:screenshot_ui
+      test: wippy.test:test
+      ui: keeper.components.ui:client
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.components.tools:ui
+  - name: ui
+    kind: function.lua
+    meta:
+      type: tool
+      title: UI Driver
+      comment: Drive the long-lived Playwright page via action dispatch (open/goto/click/fill/snapshot/...)
+      tags:
+        - components
+        - ui
+        - playwright
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["open", "goto_url", "snapshot", "click", "fill", "type_text", "press", "hover", "select_option", "wait_for", "wait", "eval", "screenshot", "assert_visible", "assert_text", "expect_url", "close", "ping"],
+              "description": "Operation to run against the persistent browser page"
+            },
+            "component_id": {"type": "string", "description": "Keeper component id for open"},
+            "route": {"type": "string", "description": "In-app route appended to the component URL (open)"},
+            "url": {"type": "string", "description": "URL for goto_url / expect_url"},
+            "wait_until": {"type": "string", "description": "Page load wait state (goto_url)"},
+            "selector": {"type": "string", "description": "CSS/text selector for DOM operations"},
+            "value": {"type": "string", "description": "Text input for fill/type_text/select_option"},
+            "key": {"type": "string", "description": "Key name for press (e.g. Enter, Tab)"},
+            "state": {"type": "string", "description": "wait_for state (visible/hidden/attached/detached)"},
+            "ms": {"type": "integer", "description": "Wait duration in milliseconds"},
+            "delay_ms": {"type": "integer", "description": "Per-key delay for type_text"},
+            "timeout_ms": {"type": "integer", "description": "Operation timeout (ms)"},
+            "js": {"type": "string", "description": "JavaScript expression to evaluate"},
+            "name": {"type": "string", "description": "Screenshot filename slug"},
+            "full": {"type": "boolean", "description": "Fullpage screenshot"},
+            "text": {"type": "string", "description": "Expected text for assert_text"},
+            "contains": {"type": "string", "description": "Substring match for expect_url"},
+            "regex": {"type": "string", "description": "Regex match for expect_url"}
+          },
+          "required": ["action"]
+        }
+      llm_alias: ui
+      llm_description: Drive the long-lived Playwright page. Typically start with open (for a component) or goto_url (for any URL), then click/fill/snapshot/assert, finally close when done.
+      mcp:
+        required_scopes:
+          - components.capture
+    source: file://ui.lua
+    modules:
+      - fs
+      - base64
+      - process
+      - channel
+    imports:
+      audit: keeper.task:audit
+      comp_helpers: keeper.components.tools:helpers
+      filenames: keeper.components:filenames
+      ui: keeper.components.ui:client
+    method: handler
+    pool:
+      size: 4
+    

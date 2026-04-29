@@ -1,0 +1,408 @@
+version: "1.0"
+namespace: keeper.state.tools
+
+entries:
+  # keeper.state.tools:abandon
+  - name: abandon
+    kind: function.lua
+    meta:
+      type: tool
+      title: Abandon Changeset
+      comment: Drop the active changeset and discard any staged edits
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "reason": {"type": "string", "description": "Optional reason recorded with the drop"}
+          }
+        }
+      llm_alias: abandon
+      llm_description: Drop the active changeset on the current branch. All staged edits are discarded.
+      mcp:
+        required_scopes:
+          - registry.write
+    source: file://abandon.lua
+    imports:
+      audit: keeper.task:audit
+      branch_ctx: keeper.state.tools:branch_ctx
+      cs_client: keeper.changeset:client
+    method: handler
+    
+  # keeper.state.tools:apply
+  - name: apply
+    kind: function.lua
+    meta:
+      comment: System-side batch patch composer — apply N patches via the patch engine, optionally publish through governance. Agents should use the per-item edit/fs/reset tools.
+      depends_on:
+        - ns:app
+    source: file://apply.lua
+    modules:
+      - funcs
+    imports:
+      audit: keeper.task:audit
+      branch_ctx: keeper.state.tools:branch_ctx
+      cs_client: keeper.changeset:client
+      engine: keeper.state.patch:engine
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.state.tools:branch
+  - name: branch
+    kind: function.lua
+    meta:
+      type: tool
+      title: Set Branch
+      comment: Set active branch context for state operations
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["set", "get", "clear"],
+              "default": "set",
+              "description": "Action: set branch, get current, or clear to main"
+            },
+            "branch": {
+              "type": "string",
+              "description": "Branch name to activate (required for 'set')"
+            }
+          }
+        }
+      llm_alias: set_branch
+      llm_description: Set or manage active branch context. All state operations use the active branch. Use 'set' to switch branches, 'get' to check current branch, 'clear' to return to main.
+      mcp:
+        action_scopes:
+          set: state.write
+          clear: state.write
+        required_scopes:
+          - state.read
+    source: file://branch.lua
+    modules:
+      - ctx
+    imports:
+      audit: keeper.task:audit
+      branch_ctx: keeper.state.tools:branch_ctx
+    method: handler
+    
+  # keeper.state.tools:branch_ctx
+  - name: branch_ctx
+    kind: library.lua
+    meta:
+      comment: Branch context helpers (active branch, branch chain, changeset resolution, service fn invocation)
+    source: file://branch_ctx.lua
+    modules:
+      - ctx
+      - funcs
+    
+  # keeper.state.tools:branch_test
+  - name: branch_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Branch tool — get/clear/set validation and action routing
+      suite: state.tools
+    source: file://branch_test.lua
+    imports:
+      branch: keeper.state.tools:branch
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.state.tools:compare
+  - name: compare
+    kind: function.lua
+    meta:
+      type: tool
+      title: Compare State Branches
+      comment: Compare two branches to identify added, deleted, and modified entries with detailed diffs
+      tags:
+        - comparison
+        - readonly
+        - state
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["tree", "entries"],
+              "description": "Comparison mode - tree for namespace-level summary, entries for detailed entry-level diffs"
+            },
+            "source": {"type": "string", "default": "main", "description": "Source branch to compare from"},
+            "target": {"type": "string", "description": "Target branch to compare to"},
+            "namespace": {"type": "string", "description": "Optional namespace filter to limit comparison scope"},
+            "ids": {"type": "array", "items": {"type": "string"}, "description": "Optional array of specific entry IDs to compare (entries mode only)"},
+            "show_unchanged": {"type": "boolean", "default": false, "description": "Whether to show unchanged entries in output (entries mode only)"},
+            "goal": {"type": "string", "description": "What you are looking for. Large outputs are compressed by a cheap LLM scoped to this goal."},
+            "full": {"type": "boolean", "description": "If true, skip summarization and return the raw diff (may be large)."}
+          },
+          "required": ["mode", "target"]
+        }
+      llm_alias: compare_state_branches
+      llm_description: |
+        Compare two branches to identify added, deleted, and modified entries with detailed diffs.
+        Pass a 'goal' so large outputs are compressed by a cheap LLM. Use full=true to bypass.
+      mcp:
+        required_scopes:
+          - state.read
+    source: file://compare.lua
+    imports:
+      audit: keeper.task:audit
+      changeset_repo: keeper.changeset.persist:repo
+      entry_lib: keeper.state.tools:entry_lib
+      materialize: keeper.state.persist:materialize
+      state_reader: keeper.state.persist:reader
+      summarize: keeper.internal.llm:summarize
+    method: handler
+    
+  # keeper.state.tools:edit
+  - name: edit
+    kind: function.lua
+    meta:
+      type: tool
+      title: Edit
+      comment: Edit entry definitions and source files
+      claude:
+        max_characters: 50000
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "enum": ["view", "str_replace", "create", "delete"],
+              "description": "Editor command. delete removes an entry from the active branch (creates a tombstone). Use delete to clean up stale entries before recreating with correct namespace/name."
+            },
+            "path": {"type": "string", "description": "Entry ID (namespace:name format)"},
+            "old_str": {"type": "string", "description": "Text to replace (str_replace)"},
+            "new_str": {"type": "string", "description": "Replacement text (str_replace)"},
+            "file_text": {"type": "string", "description": "Complete file with <definition> and <source> sections (create)"},
+            "view_range": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2, "description": "Line range [start, end] for view"}
+          },
+          "required": ["command", "path"]
+        }
+      llm_alias: str_replace_based_edit_tool
+      llm_description: Edit entries (definitions and source). View shows both definition YAML and source with line numbers. str_replace works on either part. Create takes structured file_text with definition and source sections. Delete removes an entry on the active branch (tombstone). Works on active branch.
+      mcp:
+        action_scopes:
+          create: registry.write
+          delete: registry.write
+          str_replace: registry.write
+        required_scopes:
+          - state.read
+    source: file://edit.lua
+    imports:
+      audit: keeper.task:audit
+      engine: keeper.state.patch:engine
+    method: handler
+    
+  # keeper.state.tools:entry_lib
+  - name: entry_lib
+    kind: library.lua
+    meta:
+      comment: Entry-level helpers (id parse/validate, kind extraction, chunk unpack, content hash, branch load, diff classify)
+    source: file://entry_lib.lua
+    modules:
+      - hash
+    imports:
+      state_reader: keeper.state.persist:reader
+    
+  # keeper.state.tools:explore
+  - name: explore
+    kind: function.lua
+    meta:
+      type: tool
+      title: Explore State
+      comment: Unified exploration tool for state system - tree, namespace, entries, search, and graph operations
+      tags:
+        - exploration
+        - readonly
+        - state
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "operation": {"type": "string", "enum": ["tree", "namespace", "entries", "search", "graph"], "description": "Exploration operation"},
+            "root":   {"type": "string", "default": ".", "description": "Root namespace prefix for tree operation"},
+            "depth":  {"type": "integer", "default": -1, "description": "Max traversal depth (-1 = unlimited for tree, 1-5 for graph)"},
+            "show_entries": {"type": "boolean", "default": true, "description": "Show individual entries within namespaces in tree view"},
+            "name":   {"type": "string", "description": "Namespace name for namespace operation"},
+            "id":     {"type": "string", "description": "Entry ID for graph operation (namespace:name format)"},
+            "ids":    {"type": "array", "items": {"type": "string"}, "description": "Array of entry IDs for entries operation"},
+            "query":  {"type": "string", "description": "Search query (optional, can be empty to list all with filters)"},
+            "namespace": {"type": "string", "description": "Filter by namespace prefix"},
+            "kind":   {"type": "string", "description": "Filter by entry kind (http.endpoint, function.lua, registry.entry, etc.)"},
+            "attributes": {"type": "object", "description": "Filter by meta attributes (e.g., {\"meta.type\": \"tool\"})", "additionalProperties": {"type": "string"}},
+            "limit":  {"type": "integer", "default": 100, "description": "Max results for search (default 100)"},
+            "direction": {"type": "string", "enum": ["outgoing", "incoming", "both"], "default": "both", "description": "Edge traversal direction for graph"},
+            "edge_type": {"type": "string", "description": "Filter edges by type in graph"},
+            "branch": {"type": "string", "description": "State branch (default: main)"},
+            "goal": {"type": "string", "description": "What you are trying to find. Large tree/namespace/entries/search outputs are compressed by a cheap LLM scoped to this goal."},
+            "full": {"type": "boolean", "description": "If true, skip summarization and return the raw render (may be large)."}
+          },
+          "required": ["operation"]
+        }
+      llm_alias: explore_state
+      llm_description: |
+        Unified state exploration with tree, namespace, entries, search, and graph operations.
+        Pass a 'goal' describing what you want to find; large outputs are compressed by a cheap LLM so only the relevant parts reach you. Use full=true to bypass.
+      mcp:
+        required_scopes:
+          - state.read
+    source: file://explore.lua
+    modules:
+      - logger
+    imports:
+      audit: keeper.task:audit
+      branch_ctx: keeper.state.tools:branch_ctx
+      entry_lib: keeper.state.tools:entry_lib
+      materialize: keeper.state.persist:materialize
+      state_reader: keeper.state.persist:reader
+      summarize: keeper.internal.llm:summarize
+    method: handler
+    
+  # keeper.state.tools:function_config
+  - name: function_config
+    kind: library.lua
+    meta:
+      comment: Static validator for function.*/library.*/process.* entry config (method, modules, imports)
+    source: file://function_config.lua
+    
+  # keeper.state.tools:get_entries
+  - name: get_entries
+    kind: function.lua
+    meta:
+      type: tool
+      title: Get Entries
+      comment: Retrieve complete entry definitions including structure and source code
+      tags:
+        - exploration
+        - readonly
+        - state
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "ids": {"type": "array", "items": {"type": "string"}, "description": "Array of entry IDs (namespace:name format)"},
+            "include_source": {"type": "boolean", "default": true, "description": "Include full source body. Pass false for exploration reads where the YAML definition alone is enough and the source body would bloat context."},
+            "goal": {"type": "string", "description": "What you want to learn from these entries. Large outputs are compressed by a cheap LLM scoped to this goal."},
+            "full": {"type": "boolean", "description": "If true, skip summarization and return verbatim entries (may be large)."}
+          },
+          "required": ["ids"]
+        }
+      llm_alias: get_entries
+      llm_description: |
+        Retrieve complete definitions including entry structure and source code for any entries.
+        Pass include_source=false when scanning multiple entries for structure — drops source bodies, keeps meta/imports/modules/method.
+        Pass a 'goal' so large multi-entry dumps are compressed by a cheap LLM. Use full=true to bypass compression when you need verbatim source for a single entry you are about to edit.
+      mcp:
+        required_scopes:
+          - state.read
+      output_schema: |
+        { "type": "string" }
+    source: file://get_entries.lua
+    imports:
+      audit: keeper.task:audit
+      branch_ctx: keeper.state.tools:branch_ctx
+      materialize: keeper.state.persist:materialize
+      state_reader: keeper.state.persist:reader
+      summarize: keeper.internal.llm:summarize
+    method: handler
+    
+  # keeper.state.tools:push
+  - name: push
+    kind: function.lua
+    meta:
+      type: tool
+      title: Push Branch
+      comment: Push state branch changes to main via governance (exposed tool).
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "branch":  {"type": "string", "description": "Branch to push (uses active branch if omitted)"},
+            "base":    {"type": "string", "default": "main", "description": "Base branch to compare against"},
+            "message": {"type": "string", "description": "Push message (optional)"}
+          }
+        }
+      llm_description: Push the active/specified overlay branch to main through the governance pipeline. Returns {version, entry_ids}. On validation failure, returns structured errors and the changeset is marked rejected — fix and retry.
+      mcp:
+        required_scopes:
+          - registry.write
+          - registry.sync
+    source: file://push.lua
+    modules:
+      - security
+    imports:
+      audit: keeper.task:audit
+      branch_ctx: keeper.state.tools:branch_ctx
+      changeset_consts: keeper.changeset:consts
+      entry_lib: keeper.state.tools:entry_lib
+      fs_flush: keeper.changeset:fs_flush
+      gov_consts: keeper.gov:consts
+      governance: keeper.state.publish:governance
+      materialize: keeper.state.persist:materialize
+      state_client: keeper.state:client
+    method: handler
+    
+  # keeper.state.tools:reset
+  - name: reset
+    kind: function.lua
+    meta:
+      type: tool
+      title: Reset Entry
+      comment: Reset an entry on the active branch to its version from a source branch (default main)
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "entry_id":    {"type": "string", "description": "Entry ID (namespace:name) to reset"},
+            "from_branch": {"type": "string", "default": "main", "description": "Source branch to copy the entry from"}
+          },
+          "required": ["entry_id"]
+        }
+      llm_alias: reset_entry
+      llm_description: Copy an entry's definition+source from a source branch into the active branch's overlay, reverting any local edits to that entry.
+      mcp:
+        required_scopes:
+          - registry.write
+    source: file://reset.lua
+    imports:
+      audit: keeper.task:audit
+      branch_ctx: keeper.state.tools:branch_ctx
+      cs_client: keeper.changeset:client
+      cs_consts: keeper.changeset:consts
+      entry_lib: keeper.state.tools:entry_lib
+      state_reader: keeper.state.persist:reader
+    method: handler
+    
+  # keeper.state.tools:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: State tool suite tests
+      suite: state_tools
+    source: file://test.lua
+    modules:
+      - uuid
+    imports:
+      apply: keeper.state.tools:apply
+      branch: keeper.state.tools:branch
+      changeset_consts: keeper.changeset:consts
+      changeset_repo: keeper.changeset.persist:repo
+      compare: keeper.state.tools:compare
+      edit: keeper.state.tools:edit
+      entry_lib: keeper.state.tools:entry_lib
+      explore: keeper.state.tools:explore
+      function_config: keeper.state.tools:function_config
+      get_entries: keeper.state.tools:get_entries
+      reset: keeper.state.tools:reset
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

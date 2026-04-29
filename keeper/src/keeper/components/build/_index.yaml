@@ -1,0 +1,61 @@
+version: "1.0"
+namespace: keeper.components.build
+
+entries:
+  # keeper.components.build:build_runner
+  - name: build_runner
+    kind: process.lua
+    meta:
+      comment: Executes a single FE build via host docker CLI with project root resolved from runtime cwd
+    source: file://build_runner.lua
+    modules:
+      - exec
+      - env
+      - system
+      - logger
+    imports:
+      builds: keeper.components.build:builds
+      consts: keeper.components:consts
+    method: run
+    
+  # keeper.components.build:builds
+  - name: builds
+    kind: library.lua
+    meta:
+      comment: Build CRUD + lifecycle (canonical store for FE builds)
+    source: file://builds.lua
+    modules:
+      - sql
+      - uuid
+      - process
+    imports:
+      consts: keeper.components:consts
+      keeper_config: keeper:config
+      scanner: keeper.components.build:scanner
+    
+  # keeper.components.build:scanner
+  - name: scanner
+    kind: library.lua
+    meta:
+      comment: FE component discovery (package.json with specification wippy-component-1.0)
+    source: file://scanner.lua
+    modules:
+      - json
+      - fs
+      - yaml
+    imports:
+      consts: keeper.components:consts
+    
+  # keeper.components.build:scanner_test
+  - name: scanner_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: scanner policy tests — module-owned app source is not exposed as editable host source
+      suite: components
+    source: file://scanner_test.lua
+    imports:
+      scanner: keeper.components.build:scanner
+      test: wippy.test:test
+    method: define_tests
+    

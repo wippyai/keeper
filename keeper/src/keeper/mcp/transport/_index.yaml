@@ -1,0 +1,152 @@
+version: "1.0"
+namespace: keeper.mcp.transport
+
+entries:
+  # keeper.mcp.transport:broker
+  - name: broker
+    kind: process.lua
+    meta:
+      comment: Per-session SSE forwarder. Listens sse.join to learn stream PID and forwards mcp.notify payloads to the client on SSE_MESSAGE_TOPIC.
+    source: file://broker.lua
+    modules:
+      - channel
+    imports:
+      mcp_consts: keeper.mcp:consts
+    method: run
+    
+  # keeper.mcp.transport:dispatch
+  - name: dispatch
+    kind: library.lua
+    meta:
+      comment: Shared tool dispatch — session context injection, admin_call, and _control session mutation handling (used by handler + call_tool meta)
+    source: file://dispatch.lua
+    imports:
+      mcp_auth: keeper.mcp.auth:auth
+      mcp_tokens: keeper.mcp.auth:tokens
+
+  # keeper.mcp.transport:handler_core
+  - name: handler_core
+    kind: library.lua
+    meta:
+      comment: Shared MCP JSON-RPC POST transport implementation used by internal and app-mounted handlers
+    source: file://handler_core.lua
+    modules:
+      - http
+      - json
+      - process
+    imports:
+      mcp_auth: keeper.mcp.auth:auth
+      mcp_authorize: keeper.mcp.auth:authorize
+      mcp_consts: keeper.mcp:consts
+      mcp_dispatch: keeper.mcp.transport:dispatch
+      mcp_meta: keeper.mcp.surface:meta
+      mcp_surface: keeper.mcp.surface:surface
+      mcp_traits: keeper.mcp.surface:traits
+      mcp_validate: keeper.mcp.surface:validate
+
+  # keeper.mcp.transport:handler_get_core
+  - name: handler_get_core
+    kind: library.lua
+    meta:
+      comment: Shared MCP Streamable HTTP GET/SSE implementation used by internal and app-mounted handlers
+    source: file://handler_get_core.lua
+    modules:
+      - http
+      - json
+      - process
+    imports:
+      mcp_auth: keeper.mcp.auth:auth
+      mcp_authorize: keeper.mcp.auth:authorize
+      mcp_consts: keeper.mcp:consts
+      keeper_config: keeper:config
+    
+  # keeper.mcp.transport:handler
+  - name: handler
+    kind: function.lua
+    meta:
+      comment: MCP JSON-RPC 2.0 protocol handler (HTTP transport + dispatch)
+      router: keeper.mcp:router
+    source: file://handler.lua
+    imports:
+      mcp_handler_core: keeper.mcp.transport:handler_core
+    method: handle
+    pool:
+      size: 4
+    
+  # keeper.mcp.transport:handler.endpoint
+  - name: handler.endpoint
+    kind: http.endpoint
+    meta:
+      router: keeper.mcp:router
+    method: POST
+    func: handler
+    path: /
+    
+  # keeper.mcp.transport:handler.endpoint.app
+  - name: handler.endpoint.app
+    kind: http.endpoint
+    meta:
+      comment: MCP handler mounted on app:gateway via router.app (/keeper-mcp/); disabled unless keeper.mcp:public_enabled is true
+      router: keeper.mcp:router.app
+    method: POST
+    func: handler_app
+    path: /
+    
+  # keeper.mcp.transport:handler_app
+  - name: handler_app
+    kind: function.lua
+    meta:
+      comment: MCP JSON-RPC 2.0 protocol handler for the app:gateway /keeper-mcp/ mount; fails closed unless MCP_PUBLIC_ENABLED=true
+      router: keeper.mcp:router.app
+    source: file://handler_app.lua
+    imports:
+      mcp_handler_core: keeper.mcp.transport:handler_core
+    method: handle
+    pool:
+      size: 4
+    
+  # keeper.mcp.transport:handler_get
+  - name: handler_get
+    kind: function.lua
+    meta:
+      comment: GET / upgrades to SSE via sse_relay; spawns per-session broker process
+      router: keeper.mcp:router
+    source: file://handler_get.lua
+    imports:
+      mcp_handler_get_core: keeper.mcp.transport:handler_get_core
+    method: handle_get
+    pool:
+      size: 16
+    
+  # keeper.mcp.transport:handler_get.endpoint
+  - name: handler_get.endpoint
+    kind: http.endpoint
+    meta:
+      router: keeper.mcp:router
+    method: GET
+    func: handler_get
+    path: /
+    
+  # keeper.mcp.transport:handler_get.endpoint.app
+  - name: handler_get.endpoint.app
+    kind: http.endpoint
+    meta:
+      comment: SSE upgrader for the app:gateway /keeper-mcp/ mount; disabled unless keeper.mcp:public_enabled is true
+      router: keeper.mcp:router.app
+    method: GET
+    func: handler_get_app
+    path: /
+    
+  # keeper.mcp.transport:handler_get_app
+  - name: handler_get_app
+    kind: function.lua
+    meta:
+      comment: GET / app:gateway /keeper-mcp/ SSE upgrader; fails closed unless MCP_PUBLIC_ENABLED=true
+      router: keeper.mcp:router.app
+    source: file://handler_get_app.lua
+    imports:
+      mcp_handler_get_core: keeper.mcp.transport:handler_get_core
+    method: handle_get
+    pool:
+      size: 16
+    

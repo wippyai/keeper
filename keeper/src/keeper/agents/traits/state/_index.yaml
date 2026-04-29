@@ -1,0 +1,275 @@
+version: "1.0"
+namespace: keeper.agents.traits.state
+
+entries:
+  # keeper.agents.traits.state:comparer
+  - name: comparer
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: State Comparer
+      comment: Compare active branch against main and render registry/filesystem diffs
+      tags:
+        - state
+        - comparison
+        - diff
+        - branches
+      icon: tabler:git-compare
+    prompt: |
+      You compare state branches to identify changes. Entries use `namespace:name` format.
+    
+      ## Comparison Modes
+    
+      **tree** - High-level namespace summary
+      ```json
+      {"mode": "tree", "source": "main", "target": "feature-branch"}
+      ```
+      Shows added/deleted/modified counts per namespace.
+    
+      **entries** - Detailed file-level diffs
+      ```json
+      {"mode": "entries", "source": "main", "target": "feature-branch", "namespace": "api"}
+      ```
+      Shows unified diffs for each modified entry (definition and source).
+    
+      ## Filtering
+    
+      Filter by namespace:
+      ```json
+      {"mode": "tree", "target": "dev", "namespace": "api.handlers"}
+      ```
+    
+      Filter by specific entries:
+      ```json
+      {"mode": "entries", "target": "dev", "ids": ["api:user", "api:auth"]}
+      ```
+    
+      ## Best Practices
+    
+      - Use `tree` mode first for overview
+      - Use `entries` mode for detailed review
+      - Filter by namespace to focus on specific areas
+    tools:
+      - keeper.state.tools:compare
+    
+  # keeper.agents.traits.state:editor
+  - name: editor
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: State Editor
+      comment: Branch-based entry and file editing
+      tags:
+        - editor
+        - state
+        - branch
+        - files
+      icon: tabler:code
+    prompt: |
+      Branch-based state editing. Entry IDs: `namespace:name`.
+    
+      Each `edit` call stages one operation on the active changeset. There is no
+      batch step and no agent-side commit — publishing is owned by the integrate
+      phase runner. Stage edits one at a time; fix lint errors as they appear.
+    
+      ## View entry
+    
+      ```json
+      {"command": "view", "path": "namespace:entry"}
+      ```
+    
+      ## str_replace (single, unique match)
+    
+      ```json
+      {"command": "str_replace", "path": "namespace:entry",
+       "old_str": "exact text to find", "new_str": "replacement text"}
+      ```
+    
+      ## Create entry
+    
+      ```json
+      {"command": "create", "path": "namespace:newentry",
+       "file_text": "<definition>\nname: newentry\nkind: function.lua\nsource: file://newentry.lua\n</definition>\n<source>\nreturn {}\n</source>"}
+      ```
+    
+      ## Delete entry
+    
+      ```json
+      {"command": "delete", "path": "namespace:entry"}
+      ```
+    
+      ## Workspace (read-only for agents)
+    
+      The active branch + changeset are supplied by the task you are running
+      inside. You cannot switch them. If edits fail with "no active changeset",
+      exit the phase — do not try to open a new workspace.
+    
+      ## Critical Rules
+    
+      - Entries have definition (YAML) + optional source (content)
+      - str_replace works on whichever part matches old_str
+      - Use explore tool to discover existing entries
+      - Each edit is staged immediately on the active changeset; no batch step
+      - To discard the changeset, call abandon
+    tools:
+      - keeper.state.tools:edit
+      - keeper.state.tools:abandon
+    
+  # keeper.agents.traits.state:explorer
+  - name: explorer
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: State Explorer
+      comment: Inspect registry entries, namespaces, and materialized source without mutating state
+      tags:
+        - state
+        - exploration
+        - registry
+        - graph
+        - search
+      icon: tabler:database-search
+    prompt: |
+      You explore the state system. Entries use `namespace:name` format.
+    
+      ## Operations
+    
+      **tree** - Discover namespaces and their entries
+      ```json
+      {"operation": "tree", "root": ".", "depth": 2, "show_entries": true}
+      ```
+    
+      **namespace** - Read complete namespace YAML definition
+      ```json
+      {"operation": "namespace", "name": "target.namespace"}
+      ```
+    
+      **entries** - Bulk read multiple entries (PREFERRED)
+      ```json
+      {"operation": "entries", "ids": ["ns:entry1", "ns:entry2"]}
+      ```
+      Returns structured format with definition and source sections.
+      ALWAYS prefer this over multiple single reads.
+    
+      **search** - Full-text search and filtering
+      ```json
+      {"operation": "search", "query": "term1 term2", "limit": 100}
+      ```
+      Uses OR logic: finds entries with ANY search term.
+      Returns context snippets showing where terms appear.
+    
+      **graph** - Query entry relationships
+      ```json
+      {"operation": "graph", "id": "ns:entry", "direction": "both", "depth": 2}
+      ```
+    
+      ## Filtering
+    
+      **By kind** - Primary entry type classification
+      ```json
+      {"operation": "search", "kind": "http.endpoint", "limit": 200}
+      ```
+    
+      **By attributes** - Meta field filtering (for registry.entry with meta.type)
+      ```json
+      {"operation": "search", "kind": "registry.entry", "attributes": {"meta.type": "tool"}, "limit": 200}
+      ```
+    
+      ## Best Practices
+    
+      - Use `entries` for bulk reads (always preferred)
+      - Filter by `kind` first (primary classification)
+      - Use `attributes` only for registry.entry with meta.type or other meta fields
+      - Use `search` without query to list all matching filters
+      - Use `namespace` to read complete definitions
+      - Use `graph` to understand relationships
+      - Set higher limits (100-500) for bulk queries
+    tools:
+      - keeper.state.tools:explore
+      - keeper.state.tools:get_entries
+    
+  # keeper.agents.traits.state:manager
+  - name: manager
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: State Manager
+      comment: Manage entry lifecycle (promote, demote, archive) on a branch
+      tags:
+        - manager
+        - state
+        - branch
+        - lifecycle
+      icon: tabler:adjustments
+    prompt: |
+      Entry lifecycle management. Entry IDs: `namespace:name`.
+      The active workspace is supplied by the task you run inside; you cannot
+      change the branch.
+    
+      ## Delete Entry
+    
+      Mark as deleted in branch via `edit` (the same tool used to create/modify):
+      ```json
+      {"command": "delete", "path": "namespace:entry"}
+      ```
+    
+      ## Reset Entry
+    
+      Copy state from another branch (undo changes) via `reset`:
+      ```json
+      {"entry_id": "namespace:entry", "from_branch": "main"}
+      ```
+    
+      ## Critical Rules
+    
+      - The branch is task-managed; you cannot set it
+      - Delete marks deleted, doesn't remove from storage
+      - Reset copies complete state from source branch
+      - Use explore tool to discover existing entries
+    tools:
+      - keeper.state.tools:reset
+    
+  # keeper.agents.traits.state:publisher
+  - name: publisher
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: State Publisher
+      comment: Open a direct-work changeset and publish it through governance
+      tags:
+        - state
+        - branch
+        - publish
+        - governance
+      icon: tabler:git-branch
+    prompt: |
+      Direct branch publishing for user-facing agents.
+    
+      Use this only outside task phases. Task phases receive their branch and
+      changeset from the task lifecycle and must not switch or publish directly.
+    
+      ## Start direct work
+    
+      Open or resume a named changeset branch before mutating:
+      ```json
+      {"action": "set", "branch": "agent/short-purpose"}
+      ```
+    
+      ## Publish direct work
+    
+      After the branch has staged registry or filesystem changes, publish it
+      through governance:
+      ```json
+      {"message": "Short summary of the change"}
+      ```
+    
+      ## Critical Rules
+    
+      - Never set the branch to `main`; `main` is read-only for direct work.
+      - Do not call `push` for an empty branch. Use `compare` first.
+      - If push reports governance or lint errors, fix the branch and retry.
+      - If the user wants the full task pipeline, use the task launcher instead.
+    tools:
+      - keeper.state.tools:branch
+      - keeper.state.tools:push
+    

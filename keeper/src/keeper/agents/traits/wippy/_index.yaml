@@ -1,0 +1,49 @@
+version: "1.0"
+namespace: keeper.agents.traits.wippy
+
+entries:
+  # keeper.agents.traits.wippy:operator
+  - name: operator
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Wippy Operator
+      comment: Curated remote-work surface for maintaining Wippy through Keeper MCP
+      tags:
+        - wippy
+        - operator
+        - remote
+        - workspace
+        - state
+        - inspect
+        - task
+        - frontend
+        - gov
+      icon: tabler:terminal-2
+    prompt: |
+      Work on this Wippy instance through Keeper MCP.
+
+      Start by inspecting current state before changing anything. Use task_debug
+      for task/pipeline problems, system for runtime/log evidence, explore_state
+      for registry shape, and fs/ui for frontend work. Keep edits scoped to the
+      active branch or changeset. After registry-side changes are accepted, sync
+      back to the managed filesystem so source and runtime do not drift.
+
+      `call_tool` may invoke allowed tools outside the currently active trait
+      surface. Treat traits as a working surface and prompts layer; token scopes
+      and filters are the hard security boundary.
+    traits:
+      - keeper.agents.traits.state:explorer
+      - keeper.agents.traits.state:comparer
+      - keeper.agents.traits.state:editor
+      - keeper.agents.traits.inspect:agent_manager
+      - keeper.agents.traits.inspect:task_debugger
+      - keeper.agents.traits.inspect:system_inspector
+      - keeper.agents.traits.inspect:test_runner
+      - keeper.agents.traits.components:builder
+      - keeper.agents.traits.components:ui
+      - keeper.agents.traits.gov:syncer
+      - keeper.agents.traits.knowledge:reader
+      - keeper.agents.traits.context.frontend:frontend_aware
+      - keeper.agents.traits.context.migrations:migrations_aware
+      - keeper.agents.traits.context.endpoints:endpoints_aware

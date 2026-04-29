@@ -1,0 +1,86 @@
+version: "1.0"
+namespace: keeper.develop.integrate.stages
+
+entries:
+  # keeper.develop.integrate.stages:finalize
+  - name: finalize
+    kind: function.lua
+    meta:
+      comment: Integrate DAG terminal stage — update root integrate_stage row and call lifecycle.handle_exit
+    source: file://finalize.lua
+    imports:
+      stages_lib: keeper.develop.integrate.stages:stages_lib
+    method: finalize
+    
+  # keeper.develop.integrate.stages:publish
+  - name: publish
+    kind: function.lua
+    meta:
+      comment: Integrate DAG stage — invoke keeper.state.tools:push and emit publish stage row
+    source: file://publish.lua
+    imports:
+      stages_lib: keeper.develop.integrate.stages:stages_lib
+    method: publish
+    
+  # keeper.develop.integrate.stages:record_handlers
+  - name: record_handlers
+    kind: function.lua
+    meta:
+      comment: Integrate DAG stage — emit handlers integrate_stage row after pipeline:execute completes
+    source: file://record_handlers.lua
+    imports:
+      stages_lib: keeper.develop.integrate.stages:stages_lib
+    method: record_handlers
+    
+  # keeper.develop.integrate.stages:restore_version
+  - name: restore_version
+    kind: function.lua
+    meta:
+      comment: Integrate DAG stage — restore registry to baseline version after handler failure
+    source: file://restore_version.lua
+    imports:
+      stages_lib: keeper.develop.integrate.stages:stages_lib
+    method: restore_version
+    
+  # keeper.develop.integrate.stages:snapshot
+  - name: snapshot
+    kind: function.lua
+    meta:
+      comment: Integrate DAG stage — capture baseline registry version + emit integrate_stage row
+    source: file://snapshot.lua
+    imports:
+      stages_lib: keeper.develop.integrate.stages:stages_lib
+    method: snapshot
+    
+  # keeper.develop.integrate.stages:stages_lib
+  - name: stages_lib
+    kind: library.lua
+    meta:
+      comment: Shared implementation for integrate DAG stage handlers. Wrappers expose individual methods as function.lua entries.
+    source: file://stages_lib.lua
+    modules:
+      - funcs
+    imports:
+      governance: keeper.state.publish:governance
+      lifecycle: keeper.task.phases:lifecycle
+      nodes_writer: keeper.task.persist:nodes_writer
+    
+  # keeper.develop.integrate.stages:stages_lib_test
+  - name: stages_lib_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Structural smoke tests for integrate stage library — argument validation, trail row emission, finalize result shape
+      suite: develop
+    source: file://stages_lib_test.lua
+    modules:
+      - sql
+    imports:
+      nodes_writer: keeper.task.persist:nodes_writer
+      stages_lib: keeper.develop.integrate.stages:stages_lib
+      task_writer: keeper.task.persist:writer
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

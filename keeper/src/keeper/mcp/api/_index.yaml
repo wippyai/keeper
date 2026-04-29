@@ -1,0 +1,163 @@
+version: "1.0"
+namespace: keeper.mcp.api
+
+entries:
+  # keeper.mcp.api:admin_token_get
+  - name: admin_token_get
+    kind: function.lua
+    meta:
+      comment: Get MCP admin access token (env-backed, private)
+      router: app:api
+    source: file://admin_token_get.lua
+    modules:
+      - http
+      - env
+      - security
+    imports:
+      mcp_auth: keeper.mcp.auth:auth
+    method: handle_get
+    pool:
+      size: 2
+    
+  # keeper.mcp.api:admin_token_get.endpoint
+  - name: admin_token_get.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: admin_token_get
+    path: /keeper/mcp/admin_token
+    
+  # keeper.mcp.api:admin_token_set
+  - name: admin_token_set
+    kind: function.lua
+    meta:
+      comment: Set MCP admin access token
+      router: app:api
+    source: file://admin_token_set.lua
+    modules:
+      - http
+      - env
+      - security
+    imports:
+      mcp_auth: keeper.mcp.auth:auth
+    method: handle_post
+    pool:
+      size: 2
+    
+  # keeper.mcp.api:admin_token_set.endpoint
+  - name: admin_token_set.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: admin_token_set
+    path: /keeper/mcp/admin_token
+    
+  # keeper.mcp.api:create_token
+  - name: create_token
+    kind: function.lua
+    meta:
+      comment: Create MCP token
+      router: app:api
+    source: file://create_token.lua
+    modules:
+      - http
+      - json
+      - security
+    imports:
+      mcp_auth: keeper.mcp.auth:auth
+      mcp_policy: keeper.mcp.auth:policy
+      mcp_tokens: keeper.mcp.auth:tokens
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.mcp.api:create_token.endpoint
+  - name: create_token.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: create_token
+    path: /keeper/mcp/tokens
+    
+  # keeper.mcp.api:list_scopes
+  - name: list_scopes
+    kind: function.lua
+    meta:
+      comment: List available MCP scopes and presets
+      router: app:api
+    source: file://list_scopes.lua
+    modules:
+      - http
+      - security
+    imports:
+      mcp_auth: keeper.mcp.auth:auth
+      mcp_policy: keeper.mcp.auth:policy
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.mcp.api:list_scopes.endpoint
+  - name: list_scopes.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: list_scopes
+    path: /keeper/mcp/scopes
+    
+  # keeper.mcp.api:list_tokens
+  - name: list_tokens
+    kind: function.lua
+    meta:
+      comment: List MCP tokens
+      router: app:api
+    source: file://list_tokens.lua
+    modules:
+      - http
+      - security
+    imports:
+      mcp_auth: keeper.mcp.auth:auth
+      mcp_tokens: keeper.mcp.auth:tokens
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.mcp.api:list_tokens.endpoint
+  - name: list_tokens.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: list_tokens
+    path: /keeper/mcp/tokens
+    
+  # keeper.mcp.api:revoke_token
+  - name: revoke_token
+    kind: function.lua
+    meta:
+      comment: Revoke MCP token
+      router: app:api
+    source: file://revoke_token.lua
+    modules:
+      - http
+      - json
+      - security
+    imports:
+      mcp_auth: keeper.mcp.auth:auth
+      mcp_tokens: keeper.mcp.auth:tokens
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.mcp.api:revoke_token.endpoint
+  - name: revoke_token.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: revoke_token
+    path: /keeper/mcp/tokens/revoke
+    

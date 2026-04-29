@@ -1,0 +1,25 @@
+version: "1.0"
+namespace: keeper.config
+
+entries:
+  # keeper.config:app_db
+  - name: app_db
+    kind: registry.entry
+    meta:
+      comment: Application database used by Keeper integrations that inspect app-owned data
+    default: app:db
+
+  # keeper.config:admin_scope
+  - name: admin_scope
+    kind: registry.entry
+    meta:
+      comment: Security scope used when Keeper needs to validate admin/root authority
+    default: app.security:admin
+
+  # keeper.config:process_host
+  - name: process_host
+    kind: registry.entry
+    meta:
+      comment: Process host used by Keeper-spawned runtime work
+    default: app:processes
+

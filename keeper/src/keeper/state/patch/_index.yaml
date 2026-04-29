@@ -1,0 +1,79 @@
+version: "1.0"
+namespace: keeper.state.patch
+
+entries:
+  # keeper.state.patch:consts
+  - name: consts
+    kind: library.lua
+    meta:
+      comment: Patch op enums, error codes, source labels
+    source: file://consts.lua
+    imports:
+      cs_consts: keeper.changeset:consts
+    
+  # keeper.state.patch:engine
+  - name: engine
+    kind: library.lua
+    meta:
+      comment: Single source of truth for entry+fs patch dispatch over an active changeset
+    source: file://engine.lua
+    modules:
+      - text
+      - yaml
+      - fs
+    imports:
+      branch_ctx: keeper.state.tools:branch_ctx
+      cs_client: keeper.changeset:client
+      cs_consts: keeper.changeset:consts
+      entry_lib: keeper.state.tools:entry_lib
+      fs_view: keeper.changeset:fs_view
+      function_config: keeper.state.tools:function_config
+      gov_consts: keeper.gov:consts
+      materialize: keeper.state.persist:materialize
+      patch_consts: keeper.state.patch:consts
+      patch_validate: keeper.state.patch:validate
+      state_reader: keeper.state.persist:reader
+    
+  # keeper.state.patch:engine_test
+  - name: engine_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: End-to-end engine tests on a sandbox branch and frontend scratch path
+      suite: state.patch
+    source: file://engine_test.lua
+    modules:
+      - uuid
+    imports:
+      engine: keeper.state.patch:engine
+      patch_consts: keeper.state.patch:consts
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.state.patch:validate
+  - name: validate
+    kind: library.lua
+    meta:
+      comment: Pure single-patch shape validation
+    source: file://validate.lua
+    imports:
+      patch_consts: keeper.state.patch:consts
+    
+  # keeper.state.patch:validate_test
+  - name: validate_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure validator tests covering every error code
+      suite: state.patch
+    source: file://validate_test.lua
+    imports:
+      patch_consts: keeper.state.patch:consts
+      patch_validate: keeper.state.patch:validate
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

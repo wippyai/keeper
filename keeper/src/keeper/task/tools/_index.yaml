@@ -1,0 +1,362 @@
+version: "1.0"
+namespace: keeper.task.tools
+
+entries:
+  # keeper.task.tools:e2e_launch
+  - name: e2e_launch
+    kind: function.lua
+    meta:
+      type: tool
+      title: E2E Launch Task
+      comment: Create + start a task in one call (E2E harness for push/autobuild verification)
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "title":       {"type": "string"},
+            "description": {"type": "string"},
+            "spec":        {"type": "string"},
+            "start":       {"type": "boolean", "description": "Also call start_cycle (default true)"}
+          },
+          "required": ["title"]
+        }
+      llm_alias: e2e_launch
+      llm_description: Create a task and optionally start the orchestration cycle in one call. Session's synthesized admin acts as the author.
+      mcp:
+        required_scopes:
+          - tasks.run
+    source: file://e2e_launch.lua
+    modules:
+      - security
+    imports:
+      lifecycle: keeper.task.phases:lifecycle
+      task_writer: keeper.task.persist:writer
+    method: handler
+    pool:
+      size: 1
+    
+  # keeper.task.tools:finish
+  - name: finish
+    kind: function.lua
+    meta:
+      comment: The one orchestrator exit tool — validates signal against runners.exit_signals_for(phase), verifies success-like signals against authoritative state (changeset changes / integrate outcome / merge status), emits override nodes on rewrites, routes via lifecycle.handle_exit
+    source: file://finish.lua
+    modules:
+      - ctx
+    imports:
+      changeset_repo: keeper.changeset.persist:repo
+      lifecycle: keeper.task.phases:lifecycle
+      nodes_reader: keeper.task.persist:nodes_reader
+      nodes_writer: keeper.task.persist:nodes_writer
+      runners: keeper.task.phases:runners
+      state_machine: keeper.task.phases:state_machine
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.task.tools:finish_test
+  - name: finish_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: finish — signal validation, phase_exited emission, verification rewrites (zero-edit staged, rejected review) with override node emission
+      suite: task.tools
+    source: file://finish_test.lua
+    modules:
+      - sql
+      - uuid
+    imports:
+      changeset_consts: keeper.changeset:consts
+      changeset_repo: keeper.changeset.persist:repo
+      finish: keeper.task.tools:finish
+      nodes_reader: keeper.task.persist:nodes_reader
+      nodes_writer: keeper.task.persist:nodes_writer
+      state_machine: keeper.task.phases:state_machine
+      task_reader: keeper.task.persist:reader
+      task_writer: keeper.task.persist:writer
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.task.tools:plan_test
+  - name: plan_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: write_plan / step_done / step_block — persistence, validation, and supersede behaviour
+      suite: task.tools
+    source: file://plan_test.lua
+    modules:
+      - sql
+    imports:
+      nodes_reader: keeper.task.persist:nodes_reader
+      step_block: keeper.task.tools:step_block
+      step_done: keeper.task.tools:step_done
+      task_consts: keeper.task:consts
+      task_writer: keeper.task.persist:writer
+      test: wippy.test:test
+      write_plan: keeper.task.tools:write_plan
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.task.tools:read_context
+  - name: read_context
+    kind: function.lua
+    meta:
+      type: tool
+      title: Read Context
+      comment: Read all save_context entries for the active task
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "goal": {"type": "string", "description": "What you want to learn; narrows the compressed summary"},
+            "full": {"type": "boolean", "description": "Return every context entry verbatim (default false: compresses if above threshold)"}
+          },
+          "required": []
+        }
+      llm_alias: read_context
+      llm_description: Read every prior save_context entry attached to the active task. Use this to pick up research artifacts the orchestrator or earlier phases saved. Pass goal= to focus the compressed summary; full=true returns every entry verbatim.
+      mcp:
+        required_scopes:
+          - tasks.read
+    source: file://read_context.lua
+    modules:
+      - ctx
+      - text
+    imports:
+      audit: keeper.task:audit
+      changeset_repo: keeper.changeset.persist:repo
+      format_context: keeper.develop.context:format_context
+      nodes_reader: keeper.task.persist:nodes_reader
+      summarize: keeper.internal.llm:summarize
+    method: handler
+    
+  # keeper.task.tools:read_context_test
+  - name: read_context_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: read_context — Live State preamble must prepend every result so orchestrators use the active changeset/branch as source of truth, overriding stale finding content
+      suite: task.tools
+    source: file://read_context_test.lua
+    modules:
+      - sql
+      - text
+      - ctx
+      - json
+      - yaml
+      - hash
+    imports:
+      nodes_writer: keeper.task.persist:nodes_writer
+      open: keeper.changeset.service:open
+      read_context: keeper.task.tools:read_context
+      task_writer: keeper.task.persist:writer
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.task.tools:save_context
+  - name: save_context
+    kind: function.lua
+    meta:
+      type: tool
+      title: Save Context
+      comment: Store a discovery or context entry for later reference
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "key": { "type": "string", "description": "Unique identifier for this context entry" },
+            "content": { "type": "string", "description": "The discovery or context to preserve" },
+            "comment": { "type": "string", "description": "Why this context matters" }
+          },
+          "required": ["key", "content"]
+        }
+      llm_alias: save_context
+      llm_description: Store a discovery or finding for later reference during implementation. Use this to preserve entry IDs, patterns, and integration approaches you discover.
+      mcp:
+        required_scopes:
+          - tasks.write
+    source: file://save_context.lua
+    modules:
+      - ctx
+    imports:
+      audit: keeper.task:audit
+      nodes_writer: keeper.task.persist:nodes_writer
+    method: handler
+    
+  # keeper.task.tools:step_block
+  - name: step_block
+    kind: function.lua
+    meta:
+      type: tool
+      title: Block Step on User
+      comment: Park a step as blocked, emit an ask_user node tied to it, and return control to the orchestrator to exit with ask_user
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "step_id":  { "type": "string", "description": "The step id (discriminator)" },
+            "question": { "type": "string", "description": "What the user must answer before this step can resume" }
+          },
+          "required": ["step_id", "question"]
+        }
+      llm_alias: step_block
+      llm_description: Block a step and record a user question. After calling this, exit the phase with status='ask_user' and put the question in the summary.
+      mcp:
+        required_scopes:
+          - tasks.write
+    source: file://step_block.lua
+    modules:
+      - ctx
+    imports:
+      audit: keeper.task:audit
+      nodes_reader: keeper.task.persist:nodes_reader
+      nodes_writer: keeper.task.persist:nodes_writer
+    method: handler
+    
+  # keeper.task.tools:step_done
+  - name: step_done
+    kind: function.lua
+    meta:
+      type: tool
+      title: Mark Step Done
+      comment: Mark a plan step as done with a short result summary
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "step_id":        { "type": "string", "description": "The step id (discriminator) from write_plan" },
+            "result_summary": { "type": "string", "description": "What was produced / verified — one short paragraph" }
+          },
+          "required": ["step_id"]
+        }
+      llm_alias: step_done
+      llm_description: Close the current plan step. Call this every time you finish work on a step (including verification). Orchestrator picks up remaining pending steps automatically.
+      mcp:
+        required_scopes:
+          - tasks.write
+    source: file://step_done.lua
+    modules:
+      - ctx
+      - sql
+    imports:
+      audit: keeper.task:audit
+      nodes_reader: keeper.task.persist:nodes_reader
+      nodes_writer: keeper.task.persist:nodes_writer
+    method: handler
+    
+  # keeper.task.tools:tools_test
+  - name: tools_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Task tool handlers — save_context, read_context, write_spec
+      suite: task.tools
+    source: file://tools_test.lua
+    modules:
+      - sql
+    imports:
+      nodes_reader: keeper.task.persist:nodes_reader
+      read_context: keeper.task.tools:read_context
+      save_context: keeper.task.tools:save_context
+      state_machine: keeper.task.phases:state_machine
+      task_consts: keeper.task:consts
+      task_reader: keeper.task.persist:reader
+      task_writer: keeper.task.persist:writer
+      test: wippy.test:test
+      write_spec: keeper.task.tools:write_spec
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.task.tools:write_plan
+  - name: write_plan
+    kind: function.lua
+    meta:
+      type: tool
+      title: Write Plan
+      comment: Persist the deterministic step list produced by the planner. Supersedes any prior plan.
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "title":   { "type": "string", "description": "Plan title (optional, default: Implementation Plan (rev N))" },
+            "summary": { "type": "string", "description": "One-paragraph plan overview" },
+            "steps": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id":                { "type": "string", "description": "Short stable identifier, e.g. 'mk_endpoint'. Referenced from needs[]." },
+                  "kind":              { "type": "string", "enum": ["impl","migration","fs_write","test_create","test_run","endpoint_probe","view_probe","verify","research"] },
+                  "target":            { "type": "string", "description": "namespace:name or filesystem path this step creates or probes" },
+                  "title":             { "type": "string" },
+                  "task":              { "type": "string", "description": "Concrete directive the specialist follows — minimal, one paragraph" },
+                  "needs":             { "type": "array", "items": { "type": "string" }, "description": "Dependencies on other step ids in this plan" },
+                  "agent_id":          { "type": "string", "description": "Preferred specialist agent_id (optional; orchestrator may override)" },
+                  "produces_prompt":   { "type": "string", "description": "What the specialist must report on completion" },
+                  "acceptance":        { "type": "string", "description": "Machine-checkable success criterion, e.g. 'GET /api/v1/foo returns 200 with body {ok:true}'" },
+                  "verification_tool": { "type": "string", "description": "Tool to verify this step: get_entries, fs, test_endpoint, run_test, screenshot_ui, compare" }
+                },
+                "required": ["id","kind","title","task"]
+              }
+            }
+          },
+          "required": ["steps"]
+        }
+      llm_alias: write_plan
+      llm_description: Persist the step list as the plan of record. Every step is a row in the task tree that implement/test orchestrators pick up. Dependencies via needs[]. Call once per plan revision.
+      mcp:
+        required_scopes:
+          - tasks.write
+    source: file://write_plan.lua
+    modules:
+      - ctx
+      - sql
+    imports:
+      audit: keeper.task:audit
+      nodes_reader: keeper.task.persist:nodes_reader
+      nodes_writer: keeper.task.persist:nodes_writer
+    method: handler
+    pool:
+      size: 1
+    
+  # keeper.task.tools:write_spec
+  - name: write_spec
+    kind: function.lua
+    meta:
+      type: tool
+      title: Write Specification
+      comment: Write the implementation specification before creating entries
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string", "description": "Spec title" },
+            "content": { "type": "string", "description": "Full specification: entry IDs, kinds, composition, dependencies" },
+            "is_final": { "type": "boolean", "default": true, "description": "Whether this is the final spec version" }
+          },
+          "required": ["content"]
+        }
+      llm_alias: write_spec
+      llm_description: Write the implementation specification documenting what entries to create, their kinds, and how they compose. Do this BEFORE creating entries.
+      mcp:
+        required_scopes:
+          - tasks.write
+    source: file://write_spec.lua
+    modules:
+      - ctx
+      - sql
+    imports:
+      audit: keeper.task:audit
+      nodes_reader: keeper.task.persist:nodes_reader
+      nodes_writer: keeper.task.persist:nodes_writer
+      task_writer: keeper.task.persist:writer
+    method: handler
+    

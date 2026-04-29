@@ -1,0 +1,1 @@
+function t(n){const r=n.indexOf(":");return r>=0?n.slice(r+1):n}function e(n){if(n==null)return"";if(typeof n=="string")try{return JSON.stringify(JSON.parse(n),null,2)}catch{return n}return JSON.stringify(n,null,2)}export{t as e,e as p};

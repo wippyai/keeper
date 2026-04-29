@@ -1,0 +1,39 @@
+version: "1.0"
+namespace: keeper.task.service
+
+entries:
+  # keeper.task.service:phase_spawner
+  - name: phase_spawner
+    kind: process.lua
+    meta:
+      comment: Task phase-spawn actor — starts the next phase outside the exiting dataflow context
+    source: file://phase_spawner.lua
+    modules:
+      - channel
+      - logger
+      - process
+    imports:
+      lifecycle: keeper.task.phases:lifecycle
+      nodes_reader: keeper.task.persist:nodes_reader
+      task_consts: keeper.task:consts
+      task_reader: keeper.task.persist:reader
+    method: run
+    
+  # keeper.task.service:phase_spawner.service
+  - name: phase_spawner.service
+    kind: process.service
+    meta:
+      comment: Always-running task phase-spawn service
+    host: keeper.gov:processes
+    lifecycle:
+      depends_on:
+        - keeper.gov:processes
+        - keeper.state:db
+      auto_start: true
+      security:
+        actor:
+          id: keeper.task.phase_spawner
+        groups:
+          - keeper.gov.service.security:governance
+    process: phase_spawner
+    

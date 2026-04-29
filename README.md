@@ -1,46 +1,85 @@
-<p align="center">
-    <a href="https://wippy.ai" target="_blank">
-        <picture>
-            <source media="(prefers-color-scheme: dark)" srcset="https://github.com/wippyai/.github/blob/main/logo/wippy-text-dark.svg?raw=true">
-            <img width="30%" align="center" src="https://github.com/wippyai/.github/blob/main/logo/wippy-text-light.svg?raw=true" alt="Wippy logo">
-        </picture>
-    </a>
-</p>
-<h1 align="center">Wippy Keeper</h1>
-<div align="center">
+# Keeper
 
-[![Latest Release](https://img.shields.io/github/v/release/wippyai/app-keeper?style=for-the-badge)][releases-page]
-[![License](https://img.shields.io/github/license/wippyai/app-keeper?style=for-the-badge)](LICENSE)
-[![Documentation](https://img.shields.io/badge/documentation-0F6640.svg?style=for-the-badge&logo=gitbook)][wippy-documentation]
+This repository packages Keeper as a Wippy module monorepo.
 
-</div>
+- `keeper/` publishes `keeper/keeper`, the core Wippy control plane.
+- `usage/` publishes `keeper/usage`, the optional usage analytics module.
 
-Wippy Keeper is the central management agent for the Wippy platform that coordinates all specialized system agents.
-It serves as the main hub for users to access various system capabilities.
+Each child directory is an independent Wippy module with its own `wippy.yaml`,
+`wippy.lock`, source tree, tests, and optional frontend bundle.
 
-## Primary Responsibilities
+## Modules
 
-1. Connect users with the right specialized agent for their task
-2. Provide an overview of available system capabilities
-3. Coordinate workflows that require multiple specialized agents
-4. Maintain context when switching between agents
+### `keeper/keeper@0.5.0`
 
-## Available Specialized Agents
+Keeper provides the operator surface for a Wippy app:
 
-- **Documentation Agent**: For accessing module specifications and technical documentation
-- **Command Executor**: For executing system commands and processing output
-- **Filesystem Manager**: For file and directory operations
-- **Registry Manager**: For managing the distributed registry system
-- **Views Manager**: For handling application presentation layer, views, templates, and resources
-- **Coder**: For creating, updating, and managing code entries in the registry
-- **Git Manager**: For managing Git repositories and operations
-- **System Manager**: For system monitoring and resource management
-- **Test Runner**: For running and managing tests
+- registry and namespace governance
+- task orchestration and agent workflows
+- MCP token management and MCP transport
+- Hub dependency install/uninstall planning
+- frontend component discovery, builds, screenshots, and UI automation tools
+- logs, process/system inspection, tests, knowledge, changesets, and state graph APIs
 
-The Keeper application is designed to help users navigate efficiently to the right capabilities within the Wippy platform,
-maintaining conversational context throughout interactions with different specialized agents.
-It acts as the central coordination point for the entire system.
+The compiled Keeper UI is embedded in the module as `keeper.components:ui_static_fs`.
+Consumer apps should install the module and serve the embedded UI; they should not
+rebuild Keeper from stale app-local source unless they are actively developing this
+repository.
 
+### `keeper/usage`
 
-[wippy-documentation]: https://docs.wippy.ai
-[releases-page]: https://github.com/wippyai/app-keeper/releases
+Keeper Usage adds analytics pages and APIs on top of `wippy/usage`. It is separate
+so deployments can install or remove usage analytics independently.
+
+## Requirements
+
+`keeper/keeper` is configured through namespace requirements, so app projects can
+bind Keeper to their own runtime resources without editing Keeper entries:
+
+- `keeper:api_router` defaults to `app:api` and is applied to Keeper HTTP APIs.
+- `keeper:app_db` defaults to `app:db` and is used for Keeper app-owned tables.
+- `keeper:admin_scope` defaults to `app.security:admin`.
+- `keeper:env_storage` defaults to `app.env:store` and stores Keeper settings and MCP flags.
+- `keeper:public_gateway` defaults to `app:gateway` and is used for the optional public MCP mount.
+- `keeper:ui_server` defaults to `app:gateway` and serves embedded Keeper UI assets.
+- `keeper:process_host` defaults to `app:processes` for Keeper-spawned runtime work.
+
+The module also declares dependency requirements for Wippy runtime modules such as
+`wippy/agent`, `wippy/dataflow`, `wippy/llm`, `wippy/migration`, `wippy/security`,
+`wippy/session`, `wippy/test`, and `wippy/views`.
+
+See [RELEASES.md](RELEASES.md) for the 0.5.0 release notes.
+
+## Hub Flow
+
+The Keeper Hub APIs are designed for runtime dependency management:
+
+- browse modules and versions
+- read module README content
+- inspect installed dependencies
+- plan installs, including transitive requirements and required parameters
+- install or uninstall dependencies
+- list and run migrations when the installed module provides them
+
+Install planning should be used before install so the UI can show the complete
+requirement list and keep the user in the loop. Do not guess requirement values.
+
+## Verify
+
+```sh
+make lint
+make publish-dry-run
+```
+
+## Publish
+
+```sh
+make publish-keeper
+make publish-usage
+```
+
+## License
+
+Keeper modules are distributed under the Business Source License 1.1. See
+[LICENSE](LICENSE). The module metadata in `keeper/wippy.yaml` and
+`usage/wippy.yaml` uses the same `BSL-1.1` identifier.

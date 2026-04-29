@@ -1,0 +1,91 @@
+version: "1.0"
+namespace: keeper.internal.flow
+
+entries:
+  # keeper.internal.flow:detectors
+  - name: detectors
+    kind: library.lua
+    meta:
+      comment: Anomaly detectors over dataflow nodes and data rows
+    source: file://detectors.lua
+    modules:
+      - json
+      - hash
+    imports:
+      render: keeper.internal.flow:render
+      repo: keeper.internal.flow:repo
+    
+  # keeper.internal.flow:detectors_test
+  - name: detectors_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure-analysis tests for flow anomaly detectors
+      suite: internal.flow
+    source: file://detectors_test.lua
+    modules:
+      - json
+    imports:
+      detectors: keeper.internal.flow:detectors
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.internal.flow:render
+  - name: render
+    kind: library.lua
+    meta:
+      comment: Markdown rendering helpers for dataflow debug output
+    source: file://render.lua
+    modules:
+      - json
+    
+  # keeper.internal.flow:render_test
+  - name: render_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for flow render helpers
+      suite: internal.flow
+    source: file://render_test.lua
+    imports:
+      render: keeper.internal.flow:render
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.internal.flow:repo
+  - name: repo
+    kind: library.lua
+    meta:
+      comment: Query layer over dataflow tables for debug tooling
+    source: file://repo.lua
+    modules:
+      - sql
+      - json
+    imports:
+      commit_repo: userspace.dataflow.persist:commit_repo
+      data_reader: userspace.dataflow.persist:data_reader
+      dataflow_repo: userspace.dataflow.persist:dataflow_repo
+      keeper_config: keeper:config
+      node_reader: userspace.dataflow.persist:node_reader
+    
+  # keeper.internal.flow:repo_test
+  - name: repo_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for flow repo helpers (decode_content, adjacency, ancestors)
+      suite: internal.flow
+    source: file://repo_test.lua
+    modules:
+      - json
+    imports:
+      repo: keeper.internal.flow:repo
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

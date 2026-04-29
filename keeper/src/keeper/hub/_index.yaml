@@ -1,0 +1,47 @@
+version: "1.0"
+namespace: keeper.hub
+
+entries:
+  # keeper.hub:planner
+  - name: planner
+    kind: library.lua
+    meta:
+      comment: Read-only Hub install planner for dependency graphs, transitive requirements, and explicit configuration state
+    source: file://planner.lua
+    modules:
+      - registry
+      - hub
+    
+  # keeper.hub:service
+  - name: service
+    kind: library.lua
+    meta:
+      comment: Hub dependency manager for runtime plugin install, uninstall, and explicit migration actions
+    source: file://service.lua
+    modules:
+      - registry
+      - funcs
+      - sql
+      - uuid
+      - process
+    imports:
+      governance: keeper.state.publish:governance
+      materialize: keeper.state.persist:materialize
+      planner: keeper.hub:planner
+    
+  # keeper.hub:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Hub service unit tests for dependency patches, migration policy, and dry-run behavior
+      suite: hub
+    source: file://test.lua
+    imports:
+      hub_service: keeper.hub:service
+      planner: keeper.hub:planner
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

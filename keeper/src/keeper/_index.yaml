@@ -1,0 +1,527 @@
+version: "1.0"
+namespace: keeper
+
+entries:
+  # keeper:definition
+  - name: definition
+    kind: ns.definition
+    readme: file://README.md
+    meta:
+      title: Keeper
+      description: Wippy control plane for development, governance, agents, tasks, MCP, and runtime operations
+
+  # keeper:api_router
+  - name: api_router
+    kind: ns.requirement
+    meta:
+      description: HTTP API router used by Keeper application endpoints
+    default: app:api
+    targets:
+      - entry: keeper.agents.api:list
+        path: .meta.router
+      - entry: keeper.agents.api:list.endpoint
+        path: .meta.router
+      - entry: keeper.changeset.api:create_changeset
+        path: .meta.router
+      - entry: keeper.changeset.api:create_changeset.endpoint
+        path: .meta.router
+      - entry: keeper.changeset.api:drop_changeset
+        path: .meta.router
+      - entry: keeper.changeset.api:drop_changeset.endpoint
+        path: .meta.router
+      - entry: keeper.changeset.api:edit_changeset
+        path: .meta.router
+      - entry: keeper.changeset.api:edit_changeset.endpoint
+        path: .meta.router
+      - entry: keeper.changeset.api:get_change_diff
+        path: .meta.router
+      - entry: keeper.changeset.api:get_change_diff.endpoint
+        path: .meta.router
+      - entry: keeper.changeset.api:get_changeset
+        path: .meta.router
+      - entry: keeper.changeset.api:get_changeset.endpoint
+        path: .meta.router
+      - entry: keeper.changeset.api:janitor_sweep
+        path: .meta.router
+      - entry: keeper.changeset.api:janitor_sweep.endpoint
+        path: .meta.router
+      - entry: keeper.changeset.api:list_changes
+        path: .meta.router
+      - entry: keeper.changeset.api:list_changes.endpoint
+        path: .meta.router
+      - entry: keeper.changeset.api:list_changesets
+        path: .meta.router
+      - entry: keeper.changeset.api:list_changesets.endpoint
+        path: .meta.router
+      - entry: keeper.changeset.api:transition
+        path: .meta.router
+      - entry: keeper.changeset.api:transition.endpoint
+        path: .meta.router
+      - entry: keeper.components.api:get_build
+        path: .meta.router
+      - entry: keeper.components.api:get_build.endpoint
+        path: .meta.router
+      - entry: keeper.components.api:get_component
+        path: .meta.router
+      - entry: keeper.components.api:get_component.endpoint
+        path: .meta.router
+      - entry: keeper.components.api:get_doc
+        path: .meta.router
+      - entry: keeper.components.api:get_doc.endpoint
+        path: .meta.router
+      - entry: keeper.components.api:list_builds
+        path: .meta.router
+      - entry: keeper.components.api:list_builds.endpoint
+        path: .meta.router
+      - entry: keeper.components.api:list_components
+        path: .meta.router
+      - entry: keeper.components.api:list_components.endpoint
+        path: .meta.router
+      - entry: keeper.components.api:start_build
+        path: .meta.router
+      - entry: keeper.components.api:start_build.endpoint
+        path: .meta.router
+      - entry: keeper.components.api:start_screenshot
+        path: .meta.router
+      - entry: keeper.components.api:start_screenshot.endpoint
+        path: .meta.router
+      - entry: keeper.components.api:ui_action
+        path: .meta.router
+      - entry: keeper.components.api:ui_action.endpoint
+        path: .meta.router
+      - entry: keeper.gov.api:download.endpoint
+        path: .meta.router
+      - entry: keeper.gov.api:config_get.endpoint
+        path: .meta.router
+      - entry: keeper.gov.api:config_update.endpoint
+        path: .meta.router
+      - entry: keeper.gov.api:redo.endpoint
+        path: .meta.router
+      - entry: keeper.gov.api:state.endpoint
+        path: .meta.router
+      - entry: keeper.gov.api:undo.endpoint
+        path: .meta.router
+      - entry: keeper.gov.api:upload.endpoint
+        path: .meta.router
+      - entry: keeper.gov.api.registry:get_entry.endpoint
+        path: .meta.router
+      - entry: keeper.gov.api.registry:list_entries.endpoint
+        path: .meta.router
+      - entry: keeper.gov.api.registry:list_namespaces.endpoint
+        path: .meta.router
+      - entry: keeper.gov.api.registry:update_entry.endpoint
+        path: .meta.router
+      - entry: keeper.gov.env.api:list_variables.endpoint
+        path: .meta.router
+      - entry: keeper.gov.env.api:set_variable.endpoint
+        path: .meta.router
+      - entry: keeper.hub.api:browse_modules
+        path: .meta.router
+      - entry: keeper.hub.api:browse_modules.endpoint
+        path: .meta.router
+      - entry: keeper.hub.api:get_readme
+        path: .meta.router
+      - entry: keeper.hub.api:get_readme.endpoint
+        path: .meta.router
+      - entry: keeper.hub.api:install_dependency
+        path: .meta.router
+      - entry: keeper.hub.api:install_dependency.endpoint
+        path: .meta.router
+      - entry: keeper.hub.api:list_dependencies
+        path: .meta.router
+      - entry: keeper.hub.api:list_dependencies.endpoint
+        path: .meta.router
+      - entry: keeper.hub.api:list_migrations
+        path: .meta.router
+      - entry: keeper.hub.api:list_migrations.endpoint
+        path: .meta.router
+      - entry: keeper.hub.api:list_versions
+        path: .meta.router
+      - entry: keeper.hub.api:list_versions.endpoint
+        path: .meta.router
+      - entry: keeper.hub.api:plan_install
+        path: .meta.router
+      - entry: keeper.hub.api:plan_install.endpoint
+        path: .meta.router
+      - entry: keeper.hub.api:run_migrations
+        path: .meta.router
+      - entry: keeper.hub.api:run_migrations.endpoint
+        path: .meta.router
+      - entry: keeper.hub.api:uninstall_dependency
+        path: .meta.router
+      - entry: keeper.hub.api:uninstall_dependency.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.api:create
+        path: .meta.router
+      - entry: keeper.knowledge.api:create.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.api:create_kb
+        path: .meta.router
+      - entry: keeper.knowledge.api:create_kb.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.api:delete
+        path: .meta.router
+      - entry: keeper.knowledge.api:delete.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.api:delete_kb
+        path: .meta.router
+      - entry: keeper.knowledge.api:delete_kb.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.api:embed
+        path: .meta.router
+      - entry: keeper.knowledge.api:embed.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.api:get
+        path: .meta.router
+      - entry: keeper.knowledge.api:get.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.api:learn
+        path: .meta.router
+      - entry: keeper.knowledge.api:learn.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.api:list
+        path: .meta.router
+      - entry: keeper.knowledge.api:list.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.api:list_kbs
+        path: .meta.router
+      - entry: keeper.knowledge.api:list_kbs.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.api:research
+        path: .meta.router
+      - entry: keeper.knowledge.api:research.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.api:search
+        path: .meta.router
+      - entry: keeper.knowledge.api:search.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.api:seed
+        path: .meta.router
+      - entry: keeper.knowledge.api:seed.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.api:semantic_search
+        path: .meta.router
+      - entry: keeper.knowledge.api:semantic_search.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.api:stats
+        path: .meta.router
+      - entry: keeper.knowledge.api:stats.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.api:update
+        path: .meta.router
+      - entry: keeper.knowledge.api:update.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.changelog.api:list
+        path: .meta.router
+      - entry: keeper.knowledge.changelog.api:list.endpoint
+        path: .meta.router
+      - entry: keeper.knowledge.changelog.api:versions
+        path: .meta.router
+      - entry: keeper.knowledge.changelog.api:versions.endpoint
+        path: .meta.router
+      - entry: keeper.logger.api:clear
+        path: .meta.router
+      - entry: keeper.logger.api:clear.endpoint
+        path: .meta.router
+      - entry: keeper.logger.api:get_logs
+        path: .meta.router
+      - entry: keeper.logger.api:get_logs.endpoint
+        path: .meta.router
+      - entry: keeper.logger.api:get_stats
+        path: .meta.router
+      - entry: keeper.logger.api:get_stats.endpoint
+        path: .meta.router
+      - entry: keeper.mcp.api:admin_token_get
+        path: .meta.router
+      - entry: keeper.mcp.api:admin_token_get.endpoint
+        path: .meta.router
+      - entry: keeper.mcp.api:admin_token_set
+        path: .meta.router
+      - entry: keeper.mcp.api:admin_token_set.endpoint
+        path: .meta.router
+      - entry: keeper.mcp.api:create_token
+        path: .meta.router
+      - entry: keeper.mcp.api:create_token.endpoint
+        path: .meta.router
+      - entry: keeper.mcp.api:list_scopes
+        path: .meta.router
+      - entry: keeper.mcp.api:list_scopes.endpoint
+        path: .meta.router
+      - entry: keeper.mcp.api:list_tokens
+        path: .meta.router
+      - entry: keeper.mcp.api:list_tokens.endpoint
+        path: .meta.router
+      - entry: keeper.mcp.api:revoke_token
+        path: .meta.router
+      - entry: keeper.mcp.api:revoke_token.endpoint
+        path: .meta.router
+      - entry: keeper.pm.api:stats
+        path: .meta.router
+      - entry: keeper.pm.api:stats.endpoint
+        path: .meta.router
+      - entry: keeper.pm.api:system_info
+        path: .meta.router
+      - entry: keeper.pm.api:system_info.endpoint
+        path: .meta.router
+      - entry: keeper.pm.api:terminate
+        path: .meta.router
+      - entry: keeper.pm.api:terminate.endpoint
+        path: .meta.router
+      - entry: keeper.state.api:graph
+        path: .meta.router
+      - entry: keeper.state.api:graph.endpoint
+        path: .meta.router
+      - entry: keeper.state.api:search
+        path: .meta.router
+      - entry: keeper.state.api:search.endpoint
+        path: .meta.router
+      - entry: keeper.task.api:archive_task
+        path: .meta.router
+      - entry: keeper.task.api:archive_task.endpoint
+        path: .meta.router
+      - entry: keeper.task.api:create_task
+        path: .meta.router
+      - entry: keeper.task.api:create_task.endpoint
+        path: .meta.router
+      - entry: keeper.task.api:get_task
+        path: .meta.router
+      - entry: keeper.task.api:get_task.endpoint
+        path: .meta.router
+      - entry: keeper.task.api:list_nodes
+        path: .meta.router
+      - entry: keeper.task.api:list_nodes.endpoint
+        path: .meta.router
+      - entry: keeper.task.api:list_tasks
+        path: .meta.router
+      - entry: keeper.task.api:list_tasks.endpoint
+        path: .meta.router
+      - entry: keeper.task.api:research
+        path: .meta.router
+      - entry: keeper.task.api:research.endpoint
+        path: .meta.router
+      - entry: keeper.task.api:respond
+        path: .meta.router
+      - entry: keeper.task.api:respond.endpoint
+        path: .meta.router
+      - entry: keeper.task.api:search
+        path: .meta.router
+      - entry: keeper.task.api:search.endpoint
+        path: .meta.router
+      - entry: keeper.task.api:start_cycle
+        path: .meta.router
+      - entry: keeper.task.api:start_cycle.endpoint
+        path: .meta.router
+      - entry: keeper.task.api:stats
+        path: .meta.router
+      - entry: keeper.task.api:stats.endpoint
+        path: .meta.router
+      - entry: keeper.task.api:status
+        path: .meta.router
+      - entry: keeper.task.api:status.endpoint
+        path: .meta.router
+      - entry: keeper.task.api:sync_research
+        path: .meta.router
+      - entry: keeper.task.api:sync_research.endpoint
+        path: .meta.router
+      - entry: keeper.task.api:update_task
+        path: .meta.router
+      - entry: keeper.task.api:update_task.endpoint
+        path: .meta.router
+      - entry: keeper.tests.api:discover
+        path: .meta.router
+      - entry: keeper.tests.api:discover.endpoint
+        path: .meta.router
+      - entry: keeper.tests.api:run
+        path: .meta.router
+      - entry: keeper.tests.api:run.endpoint
+        path: .meta.router
+
+  # keeper:app_db
+  - name: app_db
+    kind: ns.requirement
+    meta:
+      description: Application database resource used by Keeper integrations and app-owned migrations
+    default: app:db
+    targets:
+      - entry: keeper.config:app_db
+        path: .default
+      - entry: keeper.components.migrations:migration_01
+        path: .meta.target_db
+      - entry: keeper.components.migrations:migration_02
+        path: .meta.target_db
+      - entry: keeper.knowledge.migrations:migration_01
+        path: .meta.target_db
+      - entry: keeper.mcp.migrations:migration_01
+        path: .meta.target_db
+      - entry: keeper.mcp.migrations:migration_02
+        path: .meta.target_db
+      - entry: keeper.mcp.migrations:migration_03
+        path: .meta.target_db
+      - entry: keeper.mcp.migrations:migration_04
+        path: .meta.target_db
+      - entry: keeper.mcp.migrations:migration_05
+        path: .meta.target_db
+      - entry: keeper.mcp.migrations:migration_06
+        path: .meta.target_db
+
+  # keeper:admin_scope
+  - name: admin_scope
+    kind: ns.requirement
+    meta:
+      description: Security scope that identifies Keeper administrators
+    default: app.security:admin
+    targets:
+      - entry: keeper.config:admin_scope
+        path: .default
+
+  # keeper:env_storage
+  - name: env_storage
+    kind: ns.requirement
+    meta:
+      description: Environment storage entry used by Keeper settings and MCP flags
+    default: app.env:store
+    targets:
+      - entry: keeper.gov.env:linter_level
+        path: .storage
+      - entry: keeper.gov.env:managed_namespaces
+        path: .storage
+      - entry: keeper.mcp:access_token
+        path: .storage
+      - entry: keeper.mcp:admin_identity
+        path: .storage
+      - entry: keeper.mcp:enabled
+        path: .storage
+      - entry: keeper.mcp:public_enabled
+        path: .storage
+      - entry: keeper.mcp:public_url
+        path: .storage
+
+  # keeper:public_gateway
+  - name: public_gateway
+    kind: ns.requirement
+    meta:
+      description: Public HTTP service used for the optional /keeper-mcp/ mount
+    default: app:gateway
+    targets:
+      - entry: keeper.mcp:router.app
+        path: .meta.server
+
+  # keeper:ui_server
+  - name: ui_server
+    kind: ns.requirement
+    meta:
+      description: HTTP service used to serve the compiled Keeper UI assets
+    default: app:gateway
+    targets:
+      - entry: keeper.components:ui_static
+        path: .meta.server
+
+  # keeper:process_host
+  - name: process_host
+    kind: ns.requirement
+    meta:
+      description: Process host used for Keeper-spawned runtime work such as frontend builds and MCP SSE brokers
+    default: app:processes
+    targets:
+      - entry: keeper.config:process_host
+        path: .default
+
+  # keeper:dep.wippy.agent
+  - name: dep.wippy.agent
+    kind: ns.dependency
+    meta:
+      description: Agent runtime and registry support
+    component: wippy/agent
+    version: ">=v0.4.7"
+
+  # keeper:dep.wippy.dataflow
+  - name: dep.wippy.dataflow
+    kind: ns.dependency
+    meta:
+      description: Dataflow runtime used by Keeper task execution and debugging
+    component: wippy/dataflow
+    version: ">=v0.4.10"
+
+  # keeper:dep.wippy.llm
+  - name: dep.wippy.llm
+    kind: ns.dependency
+    meta:
+      description: LLM runtime used by Keeper agents and research tools
+    component: wippy/llm
+    version: ">=v0.4.26"
+
+  # keeper:dep.wippy.migration
+  - name: dep.wippy.migration
+    kind: ns.dependency
+    meta:
+      description: Migration framework for Keeper databases
+    component: wippy/migration
+    version: ">=v0.3.15"
+
+  # keeper:dep.wippy.security
+  - name: dep.wippy.security
+    kind: ns.dependency
+    meta:
+      description: Security scopes and actor helpers for Keeper APIs
+    component: wippy/security
+    version: ">=v0.4.0"
+
+  # keeper:dep.wippy.session
+  - name: dep.wippy.session
+    kind: ns.dependency
+    meta:
+      description: Session persistence and message inspection for Keeper debug tools
+    component: wippy/session
+    version: ">=v0.1.11"
+
+  # keeper:dep.wippy.test
+  - name: dep.wippy.test
+    kind: ns.dependency
+    meta:
+      description: Test runner used by Keeper verification tools
+    component: wippy/test
+    version: ">=v0.4.12"
+
+  # keeper:dep.wippy.views
+  - name: dep.wippy.views
+    kind: ns.dependency
+    meta:
+      description: View registry support for Keeper pages and frontend resources
+    component: wippy/views
+    version: ">=v0.4.28"
+
+  # keeper:config
+  - name: config
+    kind: library.lua
+    meta:
+      comment: Shared Keeper configuration resolver backed by keeper.config entries
+    source: file://config.lua
+    modules:
+      - registry
+
+  # keeper:main
+  - name: main
+    kind: registry.entry
+    meta:
+      name: keeper
+      type: view.page
+      title: Keeper
+      icon: tabler:shield-code
+      order: 5
+      announced: true
+      base_path: ""
+      entry_point: app.html
+      secure: false
+      url: /app/keeper
+    proxy:
+      css:
+        custom_css: true
+        custom_variables: true
+        fonts: true
+        iframe: true
+        prime_vue: true
+        theme_config: true
+      enabled: true
+      iconify_icons: true
+      tailwind_config: true
+    

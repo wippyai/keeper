@@ -1,0 +1,79 @@
+version: "1.0"
+namespace: keeper.usage
+
+entries:
+  # keeper.usage:definition
+  - name: definition
+    kind: ns.definition
+    readme: file://README.md
+    meta:
+      title: Keeper Usage
+      description: Keeper usage analytics UI and APIs backed by wippy/usage
+
+  # keeper.usage:api_router
+  - name: api_router
+    kind: ns.requirement
+    meta:
+      description: HTTP router used by Keeper usage analytics APIs
+    default: app:api
+    targets:
+      - entry: keeper.usage.api:get_summary
+        path: .meta.router
+      - entry: keeper.usage.api:get_summary.endpoint
+        path: .meta.router
+      - entry: keeper.usage.api:get_usage_by_model
+        path: .meta.router
+      - entry: keeper.usage.api:get_usage_by_model.endpoint
+        path: .meta.router
+      - entry: keeper.usage.api:get_usage_by_time
+        path: .meta.router
+      - entry: keeper.usage.api:get_usage_by_time.endpoint
+        path: .meta.router
+      - entry: keeper.usage.api:get_usage_by_user
+        path: .meta.router
+      - entry: keeper.usage.api:get_usage_by_user.endpoint
+        path: .meta.router
+
+  # keeper.usage:dep.wippy.usage
+  - name: dep.wippy.usage
+    kind: ns.dependency
+    meta:
+      description: Token usage persistence and tracker binding
+    component: wippy/usage
+    version: ">=v0.3.23"
+
+  # keeper.usage:dep.wippy.test
+  - name: dep.wippy.test
+    kind: ns.dependency
+    meta:
+      description: Test runner for Keeper usage API tests
+    component: wippy/test
+    version: ">=v0.4.12"
+
+  # keeper.usage:main
+  - name: main
+    kind: registry.entry
+    meta:
+      name: keeper.usage
+      type: view.page
+      title: Token Usage
+      icon: tabler:chart-pie
+      order: 6
+      announced: true
+      parent: keeper
+      group: observe
+      base_path: ""
+      entry_point: app.html
+      secure: false
+      url: /app/keeper-usage
+    proxy:
+      css:
+        custom_css: true
+        custom_variables: true
+        fonts: true
+        iframe: true
+        prime_vue: true
+        theme_config: true
+      enabled: true
+      iconify_icons: true
+      tailwind_config: true

@@ -1,0 +1,86 @@
+version: "1.0"
+namespace: keeper.gov.tools
+
+entries:
+  # keeper.gov.tools:helpers
+  - name: helpers
+    kind: library.lua
+    meta:
+      comment: Shared helpers for gov tools (stats formatter, sync pipeline)
+    source: file://helpers.lua
+    
+  # keeper.gov.tools:sync_from_fs
+  - name: sync_from_fs
+    kind: function.lua
+    meta:
+      type: tool
+      title: Sync Filesystem to Registry
+      comment: Upload pending filesystem changes into the registry via governance pipeline
+      tags:
+        - gov
+        - sync
+        - upload
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "timeout": {"type": "string", "description": "Governance operation timeout (default 90s)"}
+          }
+        }
+      llm_alias: sync_from_fs
+      llm_description: Upload filesystem changes (src/**) into the registry through the governance pipeline. Use after editing files on disk so the running registry matches the source tree. Returns {summary, message, version, stats}.
+      mcp:
+        required_scopes:
+          - registry.sync
+    source: file://sync_from_fs.lua
+    imports:
+      gov_client: keeper.gov:client
+      gov_helpers: keeper.gov.tools:helpers
+      journal: keeper.changeset.service:journal
+    method: handler
+    
+  # keeper.gov.tools:sync_to_fs
+  - name: sync_to_fs
+    kind: function.lua
+    meta:
+      type: tool
+      title: Sync Registry to Filesystem
+      comment: Write the current registry state back to the managed filesystem via governance pipeline
+      tags:
+        - gov
+        - sync
+        - download
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "timeout": {"type": "string", "description": "Governance operation timeout (default 90s)"}
+          }
+        }
+      llm_alias: sync_to_fs
+      llm_description: Download the current registry state back to the managed filesystem (src/**) through the governance pipeline. Use after registry-side edits so the source tree matches what is running. Returns {summary, message, version, stats}.
+      mcp:
+        required_scopes:
+          - registry.sync
+    source: file://sync_to_fs.lua
+    imports:
+      gov_client: keeper.gov:client
+      gov_helpers: keeper.gov.tools:helpers
+      journal: keeper.changeset.service:journal
+    method: handler
+    
+  # keeper.gov.tools:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Gov tool helpers tests
+      suite: gov_tools
+    source: file://test.lua
+    imports:
+      gov_helpers: keeper.gov.tools:helpers
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

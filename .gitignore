@@ -1,21 +1,26 @@
-/.idea
-/.vscode
-/runtime
-/dist
-/build
-
-# Dependency directories
-/node_modules
-/vendor
-
-# Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-.tmp
-.DS_Store
-
-# env file
+# Local runtime state
+.wippy/
+.wippy.yaml
 .env
+.env.*
+*.sqlite
+*.sqlite3
+
+# Logs and scratch output
+.logs/
+.research/
+.screenshots-archive/
+*.log
+
+# Frontend dependencies and build scratch
+node_modules/
+**/node_modules/
+**/dist/
+**/.vite/
+**/coverage/
+*.tsbuildinfo
+
+# OS/editor files
+.DS_Store
+.idea/
+.vscode/

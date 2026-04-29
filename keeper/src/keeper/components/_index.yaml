@@ -1,0 +1,134 @@
+version: "1.0"
+namespace: keeper.components
+
+entries:
+  # keeper.components:consts
+  - name: consts
+    kind: library.lua
+    meta:
+      comment: Shared constants for the FE components subsystem
+    source: file://consts.lua
+    modules:
+      - registry
+    
+  # keeper.components:fe_fs
+  - name: fe_fs
+    kind: fs.directory
+    meta:
+      comment: Writable filesystem scoped to ./frontend for session apply
+      description: Only surface sessions should use to write FE component files.
+    auto_init: true
+    directory: ./frontend
+    mode: "0755"
+
+  # keeper.components:ui_static_fs
+  - name: ui_static_fs
+    kind: fs.directory
+    meta:
+      comment: Compiled Keeper UI bundle published with the module
+      description: Runtime-only static files for /app/keeper. Source remains in ./frontend and is not embedded in published packages.
+    auto_init: false
+    directory: ./static/keeper
+    mode: "0755"
+
+  # keeper.components:ui_static
+  - name: ui_static
+    kind: http.static
+    meta:
+      comment: Serves the compiled Keeper UI bundle
+      server: app:gateway
+    fs: ui_static_fs
+    middleware:
+      - cors
+    options:
+      allow_headers: Authorization,Content-Type
+      allow_methods: '*'
+      allow_origins: '*'
+      mime_types:
+        .css: text/css
+        .html: text/html
+        .js: application/javascript
+    path: /app/keeper
+    
+  # keeper.components:filenames
+  - name: filenames
+    kind: library.lua
+    meta:
+      comment: Safe filename stems for generated component artifacts
+    source: file://filenames.lua
+    modules:
+      - uuid
+    
+  # keeper.components:filenames_test
+  - name: filenames_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Filename sanitizer regressions for screenshot artifacts
+      suite: components
+    source: file://filenames_test.lua
+    imports:
+      filenames: keeper.components:filenames
+      test: wippy.test:test
+    method: define_tests
+    
+  # keeper.components:host_shell
+  - name: host_shell
+    kind: exec.native
+    meta:
+      comment: Host shell for running docker build commands. No command whitelist — the build_runner constructs them safely from resolved paths.
+    
+  # keeper.components:os_env
+  - name: os_env
+    kind: env.storage.os
+    meta: {}
+    
+  # keeper.components:previews_fs
+  - name: previews_fs
+    kind: fs.directory
+    meta:
+      comment: Writable filesystem for component thumbnail screenshots
+      description: Served by the main HTTP server at /public/previews (auto-cleanup after TTL).
+    auto_init: true
+    directory: ./static/public/previews
+    mode: "0755"
+    
+  # keeper.components:project_fs
+  - name: project_fs
+    kind: fs.directory
+    meta:
+      comment: Read-only project root filesystem (used by the scanner)
+    auto_init: true
+    directory: ./
+    mode: "0755"
+    
+  # keeper.components:pw_runtime_fs
+  - name: pw_runtime_fs
+    kind: fs.directory
+    meta:
+      comment: Host bind-mount dir for the Playwright runtime
+      description: ./.wippy/fe-playwright-runtime — holds the npm-installed playwright node_modules plus the ui_runner.cjs that the supervisor writes before spawning the container. Mounted at /pw inside the container. First call populates it; later calls reuse the warm install.
+    auto_init: true
+    directory: ./.wippy/fe-playwright-runtime
+    mode: "0755"
+    
+  # keeper.components:siblings_fs
+  - name: siblings_fs
+    kind: fs.directory
+    meta:
+      comment: Read-only parent directory (sibling repos like app-template / be-common-components)
+      description: Used to resolve origin.source_path for linked prebuilt bundles.
+    auto_init: false
+    directory: ..
+    mode: "0755"
+    
+  # keeper.components:staging_fs
+  - name: staging_fs
+    kind: fs.directory
+    meta:
+      comment: Writable filesystem for docker build staging directories (M3)
+      description: Agent edit sessions materialize here before docker build. Disposable.
+    auto_init: true
+    directory: ./.wippy/fe-sessions
+    mode: "0755"
+    

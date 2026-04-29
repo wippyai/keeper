@@ -1,0 +1,159 @@
+version: "1.0"
+namespace: keeper.usage.api
+
+entries:
+  # keeper.usage.api:get_summary
+  - name: get_summary
+    kind: function.lua
+    meta:
+      comment: Token usage summary aggregate
+      depends_on:
+        - ns:app
+      router: app:api
+    source: file://get_summary.lua
+    modules:
+      - http
+      - security
+    imports:
+      time_utils: keeper.usage.api:time_utils
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.usage.api:get_summary.endpoint
+  - name: get_summary.endpoint
+    kind: http.endpoint
+    meta:
+      comment: GET /keeper/usage/summary
+      depends_on:
+        - ns:app
+      router: app:api
+    method: GET
+    func: get_summary
+    path: /keeper/usage/summary
+    
+  # keeper.usage.api:get_usage_by_model
+  - name: get_usage_by_model
+    kind: function.lua
+    meta:
+      comment: Token usage grouped by model
+      depends_on:
+        - ns:app
+      router: app:api
+    source: file://get_usage_by_model.lua
+    modules:
+      - http
+      - security
+    imports:
+      time_utils: keeper.usage.api:time_utils
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.usage.api:get_usage_by_model.endpoint
+  - name: get_usage_by_model.endpoint
+    kind: http.endpoint
+    meta:
+      comment: GET /keeper/usage/by-model
+      depends_on:
+        - ns:app
+      router: app:api
+    method: GET
+    func: get_usage_by_model
+    path: /keeper/usage/by-model
+    
+  # keeper.usage.api:get_usage_by_time
+  - name: get_usage_by_time
+    kind: function.lua
+    meta:
+      comment: Token usage time series
+      depends_on:
+        - ns:app
+      router: app:api
+    source: file://get_usage_by_time.lua
+    modules:
+      - http
+      - security
+    imports:
+      time_utils: keeper.usage.api:time_utils
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.usage.api:get_usage_by_time.endpoint
+  - name: get_usage_by_time.endpoint
+    kind: http.endpoint
+    meta:
+      comment: GET /keeper/usage/by-time
+      depends_on:
+        - ns:app
+      router: app:api
+    method: GET
+    func: get_usage_by_time
+    path: /keeper/usage/by-time
+    
+  # keeper.usage.api:get_usage_by_user
+  - name: get_usage_by_user
+    kind: function.lua
+    meta:
+      comment: Token usage grouped by user
+      depends_on:
+        - ns:app
+      router: app:api
+    source: file://get_usage_by_user.lua
+    modules:
+      - http
+      - security
+    imports:
+      time_utils: keeper.usage.api:time_utils
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.usage.api:get_usage_by_user.endpoint
+  - name: get_usage_by_user.endpoint
+    kind: http.endpoint
+    meta:
+      comment: GET /keeper/usage/by-user
+      depends_on:
+        - ns:app
+      router: app:api
+    method: GET
+    func: get_usage_by_user
+    path: /keeper/usage/by-user
+    
+  # keeper.usage.api:test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Usage API endpoint tests
+      depends_on:
+        - ns:app
+        - ns:wippy.usage
+        - ns:wippy.test
+    source: file://test.lua
+    modules:
+      - json
+      - time
+      - uuid
+      - sql
+      - registry
+      - http_client
+      - security
+    imports:
+      test: wippy.test:test
+      token_usage_repo: wippy.usage:token_usage_repo
+    method: define_tests
+    
+  # keeper.usage.api:time_utils
+  - name: time_utils
+    kind: library.lua
+    meta:
+      comment: Time range parsing, validation, and aggregation helpers shared by usage API
+    source: file://time_utils.lua
+    modules:
+      - time
+      - sql
+      - registry
+    
