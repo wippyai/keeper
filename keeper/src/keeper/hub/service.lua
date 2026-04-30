@@ -8,6 +8,7 @@ local fs = require("fs")
 local yaml = require("yaml")
 local planner = require("planner")
 local governance = require("governance")
+local gov_consts = require("gov_consts")
 local lockfile = require("lockfile")
 
 local M = {}
@@ -26,6 +27,7 @@ type ServiceDeps = {
     yaml: unknown?,
     planner: unknown?,
     governance: unknown?,
+    gov_consts: unknown?,
     lockfile: unknown?,
 }
 
@@ -40,6 +42,7 @@ type HubService = {
     yaml: unknown,
     planner: unknown,
     governance: unknown,
+    gov_consts: unknown,
     lockfile: unknown,
     list_dependencies: (HubService, unknown) -> (unknown, unknown?),
     list_migrations: (HubService, unknown) -> (unknown, unknown?),
@@ -51,7 +54,6 @@ type HubService = {
 
 M.DEFAULT_DEP_NAMESPACE = "app.deps"
 M.DEFAULT_VERSION = ">=v0.0.0"
-M.APPLY_FN = "keeper.state.tools:apply"
 M.MIGRATION_HANDLER_FN = "keeper.develop.integrate.handlers:migration_handler"
 M.USER_HUB_PREFIX = "user."
 M.EVENT_TOPIC = "keeper.hub"
@@ -340,6 +342,7 @@ function M.new(deps: ServiceDeps?)
         yaml = deps.yaml or yaml,
         planner = deps.planner or planner,
         governance = deps.governance or governance,
+        gov_consts = deps.gov_consts or gov_consts,
         lockfile = deps.lockfile or lockfile,
     }, Service) :: HubService
 end
@@ -573,31 +576,6 @@ function Service:call_func(id, params)
     return result, nil
 end
 
-function Service:apply_patches(args)
-    local branch = args.branch
-    if not branch or branch == "" then
-        local id = (self.uuid.v7 and self.uuid.v7()) or self.uuid.v4()
-        branch = "ws/" .. tostring(id)
-    end
-
-    local result, apply_err = self:call_func(M.APPLY_FN, {
-        branch = branch,
-        title = args.title,
-        message = args.message,
-        kind = "hub",
-        actor_id = args.actor_id,
-        publish = true,
-        patches = args.patches,
-        source = "keeper.hub",
-    })
-    if not result then return nil, apply_err end
-    if result.ok == false then
-        local first = result.errors and result.errors[1]
-        return nil, err("CONFLICT", first and first.message or "registry apply failed", result)
-    end
-    return result, nil
-end
-
 function Service:current_registry_version()
     if not self.governance or not self.governance.current_version then
         return nil, err("INTERNAL", "governance.current_version unavailable")
@@ -607,6 +585,86 @@ function Service:current_registry_version()
         return nil, err("INTERNAL", "failed to snapshot registry version: " .. tostring(version_err or "nil version"))
     end
     return version, nil
+end
+
+local function is_not_found_error(e)
+    if e == nil then return false end
+    local ok, kind = pcall(function() return (e :: any):kind() end)
+    if ok and (kind == errors.NOT_FOUND or tostring(kind) == tostring(errors.NOT_FOUND)) then
+        return true
+    end
+    return string.find(string.lower(tostring(e)), "not found", 1, true) ~= nil
+end
+
+function Service:dependency_create_or_update_op(entry)
+    if not self.registry or not self.registry.get then
+        return nil, err("INTERNAL", "registry.get unavailable")
+    end
+    local existing, get_err = self.registry.get(entry.id)
+    if get_err and not is_not_found_error(get_err) then
+        return nil, err("INTERNAL", "failed to inspect dependency entry " .. tostring(entry.id) .. ": " .. tostring(get_err))
+    end
+    local registry_ops = self.gov_consts and self.gov_consts.REGISTRY_OPERATIONS
+    if not registry_ops then
+        return nil, err("INTERNAL", "governance registry operation constants unavailable")
+    end
+    local op = existing and registry_ops.UPDATE or registry_ops.CREATE
+    return { kind = op, entry = entry }, nil
+end
+
+function Service:publish_dependency_changeset(args)
+    args = args or {}
+    if not self.governance or not self.governance.publish then
+        return nil, err("INTERNAL", "governance.publish unavailable")
+    end
+
+    local changeset
+    local entry_ids = {}
+    if args.action == "install" then
+        if type(args.entry) ~= "table" then
+            return nil, err("BAD_REQUEST", "install dependency entry is required")
+        end
+        local op, op_err = self:dependency_create_or_update_op(args.entry)
+        if not op then return nil, op_err end
+        changeset = { op }
+        entry_ids = { args.entry.id }
+    elseif args.action == "uninstall" then
+        local id = trim(args.id)
+        if id == "" then return nil, err("BAD_REQUEST", "uninstall dependency id is required") end
+        local registry_ops = self.gov_consts and self.gov_consts.REGISTRY_OPERATIONS
+        if not registry_ops then
+            return nil, err("INTERNAL", "governance registry operation constants unavailable")
+        end
+        changeset = { { kind = registry_ops.DELETE, entry = { id = id } } }
+        entry_ids = { id }
+    else
+        return nil, err("BAD_REQUEST", "dependency publish action must be install or uninstall")
+    end
+
+    local publish_options = {
+        user_id = args.actor_id,
+        message = args.message,
+        source = "keeper.hub",
+        request_hil = true,
+    }
+    local result, publish_err = self.governance.publish(changeset, publish_options)
+    if publish_err then
+        return nil, err("CONFLICT", "registry publish failed: " .. tostring(publish_err), {
+            action = args.action,
+            entry_ids = entry_ids,
+        })
+    end
+
+    return {
+        ok = true,
+        stage = "governance",
+        action = args.action,
+        version = result and result.version or nil,
+        message = result and result.message or nil,
+        result = result,
+        entry_ids = entry_ids,
+        changeset_count = #changeset,
+    }, nil
 end
 
 function Service:restore_registry_version(version, reason)
@@ -781,12 +839,11 @@ function Service:install(args, opts)
         migration_policy = payload.migration_policy,
     })
 
-    local apply_result, apply_err = self:apply_patches({
+    local apply_result, apply_err = self:publish_dependency_changeset({
+        action = "install",
+        entry = entry,
         actor_id = opts.actor_id,
-        branch = args.branch,
-        title = "Install Hub dependency " .. entry.data.component,
         message = "hub install " .. entry.id .. " " .. entry.data.component .. " " .. entry.data.version,
-        patches = { patch },
     })
     if not apply_result then
         self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FAILED, operation_id, {
@@ -1034,12 +1091,11 @@ function Service:uninstall(args, opts)
         payload.warning = "applied migrations were left in place"
     end
 
-    local apply_result, apply_err = self:apply_patches({
+    local apply_result, apply_err = self:publish_dependency_changeset({
+        action = "uninstall",
+        id = plan.dependency.id,
         actor_id = opts.actor_id,
-        branch = args.branch,
-        title = "Uninstall Hub dependency " .. tostring(plan.dependency.component),
         message = "hub uninstall " .. tostring(plan.dependency.id),
-        patches = { plan.patch },
     })
     if not apply_result then
         local migration_restore_result, migration_restore_err = restore_down_migrations()

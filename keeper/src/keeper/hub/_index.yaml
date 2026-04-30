@@ -34,6 +34,7 @@ entries:
       - fs
       - yaml
     imports:
+      gov_consts: keeper.gov:consts
       governance: keeper.state.publish:governance
       lockfile: keeper.hub:lockfile
       materialize: keeper.state.persist:materialize

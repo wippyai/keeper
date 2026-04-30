@@ -6,7 +6,7 @@ workflows.
 
 This module ships the compiled Keeper UI as an embedded filesystem and exposes
 the APIs needed to operate a Wippy application at runtime. Consumer apps install
-`keeper/keeper@0.5.1`; they do not need Keeper frontend source in their own
+`keeper/keeper@0.5.2`; they do not need Keeper frontend source in their own
 repository unless they are developing Keeper itself.
 
 ## Configuration
@@ -28,6 +28,11 @@ Keeper Hub can browse modules, read module documentation, plan dependency
 installs, show transitive requirements, install/uninstall modules, and run
 module migrations when requested. Install plans are the canonical place to ask
 the user for missing requirement values; Keeper should not guess them.
+
+Hub dependency install and uninstall publish exact dependency registry changes
+through governance, then update `wippy.lock`. They do not use development
+workspace branch diffs, so source branches cannot accidentally broaden a module
+install into unrelated Keeper or application changes.
 
 ## MCP
 

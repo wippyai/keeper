@@ -125,6 +125,16 @@ local function fake_governance(state)
             if state.restore_error then return nil, state.restore_error end
             return { version = version, reason = reason }, nil
         end,
+        publish = function(changeset, options)
+            state.publish_calls = (state.publish_calls or 0) + 1
+            state.last_changeset = changeset
+            state.last_options = options
+            if state.publish_error then return nil, state.publish_error end
+            return state.publish_result or {
+                version = state.publish_version or ((state.current_version or 41) + 1),
+                message = "published",
+            }, nil
+        end,
     }
 end
 
@@ -499,7 +509,6 @@ local function define_tests()
             it("persists the resolved install graph in wippy.lock after registry apply", function()
                 local files = { ["wippy.lock"] = "initial-lock" }
                 local gov_state = ({ current_version = 12 }) :: any
-                local called = {}
                 local svc = hub.new({
                     planner = graph_planner({
                         { module = "wippy/dummy", version = "0.1.2", digest = "abc123" },
@@ -511,17 +520,6 @@ local function define_tests()
                         replacements = {},
                     }),
                     governance = fake_governance(gov_state),
-                    funcs = {
-                        new = function()
-                            return {
-                                call = function(_, id, params)
-                                    called.id = id
-                                    called.params = params
-                                    return { ok = true, stage = "push", push = { version = 13 } }, nil
-                                end,
-                            }, nil
-                        end,
-                    },
                 }) :: any
 
                 local out, err = svc:install({
@@ -531,13 +529,71 @@ local function define_tests()
                 })
 
                 test.is_nil(err)
-                test.eq(called.id, hub.APPLY_FN)
                 test.eq(gov_state.current_calls, 1)
+                test.eq(gov_state.publish_calls, 1)
+                test.eq(gov_state.last_changeset[1].kind, "entry.create")
+                test.eq(gov_state.last_changeset[1].entry.id, "app.deps:dummy")
+                test.eq(gov_state.last_changeset[1].entry.meta.hub.resolved_modules[1].name, "wippy/dummy")
+                test.is_nil(gov_state.last_options.branch)
                 test.eq(out.lock.changed, true)
                 test.eq(out.lock.changes.upserted[1].name, "wippy/dummy")
-                test.is_true(string.find(called.params.patches[1].definition, "resolved_modules", 1, true) ~= nil)
-                test.is_true(string.find(called.params.patches[1].definition, "wippy/dummy", 1, true) ~= nil)
                 test.eq(files["wippy.lock"], "wippy/dummy@0.1.2#abc123")
+            end)
+
+            it("uses an update op when publishing an existing dependency", function()
+                local gov_state = ({}) :: any
+                local entry, build_err = hub.build_dependency_entry({
+                    component = "wippy/dummy",
+                    version = "v2.0.0",
+                    parameters = { ["wippy.dummy:router"] = "app:api" },
+                })
+                test.is_nil(build_err)
+
+                local svc = hub.new({
+                    registry = fake_registry({
+                        {
+                            id = "app.deps:dummy",
+                            kind = "ns.dependency",
+                            meta = {},
+                            data = { component = "wippy/dummy", version = "v1.0.0" },
+                        },
+                    }),
+                    governance = fake_governance(gov_state),
+                }) :: any
+
+                local out, err = svc:publish_dependency_changeset({
+                    action = "install",
+                    entry = entry,
+                    actor_id = "admin-1",
+                    message = "upgrade dummy",
+                })
+
+                test.is_nil(err)
+                test.is_true(out.ok)
+                test.eq(gov_state.publish_calls, 1)
+                test.eq(gov_state.last_changeset[1].kind, "entry.update")
+                test.eq(gov_state.last_changeset[1].entry.id, "app.deps:dummy")
+                test.eq(gov_state.last_options.user_id, "admin-1")
+                test.is_nil(gov_state.last_options.branch)
+            end)
+
+            it("publishes uninstall as one exact dependency delete", function()
+                local gov_state = ({}) :: any
+                local svc = hub.new({ governance = fake_governance(gov_state) }) :: any
+
+                local out, err = svc:publish_dependency_changeset({
+                    action = "uninstall",
+                    id = "app.deps:dummy",
+                    message = "remove dummy",
+                })
+
+                test.is_nil(err)
+                test.is_true(out.ok)
+                test.eq(gov_state.publish_calls, 1)
+                test.eq(#gov_state.last_changeset, 1)
+                test.eq(gov_state.last_changeset[1].kind, "entry.delete")
+                test.eq(gov_state.last_changeset[1].entry.id, "app.deps:dummy")
+                test.is_nil(gov_state.last_options.branch)
             end)
 
             it("restores the registry when install cannot persist wippy.lock", function()
@@ -622,7 +678,7 @@ local function define_tests()
             end)
 
             it("rejects conflicting duplicate modules in a resolved install graph", function()
-                local apply_calls = 0
+                local gov_state = ({ current_version = 25 }) :: any
                 local files = { ["wippy.lock"] = "initial-lock" }
                 local svc = hub.new({
                     planner = graph_planner({
@@ -635,17 +691,7 @@ local function define_tests()
                         modules = {},
                         replacements = {},
                     }),
-                    governance = fake_governance({ current_version = 25 }),
-                    funcs = {
-                        new = function()
-                            return {
-                                call = function()
-                                    apply_calls = apply_calls + 1
-                                    return { ok = true, stage = "push", push = { version = 26 } }, nil
-                                end,
-                            }, nil
-                        end,
-                    },
+                    governance = fake_governance(gov_state),
                 }) :: any
 
                 local out, err = svc:install({
@@ -658,7 +704,7 @@ local function define_tests()
                 test.not_nil(err)
                 test.eq(err_code(err), "INTERNAL")
                 test.contains(err_message(err), "conflicting entries")
-                test.eq(apply_calls, 0)
+                test.eq(gov_state.publish_calls or 0, 0)
                 test.eq(files["wippy.lock"], "initial-lock")
             end)
 
@@ -701,6 +747,7 @@ local function define_tests()
 
             it("re-applies down migrations if registry uninstall fails", function()
                 local calls = {} :: any
+                local gov_state = ({ publish_error = "apply boom" }) :: any
                 local svc = hub.new({
                     registry = fake_registry(fixture_entries()),
                     sql = fake_sql({ ["wippy.foo.migrations:001"] = true }),
@@ -711,6 +758,7 @@ local function define_tests()
                         replacements = {},
                     }),
                     uuid = fake_uuid(),
+                    governance = fake_governance(gov_state),
                     funcs = {
                         new = function()
                             return {
@@ -718,9 +766,6 @@ local function define_tests()
                                     table.insert(calls, { id = id, params = params })
                                     if id == hub.MIGRATION_HANDLER_FN then
                                         return { ok = true, operation = params.operation }, nil
-                                    end
-                                    if id == hub.APPLY_FN then
-                                        return nil, "apply boom"
                                     end
                                     return nil, "unexpected call"
                                 end,
@@ -740,11 +785,11 @@ local function define_tests()
                 test.eq(calls[1].id, hub.MIGRATION_HANDLER_FN)
                 test.eq(calls[1].params.operation, "down")
                 test.eq(calls[1].params.entry_ids[1], "wippy.foo.migrations:001")
-                test.eq(calls[2].id, hub.APPLY_FN)
-                test.eq(calls[3].id, hub.MIGRATION_HANDLER_FN)
-                test.eq(calls[3].params.operation, "up")
-                test.eq(calls[3].params.only_pending, false)
-                test.eq(calls[3].params.entry_ids[1], "wippy.foo.migrations:001")
+                test.eq(gov_state.publish_calls, 1)
+                test.eq(calls[2].id, hub.MIGRATION_HANDLER_FN)
+                test.eq(calls[2].params.operation, "up")
+                test.eq(calls[2].params.only_pending, false)
+                test.eq(calls[2].params.entry_ids[1], "wippy.foo.migrations:001")
                 test.eq(err_details(err).migration_restore.operation, "up")
             end)
 
@@ -815,9 +860,6 @@ local function define_tests()
                                     if id == hub.MIGRATION_HANDLER_FN then
                                         return { ok = true, operation = params.operation }, nil
                                     end
-                                    if id == hub.APPLY_FN then
-                                        return { ok = true, stage = "push", push = { version = 42 } }, nil
-                                    end
                                     return nil, "unexpected call"
                                 end,
                             }, nil
@@ -837,10 +879,10 @@ local function define_tests()
                 test.eq((gov_state :: any).restored_version, 41)
                 test.eq(calls[1].id, hub.MIGRATION_HANDLER_FN)
                 test.eq(calls[1].params.operation, "down")
-                test.eq(calls[2].id, hub.APPLY_FN)
-                test.eq(calls[3].id, hub.MIGRATION_HANDLER_FN)
-                test.eq(calls[3].params.operation, "up")
-                test.eq(calls[3].params.only_pending, false)
+                test.eq((gov_state :: any).publish_calls, 1)
+                test.eq(calls[2].id, hub.MIGRATION_HANDLER_FN)
+                test.eq(calls[2].params.operation, "up")
+                test.eq(calls[2].params.only_pending, false)
                 test.eq(err_details(err).migration_restore.operation, "up")
             end)
 
@@ -1759,24 +1801,15 @@ local function define_tests()
                 test.eq(first.payload.data.n, 1)
             end)
 
-            it("emits install started and finished around the canonical apply call", function()
+            it("emits install started and finished around the exact governance publish call", function()
                 local sent = {}
-                local called = {}
+                local gov_state = ({}) :: any
                 local svc = hub.new({
+                    registry = fake_registry({}),
                     process = fake_process(sent),
                     uuid = fake_uuid(),
                     planner = no_requirements_planner(),
-                    funcs = {
-                        new = function()
-                            return {
-                                call = function(_, id, params)
-                                    called.id = id
-                                    called.params = params
-                                    return { ok = true, stage = "push", changeset_id = "cs-1", push = { version = 9 } }, nil
-                                end,
-                            }, nil
-                        end,
-                    },
+                    governance = fake_governance(gov_state),
                 }) :: any
 
                 local out, err = svc:install({
@@ -1786,8 +1819,10 @@ local function define_tests()
 
                 test.is_nil(err)
                 test.eq(out.operation_id, "op-1")
-                test.eq(called.id, hub.APPLY_FN)
-                test.eq(called.params.actor_id, "admin-1")
+                test.eq(gov_state.publish_calls, 1)
+                test.eq(gov_state.last_options.user_id, "admin-1")
+                test.eq(gov_state.last_changeset[1].kind, "entry.create")
+                test.eq(gov_state.last_changeset[1].entry.id, "app.deps:terminal")
                 test.eq(#sent, 2)
                 local started = sent[1] :: any
                 local finished = sent[2] :: any
@@ -1799,7 +1834,7 @@ local function define_tests()
             end)
 
             it("publishes the planner install payload parameters", function()
-                local called = {}
+                local gov_state = ({}) :: any
                 local svc = hub.new({
                     planner = {
                         plan_install = function(args)
@@ -1821,17 +1856,7 @@ local function define_tests()
                             }, nil
                         end,
                     },
-                    funcs = {
-                        new = function()
-                            return {
-                                call = function(_, id, params)
-                                    called.id = id
-                                    called.params = params
-                                    return { ok = true, stage = "push", push = { version = 11 } }, nil
-                                end,
-                            }, nil
-                        end,
-                    },
+                    governance = fake_governance(gov_state),
                 }) :: any
 
                 local out, err = svc:install({
@@ -1844,11 +1869,10 @@ local function define_tests()
 
                 test.is_nil(err)
                 test.not_nil(out)
-                test.eq(called.id, hub.APPLY_FN)
-                local definition = called.params.patches[1].definition
-                test.is_true(string.find(definition, "name: wippy.dummy:router", 1, true) ~= nil)
-                test.is_true(string.find(definition, "value: app:api.public", 1, true) ~= nil)
-                test.is_true(string.find(definition, "name: router", 1, true) == nil)
+                test.eq(gov_state.publish_calls, 1)
+                local params = gov_state.last_changeset[1].entry.data.parameters
+                test.eq(params[1].name, "wippy.dummy:router")
+                test.eq(params[1].value, "app:api.public")
             end)
 
             it("snapshots before install migrations and restores on migration failure", function()
@@ -1867,9 +1891,6 @@ local function define_tests()
                             return {
                                 call = function(_, id, params)
                                     table.insert(calls, { id = id, params = params })
-                                    if id == hub.APPLY_FN then
-                                        return { ok = true, stage = "push", push = { version = 78 } }, nil
-                                    end
                                     if id == hub.MIGRATION_HANDLER_FN then
                                         return nil, "migration boom"
                                     end
@@ -1893,11 +1914,9 @@ local function define_tests()
                 test.eq((gov_state :: any).current_calls, 1)
                 test.eq((gov_state :: any).restore_calls, 1)
                 test.eq((gov_state :: any).restored_version, 77)
-                local apply_call = calls[1] :: any
-                local migration_call = calls[2] :: any
-                test.not_nil(apply_call)
+                local migration_call = calls[1] :: any
                 test.not_nil(migration_call)
-                test.eq(apply_call.id, hub.APPLY_FN)
+                test.eq((gov_state :: any).publish_calls, 1)
                 test.eq(migration_call.id, hub.MIGRATION_HANDLER_FN)
 
                 local failed_event
