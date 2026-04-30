@@ -1,6 +1,6 @@
 .PHONY: lint lint-keeper lint-usage build-keeper-frontend publish-dry-run publish-keeper-dry-run publish-usage-dry-run publish publish-keeper publish-usage
 
-KEEPER_VERSION ?= 0.5.0
+KEEPER_VERSION ?= 0.5.3
 USAGE_VERSION ?= 0.1.0
 
 lint: lint-keeper lint-usage

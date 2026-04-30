@@ -1,5 +1,32 @@
 # Release Notes
 
+## keeper/keeper 0.5.3
+
+`keeper/keeper@0.5.3` hardens Hub dependency install planning and the
+configuration dialog.
+
+### Highlights
+
+- Hub install plans no longer auto-apply package defaults that do not resolve to
+  the expected registry kind.
+- Router requirements now surface actual `http.router` entries as selectable
+  values, keeping the user in the loop for app-specific routing choices.
+- The Hub install dialog uses a real select for registry-backed suggestions and
+  keeps a custom override input for explicit values.
+- Hub uninstall now exposes the migration policy clearly and sends
+  `migration_policy=down` when the user chooses rollback.
+
+### Verification
+
+- `keeper.hub:test` passes 47/47.
+- `wippy lint --ns 'keeper.hub,keeper.hub.*'` reports no issues.
+- Frontend Hub API tests pass.
+- Frontend type-check and production build pass.
+- Real app smoke: installed `wippy/dummy` through the requirement select with
+  `app:api`, verified `GET /api/v1/dummy/ping`, then uninstalled cleanly.
+- Real app smoke: installed `userspace/scheduler@0.4.9`, ran migrations up,
+  verified the schedules endpoint, then uninstalled with migrations down.
+
 ## keeper/keeper 0.5.0
 
 `keeper/keeper@0.5.0` is the v5 packaging release. It prepares Keeper to be

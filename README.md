@@ -10,7 +10,7 @@ Each child directory is an independent Wippy module with its own `wippy.yaml`,
 
 ## Modules
 
-### `keeper/keeper@0.5.0`
+### `keeper/keeper@0.5.3`
 
 Keeper provides the operator surface for a Wippy app:
 
@@ -48,7 +48,7 @@ The module also declares dependency requirements for Wippy runtime modules such 
 `wippy/agent`, `wippy/dataflow`, `wippy/llm`, `wippy/migration`, `wippy/security`,
 `wippy/session`, `wippy/test`, and `wippy/views`.
 
-See [RELEASES.md](RELEASES.md) for the 0.5.0 release notes.
+See [RELEASES.md](RELEASES.md) for release notes.
 
 ## Hub Flow
 
