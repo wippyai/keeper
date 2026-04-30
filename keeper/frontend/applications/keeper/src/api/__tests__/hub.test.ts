@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   installHubDependency,
   planHubInstall,
+  uninstallHubDependency,
   type HubInstallPlanResponse,
   type HubRequirement,
   type InstallPayload,
+  type UninstallPayload,
 } from '../hub'
 
 describe('hub API', () => {
@@ -65,6 +67,18 @@ describe('hub API', () => {
 
     await expect(planHubInstall(api, payload)).resolves.toEqual(plan)
     expect(api.post).toHaveBeenCalledWith('/api/v1/keeper/hub/dependencies/plan', payload)
+  })
+
+  it('sends uninstall migration policy so applied migrations can be rolled back', async () => {
+    const api = { post: vi.fn().mockResolvedValue({ data: { success: true } }) } as any
+    const payload: UninstallPayload = {
+      id: 'app.deps:scheduler',
+      component: 'userspace/scheduler',
+      migration_policy: 'down',
+    }
+
+    await expect(uninstallHubDependency(api, payload)).resolves.toEqual({ success: true })
+    expect(api.post).toHaveBeenCalledWith('/api/v1/keeper/hub/dependencies/uninstall', payload)
   })
 
   it('models configuration requirements returned by hub versions', () => {

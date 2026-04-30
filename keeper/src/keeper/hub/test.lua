@@ -1231,12 +1231,52 @@ local function define_tests()
                 test.eq(plan.requirement_count, 1)
                 local req = find_requirement(plan, "wippy.dummy:router")
                 test.not_nil(req)
+                test.eq(req.value, "")
+                test.eq(req.value_source, "empty")
+                test.is_true(req.missing)
+                test.eq(req.default, "app:router")
+                test.eq(req.suggestions[1].value, "app:api")
+                test.eq(req.suggestions[1].source, "registry")
+                test.eq(req.suggestions[1].kind, "http.router")
+                local param = find_parameter(plan.install_payload.parameters, "wippy.dummy:router")
+                test.is_nil(param)
+            end)
+
+            it("uses a package default only when it resolves to the expected registry kind", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["wippy/dummy"] = {
+                            {
+                                version = "v1.0.0",
+                                requirements = {
+                                    {
+                                        name = "router",
+                                        default = "app:router",
+                                        targets = { { entry = "wippy.dummy:ping", path = "meta.router" } },
+                                    },
+                                },
+                            },
+                        },
+                    }),
+                    registry = fake_registry({
+                        { id = "app:router", kind = "http.router", meta = {}, data = {} },
+                    }),
+                }) :: any
+
+                local plan, err = svc:plan_install({
+                    component = "wippy/dummy",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(err)
+                local req = find_requirement(plan, "wippy.dummy:router")
+                test.not_nil(req)
                 test.eq(req.value, "app:router")
                 test.eq(req.value_source, "default")
                 test.is_false(req.missing)
-                test.eq(req.default, "app:router")
                 test.eq(req.suggestions[1].value, "app:router")
                 test.eq(req.suggestions[1].source, "default")
+                test.eq(req.suggestions[1].kind, "http.router")
                 local param = find_parameter(plan.install_payload.parameters, "wippy.dummy:router")
                 test.not_nil(param)
                 test.eq(param.value, "app:router")
@@ -1394,6 +1434,7 @@ local function define_tests()
                         },
                     }),
                     registry = fake_registry({
+                        { id = "app:router", kind = "http.router", meta = {}, data = {} },
                         { id = "app:api", kind = "http.router", meta = {}, data = {} },
                         {
                             id = "app.deps:other",
@@ -1439,6 +1480,7 @@ local function define_tests()
                         },
                     }),
                     registry = fake_registry({
+                        { id = "app:api", kind = "http.router", meta = {}, data = {} },
                         {
                             id = "app.deps:dummy_previous",
                             kind = "ns.dependency",
@@ -1468,6 +1510,49 @@ local function define_tests()
                 test.eq(param.value, "app:api")
             end)
 
+            it("does not reuse existing resource parameters that no longer resolve", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["wippy/dummy"] = {
+                            {
+                                version = "v1.0.0",
+                                requirements = {
+                                    {
+                                        name = "router",
+                                        targets = { { entry = "wippy.dummy:ping", path = "meta.router" } },
+                                    },
+                                },
+                            },
+                        },
+                    }),
+                    registry = fake_registry({
+                        {
+                            id = "app.deps:dummy_previous",
+                            kind = "ns.dependency",
+                            meta = {},
+                            data = {
+                                component = "wippy/dummy",
+                                version = "v1.0.0",
+                                parameters = { { name = "wippy.dummy:router", value = "app:missing" } },
+                            },
+                        },
+                    }),
+                }) :: any
+
+                local plan, err = svc:plan_install({
+                    component = "wippy/dummy",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(err)
+                local req = find_requirement(plan, "wippy.dummy:router")
+                test.not_nil(req)
+                test.eq(req.value, "")
+                test.eq(req.value_source, "empty")
+                test.is_true(req.missing)
+                test.eq(#req.suggestions, 0)
+            end)
+
             it("reuses a unique bare existing parameter only for the same direct component", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
@@ -1484,6 +1569,7 @@ local function define_tests()
                         },
                     }),
                     registry = fake_registry({
+                        { id = "app:api.public", kind = "http.router", meta = {}, data = {} },
                         {
                             id = "app.deps:dummy",
                             kind = "ns.dependency",
@@ -1526,6 +1612,8 @@ local function define_tests()
                         },
                     }),
                     registry = fake_registry({
+                        { id = "app:api", kind = "http.router", meta = {}, data = {} },
+                        { id = "app:api.public", kind = "http.router", meta = {}, data = {} },
                         {
                             id = "app.deps:dummy_a",
                             kind = "ns.dependency",

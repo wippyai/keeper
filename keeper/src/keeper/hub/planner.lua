@@ -471,6 +471,21 @@ local function requirement_required(req): boolean
     return true
 end
 
+local REQUIREMENT_VALUE_KIND_BY_TARGET_PATH = {
+    ["router"] = "http.router",
+    [".router"] = "http.router",
+    ["meta.router"] = "http.router",
+}
+
+local function requirement_value_kind(req): string?
+    for _, target in ipairs((req and req.targets) or {}) do
+        local path = trim(target.path)
+        local kind = REQUIREMENT_VALUE_KIND_BY_TARGET_PATH[path]
+        if kind then return kind end
+    end
+    return nil
+end
+
 function M.new(deps: PlannerDeps?)
     deps = deps or {}
     return setmetatable({
@@ -796,7 +811,34 @@ function Planner:plan_requirements(graph, supplied_parameters)
         return out
     end
 
-    local function add_suggestion(suggestions, seen, value, label, source, dependency_id)
+    local function registry_values_for_kind(kind)
+        kind = trim(kind)
+        if kind == "" then return {}, nil end
+        local rows, rows_err = self:find_entries({ [".kind"] = kind })
+        if not rows then return nil, rows_err end
+        table.sort(rows, function(a, b) return tostring(a.id) < tostring(b.id) end)
+
+        local out = {}
+        local seen = {}
+        for _, row in ipairs(rows or {}) do
+            local value = trim(row.id)
+            if value ~= "" and not seen[value] then
+                seen[value] = true
+                table.insert(out, { value = value, kind = kind })
+            end
+        end
+        return out, nil
+    end
+
+    local function candidate_set(candidates)
+        local out = {}
+        for _, candidate in ipairs(candidates or {}) do
+            out[trim(candidate.value)] = true
+        end
+        return out
+    end
+
+    local function add_suggestion(suggestions, seen, value, label, source, dependency_id, kind)
         value = trim(value)
         if value == "" or seen[value] then return end
         seen[value] = true
@@ -805,6 +847,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
             label = label or value,
             source = source,
             dependency_id = dependency_id,
+            kind = kind,
         })
     end
 
@@ -820,53 +863,105 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 local value, source = find_supplied(full_id, name, node.direct)
                 local suggestions = {}
                 local suggestion_seen = {}
+                local expected_kind = requirement_value_kind(req)
+                local registry_candidates = {}
+                local registry_candidate_set = {}
+                if expected_kind then
+                    local candidates, candidates_err = registry_values_for_kind(expected_kind)
+                    if not candidates then return nil, candidates_err end
+                    registry_candidates = candidates
+                    registry_candidate_set = candidate_set(candidates)
+                end
+
+                local function compatible_value(v)
+                    v = trim(v)
+                    if v == "" then return false end
+                    if not expected_kind then return true end
+                    return registry_candidate_set[v] == true
+                end
 
                 local exact_existing = unique_existing_values(full_id)
                 for _, match in ipairs(exact_existing) do
-                    add_suggestion(
-                        suggestions,
-                        suggestion_seen,
-                        match.value,
-                        match.value .. " from " .. tostring(match.dependency_id),
-                        "existing",
-                        match.dependency_id
-                    )
+                    if compatible_value(match.value) then
+                        add_suggestion(
+                            suggestions,
+                            suggestion_seen,
+                            match.value,
+                            match.value .. " from " .. tostring(match.dependency_id),
+                            "existing",
+                            match.dependency_id,
+                            expected_kind
+                        )
+                    end
                 end
 
                 local bare_existing = unique_existing_values(name, node.module)
                 for _, match in ipairs(bare_existing) do
+                    if compatible_value(match.value) then
+                        add_suggestion(
+                            suggestions,
+                            suggestion_seen,
+                            match.value,
+                            match.value .. " from " .. tostring(match.dependency_id),
+                            "existing_bare",
+                            match.dependency_id,
+                            expected_kind
+                        )
+                    end
+                end
+
+                local default_value = trim(req.default)
+                local default_compatible = compatible_value(default_value)
+                if default_value ~= "" and default_compatible then
                     add_suggestion(
                         suggestions,
                         suggestion_seen,
-                        match.value,
-                        match.value .. " from " .. tostring(match.dependency_id),
-                        "existing_bare",
-                        match.dependency_id
+                        default_value,
+                        "package default: " .. default_value,
+                        "default",
+                        nil,
+                        expected_kind
                     )
                 end
 
-                if trim(req.default) ~= "" then
-                    add_suggestion(suggestions, suggestion_seen, req.default, "package default: " .. req.default, "default")
+                for _, candidate in ipairs(registry_candidates) do
+                    add_suggestion(
+                        suggestions,
+                        suggestion_seen,
+                        candidate.value,
+                        candidate.value,
+                        "registry",
+                        nil,
+                        candidate.kind
+                    )
                 end
 
                 if value == nil then
-                    if #exact_existing == 1 then
-                        value = exact_existing[1].value
+                    local compatible_existing = {}
+                    for _, match in ipairs(exact_existing) do
+                        if compatible_value(match.value) then table.insert(compatible_existing, match) end
+                    end
+                    if #compatible_existing == 1 then
+                        value = compatible_existing[1].value
                         source = "existing"
-                    elseif #exact_existing > 1 then
+                    elseif #compatible_existing > 1 then
                         source = "conflict"
                     end
                 end
                 if value == nil and source ~= "conflict" then
-                    if #bare_existing == 1 then
-                        value = bare_existing[1].value
+                    local compatible_existing = {}
+                    for _, match in ipairs(bare_existing) do
+                        if compatible_value(match.value) then table.insert(compatible_existing, match) end
+                    end
+                    if #compatible_existing == 1 then
+                        value = compatible_existing[1].value
                         source = "existing_bare"
-                    elseif #bare_existing > 1 then
+                    elseif #compatible_existing > 1 then
                         source = "conflict"
                     end
                 end
-                if value == nil and source ~= "conflict" and trim(req.default) ~= "" then
-                    value = trim(req.default)
+                if value == nil and source ~= "conflict" and default_value ~= "" and default_compatible then
+                    value = default_value
                     source = "default"
                 end
                 value = value or ""

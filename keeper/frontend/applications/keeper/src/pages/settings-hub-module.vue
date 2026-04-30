@@ -354,6 +354,27 @@ function requirementKey(req: { parameter_name?: string; full_id?: string; name?:
   return (req.parameter_name || req.full_id || req.name || '').trim()
 }
 
+function setInstallParameter(req: HubPlanRequirement, value: string) {
+  const key = requirementKey(req)
+  if (!key) return
+  installParameterValues.value[key] = value
+}
+
+function onInstallParameterInput(req: HubPlanRequirement, event: Event) {
+  setInstallParameter(req, (event.target as HTMLInputElement).value)
+}
+
+function onInstallParameterSelect(req: HubPlanRequirement, event: Event) {
+  setInstallParameter(req, (event.target as HTMLSelectElement).value)
+  void loadInstallPlan()
+}
+
+function suggestionLabel(s: { value: string; label?: string; source?: string; kind?: string; preferred?: boolean }): string {
+  const label = s.label || s.value
+  const meta = [s.kind, s.source, s.preferred ? 'preferred' : ''].filter(Boolean)
+  return meta.length ? `${label} (${meta.join(', ')})` : label
+}
+
 function applyInstallPlan(plan: HubInstallPlanResponse, previousValues: Record<string, string> = installParameterValues.value) {
   installPlan.value = plan
   installRequirements.value = plan.requirements || []
@@ -863,16 +884,22 @@ onMounted(load)
                   <span v-if="req.value_source && req.value_source !== 'empty'" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.value_source }}</span>
                   <span v-if="req.targets?.length" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.targets.length }} target{{ req.targets.length === 1 ? '' : 's' }}</span>
                 </div>
+                <select
+                  v-if="req.suggestions?.length"
+                  :value="installParameterValues[requirementKey(req)] || ''"
+                  class="form-input mono mb-1"
+                  @change="onInstallParameterSelect(req, $event)"
+                >
+                  <option value="">Select a registry value...</option>
+                  <option v-for="s in req.suggestions" :key="s.value" :value="s.value">{{ suggestionLabel(s) }}</option>
+                </select>
                 <input
-                  v-model="installParameterValues[requirementKey(req)]"
-                  :list="req.suggestions?.length ? `module-install-suggestions-${idx}` : undefined"
-                  :placeholder="req.default ? `default: ${req.default}` : 'required value'"
+                  :value="installParameterValues[requirementKey(req)] || ''"
+                  :placeholder="req.suggestions?.length ? 'Custom override' : (req.default ? `default: ${req.default}` : 'required value')"
                   class="form-input mono"
+                  @input="onInstallParameterInput(req, $event)"
                   @change="loadInstallPlan"
                 />
-                <datalist v-if="req.suggestions?.length" :id="`module-install-suggestions-${idx}`">
-                  <option v-for="s in req.suggestions" :key="s.value" :value="s.value">{{ s.label || s.value }}</option>
-                </datalist>
                 <div v-if="req.module" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">{{ req.module }}{{ req.version ? '@' + req.version : '' }}</div>
                 <div v-if="req.description" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">{{ req.description }}</div>
               </label>
