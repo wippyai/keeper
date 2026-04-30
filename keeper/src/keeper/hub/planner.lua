@@ -1,7 +1,7 @@
 local registry = require("registry")
 local hub_sdk = require("hub")
 
-type ServiceError = { code: string, message: string, details: unknown? }
+type ServiceError = unknown
 type Parameter = { name: string, value: string }
 type RequirementTarget = { entry?: string, path?: string }
 type HubRequirement = {
@@ -77,7 +77,7 @@ type PlannerInstance = {
     registry: unknown,
     catalog: unknown,
     version_cache: {[string]: {VersionItem}},
-    plan_install: (PlannerInstance, unknown) -> (unknown, ServiceError?),
+    plan_install: (PlannerInstance, unknown) -> (unknown, unknown?),
 }
 
 local M = {}
@@ -100,8 +100,47 @@ local function shallow_copy(src)
     return out
 end
 
-local function err(code: string, message: string, details: unknown?): ServiceError
-    return { code = code, message = message, details = details }
+local ERROR_KIND_BY_CODE = {
+    BAD_REQUEST = errors.INVALID,
+    NOT_FOUND = errors.NOT_FOUND,
+    CONFLICT = errors.CONFLICT,
+}
+
+local function err(code: string, message: string, details: unknown?): unknown
+    local d = {}
+    if type(details) == "table" then
+        for k, v in pairs(details) do d[k] = v end
+    elseif details ~= nil then
+        d.value = details
+    end
+    d.code = code
+    return errors.new({
+        kind = ERROR_KIND_BY_CODE[code] or errors.INTERNAL,
+        message = tostring(message or "unknown error"),
+        details = d,
+    })
+end
+
+local function err_message(e, fallback)
+    if not e then return fallback end
+    local ok, method = pcall(function() return e.message end)
+    if ok and type(method) == "function" then
+        local called, message = pcall(method, e)
+        if called then return message end
+    end
+    if type(e) == "table" then return e.message or e.error or fallback end
+    return tostring(e)
+end
+
+local function err_details(e)
+    if not e then return nil end
+    local ok, method = pcall(function() return e.details end)
+    if ok and type(method) == "function" then
+        local called, details = pcall(method, e)
+        if called then return details end
+    end
+    if type(e) == "table" then return e.details end
+    return nil
 end
 
 local function starts_with(s: string, prefix: string): boolean
@@ -200,10 +239,10 @@ function M.resolve_dependency_id(args)
     return ns .. ":" .. name, nil
 end
 
-function M.normalize_parameters(input): ({ Parameter }?, ServiceError?)
+function M.normalize_parameters(input): ({ Parameter }?, unknown?)
     if input == nil then return {}, nil end
     if type(input) ~= "table" then
-        return nil, err("BAD_REQUEST", "parameters must be an array of {name,value} or an object map")
+        return nil, err("BAD_REQUEST", "parameters must be an array of {name,value} or an object map") :: unknown?
     end
 
     local out: { Parameter } = {}
@@ -226,7 +265,7 @@ function M.normalize_parameters(input): ({ Parameter }?, ServiceError?)
     if is_array(input) then
         for i, item in ipairs(input) do
             if type(item) ~= "table" then
-                return nil, err("BAD_REQUEST", "parameters[" .. i .. "] must be an object")
+                return nil, err("BAD_REQUEST", "parameters[" .. i .. "] must be an object") :: unknown?
             end
             local add_err = add(item.name, item.value)
             if add_err then return nil, add_err end
@@ -493,7 +532,9 @@ end
 
 function Planner:version_details(component, selected)
     if not selected or not self.catalog or not self.catalog.versions or not self.catalog.versions.get then
-        return self:artifact_requirement_details(component, selected)
+        local with_deps, dep_err = self:manifest_dependency_details(component, selected)
+        if not with_deps then return nil, dep_err end
+        return self:artifact_requirement_details(component, with_deps)
     end
 
     local ref
@@ -506,11 +547,17 @@ function Planner:version_details(component, selected)
     end
 
     local detailed, detail_err = self.catalog.versions.get(component, ref)
-    if detailed then return self:artifact_requirement_details(component, detailed) end
+    if detailed then
+        local with_deps, dep_err = self:manifest_dependency_details(component, detailed)
+        if not with_deps then return nil, dep_err end
+        return self:artifact_requirement_details(component, with_deps)
+    end
 
     -- Some Hub implementations return full records from list and do not support
     -- get-by-id/version. Planning must still work from the list payload.
-    return self:artifact_requirement_details(component, selected)
+    local with_deps, dep_err = self:manifest_dependency_details(component, selected)
+    if not with_deps then return nil, dep_err end
+    return self:artifact_requirement_details(component, with_deps)
 end
 
 function Planner:artifact_requirement_details(component, selected)
@@ -547,6 +594,27 @@ function Planner:artifact_requirement_details(component, selected)
     merged.size_bytes = inspected.size_bytes or merged.size_bytes
     merged.digest = inspected.digest or merged.digest
     merged.protected = inspected.protected == true or merged.protected == true
+    return merged, nil
+end
+
+function Planner:manifest_dependency_details(component, selected)
+    if not selected then return selected, nil end
+    local selected_item = selected :: VersionItem
+    if #(selected_item.dependencies or {}) > 0 or not has_entry_kind(selected_item, "ns.dependency") then
+        return selected, nil
+    end
+    if not self.catalog or not self.catalog.manifest or not self.catalog.manifest.get then
+        return nil, err("INTERNAL", "hub manifest API unavailable for " .. component)
+    end
+
+    local version = trim(selected_item.version)
+    local manifest, manifest_err = self.catalog.manifest.get(component, version ~= "" and version or nil)
+    if not manifest then
+        return nil, err("INTERNAL", "hub manifest lookup failed for " .. component .. ": " .. tostring(manifest_err))
+    end
+
+    local merged = shallow_copy(selected_item)
+    merged.dependencies = manifest.dependencies or {}
     return merged, nil
 end
 
@@ -604,15 +672,15 @@ function Planner:resolve_install_graph(component, constraint, opts)
     local max_modules = tonumber(opts.max_modules or M.DEFAULT_PLAN_MAX_MODULES) or M.DEFAULT_PLAN_MAX_MODULES
     local nodes = {}
     local seen = {}
-    local errors = {}
+    local resolution_errors = {}
 
     local function visit(ref, version_constraint, depth, parent, path)
         if #nodes >= max_modules then
-            table.insert(errors, { module = ref, constraint = version_constraint, message = "maximum module count exceeded" })
+            table.insert(resolution_errors, { module = ref, constraint = version_constraint, message = "maximum module count exceeded" })
             return
         end
         if depth >= max_depth then
-            table.insert(errors, { module = ref, constraint = version_constraint, message = "maximum dependency depth exceeded" })
+            table.insert(resolution_errors, { module = ref, constraint = version_constraint, message = "maximum dependency depth exceeded" })
             return
         end
         if seen[ref] then return end
@@ -620,11 +688,11 @@ function Planner:resolve_install_graph(component, constraint, opts)
 
         local selected, select_err = self:select_version(ref, version_constraint)
         if not selected then
-            table.insert(errors, {
+            table.insert(resolution_errors, {
                 module = ref,
                 constraint = version_constraint,
-                message = select_err and select_err.message or "version resolution failed",
-                details = select_err and select_err.details or nil,
+                message = err_message(select_err, "version resolution failed"),
+                details = err_details(select_err),
             })
             return
         end
@@ -665,8 +733,8 @@ function Planner:resolve_install_graph(component, constraint, opts)
 
     visit(parsed.component, constraint or M.DEFAULT_VERSION, 0, nil, parsed.component)
 
-    if #errors > 0 then
-        return nil, err("CONFLICT", "dependency resolution failed", { errors = errors })
+    if #resolution_errors > 0 then
+        return nil, err("CONFLICT", "dependency resolution failed", { errors = resolution_errors })
     end
     return nodes, nil
 end
@@ -746,7 +814,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
 
     for _, node in ipairs(graph or {}) do
         for _, req in ipairs(node.requirements or {}) do
-                local name = trim(req.name)
+            local name = trim(req.name)
             if name ~= "" then
                 local full_id = tostring(node.namespace or M.module_namespace(node.module) or node.module) .. ":" .. name
                 local value, source = find_supplied(full_id, name, node.direct)
@@ -765,19 +833,16 @@ function Planner:plan_requirements(graph, supplied_parameters)
                     )
                 end
 
-                local bare_existing = {}
-                if node.direct then
-                    bare_existing = unique_existing_values(name, node.module)
-                    for _, match in ipairs(bare_existing) do
-                        add_suggestion(
-                            suggestions,
-                            suggestion_seen,
-                            match.value,
-                            match.value .. " from " .. tostring(match.dependency_id),
-                            "existing_bare",
-                            match.dependency_id
-                        )
-                    end
+                local bare_existing = unique_existing_values(name, node.module)
+                for _, match in ipairs(bare_existing) do
+                    add_suggestion(
+                        suggestions,
+                        suggestion_seen,
+                        match.value,
+                        match.value .. " from " .. tostring(match.dependency_id),
+                        "existing_bare",
+                        match.dependency_id
+                    )
                 end
 
                 if trim(req.default) ~= "" then
@@ -792,13 +857,17 @@ function Planner:plan_requirements(graph, supplied_parameters)
                         source = "conflict"
                     end
                 end
-                if value == nil and source ~= "conflict" and node.direct then
+                if value == nil and source ~= "conflict" then
                     if #bare_existing == 1 then
                         value = bare_existing[1].value
                         source = "existing_bare"
                     elseif #bare_existing > 1 then
                         source = "conflict"
                     end
+                end
+                if value == nil and source ~= "conflict" and trim(req.default) ~= "" then
+                    value = trim(req.default)
+                    source = "default"
                 end
                 value = value or ""
                 values[full_id] = value

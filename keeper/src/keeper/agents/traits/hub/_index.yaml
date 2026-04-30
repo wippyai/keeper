@@ -1,0 +1,27 @@
+version: "1.0"
+namespace: keeper.agents.traits.hub
+
+entries:
+  # keeper.agents.traits.hub:operator
+  - name: operator
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Hub Operator
+      comment: Plan, install, uninstall, and migrate Wippy Hub dependencies
+      tags:
+        - hub
+        - dependencies
+        - migrations
+        - wippy
+      icon: tabler:packages
+    prompt: |
+      Manage Wippy Hub dependencies through Keeper's canonical Hub service.
+
+      Plan before installing. Always surface missing requirements exactly as
+      returned by the plan; do not guess namespace bindings. Use dry_run for
+      migration checks before running up/down, and choose uninstall migration
+      policy explicitly.
+    tools:
+      - keeper.hub.tools:dependencies
+      - keeper.hub.tools:migrations

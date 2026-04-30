@@ -16,6 +16,19 @@ local STATUS_BY_CODE = {
     INTERNAL = http.STATUS.INTERNAL_ERROR,
 }
 
+local STATUS_BY_KIND = {
+    [errors.INVALID] = http.STATUS.BAD_REQUEST,
+    [errors.NOT_FOUND] = http.STATUS.NOT_FOUND,
+    [errors.ALREADY_EXISTS] = 409,
+    [errors.PERMISSION_DENIED] = http.STATUS.FORBIDDEN,
+    [errors.CONFLICT] = 409,
+    [errors.RATE_LIMITED] = 429,
+    [errors.UNAVAILABLE] = 503,
+    [errors.TIMEOUT] = 504,
+    [errors.INTERNAL] = http.STATUS.INTERNAL_ERROR,
+    [errors.UNKNOWN] = http.STATUS.INTERNAL_ERROR,
+}
+
 local function merge_success(payload)
     local out = { success = true }
     for k, v in pairs(payload or {}) do out[k] = v end
@@ -40,12 +53,48 @@ function M.write_error(res, code, message, details)
     })
 end
 
+local function call_method(value, name)
+    if value == nil then return nil end
+    local ok, method = pcall(function() return value[name] end)
+    if not ok or type(method) ~= "function" then return nil end
+    local called, result = pcall(method, value)
+    if called then return result end
+    return nil
+end
+
+local function copy_without_code(details)
+    if type(details) ~= "table" then return details end
+    local out = {}
+    for k, v in pairs(details) do
+        if k ~= "code" then out[k] = v end
+    end
+    if out.value ~= nil then
+        local count = 0
+        for _ in pairs(out) do count = count + 1 end
+        if count == 1 then return out.value end
+    end
+    return out
+end
+
 function M.write_service_error(res, service_err)
-    service_err = service_err or {}
-    M.write_error(res,
-        service_err.code or "INTERNAL",
-        service_err.message or "unknown error",
-        service_err.details)
+    local details = call_method(service_err, "details")
+    if details == nil and type(service_err) == "table" then details = service_err.details end
+    local code = nil
+    if type(details) == "table" and type(details.code) == "string" then code = details.code end
+    if not code and type(service_err) == "table" and type(service_err.code) == "string" then code = service_err.code end
+    local kind = call_method(service_err, "kind")
+    local message = call_method(service_err, "message")
+        or (type(service_err) == "table" and (service_err.message or service_err.error))
+        or tostring(service_err or "unknown error")
+    local status = (code and STATUS_BY_CODE[code]) or STATUS_BY_KIND[kind] or http.STATUS.INTERNAL_ERROR
+    res:set_status(status)
+    res:set_content_type(http.CONTENT.JSON)
+    res:write_json({
+        success = false,
+        code = code or tostring(kind or "INTERNAL"),
+        error = message,
+        details = copy_without_code(details),
+    })
 end
 
 function M.require_actor(res)

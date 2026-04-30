@@ -239,4 +239,3 @@ entries:
     method: POST
     func: uninstall_dependency
     path: /keeper/hub/dependencies/uninstall
-    

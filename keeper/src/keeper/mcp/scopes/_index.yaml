@@ -82,6 +82,33 @@ entries:
       title: Function Call
       comment: Call any registered Wippy function
     id: functions.call
+
+  # keeper.mcp.scopes:hub.migrate
+  - name: hub.migrate
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Hub Migrate
+      comment: Run or unrun migrations owned by installed Hub dependencies
+    id: hub.migrate
+
+  # keeper.mcp.scopes:hub.read
+  - name: hub.read
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Hub Read
+      comment: Browse Hub modules, installed dependencies, install plans, and migration status
+    id: hub.read
+
+  # keeper.mcp.scopes:hub.write
+  - name: hub.write
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Hub Write
+      comment: Install, update, or uninstall Hub dependencies
+    id: hub.write
     
   # keeper.mcp.scopes:knowledge.read
   - name: knowledge.read

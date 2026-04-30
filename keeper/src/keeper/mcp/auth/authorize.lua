@@ -19,6 +19,9 @@ local TOOL_SCOPE_FALLBACKS = {
     ["keeper.agents.tools:system"] = { "pm.read", "logger.read" },
     ["keeper.agents.tools:test_endpoint"] = { "tests.run" },
     ["keeper.agents.tools.task:debug"] = { "tasks.read" },
+    ["keeper.agents.manager:analyze"] = { "agents.read" },
+    ["keeper.agents.manager:clone"] = { "registry.write" },
+    ["keeper.agents.manager:search"] = { "agents.read" },
 
     ["keeper.components.tools:build_component"] = { "components.build" },
     ["keeper.components.tools:fs"] = { "components.read" },

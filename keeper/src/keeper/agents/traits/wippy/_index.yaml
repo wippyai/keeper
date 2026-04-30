@@ -42,6 +42,7 @@ entries:
       - keeper.agents.traits.inspect:test_runner
       - keeper.agents.traits.components:builder
       - keeper.agents.traits.components:ui
+      - keeper.agents.traits.hub:operator
       - keeper.agents.traits.gov:syncer
       - keeper.agents.traits.knowledge:reader
       - keeper.agents.traits.context.frontend:frontend_aware

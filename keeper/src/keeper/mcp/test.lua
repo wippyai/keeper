@@ -440,6 +440,22 @@ local function define_tests()
                 test.eq(def.id, "keeper.agents.traits.state:explorer")
             end)
 
+            it("hub operator trait exposes dependency and migration tools", function()
+                local session = { access_mode = "any", trait_filter = nil }
+                local def, err = mcp_traits.describe("keeper.agents.traits.hub:operator", session)
+                test.is_nil(err)
+                test.not_nil(def)
+                test.eq(def.id, "keeper.agents.traits.hub:operator")
+
+                local tools = {}
+                for _, ref in ipairs(def.tools or {}) do
+                    local tool_id = type(ref) == "table" and ref.id or ref
+                    tools[tool_id] = true
+                end
+                test.is_true(tools["keeper.hub.tools:dependencies"])
+                test.is_true(tools["keeper.hub.tools:migrations"])
+            end)
+
             it("describe blocks trait not passing filter", function()
                 local session = {
                     access_mode = "traits",
@@ -978,6 +994,25 @@ local function define_tests()
                 test.is_true(scopes["tasks.run"])
                 test.is_true(scopes["components.write"])
                 test.is_nil(scopes["mcp.root"], "operator preset must stay scoped; root is a separate preset")
+            end)
+
+            it("wippy_operator preset resolves Hub tools through its default trait stack", function()
+                local preset = mcp_policy.get_preset("wippy_operator")
+                local tok = create_token({
+                    label = "e2e-wippy-hub-" .. uuid.v4(),
+                    identity = "root",
+                    scopes = preset.scopes,
+                    access_mode = preset.access_mode,
+                    trait_filter = preset.trait_filter,
+                    default_active = preset.default_active,
+                })
+                local session = mcp_tokens.get(tok.token)
+                local resolved, err = mcp_traits.resolve(session)
+                test.is_nil(err)
+                test.not_nil(resolved.tools.hub_dependencies)
+                test.not_nil(resolved.tools.hub_migrations)
+                test.eq(resolved.tools.hub_dependencies.registry_id, "keeper.hub.tools:dependencies")
+                test.eq(resolved.tools.hub_migrations.registry_id, "keeper.hub.tools:migrations")
             end)
         end)
 

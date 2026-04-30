@@ -1,0 +1,116 @@
+version: "1.0"
+namespace: keeper.hub.tools
+
+entries:
+  # keeper.hub.tools:helpers
+  - name: helpers
+    kind: library.lua
+    meta:
+      comment: Shared helpers for Hub MCP tool wrappers
+    source: file://helpers.lua
+
+  # keeper.hub.tools:dependencies
+  - name: dependencies
+    kind: function.lua
+    meta:
+      type: tool
+      title: Hub Dependencies
+      comment: List, plan, install/update, and uninstall Wippy Hub dependencies
+      tags:
+        - hub
+        - dependencies
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["list", "plan", "install", "uninstall"],
+              "description": "Hub dependency operation"
+            },
+            "component": {"type": "string", "description": "Hub module ref in org/name form"},
+            "version": {"type": "string", "description": "Version or semver constraint, e.g. 0.5.0 or >=v0.0.0"},
+            "id": {"type": "string", "description": "Explicit ns.dependency entry id for uninstall/list targeting"},
+            "namespace": {"type": "string", "description": "Dependency namespace for install, default app.deps"},
+            "name": {"type": "string", "description": "Dependency entry name for install"},
+            "parameters": {"description": "Requirement values as an object map or array of {name,value}"},
+            "migration_policy": {"type": "string", "enum": ["none", "up", "block", "leave", "down"], "description": "Install: none/up. Uninstall: block/leave/down."},
+            "run_migrations": {"type": "boolean", "description": "Install shortcut for migration_policy=up"},
+            "dry_run": {"type": "boolean", "description": "Return the planned patches/actions without publishing"},
+            "include_entries": {"type": "boolean", "description": "List installed entries with dependencies (default true)"},
+            "include_migrations": {"type": "boolean", "description": "List migration status with dependencies (default true)"},
+            "max_depth": {"type": "integer", "description": "Plan traversal depth cap"},
+            "max_modules": {"type": "integer", "description": "Plan module count cap"}
+          },
+          "required": ["action"]
+        }
+      llm_alias: hub_dependencies
+      llm_description: |
+        Manage Wippy Hub dependencies through the canonical Keeper service. Use action=list for installed ns.dependency entries,
+        action=plan to resolve the full transitive module graph and all requirements, action=install to add/update a dependency,
+        and action=uninstall to remove one. Always plan first when requirements may be missing. Use dry_run=true for safety.
+      mcp:
+        required_scopes:
+          - hub.read
+        action_scopes:
+          install: hub.write
+          uninstall: hub.write
+    source: file://dependencies.lua
+    modules:
+      - security
+    imports:
+      audit: keeper.task:audit
+      helpers: keeper.hub.tools:helpers
+      hub_service: keeper.hub:service
+      planner: keeper.hub:planner
+    method: handler
+    pool:
+      size: 2
+
+  # keeper.hub.tools:migrations
+  - name: migrations
+    kind: function.lua
+    meta:
+      type: tool
+      title: Hub Migrations
+      comment: List and run Hub-owned migrations for installed dependencies
+      tags:
+        - hub
+        - migrations
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["list", "run"],
+              "description": "List migrations or run/unrun them"
+            },
+            "component": {"type": "string", "description": "Optional Hub module ref in org/name form"},
+            "entry_ids": {"type": "array", "items": {"type": "string"}, "description": "Explicit migration entry ids"},
+            "operation": {"type": "string", "enum": ["up", "down"], "description": "Migration operation for action=run"},
+            "dry_run": {"type": "boolean", "description": "Return selected migrations without executing"},
+            "only_pending": {"type": "boolean", "description": "For up: skip already applied migrations unless false"},
+            "only_applied": {"type": "boolean", "description": "For down: skip pending migrations unless false"}
+          },
+          "required": ["action"]
+        }
+      llm_alias: hub_migrations
+      llm_description: |
+        Inspect and execute Hub-owned migrations. Use action=list to show applied/pending status. Use action=run with
+        operation=up or operation=down, and dry_run=true before executing when the selection is broad.
+      mcp:
+        required_scopes:
+          - hub.read
+        action_scopes:
+          run: hub.migrate
+    source: file://migrations.lua
+    modules:
+      - security
+    imports:
+      audit: keeper.task:audit
+      helpers: keeper.hub.tools:helpers
+      hub_service: keeper.hub:service
+    method: handler
+    pool:
+      size: 2

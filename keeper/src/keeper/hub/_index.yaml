@@ -11,6 +11,13 @@ entries:
     modules:
       - registry
       - hub
+
+  # keeper.hub:lockfile
+  - name: lockfile
+    kind: library.lua
+    meta:
+      comment: Deterministic wippy.lock updater for Hub install and uninstall operations
+    source: file://lockfile.lua
     
   # keeper.hub:service
   - name: service
@@ -24,8 +31,11 @@ entries:
       - sql
       - uuid
       - process
+      - fs
+      - yaml
     imports:
       governance: keeper.state.publish:governance
+      lockfile: keeper.hub:lockfile
       materialize: keeper.state.persist:materialize
       planner: keeper.hub:planner
     
@@ -38,10 +48,11 @@ entries:
       suite: hub
     source: file://test.lua
     imports:
+      hub_dependencies_tool: keeper.hub.tools:dependencies
+      hub_migrations_tool: keeper.hub.tools:migrations
       hub_service: keeper.hub:service
       planner: keeper.hub:planner
       test: wippy.test:test
     method: define_tests
     pool:
       size: 1
-    

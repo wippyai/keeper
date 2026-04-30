@@ -31,39 +31,32 @@ local function define_tests()
             test.eq(#result.components, 0)
         end)
 
-        it("resolves keeper app from a frontend/applications source change", function()
+        it("does not resolve module-owned keeper app host paths as editable", function()
             local result, err = call({
                 paths = { "frontend/applications/keeper/src/app.ts" },
             })
             test.is_nil(err)
             test.not_nil(result)
-            -- At least one editable component under frontend/applications/keeper
-            -- must resolve. We only assert non-empty + that every returned id is
-            -- a string (component id shape varies by package.json name).
-            test.is_true(#result.components >= 1)
-            for _, id in ipairs(result.components) do
-                test.eq(type(id), "string")
-                test.is_true(#id > 0)
-            end
+            test.eq(#result.components, 0)
         end)
 
         it("deduplicates when multiple paths land in the same component", function()
             local result, err = call({
                 paths = {
-                    "frontend/applications/keeper/src/app.ts",
-                    "frontend/applications/keeper/src/app/app.vue",
-                    "frontend/applications/keeper/src/pages/git.vue",
+                    "plugins/git/frontend/applications/git/src/app.ts",
+                    "plugins/git/frontend/applications/git/src/app/app.vue",
+                    "plugins/git/frontend/applications/git/src/pages/git.vue",
                 },
             })
             test.is_nil(err)
             test.not_nil(result)
-            -- Three paths all map to the same keeper app — expect exactly one id.
+            -- Three paths all map to the same local plugin app.
             test.eq(#result.components, 1)
         end)
 
         it("normalizes ./ prefix on inputs", function()
             local result, err = call({
-                paths = { "./frontend/applications/keeper/src/app.ts" },
+                paths = { "./plugins/git/frontend/applications/git/src/app.ts" },
             })
             test.is_nil(err)
             test.not_nil(result)

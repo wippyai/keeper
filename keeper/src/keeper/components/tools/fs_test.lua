@@ -2,6 +2,7 @@ local test = require("test")
 local funcs = require("funcs")
 
 local FS_TOOL_ID = "keeper.components.tools:fs"
+local READABLE_FRONTEND_PATH = "plugins/git/frontend/applications/git/package.json"
 
 -- Invoke the fs tool via a funcs executor whose context explicitly clears
 -- overlay_branch / changeset_id. The test process inherits an ambient
@@ -65,10 +66,10 @@ local function define_tests()
         end)
 
         describe("view (fe_fs fallback)", function()
-            it("reads frontend/applications/keeper/package.json with line numbers", function()
+            it("reads local-module package.json with line numbers", function()
                 local result, err = call_fs({
                     command = "view",
-                    path = "frontend/applications/keeper/package.json",
+                    path = READABLE_FRONTEND_PATH,
                 })
                 test.is_nil(err)
                 test.not_nil(result)
@@ -79,7 +80,7 @@ local function define_tests()
             it("honors view_range", function()
                 local result, err = call_fs({
                     command = "view",
-                    path = "frontend/applications/keeper/package.json",
+                    path = READABLE_FRONTEND_PATH,
                     view_range = { 1, 3 },
                 })
                 test.is_nil(err)
@@ -100,7 +101,7 @@ local function define_tests()
                 -- source so orchestrators can tell what's staged vs landed.
                 local result, err = call_fs({
                     command = "view",
-                    path = "frontend/applications/keeper/package.json",
+                    path = READABLE_FRONTEND_PATH,
                 })
                 test.is_nil(err)
                 test.not_nil(result)
@@ -113,7 +114,7 @@ local function define_tests()
             it("raw mode strips the banner so callers get clean bytes", function()
                 local result, err = call_fs({
                     command = "view",
-                    path = "frontend/applications/keeper/package.json",
+                    path = READABLE_FRONTEND_PATH,
                     raw = true,
                 })
                 test.is_nil(err)
@@ -125,7 +126,7 @@ local function define_tests()
             it("raw mode omits line numbers", function()
                 local result, err = call_fs({
                     command = "view",
-                    path = "frontend/applications/keeper/package.json",
+                    path = READABLE_FRONTEND_PATH,
                     view_range = { 1, 1 },
                     raw = true,
                 })

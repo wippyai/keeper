@@ -4,8 +4,11 @@ local funcs = require("funcs")
 local sql = require("sql")
 local uuid = require("uuid")
 local process = require("process")
+local fs = require("fs")
+local yaml = require("yaml")
 local planner = require("planner")
 local governance = require("governance")
+local lockfile = require("lockfile")
 
 local M = {}
 
@@ -19,8 +22,11 @@ type ServiceDeps = {
     sql: unknown?,
     uuid: unknown?,
     process: unknown?,
+    fs: unknown?,
+    yaml: unknown?,
     planner: unknown?,
     governance: unknown?,
+    lockfile: unknown?,
 }
 
 type HubService = {
@@ -30,9 +36,13 @@ type HubService = {
     sql: unknown,
     uuid: unknown,
     process: unknown,
+    fs: unknown,
+    yaml: unknown,
     planner: unknown,
     governance: unknown,
+    lockfile: unknown,
     list_dependencies: (HubService, unknown) -> (unknown, unknown?),
+    list_migrations: (HubService, unknown) -> (unknown, unknown?),
     install: (HubService, unknown, unknown?) -> (unknown, unknown?),
     uninstall: (HubService, unknown, unknown?) -> (unknown, unknown?),
     migration_rows: (HubService, unknown) -> (unknown, unknown?),
@@ -45,6 +55,8 @@ M.APPLY_FN = "keeper.state.tools:apply"
 M.MIGRATION_HANDLER_FN = "keeper.develop.integrate.handlers:migration_handler"
 M.USER_HUB_PREFIX = "user."
 M.EVENT_TOPIC = "keeper.hub"
+M.PROJECT_FS_ID = "keeper.components:project_fs"
+M.LOCK_PATH = lockfile.LOCK_PATH
 M.EVENTS = {
     INSTALL_STARTED = "hub.install.started",
     INSTALL_FINISHED = "hub.install.finished",
@@ -57,8 +69,13 @@ M.EVENTS = {
     MIGRATIONS_FAILED = "hub.migrations.failed",
 }
 
-local function trim(value)
-    return string.match(tostring(value or ""), "^%s*(.-)%s*$")
+type GraphNode = {
+    module: string?,
+    name: string?,
+}
+
+local function trim(value: unknown): string
+    return string.match(tostring(value or ""), "^%s*(.-)%s*$") or ""
 end
 
 local function shallow_copy(src)
@@ -67,8 +84,51 @@ local function shallow_copy(src)
     return out
 end
 
+local function string_set(values)
+    local out = {}
+    for _, value in ipairs(values or {}) do
+        out[tostring(value)] = true
+    end
+    return out
+end
+
+local ERROR_KIND_BY_CODE = {
+    BAD_REQUEST = errors.INVALID,
+    NOT_FOUND = errors.NOT_FOUND,
+    CONFLICT = errors.CONFLICT,
+    REQUIREMENTS_MISSING = errors.CONFLICT,
+    MIGRATIONS_APPLIED = errors.CONFLICT,
+}
+
 local function err(code, message, details)
-    return { code = code, message = message, details = details }
+    local d = {}
+    if type(details) == "table" then
+        for k, v in pairs(details) do d[k] = v end
+    elseif details ~= nil then
+        d.value = details
+    end
+    d.code = code
+    return errors.new({
+        kind = ERROR_KIND_BY_CODE[code] or errors.INTERNAL,
+        message = tostring(message or "unknown error"),
+        details = d,
+    })
+end
+
+local function error_summary(e: unknown)
+    if e == nil then return nil end
+    local ok_details, details = pcall(function() return (e :: any):details() end)
+    if not ok_details then details = nil end
+    local ok_kind, kind = pcall(function() return (e :: any):kind() end)
+    if not ok_kind then kind = nil end
+    local ok_message, message = pcall(function() return (e :: any):message() end)
+    if not ok_message then message = nil end
+    local details_table = type(details) == "table" and (details :: any) or nil
+    local code = details_table and details_table.code or nil
+    local out = { message = tostring(message or e) }
+    if code then out.code = code end
+    if kind then out.kind = kind end
+    return out
 end
 
 local function is_array(t)
@@ -108,7 +168,7 @@ function M.sanitize_dependency_name(name)
 end
 
 function M.validate_namespace(namespace)
-    namespace = trim(namespace)
+    namespace = trim(tostring(namespace or ""))
     if namespace == "" then
         return nil, err("BAD_REQUEST", "namespace is required")
     end
@@ -276,8 +336,11 @@ function M.new(deps: ServiceDeps?)
         sql = deps.sql or sql,
         uuid = deps.uuid or uuid,
         process = deps.process or process,
+        fs = deps.fs or fs,
+        yaml = deps.yaml or yaml,
         planner = deps.planner or planner,
         governance = deps.governance or governance,
+        lockfile = deps.lockfile or lockfile,
     }, Service) :: HubService
 end
 
@@ -557,6 +620,34 @@ function Service:restore_registry_version(version, reason)
     return result or { version = version }, nil
 end
 
+function Service:read_lock()
+    return self.lockfile.read(self.fs, self.yaml, M.PROJECT_FS_ID, M.LOCK_PATH)
+end
+
+function Service:encode_lock(lock_doc)
+    return self.lockfile.encode(self.yaml, lock_doc, M.LOCK_PATH)
+end
+
+function Service:write_lock(lock_state, content)
+    return self.lockfile.write(lock_state, M.LOCK_PATH, content)
+end
+
+function Service:prepare_install_lock_update(plan)
+    return self.lockfile.prepare_install(self.fs, self.yaml, M.PROJECT_FS_ID, M.LOCK_PATH, plan)
+end
+
+function Service:prepare_uninstall_lock_update(plan)
+    return self.lockfile.prepare_uninstall(self.fs, self.yaml, M.PROJECT_FS_ID, M.LOCK_PATH, plan)
+end
+
+function Service:commit_lock_update(update)
+    return self.lockfile.commit(M.LOCK_PATH, update)
+end
+
+function Service:restore_lock_update(update)
+    return self.lockfile.restore(M.LOCK_PATH, update)
+end
+
 function Service:plan_install(args)
     local p = self.planner
     if type(p) == "table" and p.new then
@@ -569,6 +660,61 @@ function Service:plan_install(args)
     return nil, err("INTERNAL", "hub install planner unavailable")
 end
 
+function Service:dependency_graph_for_entry(dep)
+    local summary = M.dependency_summary(dep)
+    local plan, plan_err = self:plan_install({
+        id = summary.id,
+        component = summary.component,
+        version = summary.version,
+        parameters = summary.parameters,
+        migration_policy = "none",
+    })
+    if not plan then return nil, plan_err end
+    return plan.graph or {}, nil
+end
+
+local function graph_module_set(graph)
+    local out = {}
+    for _, node in ipairs(graph or {}) do
+        local graph_node = node :: GraphNode
+        local name = trim(graph_node.module or graph_node.name)
+        if name ~= "" then out[name] = true end
+    end
+    return out
+end
+
+function Service:uninstall_graph_context(dep)
+    local summary = M.dependency_summary(dep)
+    local remove_graph, remove_err = self:dependency_graph_for_entry(dep)
+    if not remove_graph then return {}, {}, remove_err end
+
+    local remove_set = graph_module_set(remove_graph)
+    local has_transitive = false
+    for name in pairs(remove_set) do
+        if name ~= summary.component then
+            has_transitive = true
+            break
+        end
+    end
+    if not has_transitive then
+        return remove_graph, {}, nil
+    end
+
+    local deps, deps_err = self:dependency_entries()
+    if not deps then return remove_graph, {}, deps_err end
+
+    local keep = {}
+    for _, other in ipairs(deps) do
+        if other.id ~= dep.id then
+            local graph, graph_err = self:dependency_graph_for_entry(other)
+            if not graph then return remove_graph, {}, graph_err end
+            for name in pairs(graph_module_set(graph)) do keep[name] = true end
+        end
+    end
+
+    return remove_graph, keep, nil
+end
+
 function Service:install(args, opts)
     args = args or {}
     opts = opts or {}
@@ -576,7 +722,12 @@ function Service:install(args, opts)
     local plan, plan_err = self:plan_install(args)
     if not plan then return nil, plan_err end
     if #(plan.missing_requirements or {}) > 0 then
-        return nil, err("REQUIREMENTS_MISSING", "Hub dependency requires explicit configuration", plan)
+        return nil, err("REQUIREMENTS_MISSING", "Hub dependency requires explicit configuration", {
+            dependency = plan.dependency,
+            requirements = plan.requirements,
+            missing_requirements_by_id = string_set(plan.missing_requirements),
+            missing_requirements_count = #(plan.missing_requirements or {}),
+        })
     end
 
     local planned = shallow_copy(args)
@@ -586,6 +737,9 @@ function Service:install(args, opts)
     planned.version = install_payload.version or planned.version
     planned.parameters = install_payload.parameters or planned.parameters
     planned.migration_policy = install_payload.migration_policy or planned.migration_policy
+    local planned_with_meta, meta_err = self.lockfile.attach_resolved_graph_meta(planned, plan.graph)
+    if not planned_with_meta then return nil, meta_err end
+    planned = planned_with_meta
 
     local entry, entry_err = M.build_dependency_entry(planned)
     if not entry then return nil, entry_err end
@@ -600,6 +754,10 @@ function Service:install(args, opts)
         plan = plan,
     }
 
+    local lock_update, lock_err = self:prepare_install_lock_update(plan)
+    if not lock_update then return nil, lock_err end
+    payload.lock = self.lockfile.summary(M.LOCK_PATH, lock_update)
+
     if args.dry_run == true then
         payload.dry_run = true
         return payload, nil
@@ -609,7 +767,7 @@ function Service:install(args, opts)
     if args.run_migrations == true then policy = "up" end
 
     local baseline_version
-    if policy == "up" then
+    if policy == "up" or lock_update.changed == true then
         local version, version_err = self:current_registry_version()
         if not version then return nil, version_err end
         baseline_version = version
@@ -633,11 +791,52 @@ function Service:install(args, opts)
     if not apply_result then
         self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FAILED, operation_id, {
             dependency = payload.dependency,
-            error = apply_err,
+            error = error_summary(apply_err),
         })
         return nil, apply_err
     end
     payload.apply = apply_result
+
+    if lock_update.changed == true then
+        local lock_result, write_err = self:commit_lock_update(lock_update)
+        if not lock_result then
+            local restore_result, restore_err = self:restore_registry_version(
+                baseline_version,
+                "hub install lock update failed for " .. tostring(entry.data.component)
+            )
+            payload.rollback = restore_result
+            payload.rollback_error = error_summary(restore_err)
+
+            local failure_err
+            if restore_result then
+                failure_err = err("LOCK_UPDATE_FAILED",
+                    "dependency installed but wippy.lock update failed; registry restored to baseline",
+                    {
+                        lock_error = error_summary(write_err),
+                        baseline_version = baseline_version,
+                        rollback = restore_result,
+                        apply = apply_result,
+                    })
+            else
+                failure_err = err("ROLLBACK_FAILED",
+                    "dependency installed, wippy.lock update failed, and registry rollback failed",
+                    {
+                        lock_error = error_summary(write_err),
+                        baseline_version = baseline_version,
+                        rollback_error = error_summary(restore_err),
+                        apply = apply_result,
+                    })
+            end
+            self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FAILED, operation_id, {
+                dependency = payload.dependency,
+                error = error_summary(failure_err),
+                rollback = restore_result,
+                rollback_error = error_summary(restore_err),
+            })
+            return nil, failure_err
+        end
+        payload.lock = lock_result
+    end
 
     if policy == "up" then
         local migration_result, migration_err = self:run_migrations({
@@ -649,34 +848,41 @@ function Service:install(args, opts)
                 baseline_version,
                 "hub install migration failed for " .. tostring(entry.data.component)
             )
+            local lock_restore_result, lock_restore_err = self:restore_lock_update(lock_update)
             payload.rollback = restore_result
-            payload.rollback_error = restore_err
+            payload.rollback_error = error_summary(restore_err)
+            payload.lock_rollback = lock_restore_result
+            payload.lock_rollback_error = error_summary(lock_restore_err)
 
             local failure_err
             if restore_result then
                 failure_err = err("MIGRATIONS_FAILED",
                     "migrations failed after dependency install; registry restored to baseline",
                     {
-                        migration_error = migration_err,
+                        migration_error = error_summary(migration_err),
                         baseline_version = baseline_version,
                         rollback = restore_result,
+                        lock_rollback = lock_restore_result,
+                        lock_rollback_error = error_summary(lock_restore_err),
                         apply = apply_result,
                     })
             else
                 failure_err = err("ROLLBACK_FAILED",
                     "migrations failed after dependency install and registry rollback failed",
                     {
-                        migration_error = migration_err,
+                        migration_error = error_summary(migration_err),
                         baseline_version = baseline_version,
-                        rollback_error = restore_err,
+                        rollback_error = error_summary(restore_err),
+                        lock_rollback = lock_restore_result,
+                        lock_rollback_error = error_summary(lock_restore_err),
                         apply = apply_result,
                     })
             end
             self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FAILED, operation_id, {
                 dependency = payload.dependency,
-                error = failure_err,
+                error = error_summary(failure_err),
                 rollback = restore_result,
-                rollback_error = restore_err,
+                rollback_error = error_summary(restore_err),
             })
             return nil, failure_err
         end
@@ -722,6 +928,12 @@ function Service:plan_uninstall(args)
         end
     end
 
+    local graph, keep_modules, graph_err = self:uninstall_graph_context(dep)
+    if graph_err then
+        graph = {}
+        keep_modules = {}
+    end
+
     return {
         dependency = summary,
         entries = entries,
@@ -729,6 +941,9 @@ function Service:plan_uninstall(args)
         migrations = migrations,
         applied_migrations = applied,
         applied_migrations_count = #applied,
+        graph = graph,
+        keep_modules = keep_modules,
+        graph_error = error_summary(graph_err),
         patch = { target = "entry", id = dep.id, op = "delete" },
     }, nil
 end
@@ -758,6 +973,23 @@ function Service:uninstall(args, opts)
         patches = { plan.patch },
     }
 
+    local down_migration_ids
+    local function restore_down_migrations()
+        if not down_migration_ids or #down_migration_ids == 0 then return nil, nil end
+        local restore_result, restore_err = self:run_migrations({
+            entry_ids = down_migration_ids,
+            operation = "up",
+            only_pending = false,
+        }, opts)
+        payload.migration_restore = restore_result
+        payload.migration_restore_error = error_summary(restore_err)
+        return restore_result, restore_err
+    end
+
+    local lock_update, lock_err = self:prepare_uninstall_lock_update(plan)
+    if not lock_update then return nil, lock_err end
+    payload.lock = self.lockfile.summary(M.LOCK_PATH, lock_update)
+
     if args.dry_run == true then
         payload.dry_run = true
         if plan.applied_migrations_count > 0 and policy == "leave" then
@@ -774,9 +1006,18 @@ function Service:uninstall(args, opts)
         applied_migrations_count = plan.applied_migrations_count,
     })
 
+    local baseline_version
+    if lock_update.changed == true then
+        local version, version_err = self:current_registry_version()
+        if not version then return nil, version_err end
+        baseline_version = version
+        payload.baseline_version = baseline_version
+    end
+
     if plan.applied_migrations_count > 0 and policy == "down" then
         local ids = {}
         for _, row in ipairs(plan.applied_migrations) do table.insert(ids, row.id) end
+        down_migration_ids = ids
         local migration_result, migration_err = self:run_migrations({
             entry_ids = ids,
             operation = "down",
@@ -784,7 +1025,7 @@ function Service:uninstall(args, opts)
         if not migration_result then
             self:emit_operation(opts.actor_id, M.EVENTS.UNINSTALL_FAILED, operation_id, {
                 dependency = payload.dependency,
-                error = migration_err,
+                error = error_summary(migration_err),
             })
             return nil, migration_err
         end
@@ -801,13 +1042,73 @@ function Service:uninstall(args, opts)
         patches = { plan.patch },
     })
     if not apply_result then
+        local migration_restore_result, migration_restore_err = restore_down_migrations()
+        local failure_err = err("UNINSTALL_APPLY_FAILED",
+            "dependency migrations were rolled back but registry uninstall failed",
+            {
+                apply_error = error_summary(apply_err),
+                migration_restore = migration_restore_result,
+                migration_restore_error = error_summary(migration_restore_err),
+            })
         self:emit_operation(opts.actor_id, M.EVENTS.UNINSTALL_FAILED, operation_id, {
             dependency = payload.dependency,
-            error = apply_err,
+            error = error_summary(failure_err),
+            migration_restore = migration_restore_result,
+            migration_restore_error = error_summary(migration_restore_err),
         })
-        return nil, apply_err
+        return nil, failure_err
     end
     payload.apply = apply_result
+
+    if lock_update.changed == true then
+        local lock_result, write_err = self:commit_lock_update(lock_update)
+        if not lock_result then
+            local restore_result, restore_err = self:restore_registry_version(
+                baseline_version,
+                "hub uninstall lock update failed for " .. tostring(plan.dependency.component)
+            )
+            payload.rollback = restore_result
+            payload.rollback_error = error_summary(restore_err)
+
+            local migration_restore_result, migration_restore_err
+            if restore_result then
+                migration_restore_result, migration_restore_err = restore_down_migrations()
+            end
+
+            local failure_err
+            if restore_result then
+                failure_err = err("LOCK_UPDATE_FAILED",
+                    "dependency uninstalled but wippy.lock update failed; registry restored to baseline",
+                    {
+                        lock_error = error_summary(write_err),
+                        baseline_version = baseline_version,
+                        rollback = restore_result,
+                        migration_restore = migration_restore_result,
+                        migration_restore_error = error_summary(migration_restore_err),
+                        apply = apply_result,
+                    })
+            else
+                failure_err = err("ROLLBACK_FAILED",
+                    "dependency uninstalled, wippy.lock update failed, and registry rollback failed",
+                    {
+                        lock_error = error_summary(write_err),
+                        baseline_version = baseline_version,
+                        rollback_error = error_summary(restore_err),
+                        apply = apply_result,
+                    })
+            end
+            self:emit_operation(opts.actor_id, M.EVENTS.UNINSTALL_FAILED, operation_id, {
+                dependency = payload.dependency,
+                error = error_summary(failure_err),
+                rollback = restore_result,
+                rollback_error = error_summary(restore_err),
+                migration_restore = migration_restore_result,
+                migration_restore_error = error_summary(migration_restore_err),
+            })
+            return nil, failure_err
+        end
+        payload.lock = lock_result
+    end
 
     self:emit_operation(opts.actor_id, M.EVENTS.UNINSTALL_FINISHED, operation_id, {
         dependency = payload.dependency,
@@ -861,16 +1162,20 @@ function Service:run_migrations(args, opts)
         count = #ids,
     })
 
-    local result, call_err = self:call_func(M.MIGRATION_HANDLER_FN, {
+    local call_params = {
         operation = operation,
         entry_ids = ids,
         actor_id = opts.actor_id,
-    })
+    }
+    if args.only_pending ~= nil then call_params.only_pending = args.only_pending end
+    if args.only_applied ~= nil then call_params.only_applied = args.only_applied end
+
+    local result, call_err = self:call_func(M.MIGRATION_HANDLER_FN, call_params)
     if not result then
         self:emit_operation(opts.actor_id, M.EVENTS.MIGRATIONS_FAILED, operation_id, {
             operation = operation,
             entry_ids = ids,
-            error = call_err,
+            error = error_summary(call_err),
         })
         return nil, call_err
     end
@@ -887,6 +1192,12 @@ function M.list_dependencies(args)
     return M.new():list_dependencies(args)
 end
 
+function Service:list_migrations(args)
+    local rows, rows_err = self:migration_rows(args or {})
+    if not rows then return nil, rows_err end
+    return { migrations = rows, count = #rows }, nil
+end
+
 function M.install(args, opts)
     return M.new():install(args, opts)
 end
@@ -896,10 +1207,7 @@ function M.uninstall(args, opts)
 end
 
 function M.list_migrations(args)
-    local svc = M.new()
-    local rows, rows_err = svc:migration_rows(args or {})
-    if not rows then return nil, rows_err end
-    return { migrations = rows, count = #rows }, nil
+    return M.new():list_migrations(args)
 end
 
 function M.run_migrations(args, opts)

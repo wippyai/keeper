@@ -21,6 +21,9 @@ entries:
       - registry.sync
       - state.read
       - state.write
+      - hub.read
+      - hub.write
+      - hub.migrate
       - knowledge.read
       - knowledge.write
       - logger.read
@@ -38,6 +41,7 @@ entries:
         - state
         - editor
         - knowledge
+        - hub
     
   # keeper.mcp.presets:explorer_tools_only
   - name: explorer_tools_only
@@ -54,10 +58,12 @@ entries:
       - agents.read
       - registry.read
       - state.read
+      - hub.read
     tool_filter:
       tags_any:
         - exploration
         - readonly
+        - hub
     
   # keeper.mcp.presets:knowledge_manager
   - name: knowledge_manager
@@ -74,6 +80,7 @@ entries:
       - registry.read
       - knowledge.read
       - knowledge.write
+      - hub.read
     trait_filter:
       tags_any:
         - knowledge
@@ -94,6 +101,7 @@ entries:
       - agents.read
       - registry.read
       - state.read
+      - hub.read
       - knowledge.read
       - logger.read
       - pm.read
@@ -124,6 +132,9 @@ entries:
       - registry.sync
       - state.read
       - state.write
+      - hub.read
+      - hub.write
+      - hub.migrate
       - knowledge.read
       - knowledge.write
       - logger.read
@@ -161,6 +172,9 @@ entries:
       - registry.sync
       - state.read
       - state.write
+      - hub.read
+      - hub.write
+      - hub.migrate
       - knowledge.read
       - knowledge.write
       - logger.read
@@ -194,6 +208,7 @@ entries:
         - knowledge
         - context
         - migrations
+        - hub
         - endpoints
         - api
     
