@@ -2,13 +2,13 @@
 
 WIPPY ?= wippy
 
-KEEPER_VERSION ?= 0.5.8
+KEEPER_VERSION ?= 0.5.9
 USAGE_VERSION ?= 0.1.1
 
 lint: lint-keeper lint-usage
 
 lint-keeper:
-	cd keeper && $(WIPPY) lint --ns 'keeper.config,keeper.config.*,keeper.mcp.*,keeper.knowledge,keeper.components,keeper.internal.flow,keeper.internal.session' --summary --limit 200 --no-color
+	cd keeper && $(WIPPY) lint --ns 'keeper,keeper.*' --summary --limit 200 --no-color
 
 lint-usage:
 	cd usage && $(WIPPY) lint --summary --limit 200 --no-color

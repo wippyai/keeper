@@ -1,5 +1,26 @@
 # Release Notes
 
+## keeper/keeper 0.5.9
+
+`keeper/keeper@0.5.9` tightens the task-agent boundary after the KB curator split.
+
+### Highlights
+
+- Design phase prompts now route missing registry / KB / docs facts through the
+  `research` delegate instead of advertising direct lookup tools the design
+  agent does not own.
+- Research phase remains the explicit read-capable context capture phase:
+  `search_knowledge`, registry exploration, docs lookup, and task-local
+  `save_context` are allowed; durable KB writes remain curator-only.
+- The repository `make lint` target now checks the full `keeper,keeper.*`
+  namespace instead of a partial subset, so task/agent/develop regressions are
+  covered by the default lint gate.
+
+### Verification
+
+- `make lint WIPPY=/tmp/wippy-packcheck`
+- `wippy lint --ns 'keeper,keeper.*' --summary --limit 200 --no-color`
+
 ## keeper/keeper 0.5.8
 
 `keeper/keeper@0.5.8` republishes the Keeper 0.5.7 source using the released

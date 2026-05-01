@@ -135,6 +135,34 @@ local function define_tests()
             end)
         end)
 
+        describe("lookup tool boundaries", function()
+            it("design delegates KB and docs lookup instead of advertising direct tools", function()
+                local task_id = make_task("Design lookup boundaries")
+                local prompt = context.build(task_id, P.DESIGN, {})
+
+                test.is_true(prompt:find("Delegate lookup gaps to research", 1, true) ~= nil,
+                    "design prompt must send lookup gaps through the research delegate")
+                test.is_true(prompt:find("direct registry / KB / docs lookup tools", 1, true) ~= nil,
+                    "design prompt must explain that direct lookup tools are not available")
+                test.is_true(prompt:find("explore / kb_read / fetch_docs to fill gaps", 1, true) == nil,
+                    "design prompt must not advertise direct KB/docs tools")
+            end)
+
+            it("research phase remains the explicit read-capable context capture phase", function()
+                local task_id = make_task("Research lookup boundaries")
+                local prompt = context.build(task_id, P.RESEARCH, {})
+
+                test.is_true(prompt:find("search_knowledge for existing findings", 1, true) ~= nil,
+                    "research phase should read existing KB findings")
+                test.is_true(prompt:find("fetch_docs for platform APIs", 1, true) ~= nil,
+                    "research phase should be able to fetch docs")
+                test.is_true(prompt:find("save_context one row per concrete finding", 1, true) ~= nil,
+                    "research phase should persist task-context findings")
+                test.is_true(prompt:find("write_knowledge", 1, true) == nil,
+                    "task research must not write durable KB nodes")
+            end)
+        end)
+
         -- ============================================================
         -- Prior Phase Result + Summary plumbing.
         -- v22/v24 bounce loops happened because the next orchestrator
