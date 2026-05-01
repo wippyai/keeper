@@ -1,15 +1,17 @@
 .PHONY: lint lint-keeper lint-usage build-keeper-frontend publish-dry-run publish-keeper-dry-run publish-usage-dry-run publish publish-keeper publish-usage
 
-KEEPER_VERSION ?= 0.5.5
+WIPPY ?= wippy
+
+KEEPER_VERSION ?= 0.5.6
 USAGE_VERSION ?= 0.1.1
 
 lint: lint-keeper lint-usage
 
 lint-keeper:
-	cd keeper && wippy lint --ns 'keeper.config,keeper.config.*,keeper.mcp.*,keeper.knowledge,keeper.components,keeper.internal.flow,keeper.internal.session' --summary --limit 200 --no-color
+	cd keeper && $(WIPPY) lint --ns 'keeper.config,keeper.config.*,keeper.mcp.*,keeper.knowledge,keeper.components,keeper.internal.flow,keeper.internal.session' --summary --limit 200 --no-color
 
 lint-usage:
-	cd usage && wippy lint --summary --limit 200 --no-color
+	cd usage && $(WIPPY) lint --summary --limit 200 --no-color
 
 build-keeper-frontend:
 	cd keeper/frontend/applications/keeper && npm install --no-audit --no-fund --prefer-offline && npm run build
@@ -20,15 +22,15 @@ build-keeper-frontend:
 publish-dry-run: publish-keeper-dry-run publish-usage-dry-run
 
 publish-keeper-dry-run: build-keeper-frontend
-	cd keeper && wippy publish --dry-run --version $(KEEPER_VERSION)
+	cd keeper && $(WIPPY) publish --dry-run --version $(KEEPER_VERSION)
 
 publish-usage-dry-run:
-	cd usage && wippy publish --dry-run --version $(USAGE_VERSION)
+	cd usage && $(WIPPY) publish --dry-run --version $(USAGE_VERSION)
 
 publish: publish-keeper publish-usage
 
 publish-keeper: build-keeper-frontend
-	cd keeper && wippy publish --version $(KEEPER_VERSION)
+	cd keeper && $(WIPPY) publish --version $(KEEPER_VERSION)
 
 publish-usage:
-	cd usage && wippy publish --version $(USAGE_VERSION)
+	cd usage && $(WIPPY) publish --version $(USAGE_VERSION)

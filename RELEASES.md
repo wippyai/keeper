@@ -1,5 +1,20 @@
 # Release Notes
 
+## keeper/keeper 0.5.6
+
+`keeper/keeper@0.5.6` republishes the Keeper 0.5.5 package using the fixed Wippy
+resource packer/reader from runtime PR #259, so embedded UI assets can be
+extracted by the corrected install path.
+
+### Verification
+
+- Reproduced the old extractor failure on `keeper/keeper@0.5.5`:
+  `extract embedded resource keeper.components:ui_static_fs: read resource file assets/tsMode-BI5rsYdF.js: wapp: decompress: unexpected EOF`.
+- Verified the fixed runtime binary can unpack `keeper/keeper@0.5.5` and read
+  the embedded `ui_static_fs` assets.
+- Wippy runtime PR #259 clean worktree:
+  `make test`, `./tests/app/test.sh`, and `make lint` pass.
+
 ## keeper/keeper 0.5.5
 
 `keeper/keeper@0.5.5` hardens runtime Hub installs, dependency state sync, MCP
