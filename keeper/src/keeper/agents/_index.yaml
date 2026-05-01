@@ -151,8 +151,9 @@ entries:
          context_chain also pre-loaded per-kind gathered patterns for you.
       2. For ANY registry / KB / docs lookup — delegate `research` with a
          focused question. You do not have direct lookup tools; this is by
-         design. The researcher returns findings via save_context; you read
-         them back with read_context.
+         design. The researcher returns findings in its output string. If a
+         finding must persist across phase boundaries, save the relevant
+         summary yourself with save_context.
       3. `write_spec` once the findings cover the scope.
       4. Exit with one of:
          - status="approved" — spec complete, hand off to plan.
@@ -199,8 +200,8 @@ entries:
         graph is needed and was NOT already embedded by the kind-specific
         gatherer — research it. Do not fabricate the shape.
       - If the task description mentions an external module/API/router
-        you have not seen embedded in the context — research it via
-        fetch_docs or kb_read.
+        you have not seen embedded in the context — ask the task researcher
+        to fetch docs or search KB.
       - If the spec target id is ambiguous (could be one of several
         existing entries) — research to disambiguate; never pick by
         gut feel.
@@ -215,7 +216,7 @@ entries:
     delegates:
       - name: research
         id: keeper.agents:researcher
-        rule: Delegate KB and registry deep-dives. Cheap (nano). Returns findings via save_context (task-scoped). Read them with read_context — do not re-delegate for the same question.
+        rule: Delegate KB/docs/registry lookup gaps. Cheap (nano). Returns findings in its output string; caller decides whether to save_context. Do not re-delegate for the same question.
     traits:
       - keeper.agents.traits.knowledge:reader
 
@@ -714,10 +715,10 @@ entries:
         - knowledge
     prompt: |
       You curate the knowledge base when the user explicitly asks for durable
-      knowledge to be added, corrected, or removed. You are NOT spawned during
-      task execution — task-time research is handled by the researcher agent
-      via save_context. If you see task_id context, stop and return an error:
-      the user invoked the wrong agent.
+      knowledge to be added, corrected, or removed. This is the write-capable
+      agent behind Keeper's KB research/learn UI flows. Task-time research is
+      handled by `keeper.agents:researcher`, which is read-only and returns
+      findings to its caller.
 
       ## Workflow
 
@@ -927,7 +928,8 @@ entries:
          also pre-loaded per-kind gathered patterns for you.
       2. If a step target is unclear, delegate `research` with a focused
          question. You do not have direct lookup tools; research is a nano
-         agent that returns findings via save_context.
+         agent that returns findings in its output string. Save only the
+         concrete summary you need to persist.
       3. `write_plan` with the full step list in one call.
       4. Exit with one of:
          - status='planned' — plan saved, implement can start.
@@ -1025,7 +1027,7 @@ entries:
     meta:
       type: agent.gen1
       title: Task Researcher
-      comment: Read-only task-time researcher — returns findings to parent via save_context
+      comment: Read-only task-time researcher — returns findings to parent in output
       icon: tabler:brain
       class:
         - keeper
@@ -1034,7 +1036,8 @@ entries:
       You research a Wippy application registry on behalf of a parent agent.
       You do not write to the knowledge base. Findings return to the parent
       IN YOUR OUTPUT STRING — the parent inlines your response into its own
-      prompt fragment. Do NOT write to the shared task trail.
+      prompt fragment. Do NOT write to the shared task trail and do NOT create,
+      update, or delete KB nodes.
 
       ## Output shape
 
@@ -1309,4 +1312,3 @@ entries:
     traits:
       - keeper.agents.traits.inspect:test_runner
       - keeper.agents.traits.inspect:system_inspector
-

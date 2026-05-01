@@ -15,6 +15,8 @@ local flow = require("flow")
 
 local M = {}
 
+local KNOWLEDGE_CURATOR_AGENT = "keeper.agents:kb_curator"
+
 type EmbedArgs = {
     node_id: string?,
     model: string?,
@@ -203,16 +205,27 @@ end
 -- Research orchestration
 
 local function with_kb_instruction(prompt, kb_name)
-    if not kb_name or kb_name == "" then return prompt end
-    return "TARGET KB: \"" .. kb_name .. "\"\n" ..
-        "All write_knowledge calls in this task MUST set kb=\"" .. kb_name .. "\".\n\n" ..
-        prompt
+    local instruction = "This is a durable knowledge curation flow, not task-context research.\n" ..
+        "Search existing knowledge first, then create or update concise durable nodes with write_knowledge.\n" ..
+        "Do not use save_context; task-scoped context is owned by Keeper task phases.\n"
+
+    if kb_name and kb_name ~= "" then
+        instruction = instruction ..
+            "TARGET KB: \"" .. kb_name .. "\"\n" ..
+            "All write_knowledge calls in this task MUST set kb=\"" .. kb_name .. "\".\n"
+    end
+
+    return instruction .. "\n" .. prompt
 end
 
 local function resolve_kb_name(kb_param)
     local kb, err = resolve_kb_id(kb_param)
     if err then return nil, err end
     return kb and kb.name, nil
+end
+
+local function knowledge_agent_id()
+    return KNOWLEDGE_CURATOR_AGENT
 end
 
 function M.research(params)
@@ -227,7 +240,7 @@ function M.research(params)
             :with_metadata({ type = "knowledge_research", source = "keeper", target_kb = kb_name })
             :with_input({ prompt = agent_prompt, kb = kb_name })
 
-        f:agent("keeper.agents:researcher", {
+        f:agent(knowledge_agent_id(), {
             arena = {
                 prompt = agent_prompt,
                 max_iterations = params.max_iterations or 15,
@@ -241,7 +254,7 @@ function M.research(params)
 
     if params.prompts and type(params.prompts) == "table" and #params.prompts > 0 then
         local template = flow.template()
-        template:agent("keeper.agents:researcher", {
+        template:agent(knowledge_agent_id(), {
             arena = {
                 prompt = "{{item.prompt}}",
                 max_iterations = params.max_iterations or 15,
@@ -395,7 +408,7 @@ function M.learn(params)
     end
 
     local template = flow.template()
-    template:agent("keeper.agents:researcher", {
+    template:agent(knowledge_agent_id(), {
         arena = { prompt = "{{item.prompt}}", max_iterations = 15 },
     })
 
@@ -433,5 +446,10 @@ function M.learn(params)
         target_kb = kb_name,
     }
 end
+
+M._test = {
+    knowledge_agent_id = knowledge_agent_id,
+    with_kb_instruction = with_kb_instruction,
+}
 
 return M

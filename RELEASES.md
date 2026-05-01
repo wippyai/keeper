@@ -1,5 +1,31 @@
 # Release Notes
 
+## keeper/keeper 0.5.7
+
+`keeper/keeper@0.5.7` separates task-time context research from durable
+knowledge curation.
+
+### Highlights
+
+- `/knowledge/research` and `/knowledge/learn` now spawn
+  `keeper.agents:kb_curator`, the write-capable KB agent, instead of the
+  read-only task researcher.
+- Context-chain gatherers no longer carry KB or documentation tools. They gather
+  live registry/filesystem precedents only; KB/docs gaps are delegated to
+  `keeper.agents:researcher`.
+- Agent prompts now describe the handoff explicitly: task researcher returns
+  lookup findings in output, phase agents decide what to persist with
+  `save_context`, and durable KB writes belong to the curator.
+
+### Verification
+
+- Focused lint for touched Keeper namespaces passed:
+  `wippy lint --ns 'keeper.agents,keeper.develop,keeper.develop.*,keeper.knowledge.service' --summary --limit 200 --no-color`.
+- Monorepo lint passed: `make lint`.
+- Publish packaging dry-run passed: `make publish-keeper-dry-run`.
+- Added regressions for context gatherer tool boundaries, read-only task
+  researcher capabilities, and KB service curator dispatch.
+
 ## keeper/keeper 0.5.6
 
 `keeper/keeper@0.5.6` republishes the Keeper 0.5.5 package using the fixed Wippy

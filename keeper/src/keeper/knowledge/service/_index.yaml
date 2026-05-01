@@ -16,4 +16,20 @@ entries:
       kb_consts: keeper.knowledge:consts
       kb_repo: keeper.knowledge:repo
       llm: wippy.llm:llm
-    
+
+  # keeper.knowledge.service:service_test
+  - name: service_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Knowledge service research/learn dispatch tests
+      suite: knowledge.service
+    source: file://service_test.lua
+    modules:
+      - registry
+    imports:
+      service: keeper.knowledge.service:service
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1

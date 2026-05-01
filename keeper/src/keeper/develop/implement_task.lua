@@ -3,7 +3,7 @@
 --   1. Enriches the task with any named prior-step outputs passed in as extra args.
 --   2. Runs keeper.develop.context:prepare_context(agent_id, enriched_task) which
 --      reads the specialist's meta.context_chain, spawns the context agents in
---      parallel, and returns a formatted blob of real registry + KB patterns.
+--      parallel, and returns a formatted blob of real registry/filesystem patterns.
 --   3. Spawns the specialist with `task` + `gathered_context` + `routing` as
 --      arena inputs. The gathered_context lands in the specialist's system prompt
 --      so Anthropic prompt caching kicks in automatically across calls.
@@ -121,10 +121,12 @@ local function do_handler(args)
     local arena_prompt = agent_options.arena_prompt or [[
 Implement the task using the provided context.
 
-`<gathered_context>` holds real, live registry + KB patterns gathered by
-context agents. Follow those patterns exactly — do not invent shapes from
-memory. When done, exit with `success=true` and a summary of what you
-implemented. Exit `success=false` with a concrete reason if you can't proceed.]]
+`<gathered_context>` holds real, live registry/filesystem patterns gathered by
+context agents. KB/docs research is separate: delegate to the task researcher
+when a concrete docs or convention gap remains. Follow gathered patterns
+exactly — do not invent shapes from memory. When done, exit with `success=true`
+and a summary of what you implemented. Exit `success=false` with a concrete
+reason if you can't proceed.]]
 
     -- Resolve agent metadata for routing (description + requirements).
     local agent, err = agent_registry.get_by_id(agent_id)

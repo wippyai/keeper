@@ -20,6 +20,23 @@ local function trait_set(entry)
 end
 
 local FRONTEND_TRAIT = "keeper.agents.traits.context.frontend:frontend_aware"
+local CURATOR_TRAIT = "keeper.agents.traits.knowledge:curator"
+
+local CONTEXT_AGENT_IDS = {
+    "keeper.develop.context.agents:agents_context",
+    "keeper.develop.context.agents:dataflow_context",
+    "keeper.develop.context.agents:http_endpoint_context",
+    "keeper.develop.context.agents:migration_context",
+    "keeper.develop.context.agents:persist_context",
+    "keeper.develop.context.agents:tool_context",
+    "keeper.develop.context.agents:view_context",
+}
+
+local function list_set(list)
+    local out = {}
+    for _, value in ipairs(list or {}) do out[value] = true end
+    return out
+end
 
 local function define_tests()
     test.describe("FE-aware agents must carry the frontend_aware trait", function()
@@ -60,6 +77,28 @@ local function define_tests()
             end
             test.is_true(has_fs,
                 "frontend_aware must expose keeper.components.tools:fs")
+        end)
+
+        test.it("context gatherers stay live-context only and do not carry KB/doc tools", function()
+            for _, id in ipairs(CONTEXT_AGENT_IDS) do
+                local entry, err = registry.get(id)
+                test.is_nil(err)
+                test.not_nil(entry)
+                local tools = list_set(entry.data and entry.data.tools)
+                test.is_nil(tools["keeper.knowledge.tools:kb_read"],
+                    id .. " must not read KB directly; delegate KB gaps to keeper.agents:researcher")
+                test.is_nil(tools["keeper.knowledge.tools:fetch_docs"],
+                    id .. " must not fetch docs directly; delegate docs gaps to keeper.agents:researcher")
+            end
+        end)
+
+        test.it("task researcher is read-only and not a durable KB curator", function()
+            local entry, err = registry.get("keeper.agents:researcher")
+            test.is_nil(err)
+            test.not_nil(entry)
+            local traits = trait_set(entry)
+            test.is_nil(traits[CURATOR_TRAIT],
+                "keeper.agents:researcher must stay read-only; durable KB writes use keeper.agents:kb_curator")
         end)
     end)
 end

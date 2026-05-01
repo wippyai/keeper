@@ -37,7 +37,9 @@ entries:
          limit=20` — list agents.
       2. Pick 1–2 with similar role (orchestrator / specialist / nano
          researcher) and `get_entries ids=[...] full=true` in one call.
-      3. OPTIONAL: `kb_read search` if a convention is unclear.
+      3. If a convention is still unclear, report a research gap. Context
+         gatherers do not query KB/docs; the parent delegates that to
+         `keeper.agents:researcher`.
     
       ## Trait inventory
     
@@ -97,8 +99,6 @@ entries:
     tools:
       - keeper.state.tools:explore
       - keeper.state.tools:get_entries
-      - keeper.knowledge.tools:kb_read
-      - keeper.knowledge.tools:fetch_docs
     
   # keeper.develop.context.agents:agents_traits_test
   - name: agents_traits_test
@@ -218,8 +218,6 @@ entries:
     tools:
       - keeper.state.tools:explore
       - keeper.state.tools:get_entries
-      - keeper.knowledge.tools:kb_read
-      - keeper.knowledge.tools:fetch_docs
     
   # keeper.develop.context.agents:http_endpoint_context
   - name: http_endpoint_context
@@ -263,7 +261,8 @@ entries:
       2. Pick 2–3 whose verb + auth posture + response shape match the task.
          `get_entries ids=[<endpoint_id>, <referenced function_id>, <router_id>]
          include_source=true` — single call, three ids, returns everything.
-      3. OPTIONAL: if docs needed, `fetch_docs` for one targeted page only.
+      3. If docs are needed, report the exact missing API surface. The
+         parent delegates docs/KB lookup to `keeper.agents:researcher`.
     
       No tree walks. No keyword hunts in the target namespace. No iterative
       exploration. Three calls maximum, then output.
@@ -310,8 +309,6 @@ entries:
     tools:
       - keeper.state.tools:explore
       - keeper.state.tools:get_entries
-      - keeper.knowledge.tools:kb_read
-      - keeper.knowledge.tools:fetch_docs
     
   # keeper.develop.context.agents:migration_context
   - name: migration_context
@@ -319,7 +316,7 @@ entries:
     meta:
       type: agent.gen1
       title: Migration Context Gatherer
-      comment: Explores the live registry + knowledge base for existing migration patterns and embeds them as examples for the developer
+      comment: Explores the live registry for existing migration patterns and embeds them as examples for the developer
       tags:
         - context
         - migrations
@@ -348,7 +345,8 @@ entries:
          "migration"} limit=20` — find existing migrations across the registry.
       2. Pick 2–3 whose target_db + shape match. `get_entries
          ids=[<migration_ids>] include_source=true` in one call.
-      3. OPTIONAL: `kb_read search` for one targeted query if docs needed.
+      3. If docs are needed, report the exact missing API surface. The
+         parent delegates docs/KB lookup to `keeper.agents:researcher`.
     
       Maximum three tool calls, then output.
     
@@ -397,8 +395,6 @@ entries:
     tools:
       - keeper.state.tools:explore
       - keeper.state.tools:get_entries
-      - keeper.knowledge.tools:kb_read
-      - keeper.knowledge.tools:fetch_docs
     
   # keeper.develop.context.agents:persist_context
   - name: persist_context
@@ -436,7 +432,8 @@ entries:
          surface here. Dedupe by namespace.
       2. Pick 2–3 that match the task shape (CRUD vs event-sourced vs reader
          only). `get_entries ids=[<lib_ids>] include_source=true` in one call.
-      3. OPTIONAL: `kb_read search` for one targeted query if docs needed.
+      3. If docs are needed, report the exact missing API surface. The
+         parent delegates docs/KB lookup to `keeper.agents:researcher`.
     
       Maximum three tool calls, then output.
     
@@ -480,8 +477,6 @@ entries:
     tools:
       - keeper.state.tools:explore
       - keeper.state.tools:get_entries
-      - keeper.knowledge.tools:kb_read
-      - keeper.knowledge.tools:fetch_docs
     
   # keeper.develop.context.agents:test_target
   - name: test_target
@@ -634,8 +629,6 @@ entries:
     tools:
       - keeper.state.tools:explore
       - keeper.state.tools:get_entries
-      - keeper.knowledge.tools:kb_read
-      - keeper.knowledge.tools:fetch_docs
     
   # keeper.develop.context.agents:view_context
   - name: view_context
@@ -694,11 +687,8 @@ entries:
          live example of `api.get(...) / api.post(...)` usage. Surface
          the import line + 1 GET + 1 POST as a "## SDK Usage Example".
       3. If the task uses a Wippy capability not covered by those files
-         (e.g. WS event subscription, navigation), call `fetch_docs
-         action=search query="<capability>"` ONCE with a tight query, then
-         `fetch_docs action=fetch path=<best-match-path>` for the most
-         relevant page. Embed the doc snippet verbatim under "## Wippy
-         Doc Reference".
+         (e.g. WS event subscription, navigation), report the exact docs
+         gap. The parent delegates docs/KB lookup to `keeper.agents:researcher`.
     
       Hard rule: if the page hits any HTTP API, the developer's prompt MUST
       receive the `useApi()` example. Raw `fetch()` is wrong on this
@@ -733,10 +723,6 @@ entries:
       File: frontend/applications/keeper/src/api/tasks.ts (slice)
       <verbatim 8–15 line excerpt of api.get + api.post calls>
     
-      ## Wippy Doc Reference (only if used a capability beyond useApi)
-    
-      <verbatim doc snippet from fetch_docs>
-    
       ## Route pattern
     
       - router file: `frontend/.../router/index.ts`
@@ -762,8 +748,5 @@ entries:
     tools:
       - keeper.state.tools:explore
       - keeper.state.tools:get_entries
-      - keeper.knowledge.tools:kb_read
-      - keeper.knowledge.tools:fetch_docs
     traits:
       - keeper.agents.traits.context.frontend:frontend_aware
-    
