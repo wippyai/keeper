@@ -14,7 +14,7 @@ entries:
       - registry
       - security
     method: handler
-    
+
   # keeper.gov.env.api:list_variables.endpoint
   - name: list_variables.endpoint
     kind: http.endpoint
@@ -24,7 +24,7 @@ entries:
     method: GET
     func: list_variables
     path: /keeper/env/list
-    
+
   # keeper.gov.env.api:set_variable
   - name: set_variable
     kind: function.lua
@@ -36,7 +36,7 @@ entries:
       - env
       - security
     method: handler
-    
+
   # keeper.gov.env.api:set_variable.endpoint
   - name: set_variable.endpoint
     kind: http.endpoint
@@ -46,7 +46,7 @@ entries:
     method: POST
     func: set_variable
     path: /keeper/env/set
-    
+
   # keeper.gov.env.api:test
   - name: test
     kind: function.lua
@@ -60,10 +60,11 @@ entries:
     modules:
       - json
       - http_client
+      - env
       - security
     imports:
       test: wippy.test:test
     method: define_tests
     pool:
       size: 1
-    
+

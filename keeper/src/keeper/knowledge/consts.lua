@@ -1,16 +1,10 @@
-local registry = require("registry")
+local config = require("keeper_config")
 
 local M = {}
 
-local function config_default(name, fallback)
-    local entry = registry.get("keeper.config:" .. name)
-    local data = entry and entry.data or {}
-    local value = data.default
-    if value == nil or value == "" then return fallback end
-    return tostring(value)
+function M.db_id(): string
+    return config.app_db()
 end
-
-M.DB_ID = config_default("app_db", "app:db")
 
 M.CENTRAL = "wippy.central"
 M.TOPIC = "keeper.knowledge"

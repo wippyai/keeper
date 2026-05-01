@@ -11,6 +11,7 @@ import {
   type HubInstallPlanResponse,
 } from '../api/hub'
 import PageHeader from '../components/shared/PageHeader.vue'
+import RequirementValueInput from '../components/hub/RequirementValueInput.vue'
 
 const api = useApi()
 const router = useRouter()
@@ -64,6 +65,8 @@ const installPlanLoading = ref(false)
 const installPlanError = ref<string | null>(null)
 const installRequirements = ref<HubPlanRequirement[]>([])
 const installParameterValues = ref<Record<string, string>>({})
+const installDependencyNamespace = ref('')
+const installDependencyNamespaceTouched = ref(false)
 
 const uninstallTarget = ref<HubDependency | null>(null)
 const uninstallPolicy = ref<'down' | 'leave' | 'block'>('down')
@@ -130,19 +133,23 @@ function setInstallParameter(req: HubPlanRequirement, value: string) {
   installParameterValues.value[key] = value
 }
 
-function onInstallParameterInput(req: HubPlanRequirement, event: Event) {
-  setInstallParameter(req, (event.target as HTMLInputElement).value)
+function requirementPlaceholder(req: HubPlanRequirement): string {
+  if (req.expected_kind) return `Enter ${req.expected_kind} id or contract value`
+  return 'Enter registry id or contract value'
 }
 
-function onInstallParameterSelect(req: HubPlanRequirement, event: Event) {
-  setInstallParameter(req, (event.target as HTMLSelectElement).value)
-  void loadInstallPlan()
+function installNamespacePayload(): string | undefined {
+  if (!installDependencyNamespaceTouched.value) return undefined
+  const namespace = installDependencyNamespace.value.trim()
+  return namespace || undefined
 }
 
-function suggestionLabel(s: { value: string; label?: string; source?: string; kind?: string; preferred?: boolean }): string {
-  const label = s.label || s.value
-  const meta = [s.kind, s.source, s.preferred ? 'preferred' : ''].filter(Boolean)
-  return meta.length ? `${label} (${meta.join(', ')})` : label
+function markInstallNamespaceTouched() {
+  installDependencyNamespaceTouched.value = true
+}
+
+function plannedDependencyId(): string {
+  return installPlan.value?.dependency?.id || ''
 }
 
 function applyInstallPlan(plan: HubInstallPlanResponse, previousValues: Record<string, string> = installParameterValues.value) {
@@ -169,6 +176,7 @@ async function loadInstallPlan() {
     const plan = await planHubInstall(api, {
       component: installComp.value.trim(),
       version: installVersion.value.trim() || undefined,
+      namespace: installNamespacePayload(),
       run_migrations: installRunMigrations.value,
       migration_policy: installRunMigrations.value ? 'up' : 'none',
       parameters: existingParams.length ? existingParams : undefined,
@@ -197,8 +205,8 @@ function configureInstallRequirements(m: HubModule, version?: string) {
       required: true,
       missing: true,
       value: '',
-      value_source: r.default ? 'default' : 'empty',
-      suggestions: r.default ? [{ value: r.default, label: `default: ${r.default}`, source: 'default' }] : [],
+      value_source: 'empty',
+      suggestions: [],
     } as HubPlanRequirement))
   const values: Record<string, string> = {}
   for (const req of reqs) {
@@ -215,7 +223,7 @@ function installParametersPayload(): Array<{ name: string; value: string }> | un
     const name = requirementKey(req)
     if (!name) continue
     const value = (installParameterValues.value[name] || '').trim()
-    if (value !== '') out.push({ name, value })
+    if (value !== '' && !req.invalid) out.push({ name, value })
   }
   return out.length ? out : undefined
 }
@@ -226,7 +234,7 @@ function missingInstallRequirements(): string[] {
     const name = requirementKey(req)
     if (!name || (!req.required && !req.missing)) continue
     const value = (installParameterValues.value[name] || '').trim()
-    if (value === '') missing.push(name)
+    if (req.invalid || value === '') missing.push(name)
   }
   return missing
 }
@@ -435,6 +443,8 @@ function installModule(m: HubModule, version?: string) {
   installError.value = null
   installPlan.value = null
   installPlanError.value = null
+  installDependencyNamespace.value = ''
+  installDependencyNamespaceTouched.value = false
   configureInstallRequirements(m, version)
   installOpen.value = true
   void loadInstallPlan()
@@ -457,6 +467,7 @@ async function submitInstall() {
     await installHubDependency(api, {
       component: installComp.value.trim(),
       version: installVersion.value.trim() || undefined,
+      namespace: installNamespacePayload(),
       run_migrations: installRunMigrations.value,
       migration_policy: installRunMigrations.value ? 'up' : 'none',
       parameters,
@@ -990,6 +1001,18 @@ onMounted(() => {
           </p>
           <label class="form-label">Version</label>
           <input v-model="installVersion" placeholder="latest" class="form-input font-mono" @change="loadInstallPlan" />
+          <label class="form-label mt-3">Dependency namespace</label>
+          <input
+            v-model="installDependencyNamespace"
+            placeholder="auto"
+            class="form-input font-mono"
+            @input="markInstallNamespaceTouched"
+            @change="loadInstallPlan"
+          />
+          <div class="field-hint">
+            Auto target uses an existing dependency entry or the strongest dependency namespace cluster.
+            <span v-if="plannedDependencyId()" class="font-mono">{{ plannedDependencyId() }}</span>
+          </div>
           <div class="mt-2 flex items-center justify-between gap-2 text-[10px]" style="color: var(--p-text-muted-color)">
             <span v-if="installPlanLoading">Resolving install plan…</span>
             <span v-else-if="installPlan">{{ installPlan.module_count }} module{{ installPlan.module_count === 1 ? '' : 's' }} · {{ installPlan.requirement_count }} setting{{ installPlan.requirement_count === 1 ? '' : 's' }}</span>
@@ -1007,34 +1030,26 @@ onMounted(() => {
               <Icon icon="tabler:list-check" class="w-3.5 h-3.5" />
               Configuration <span style="color: var(--p-text-muted-color)">({{ installRequirements.length }})</span>
             </div>
-            <div v-if="missingInstallRequirements().length" class="mb-2 rounded border px-2 py-1.5 text-[10px]" style="border-color: var(--p-warn-500); color: var(--p-warn-500)">
-              Required values: <span class="font-mono">{{ missingInstallRequirements().join(', ') }}</span>
-            </div>
             <div class="space-y-2">
               <label v-for="(req, idx) in installRequirements" :key="req.parameter_name || req.name" class="block">
                 <div class="flex items-center gap-2 mb-1">
                   <span class="font-mono text-[11px]" style="color: var(--p-text-color)">{{ req.parameter_name || req.name }}</span>
                   <span v-if="req.transitive" class="text-[9px]" style="color: var(--p-text-muted-color)">transitive</span>
                   <span v-if="req.required" class="text-[9px]" style="color: var(--p-warn-500)">required</span>
+                  <span v-if="req.invalid" class="text-[9px]" style="color: var(--p-danger-500)">invalid</span>
                   <span v-if="req.value_source && req.value_source !== 'empty'" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.value_source }}</span>
+                  <span v-if="req.expected_kind" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.expected_kind }}</span>
                   <span v-if="req.targets?.length" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.targets.length }} target{{ req.targets.length === 1 ? '' : 's' }}</span>
                 </div>
-                <select
-                  v-if="req.suggestions?.length"
-                  :value="installParameterValues[requirementKey(req)] || ''"
-                  class="form-input font-mono mb-1"
-                  @change="onInstallParameterSelect(req, $event)"
-                >
-                  <option value="">Select a registry value...</option>
-                  <option v-for="s in req.suggestions" :key="s.value" :value="s.value">{{ suggestionLabel(s) }}</option>
-                </select>
-                <input
-                  :value="installParameterValues[requirementKey(req)] || ''"
-                  :placeholder="req.suggestions?.length ? 'Custom override' : (req.default ? `default: ${req.default}` : 'required value')"
-                  class="form-input font-mono"
-                  @input="onInstallParameterInput(req, $event)"
-                  @change="loadInstallPlan"
+                <RequirementValueInput
+                  :model-value="installParameterValues[requirementKey(req)] || ''"
+                  :requirement="req"
+                  :placeholder="requirementPlaceholder(req)"
+                  @update:model-value="setInstallParameter(req, $event)"
+                  @commit="loadInstallPlan"
                 />
+                <div v-if="req.default && req.value_source !== 'default'" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">Package default: <span class="font-mono">{{ req.default }}</span></div>
+                <div v-if="req.invalid_reason" class="mt-1 text-[10px]" style="color: var(--p-danger-500)">{{ req.invalid_reason }}</div>
                 <div v-if="req.module" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">{{ req.module }}{{ req.version ? '@' + req.version : '' }}</div>
                 <div v-if="req.description" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">{{ req.description }}</div>
               </label>
@@ -1804,6 +1819,7 @@ onMounted(() => {
   background: rgba(0, 0, 0, 0.6);
   display: flex; align-items: center; justify-content: center;
   padding: 16px;
+  overflow: auto;
 }
 .dialog {
   background: var(--p-surface-50);
@@ -1811,6 +1827,9 @@ onMounted(() => {
   border-radius: 10px;
   padding: 18px;
   width: 420px; max-width: 90vw;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 .form-label {
@@ -1827,6 +1846,12 @@ onMounted(() => {
   border-radius: 4px; outline: none;
 }
 .form-input:focus { border-color: var(--p-primary-color); }
+.field-hint {
+  margin-top: 5px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--p-text-muted-color);
+}
 .form-check {
   display: flex; align-items: center; gap: 6px;
   font-size: 11px;

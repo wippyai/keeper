@@ -1,6 +1,7 @@
 local security = require("security")
 local http_client = require("http_client")
 local json = require("json")
+local env = require("env")
 local audit = require("audit")
 local consts = require("consts")
 
@@ -38,7 +39,11 @@ local function do_handler(input)
         return nil, "Token creation failed: " .. tostring(terr)
     end
 
-    local url = consts.DEFAULT_HOST_URL .. input.path
+    local base = env.get(consts.PUBLIC_HOST_ENV)
+    if not base or base == "" then
+        return nil, consts.PUBLIC_HOST_ENV .. " is not configured by the host app"
+    end
+    local url = tostring(base):gsub("/+$", "") .. input.path
 
     local headers: {[string]: string} = {}
     if type(input.headers) == "table" then

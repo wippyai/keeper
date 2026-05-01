@@ -3,15 +3,7 @@
 -- Shared constants for the FE components subsystem: filesystem volume ids,
 -- scan roots, preview storage paths, session statuses, and default limits.
 
-local registry = require("registry")
-
-local function config_default(name, fallback)
-    local entry = registry.get("keeper.config:" .. name)
-    local data = entry and entry.data or {}
-    local value = data.default
-    if value == nil or value == "" then return fallback end
-    return tostring(value)
-end
+local config = require("keeper_config")
 
 local consts = {
     -- Filesystem volume IDs (see _index.yaml)
@@ -68,9 +60,6 @@ local consts = {
     -- Preview retention (auto-cleanup in M4 when screenshots start flowing).
     PREVIEW_TTL_SECONDS = 24 * 60 * 60,
 
-    -- App database id (shared with the rest of keeper)
-    DB_ID = config_default("app_db", "app:db"),
-
     -- Host shell executor id (exec.native)
     HOST_SHELL_ID = "keeper.components:host_shell",
 
@@ -108,19 +97,10 @@ local consts = {
     -- the next request will spawn a fresh one. Playwright itself is
     -- transient — it lives only for the duration of one capture.
     SCREENSHOT_IDLE_S = 300,
-    -- The screenshot container needs a URL that:
-    --   1. Resolves to the running wippy host
-    --   2. Matches whatever PUBLIC_API_URL is set to (so the facade
-    --      config's hardcoded API URL also resolves from the container)
-    --
-    -- We read PUBLIC_API_URL straight from env. If the user has set it
-    -- to a real public URL the container can hit it via plain bridge
-    -- networking on any platform. If they've left it at localhost
-    -- (the dev default) we use --network host so the container shares
-    -- the host's loopback. Linux-only for that fallback, but it's the
-    -- same constraint as the rest of dev mode.
+    -- Owned by wippy.views/facade and configured by the host app. Keeper
+    -- consumes it for UI automation and local endpoint probes; it must not
+    -- redeclare or guess the public app gateway.
     PUBLIC_HOST_ENV = "PUBLIC_API_URL",
-    DEFAULT_HOST_URL = "http://localhost:8067",
 
     -- Build triggers
     BUILD_TRIGGER = {
@@ -155,5 +135,9 @@ local consts = {
         DELETE = "delete",
     },
 }
+
+function consts.db_id(): string
+    return config.app_db()
+end
 
 return consts

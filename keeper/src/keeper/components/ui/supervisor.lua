@@ -26,7 +26,7 @@ local json = require("json")
 local system = require("system")
 local time = require("time")
 local uuid = require("uuid")
-local log = require("logger"):named("keeper.components.ui_supervisor")
+local log = require("logger"):named("keeper.components.ui.supervisor")
 
 local consts = require("consts")
 local filenames = require("filenames")
@@ -329,7 +329,9 @@ end
 
 local function host_base_url()
     local url = env.get(consts.PUBLIC_HOST_ENV)
-    if not url or url == "" then url = consts.DEFAULT_HOST_URL end
+    if not url or url == "" then
+        return nil, consts.PUBLIC_HOST_ENV .. " is not configured by the host app"
+    end
     return (url:gsub("/+$", ""))
 end
 
@@ -355,7 +357,9 @@ local function mint_admin_token()
     if not email or email == "" or not password or password == "" then
         return nil, "admin credentials not in env"
     end
-    local res, err = http_client.post(host_base_url() .. "/api/public/user/token", {
+    local base, base_err = host_base_url()
+    if not base then return nil, base_err end
+    local res, err = http_client.post(base .. "/api/public/user/token", {
         headers = { ["Content-Type"] = "application/json" },
         body = json.encode({ email = email, password = password }),
         timeout = "10s",
@@ -424,7 +428,8 @@ end
 
 local function docker_base_args(root, uid, gid, target_url_for_network)
     local parts = { "docker", "run", "--rm" }
-    if host_needs_host_network(target_url_for_network or host_base_url()) then
+    local network_url = target_url_for_network or env.get(consts.PUBLIC_HOST_ENV) or ""
+    if network_url ~= "" and host_needs_host_network(network_url) then
         table.insert(parts, "--network")
         table.insert(parts, "host")
     else
@@ -840,16 +845,18 @@ local function compute_start_url(component_id, route)
     else
         if r == "" then r = "/" end
     end
-    return host_base_url() .. r
+    local base, base_err = host_base_url()
+    if not base then return nil, base_err end
+    return base .. r, nil, base
 end
 
 -- Inject auth + start_url for open op; route screenshots into per-request dir.
 local function preprocess(op, payload, root)
     if op == "open" then
-        local start_url, err = compute_start_url(payload.component_id, payload.route)
+        local start_url, err, origin = compute_start_url(payload.component_id, payload.route)
         if not start_url then return nil, err end
         payload.start_url = start_url
-        payload.origin = host_base_url()
+        payload.origin = origin
         local token = payload.auth_token
         local token_source
         if token and token ~= "" then
@@ -890,7 +897,16 @@ local function refresh_replay_token(last_open)
         log:warn("token refresh skipped, mint failed", { error = err })
         return last_open
     end
-    last_open.storage_state = build_storage_state(last_open.origin or host_base_url(), token)
+    local origin = last_open.origin
+    if not origin or origin == "" then
+        local base, base_err = host_base_url()
+        if not base then
+            log:warn("token refresh skipped, host URL unavailable", { error = base_err })
+            return last_open
+        end
+        origin = base
+    end
+    last_open.storage_state = build_storage_state(origin, token)
     last_open.minted_at = os.time()
     log:info("refreshed minted token on replay", { age_s = age })
     return last_open

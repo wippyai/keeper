@@ -19,7 +19,7 @@ local function define_tests()
         local created_tokens = {}
 
         after_all(function()
-            local db, err = sql.get(mcp_consts.DB_ID)
+            local db, err = sql.get(mcp_consts.db_id())
             if err then return end
             for _, raw_value in ipairs(created_tokens) do
                 local raw = tostring(raw_value)
@@ -43,7 +43,7 @@ local function define_tests()
         end
 
         local function open_db()
-            local db, err = sql.get(mcp_consts.DB_ID)
+            local db, err = sql.get(mcp_consts.db_id())
             if err or not db then error("db unavailable: " .. tostring(err)) end
             return db
         end
@@ -807,6 +807,22 @@ local function define_tests()
                 test.is_true(scoped_ok, tostring(scoped_err))
             end)
 
+            it("agent delegate requires agents.read and agents.run", function()
+                local ok, err = mcp_authorize.tool(
+                    { scopes = { "agents.read" } },
+                    "keeper.agents.tools:delegate"
+                )
+                test.is_true(not ok)
+                test.not_nil(err)
+                test.is_true(err:find("agents.run") ~= nil)
+
+                local scoped_ok, scoped_err = mcp_authorize.tool(
+                    { scopes = { "agents.read", "agents.run" } },
+                    "keeper.agents.tools:delegate"
+                )
+                test.is_true(scoped_ok, tostring(scoped_err))
+            end)
+
             it("action scopes tighten mixed read/write tools", function()
                 local function checked_tool_call(session, tool_id, entry, arguments)
                     local pcall_ok, ok, err = pcall(mcp_authorize.tool_call,
@@ -931,6 +947,7 @@ local function define_tests()
                 for _, s in ipairs(scopes) do set[s.id] = true end
                 test.is_true(set["registry.read"], "registry.read scope missing from registry")
                 test.is_true(set["agents.read"], "agents.read scope missing from registry")
+                test.is_true(set["agents.run"], "agents.run scope missing from registry")
             end)
         end)
 
@@ -990,6 +1007,7 @@ local function define_tests()
                 for _, sid in ipairs(p.scopes or {}) do scopes[sid] = true end
                 test.is_true(scopes["registry.write"])
                 test.is_true(scopes["agents.read"])
+                test.is_true(scopes["agents.run"])
                 test.is_true(scopes["registry.sync"])
                 test.is_true(scopes["tasks.run"])
                 test.is_true(scopes["components.write"])
@@ -999,7 +1017,7 @@ local function define_tests()
             it("wippy_operator preset resolves Hub tools through its default trait stack", function()
                 local preset = mcp_policy.get_preset("wippy_operator")
                 local tok = create_token({
-                    label = "e2e-wippy-hub-" .. uuid.v4(),
+                    label = "smoke-wippy-hub-" .. uuid.v4(),
                     identity = "root",
                     scopes = preset.scopes,
                     access_mode = preset.access_mode,
@@ -1016,13 +1034,13 @@ local function define_tests()
             end)
         end)
 
-        describe("create_token + preset end-to-end", function()
+        describe("create_token + preset smoke", function()
             it("token created from preset inherits access_mode, scopes, filters", function()
                 local preset = mcp_policy.get_preset("developer")
                 test.not_nil(preset)
 
                 local tok = create_token({
-                    label = "e2e-dev-" .. uuid.v4(),
+                    label = "smoke-dev-" .. uuid.v4(),
                     identity = "root",
                     scopes = preset.scopes,
                     access_mode = preset.access_mode,
@@ -1041,7 +1059,7 @@ local function define_tests()
             it("developer preset resolves a tool surface", function()
                 local preset = mcp_policy.get_preset("developer")
                 local tok = create_token({
-                    label = "e2e-dev-res-" .. uuid.v4(),
+                    label = "smoke-dev-res-" .. uuid.v4(),
                     identity = "root",
                     scopes = preset.scopes,
                     access_mode = preset.access_mode,
@@ -1060,7 +1078,7 @@ local function define_tests()
             it("explorer_tools_only preset materializes tool catalog", function()
                 local preset = mcp_policy.get_preset("explorer_tools_only")
                 local tok = create_token({
-                    label = "e2e-to-" .. uuid.v4(),
+                    label = "smoke-to-" .. uuid.v4(),
                     identity = "root",
                     scopes = preset.scopes,
                     access_mode = preset.access_mode,
@@ -1077,7 +1095,7 @@ local function define_tests()
             it("observer preset blocks write traits via filter", function()
                 local preset = mcp_policy.get_preset("observer")
                 local tok = create_token({
-                    label = "e2e-obs-" .. uuid.v4(),
+                    label = "smoke-obs-" .. uuid.v4(),
                     identity = "root",
                     scopes = preset.scopes,
                     access_mode = preset.access_mode,
@@ -1094,7 +1112,7 @@ local function define_tests()
             it("wippy_operator preset resolves the practical Wippy work tools", function()
                 local preset = mcp_policy.get_preset("wippy_operator")
                 local tok = create_token({
-                    label = "e2e-wippy-op-" .. uuid.v4(),
+                    label = "smoke-wippy-op-" .. uuid.v4(),
                     identity = "root",
                     scopes = preset.scopes,
                     access_mode = preset.access_mode,
@@ -1119,33 +1137,21 @@ local function define_tests()
             end)
         end)
 
-        describe("env-token identity", function()
+        describe("admin auth and transport config", function()
             local ADMIN_USER = "admin@wippy.local"
-            local IDENTITY_ENV = "keeper.mcp:admin_identity"
-            local TOKEN_ENV = "keeper.mcp:access_token"
             local ENABLED_ENV = "keeper.mcp:enabled"
-            local PUBLIC_ENABLED_ENV = "keeper.mcp:public_enabled"
-            local PUBLIC_URL_ENV = "keeper.mcp:public_url"
-            local saved_identity
-            local saved_access_token
+            local PUBLIC_API_URL_ENV = "PUBLIC_API_URL"
             local saved_enabled
-            local saved_public_enabled
-            local saved_public_url
+            local saved_public_api_url
 
             before_all(function()
-                saved_identity = env.get(IDENTITY_ENV)
-                saved_access_token = env.get(TOKEN_ENV)
                 saved_enabled = env.get(ENABLED_ENV)
-                saved_public_enabled = env.get(PUBLIC_ENABLED_ENV)
-                saved_public_url = env.get(PUBLIC_URL_ENV)
+                saved_public_api_url = env.get(PUBLIC_API_URL_ENV)
             end)
 
             after_all(function()
-                env.set(IDENTITY_ENV, saved_identity or "")
-                env.set(TOKEN_ENV, saved_access_token or "")
                 env.set(ENABLED_ENV, saved_enabled or "")
-                env.set(PUBLIC_ENABLED_ENV, saved_public_enabled or "")
-                env.set(PUBLIC_URL_ENV, saved_public_url or "")
+                env.set(PUBLIC_API_URL_ENV, saved_public_api_url or "")
             end)
 
             local function bearer_req(token)
@@ -1177,116 +1183,40 @@ local function define_tests()
                 test.not_nil(err)
             end)
 
-            it("resolve_env_identity fails when env unset", function()
-                env.set(IDENTITY_ENV, "")
-                local id, err = mcp_auth.resolve_env_identity()
-                test.is_nil(id)
-                test.not_nil(err)
-            end)
-
-            it("resolve_env_identity returns admin when env set to admin user", function()
-                env.set(IDENTITY_ENV, ADMIN_USER)
-                local id, err = mcp_auth.resolve_env_identity()
-                test.is_nil(err)
-                test.eq(id, ADMIN_USER)
-            end)
-
-            it("resolve_env_identity rejects non-admin value", function()
-                env.set(IDENTITY_ENV, "ghost-" .. uuid.v4() .. "@nope")
-                local id, err = mcp_auth.resolve_env_identity()
-                test.is_nil(id)
-                test.not_nil(err)
-            end)
-
             it("admin_actor refuses empty session identity", function()
                 local ok = pcall(mcp_auth.admin_actor, { identity = "" }, "test")
                 test.is_false(ok, "admin_actor must error on empty identity")
             end)
 
-            it("MCP transport is internally enabled by default and public mount is closed by default", function()
+            it("MCP transport is enabled by default", function()
                 env.set(ENABLED_ENV, "")
-                env.set(PUBLIC_ENABLED_ENV, "")
                 test.is_true(mcp_auth.enabled())
-                test.is_false(mcp_auth.public_enabled())
             end)
 
-            it("MCP exposure flags parse common values and fail closed on invalid input", function()
+            it("MCP enabled flag parses common values and fails closed on invalid input", function()
                 env.set(ENABLED_ENV, "false")
                 test.is_false(mcp_auth.enabled())
 
                 env.set(ENABLED_ENV, "yes")
                 test.is_true(mcp_auth.enabled())
 
-                env.set(PUBLIC_ENABLED_ENV, "1")
-                test.is_true(mcp_auth.public_enabled())
-
-                env.set(PUBLIC_ENABLED_ENV, "off")
-                test.is_false(mcp_auth.public_enabled())
-
-                env.set(PUBLIC_ENABLED_ENV, "definitely")
-                test.is_false(mcp_auth.public_enabled())
+                env.set(ENABLED_ENV, "definitely")
+                test.is_false(mcp_auth.enabled())
             end)
 
-            it("public URL defaults to the keeper-mcp mount and accepts explicit override", function()
-                env.set(PUBLIC_URL_ENV, "")
-                local derived = mcp_auth.public_url()
-                test.is_true(derived:find("/keeper%-mcp/$") ~= nil)
-                test.is_nil(derived:find("/mcp/$"))
-
-                env.set(PUBLIC_URL_ENV, "https://ops.example.com/custom-mcp")
-                test.eq(mcp_auth.public_url(), "https://ops.example.com/custom-mcp/")
+            it("MCP URL derives from facade PUBLIC_API_URL and configured route", function()
+                env.set(PUBLIC_API_URL_ENV, "https://ops.example.com")
+                test.eq(mcp_auth.path(), "/keeper-mcp/")
+                test.eq(mcp_auth.public_url(), "https://ops.example.com/keeper-mcp/")
             end)
 
-            it("session_from_token binds env bearer to configured admin identity", function()
-                local raw = "env-" .. uuid.v4()
-                env.set(TOKEN_ENV, raw)
-                env.set(IDENTITY_ENV, ADMIN_USER)
-
-                local session, err = mcp_auth.session_from_token(raw)
-                test.is_nil(err)
-                test.not_nil(session)
-                test.eq(session.identity, ADMIN_USER)
-                test.eq(session.label, "env")
-                test.eq(session.access_mode, "any")
-                test.eq(session.scopes[1], "mcp.root")
-                test.is_true(session.internal_root == true)
-                test.not_nil(session.token_hash)
-                test.is_true(session.token_hash ~= raw)
-            end)
-
-            it("session_from_token rejects env bearer when admin identity is unset", function()
-                local raw = "env-" .. uuid.v4()
-                env.set(TOKEN_ENV, raw)
-                env.set(IDENTITY_ENV, "")
-
-                local session, err = mcp_auth.session_from_token(raw)
-                test.is_nil(session)
-                test.not_nil(err)
-            end)
-
-            it("session_from_token rejects env bearer on public mount", function()
-                local raw = "env-" .. uuid.v4()
-                env.set(TOKEN_ENV, raw)
-                env.set(IDENTITY_ENV, ADMIN_USER)
-
-                local session, err = mcp_auth.session_from_token(raw, {
-                    public_mount = true,
-                })
-                test.is_nil(session)
-                test.not_nil(err)
-            end)
-
-            it("public POST transport authenticates initialize and ping", function()
-                test.is_true(mcp_handler_core._requires_session("initialize", true))
-                test.is_true(mcp_handler_core._requires_session("ping", true))
-                test.is_true(mcp_handler_core._requires_session("tools/list", true))
-                test.is_false(mcp_handler_core._requires_session("initialize", false))
-                test.is_false(mcp_handler_core._requires_session("ping", false))
-                test.is_true(mcp_handler_core._requires_session("tools/list", false))
+            it("app POST transport authenticates initialize and ping", function()
+                test.is_true(mcp_handler_core._requires_session("initialize"))
+                test.is_true(mcp_handler_core._requires_session("ping"))
+                test.is_true(mcp_handler_core._requires_session("tools/list"))
             end)
 
             it("session_from_request extracts bearer and validates token-store subject", function()
-                env.set(TOKEN_ENV, "different-env-" .. uuid.v4())
                 local tok = create_token({
                     label = "auth-session-" .. uuid.v4(),
                     identity = ADMIN_USER,
@@ -1302,8 +1232,7 @@ local function define_tests()
                 test.is_true(session.internal_root ~= true)
             end)
 
-            it("session_from_request allows token-store sessions on public mount", function()
-                env.set(TOKEN_ENV, "different-env-" .. uuid.v4())
+            it("session_from_request allows token-store sessions on the app MCP mount", function()
                 local tok = create_token({
                     label = "public-auth-session-" .. uuid.v4(),
                     identity = ADMIN_USER,
@@ -1311,9 +1240,7 @@ local function define_tests()
                     access_mode = "tools_only",
                 })
 
-                local session, err = mcp_auth.session_from_request(bearer_req(tok.token), {
-                    public_mount = true,
-                })
+                local session, err = mcp_auth.session_from_request(bearer_req(tok.token))
                 test.is_nil(err)
                 test.not_nil(session)
                 test.eq(session.identity, ADMIN_USER)
@@ -1321,7 +1248,6 @@ local function define_tests()
             end)
 
             it("session_from_token rejects token-store sessions for missing users", function()
-                env.set(TOKEN_ENV, "different-env-" .. uuid.v4())
                 local tok = create_token({
                     label = "missing-user-" .. uuid.v4(),
                     identity = "ghost-" .. uuid.v4() .. "@nope",

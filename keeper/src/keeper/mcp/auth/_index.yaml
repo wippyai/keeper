@@ -14,6 +14,7 @@ entries:
       - sql
       - env
     imports:
+      keeper_config: keeper:config
       mcp_authorize: keeper.mcp.auth:authorize
       mcp_consts: keeper.mcp:consts
       mcp_tokens: keeper.mcp.auth:tokens

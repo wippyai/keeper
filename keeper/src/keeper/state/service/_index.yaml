@@ -17,7 +17,7 @@ entries:
     imports:
       consts: keeper.state:consts
     method: run
-    
+
   # keeper.state.service:orchestrator.service
   - name: orchestrator.service
     kind: process.service
@@ -38,7 +38,7 @@ entries:
         groups:
           - keeper.gov.service.security:governance
     process: orchestrator
-    
+
   # keeper.state.service:reconcile
   - name: reconcile
     kind: process.lua
@@ -56,7 +56,7 @@ entries:
       state_ops: keeper.state.persist:ops
       state_reader: keeper.state.persist:reader
     method: run
-    
+
   # keeper.state.service:sync
   - name: sync
     kind: process.lua
@@ -70,9 +70,10 @@ entries:
       consts: keeper.state:consts
       gov_consts: keeper.gov:consts
       materialize: keeper.state.persist:materialize
+      reconcile: keeper.state.service:reconcile
       state_ops: keeper.state.persist:ops
     method: run
-    
+
   # keeper.state.service:sync_branch
   - name: sync_branch
     kind: process.lua
@@ -87,7 +88,7 @@ entries:
       materialize: keeper.state.persist:materialize
       state_ops: keeper.state.persist:ops
     method: run
-    
+
   # keeper.state.service:test
   - name: test
     kind: function.lua
@@ -104,4 +105,3 @@ entries:
     method: define_tests
     pool:
       size: 1
-    

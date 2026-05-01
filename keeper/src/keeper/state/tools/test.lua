@@ -8,6 +8,7 @@ local get_entries = require("get_entries")
 local reset = require("reset")
 local branch = require("branch")
 local apply = require("apply")
+local push = require("push")
 local entry_lib = require("entry_lib")
 local function_config = require("function_config")
 local changeset_repo = require("changeset_repo")
@@ -889,6 +890,35 @@ entries:
                 test.eq(added[1].id, "ns:a")
                 test.eq(added[2].id, "ns:m")
                 test.eq(added[3].id, "ns:z")
+            end)
+        end)
+
+        describe("push.convert_to_changeset", function()
+            it("preserves deleted entry kind for dependency directive deletes", function()
+                local changeset, err = push._test.convert_to_changeset({}, {
+                    {
+                        id = "app.deps:embeddings",
+                        entry = { kind = "ns.dependency" },
+                    },
+                }, {})
+
+                test.is_nil(err)
+                test.eq(#changeset, 1)
+                test.eq(changeset[1].kind, "entry.delete")
+                test.eq(changeset[1].entry.id, "app.deps:embeddings")
+                test.eq(changeset[1].entry.kind, "ns.dependency")
+            end)
+
+            it("does not invent a kind when deleted state entry metadata is unavailable", function()
+                local changeset, err = push._test.convert_to_changeset({}, {
+                    { id = "legacy:unknown" },
+                }, {})
+
+                test.is_nil(err)
+                test.eq(#changeset, 1)
+                test.eq(changeset[1].kind, "entry.delete")
+                test.eq(changeset[1].entry.id, "legacy:unknown")
+                test.is_nil(changeset[1].entry.kind)
             end)
         end)
 

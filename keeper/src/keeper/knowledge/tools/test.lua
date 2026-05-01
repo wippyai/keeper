@@ -30,6 +30,58 @@ local function define_tests()
                 test.not_nil(err)
             end)
 
+            it("semantic action requires query", function()
+                local result, err = kb_read.handler({ action = "semantic" })
+                test.is_nil(result)
+                test.not_nil(err)
+            end)
+
+            it("semantic action uses embedding service and formats distances", function()
+                local captured
+                local old = kb_read._set_deps({
+                    kb_repo = {},
+                    kb_service = {
+                        search_semantic = function(params)
+                            captured = params
+                            return {
+                                model = "text-embedding-test",
+                                nodes = {
+                                    {
+                                        id = "12345678-aaaa-bbbb-cccc-123456789abc",
+                                        title = "Context inheritance",
+                                        node_type = "pattern",
+                                        content = "Arena context becomes config.context.",
+                                        refs = { "keeper.task:scope" },
+                                        distance = 0.12,
+                                    },
+                                },
+                            }
+                        end,
+                    },
+                    summarize = {
+                        summarize = function(result)
+                            return result, nil, false
+                        end,
+                    },
+                })
+                local result, err = kb_read.handler({
+                    action = "semantic",
+                    query = "agent context",
+                    kb = "Keeper",
+                    limit = 3,
+                    full = true,
+                })
+                kb_read._set_deps(old)
+
+                test.is_nil(err)
+                test.eq(captured.query, "agent context")
+                test.eq(captured.kb, "Keeper")
+                test.eq(captured.limit, 3)
+                test.is_true(result:find("Semantic search results", 1, true) ~= nil)
+                test.is_true(result:find("distance:0.12", 1, true) ~= nil)
+                test.is_true(result:find("text-embedding-test", 1, true) ~= nil)
+            end)
+
             it("get action requires node_id", function()
                 local result, err = kb_read.handler({ action = "get" })
                 test.is_nil(result)

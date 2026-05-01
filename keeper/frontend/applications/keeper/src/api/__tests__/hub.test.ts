@@ -15,9 +15,10 @@ describe('hub API', () => {
     const payload: InstallPayload = {
       component: 'wippy/dummy',
       version: '0.1.2',
+      namespace: 'app.plugins',
       run_migrations: true,
       migration_policy: 'up',
-      parameters: [{ name: 'wippy.dummy:router', value: 'app:api.public' }],
+      parameters: [{ name: 'wippy.dummy:router', value: 'customer.web:public' }],
     }
 
     await expect(installHubDependency(api, payload)).resolves.toEqual({ success: true })
@@ -27,7 +28,7 @@ describe('hub API', () => {
   it('requests an install plan before runtime install', async () => {
     const plan: HubInstallPlanResponse = {
       success: true,
-      dependency: { id: 'hub.dep:wippy_dummy', component: 'wippy/dummy', version: '0.1.2' },
+      dependency: { id: 'hub.dep:wippy_dummy', namespace: 'hub.dep', name: 'wippy_dummy', component: 'wippy/dummy', version: '0.1.2' },
       graph: [
         { module: 'wippy/dummy', namespace: 'wippy.dummy', version: '0.1.2', direct: true },
         { module: 'wippy/bootloader', namespace: 'wippy.bootloader', version: '1.0.0', direct: false, parent: 'wippy/dummy' },
@@ -40,29 +41,32 @@ describe('hub API', () => {
         full_id: 'wippy.bootloader:env_storage',
         module: 'wippy/bootloader',
         namespace: 'wippy.bootloader',
+        expected_kind: 'env.storage.router',
         required: true,
         missing: false,
-        value: 'app.env:store',
+        value: 'customer.env:store',
         value_source: 'suggested',
         transitive: true,
       }],
       requirement_count: 1,
       missing_requirements: [],
-      parameter_values: { 'wippy.bootloader:env_storage': 'app.env:store' },
-      recommended_parameters: [{ name: 'wippy.bootloader:env_storage', value: 'app.env:store' }],
+      parameter_values: { 'wippy.bootloader:env_storage': 'customer.env:store' },
+      recommended_parameters: [{ name: 'wippy.bootloader:env_storage', value: 'customer.env:store' }],
       migration_policy: 'up',
       install_payload: {
+        id: 'hub.dep:wippy_dummy',
+        namespace: 'hub.dep',
         component: 'wippy/dummy',
         version: '0.1.2',
         migration_policy: 'up',
-        parameters: [{ name: 'wippy.bootloader:env_storage', value: 'app.env:store' }],
+        parameters: [{ name: 'wippy.bootloader:env_storage', value: 'customer.env:store' }],
       },
     }
     const api = { post: vi.fn().mockResolvedValue({ data: plan }) } as any
     const payload: InstallPayload = {
       component: 'wippy/dummy',
       version: '0.1.2',
-      parameters: [{ name: 'wippy.bootloader:env_storage', value: 'app.env:store' }],
+      parameters: [{ name: 'wippy.bootloader:env_storage', value: 'customer.env:store' }],
     }
 
     await expect(planHubInstall(api, payload)).resolves.toEqual(plan)

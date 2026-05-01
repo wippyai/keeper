@@ -3,7 +3,7 @@ local funcs = require("funcs")
 local json = require("json")
 
 local function define_tests()
-    test.describe("Context Chain E2E", function()
+    test.describe("Context Chain Flow", function()
 
         test.describe("Unconditional context agent execution", function()
             test.it("calls test_prepare with test_target (migration_context), verifies context is returned and non-empty", function()

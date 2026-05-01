@@ -6,9 +6,10 @@ import { useApi } from '../composables/useWippy'
 import {
   browseHubModules, listHubVersions, getHubReadme,
   listHubDependencies, installHubDependency, planHubInstall,
-  type HubModule, type HubVersion, type HubPlanRequirement, type HubInstallPlanResponse,
+  type HubDependency, type HubModule, type HubVersion, type HubPlanRequirement, type HubInstallPlanResponse,
 } from '../api/hub'
 import PageHeader from '../components/shared/PageHeader.vue'
+import RequirementValueInput from '../components/hub/RequirementValueInput.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,6 +29,7 @@ const readmeContent = ref('')
 const readmeFilename = ref('')
 const readmeVersion = ref('')
 const installed = ref(false)
+const installedDeps = ref<HubDependency[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 const expandedVersion = ref<string | null>(null)
@@ -42,6 +44,8 @@ const installPlanLoading = ref(false)
 const installPlanError = ref<string | null>(null)
 const installRequirements = ref<HubPlanRequirement[]>([])
 const installParameterValues = ref<Record<string, string>>({})
+const installDependencyNamespace = ref('')
+const installDependencyNamespaceTouched = ref(false)
 const successMsg = ref<string | null>(null)
 
 const latestVersion = computed<HubVersion | null>(() => {
@@ -293,6 +297,7 @@ async function load() {
   versions.value = []
   readmeContent.value = ''
   installed.value = false
+  installedDeps.value = []
 
   // Resolve module via search (the hub list endpoint returns the same shape)
   try {
@@ -319,7 +324,8 @@ async function load() {
     readmeVersion.value = rRes.value.version || ''
   }
   if (dRes.status === 'fulfilled' && dRes.value?.success) {
-    installed.value = (dRes.value.dependencies || []).some(d => d.component === fullRef.value)
+    installedDeps.value = dRes.value.dependencies || []
+    installed.value = installedDeps.value.some(d => d.component === fullRef.value)
   }
 
   // If we couldn't find the module via search, synthesize a minimal record
@@ -345,6 +351,8 @@ function openInstallDialog(version?: string) {
   installPlanError.value = null
   installRequirements.value = []
   installParameterValues.value = {}
+  installDependencyNamespace.value = ''
+  installDependencyNamespaceTouched.value = false
   installRunMigrations.value = true
   installOpen.value = true
   void loadInstallPlan()
@@ -360,19 +368,23 @@ function setInstallParameter(req: HubPlanRequirement, value: string) {
   installParameterValues.value[key] = value
 }
 
-function onInstallParameterInput(req: HubPlanRequirement, event: Event) {
-  setInstallParameter(req, (event.target as HTMLInputElement).value)
+function requirementPlaceholder(req: HubPlanRequirement): string {
+  if (req.expected_kind) return `Enter ${req.expected_kind} id or contract value`
+  return 'Enter registry id or contract value'
 }
 
-function onInstallParameterSelect(req: HubPlanRequirement, event: Event) {
-  setInstallParameter(req, (event.target as HTMLSelectElement).value)
-  void loadInstallPlan()
+function installNamespacePayload(): string | undefined {
+  if (!installDependencyNamespaceTouched.value) return undefined
+  const namespace = installDependencyNamespace.value.trim()
+  return namespace || undefined
 }
 
-function suggestionLabel(s: { value: string; label?: string; source?: string; kind?: string; preferred?: boolean }): string {
-  const label = s.label || s.value
-  const meta = [s.kind, s.source, s.preferred ? 'preferred' : ''].filter(Boolean)
-  return meta.length ? `${label} (${meta.join(', ')})` : label
+function markInstallNamespaceTouched() {
+  installDependencyNamespaceTouched.value = true
+}
+
+function plannedDependencyId(): string {
+  return installPlan.value?.dependency?.id || ''
 }
 
 function applyInstallPlan(plan: HubInstallPlanResponse, previousValues: Record<string, string> = installParameterValues.value) {
@@ -399,6 +411,7 @@ async function loadInstallPlan() {
     const plan = await planHubInstall(api, {
       component: fullRef.value,
       version: installVersion.value.trim() || undefined,
+      namespace: installNamespacePayload(),
       run_migrations: installRunMigrations.value,
       migration_policy: installRunMigrations.value ? 'up' : 'none',
       parameters: parameters.length ? parameters : undefined,
@@ -420,7 +433,7 @@ function installParametersPayload(): Array<{ name: string; value: string }> | un
     const key = requirementKey(req)
     if (!key) continue
     const value = (installParameterValues.value[key] || '').trim()
-    if (value) out.push({ name: key, value })
+    if (value && !req.invalid) out.push({ name: key, value })
   }
   return out.length ? out : undefined
 }
@@ -430,7 +443,7 @@ function missingInstallRequirements(): string[] {
   for (const req of installRequirements.value) {
     const key = requirementKey(req)
     if (!key || (!req.required && !req.missing)) continue
-    if (!(installParameterValues.value[key] || '').trim()) missing.push(key)
+    if (req.invalid || !(installParameterValues.value[key] || '').trim()) missing.push(key)
   }
   return missing
 }
@@ -449,6 +462,7 @@ async function submitInstall() {
     await installHubDependency(api, {
       component: fullRef.value,
       version: installVersion.value.trim() || undefined,
+      namespace: installNamespacePayload(),
       run_migrations: installRunMigrations.value,
       migration_policy: installRunMigrations.value ? 'up' : 'none',
       parameters,
@@ -855,6 +869,18 @@ onMounted(load)
           </p>
           <label class="form-label">Version</label>
           <input v-model="installVersion" placeholder="latest" class="form-input mono" @change="loadInstallPlan" />
+          <label class="form-label mt-3">Dependency namespace</label>
+          <input
+            v-model="installDependencyNamespace"
+            placeholder="auto"
+            class="form-input mono"
+            @input="markInstallNamespaceTouched"
+            @change="loadInstallPlan"
+          />
+          <div class="field-hint">
+            Auto target uses an existing dependency entry or the strongest dependency namespace cluster.
+            <span v-if="plannedDependencyId()" class="mono">{{ plannedDependencyId() }}</span>
+          </div>
           <div class="mt-2 flex items-center justify-between gap-2 text-[10px]" style="color: var(--p-text-muted-color)">
             <span v-if="installPlanLoading">Resolving install plan...</span>
             <span v-else-if="installPlan">{{ installPlan.module_count }} module{{ installPlan.module_count === 1 ? '' : 's' }} · {{ installPlan.requirement_count }} setting{{ installPlan.requirement_count === 1 ? '' : 's' }}</span>
@@ -872,34 +898,26 @@ onMounted(load)
               <Icon icon="tabler:list-check" class="w-3.5 h-3.5" />
               Configuration <span class="dim">({{ installRequirements.length }})</span>
             </div>
-            <div v-if="missingInstallRequirements().length" class="mb-2 rounded border px-2 py-1.5 text-[10px]" style="border-color: var(--p-warn-500); color: var(--p-warn-500)">
-              Required values: <span class="mono">{{ missingInstallRequirements().join(', ') }}</span>
-            </div>
             <div class="space-y-2">
               <label v-for="(req, idx) in installRequirements" :key="req.parameter_name || req.name" class="block">
                 <div class="flex items-center gap-2 mb-1">
                   <span class="mono text-[11px]" style="color: var(--p-text-color)">{{ req.parameter_name || req.name }}</span>
                   <span v-if="req.transitive" class="text-[9px]" style="color: var(--p-text-muted-color)">transitive</span>
                   <span v-if="req.required" class="text-[9px]" style="color: var(--p-warn-500)">required</span>
+                  <span v-if="req.invalid" class="text-[9px]" style="color: var(--p-danger-500)">invalid</span>
                   <span v-if="req.value_source && req.value_source !== 'empty'" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.value_source }}</span>
+                  <span v-if="req.expected_kind" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.expected_kind }}</span>
                   <span v-if="req.targets?.length" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.targets.length }} target{{ req.targets.length === 1 ? '' : 's' }}</span>
                 </div>
-                <select
-                  v-if="req.suggestions?.length"
-                  :value="installParameterValues[requirementKey(req)] || ''"
-                  class="form-input mono mb-1"
-                  @change="onInstallParameterSelect(req, $event)"
-                >
-                  <option value="">Select a registry value...</option>
-                  <option v-for="s in req.suggestions" :key="s.value" :value="s.value">{{ suggestionLabel(s) }}</option>
-                </select>
-                <input
-                  :value="installParameterValues[requirementKey(req)] || ''"
-                  :placeholder="req.suggestions?.length ? 'Custom override' : (req.default ? `default: ${req.default}` : 'required value')"
-                  class="form-input mono"
-                  @input="onInstallParameterInput(req, $event)"
-                  @change="loadInstallPlan"
+                <RequirementValueInput
+                  :model-value="installParameterValues[requirementKey(req)] || ''"
+                  :requirement="req"
+                  :placeholder="requirementPlaceholder(req)"
+                  @update:model-value="setInstallParameter(req, $event)"
+                  @commit="loadInstallPlan"
                 />
+                <div v-if="req.default && req.value_source !== 'default'" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">Package default: <span class="mono">{{ req.default }}</span></div>
+                <div v-if="req.invalid_reason" class="mt-1 text-[10px]" style="color: var(--p-danger-500)">{{ req.invalid_reason }}</div>
                 <div v-if="req.module" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">{{ req.module }}{{ req.version ? '@' + req.version : '' }}</div>
                 <div v-if="req.description" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">{{ req.description }}</div>
               </label>
@@ -1507,6 +1525,7 @@ onMounted(load)
   background: rgba(0, 0, 0, 0.6);
   display: flex; align-items: center; justify-content: center;
   padding: 16px;
+  overflow: auto;
 }
 .dialog {
   background: var(--p-surface-50);
@@ -1514,6 +1533,9 @@ onMounted(load)
   border-radius: 10px;
   padding: 18px;
   width: 420px; max-width: 90vw;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 .form-label {
@@ -1528,6 +1550,12 @@ onMounted(load)
   background: var(--p-surface-0); color: var(--p-text-color);
   border: 1px solid var(--p-content-border-color);
   border-radius: 4px; outline: none;
+}
+.field-hint {
+  margin-top: 5px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--p-text-muted-color);
 }
 .form-check {
   display: flex; align-items: center; gap: 6px;

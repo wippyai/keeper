@@ -24,7 +24,7 @@ function M.handler(params)
         description = params.description,
         spec        = params.spec,
         actor_id    = actor_id,
-        metadata    = { source = "e2e_launch" },
+        metadata    = { source = "launch_task" },
     }):execute()
     if err or not result then return nil, err or "create_task returned no result" end
 

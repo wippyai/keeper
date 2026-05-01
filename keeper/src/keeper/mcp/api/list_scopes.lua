@@ -21,10 +21,8 @@ local function handler()
         presets = policy.list_presets(),
         config = {
             enabled = auth.enabled(),
-            public_enabled = auth.public_enabled(),
-            internal_url = auth.internal_url(),
-            public_url = auth.public_url(),
-            public_path = auth.PUBLIC_PATH,
+            url = auth.public_url(),
+            path = auth.path(),
         },
     })
 end

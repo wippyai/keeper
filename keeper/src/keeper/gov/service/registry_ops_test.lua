@@ -1,5 +1,6 @@
 local test = require("test")
 local registry_ops = require("registry_ops")
+local gov_consts = require("gov_consts")
 
 local function define_tests()
     describe("gov.service.registry_ops pure helpers", function()
@@ -152,6 +153,66 @@ local function define_tests()
                 local out = registry_ops.apply_updates(entry, { kind = "k2" }, true)
                 out.meta.nested.v = 99
                 test.eq(entry.meta.nested.v, 1)
+            end)
+        end)
+
+        describe("update_changeset", function()
+            it("uses governance registry update operations with runtime registry data", function()
+                local source = "local function handler() return { ok = true } end\nreturn { handler = handler }"
+                local entry = {
+                    id = "app:test",
+                    kind = "function.lua",
+                    meta = { comment = "probe" },
+                    data = {
+                        method = "handler",
+                        source = source,
+                    },
+                }
+                local changeset, err = registry_ops.update_changeset(entry)
+                test.is_nil(err)
+                test.eq(#changeset, 1)
+                test.eq(changeset[1].kind, gov_consts.REGISTRY_OPERATIONS.UPDATE)
+                test.eq(changeset[1].entry.id, "app:test")
+                test.eq(changeset[1].entry.kind, "function.lua")
+                test.eq(changeset[1].entry.meta.comment, "probe")
+                test.eq(changeset[1].entry.data.method, "handler")
+                test.eq(changeset[1].entry.data.source, source)
+                test.eq(entry.data.source, source)
+                test.is_nil(changeset[1].entry.definition)
+                test.is_nil(changeset[1].entry.content)
+            end)
+
+            it("rejects invalid entries before governance publish", function()
+                local changeset, err = registry_ops.update_changeset({ id = "bad", kind = "function.lua", data = {} })
+                test.is_nil(changeset)
+                test.not_nil(err)
+            end)
+        end)
+
+        describe("entry_matches_query", function()
+            local entry = {
+                id = "app.web:public",
+                kind = "http.router",
+                meta = {
+                    type = "http.router",
+                    title = "Public Web Router",
+                    comment = "Receives public API traffic",
+                },
+            }
+
+            it("matches id, kind, and metadata text case-insensitively", function()
+                test.is_true(registry_ops.entry_matches_query(entry, "APP.WEB"))
+                test.is_true(registry_ops.entry_matches_query(entry, "router"))
+                test.is_true(registry_ops.entry_matches_query(entry, "public api"))
+            end)
+
+            it("rejects unrelated text", function()
+                test.is_false(registry_ops.entry_matches_query(entry, "sqlite"))
+            end)
+
+            it("treats empty query as a match", function()
+                test.is_true(registry_ops.entry_matches_query(entry, ""))
+                test.is_true(registry_ops.entry_matches_query(entry, nil))
             end)
         end)
     end)

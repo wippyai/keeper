@@ -17,7 +17,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.knowledge.changelog.api:list.endpoint
   - name: list.endpoint
     kind: http.endpoint
@@ -27,7 +27,7 @@ entries:
     method: GET
     func: list
     path: /keeper/changelog/list
-    
+
   # keeper.knowledge.changelog.api:test
   - name: test
     kind: function.lua
@@ -41,13 +41,14 @@ entries:
     modules:
       - json
       - http_client
+      - env
       - security
     imports:
       test: wippy.test:test
     method: define_tests
     pool:
       size: 1
-    
+
   # keeper.knowledge.changelog.api:versions
   - name: versions
     kind: function.lua
@@ -63,7 +64,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.knowledge.changelog.api:versions.endpoint
   - name: versions.endpoint
     kind: http.endpoint
@@ -73,4 +74,4 @@ entries:
     method: GET
     func: versions
     path: /keeper/changelog/versions
-    
+

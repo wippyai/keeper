@@ -1,18 +1,14 @@
-local registry = require("registry")
+local config = require("keeper_config")
 
 local M = {}
 
-local function config_default(name, fallback)
-    local entry = registry.get("keeper.config:" .. name)
-    local data = entry and entry.data or {}
-    local value = data.default
-    if value == nil or value == "" then return fallback end
-    return tostring(value)
+function M.db_id(): string
+    return config.app_db()
 end
 
-M.DB_ID = config_default("app_db", "app:db")
-M.ADMIN_SCOPE_ID = config_default("admin_scope", "app.security:admin")
-M.ACCESS_TOKEN_ENV = "MCP_ACCESS_TOKEN"
+function M.admin_scope_id(): string
+    return config.admin_scope()
+end
 
 M.PROTOCOL_VERSION = "2025-03-26"
 M.STRICT_TOOL_SCOPES = true

@@ -16,6 +16,7 @@ entries:
     scopes:
       - mcp.introspect
       - agents.read
+      - agents.run
       - registry.read
       - registry.write
       - registry.sync
@@ -126,6 +127,7 @@ entries:
       - mcp.root
       - mcp.introspect
       - agents.read
+      - agents.run
       - app.ui
       - registry.read
       - registry.write
@@ -167,6 +169,7 @@ entries:
     scopes:
       - mcp.introspect
       - agents.read
+      - agents.run
       - registry.read
       - registry.write
       - registry.sync

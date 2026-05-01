@@ -1,5 +1,6 @@
 local test = require("test")
 local sql = require("sql")
+local launch = require("launch")
 local read_context = require("read_context")
 local save_context = require("save_context")
 local state_machine = require("state_machine")
@@ -39,6 +40,35 @@ local function define_tests()
             table.insert(created_ids, res.task_id)
             return res.task_id
         end
+
+        describe("launch", function()
+            it("rejects missing title", function()
+                local out, err = launch.handler({ start = false })
+                test.is_nil(out)
+                test.eq(err, "title is required")
+            end)
+
+            it("creates a task without starting when requested", function()
+                local out, err = launch.handler({
+                    title       = "launch tool smoke",
+                    description = "created by task tool test",
+                    spec        = "do the thing",
+                    start       = false,
+                })
+                test.is_nil(err)
+                test.not_nil(out)
+                test.not_nil(out.task_id)
+                test.eq(out.started, false)
+                table.insert(created_ids, out.task_id)
+
+                local row = task_reader.get_task(out.task_id)
+                test.not_nil(row)
+                test.eq(row.title, "launch tool smoke")
+                test.eq(row.description, "created by task tool test")
+                test.eq(row.spec, "do the thing")
+                test.eq(row.metadata.source, "launch_task")
+            end)
+        end)
 
         describe("save_context", function()
             it("rejects when task_id is missing", function()

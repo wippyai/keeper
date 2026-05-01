@@ -17,7 +17,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.knowledge.api:create.endpoint
   - name: create.endpoint
     kind: http.endpoint
@@ -26,7 +26,7 @@ entries:
     method: POST
     func: create
     path: /keeper/knowledge/nodes
-    
+
   # keeper.knowledge.api:create_kb
   - name: create_kb
     kind: function.lua
@@ -42,7 +42,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.knowledge.api:create_kb.endpoint
   - name: create_kb.endpoint
     kind: http.endpoint
@@ -51,7 +51,7 @@ entries:
     method: POST
     func: create_kb
     path: /keeper/knowledge/kbs
-    
+
   # keeper.knowledge.api:delete
   - name: delete
     kind: function.lua
@@ -67,7 +67,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.knowledge.api:delete.endpoint
   - name: delete.endpoint
     kind: http.endpoint
@@ -76,7 +76,7 @@ entries:
     method: DELETE
     func: delete
     path: /keeper/knowledge/nodes/:id
-    
+
   # keeper.knowledge.api:delete_kb
   - name: delete_kb
     kind: function.lua
@@ -92,7 +92,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.knowledge.api:delete_kb.endpoint
   - name: delete_kb.endpoint
     kind: http.endpoint
@@ -101,7 +101,7 @@ entries:
     method: DELETE
     func: delete_kb
     path: /keeper/knowledge/kbs/:id
-    
+
   # keeper.knowledge.api:embed
   - name: embed
     kind: function.lua
@@ -117,7 +117,7 @@ entries:
     method: handler
     pool:
       size: 1
-    
+
   # keeper.knowledge.api:embed.endpoint
   - name: embed.endpoint
     kind: http.endpoint
@@ -126,7 +126,7 @@ entries:
     method: POST
     func: embed
     path: /keeper/knowledge/embed
-    
+
   # keeper.knowledge.api:get
   - name: get
     kind: function.lua
@@ -142,7 +142,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.knowledge.api:get.endpoint
   - name: get.endpoint
     kind: http.endpoint
@@ -151,7 +151,7 @@ entries:
     method: GET
     func: get
     path: /keeper/knowledge/nodes/:id
-    
+
   # keeper.knowledge.api:learn
   - name: learn
     kind: function.lua
@@ -167,7 +167,7 @@ entries:
     method: handler
     pool:
       size: 1
-    
+
   # keeper.knowledge.api:learn.endpoint
   - name: learn.endpoint
     kind: http.endpoint
@@ -176,7 +176,7 @@ entries:
     method: POST
     func: learn
     path: /keeper/knowledge/learn
-    
+
   # keeper.knowledge.api:list
   - name: list
     kind: function.lua
@@ -192,7 +192,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.knowledge.api:list.endpoint
   - name: list.endpoint
     kind: http.endpoint
@@ -201,7 +201,7 @@ entries:
     method: GET
     func: list
     path: /keeper/knowledge/nodes
-    
+
   # keeper.knowledge.api:list_kbs
   - name: list_kbs
     kind: function.lua
@@ -217,7 +217,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.knowledge.api:list_kbs.endpoint
   - name: list_kbs.endpoint
     kind: http.endpoint
@@ -226,7 +226,7 @@ entries:
     method: GET
     func: list_kbs
     path: /keeper/knowledge/kbs
-    
+
   # keeper.knowledge.api:research
   - name: research
     kind: function.lua
@@ -242,7 +242,7 @@ entries:
     method: handler
     pool:
       size: 1
-    
+
   # keeper.knowledge.api:research.endpoint
   - name: research.endpoint
     kind: http.endpoint
@@ -251,7 +251,7 @@ entries:
     method: POST
     func: research
     path: /keeper/knowledge/research
-    
+
   # keeper.knowledge.api:search
   - name: search
     kind: function.lua
@@ -267,7 +267,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.knowledge.api:search.endpoint
   - name: search.endpoint
     kind: http.endpoint
@@ -276,7 +276,7 @@ entries:
     method: GET
     func: search
     path: /keeper/knowledge/search
-    
+
   # keeper.knowledge.api:seed
   - name: seed
     kind: function.lua
@@ -292,7 +292,7 @@ entries:
     method: handler
     pool:
       size: 1
-    
+
   # keeper.knowledge.api:seed.endpoint
   - name: seed.endpoint
     kind: http.endpoint
@@ -301,7 +301,7 @@ entries:
     method: POST
     func: seed
     path: /keeper/knowledge/seed
-    
+
   # keeper.knowledge.api:semantic_search
   - name: semantic_search
     kind: function.lua
@@ -317,7 +317,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.knowledge.api:semantic_search.endpoint
   - name: semantic_search.endpoint
     kind: http.endpoint
@@ -326,7 +326,7 @@ entries:
     method: GET
     func: semantic_search
     path: /keeper/knowledge/semantic-search
-    
+
   # keeper.knowledge.api:stats
   - name: stats
     kind: function.lua
@@ -342,7 +342,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.knowledge.api:stats.endpoint
   - name: stats.endpoint
     kind: http.endpoint
@@ -351,7 +351,7 @@ entries:
     method: GET
     func: stats
     path: /keeper/knowledge/stats
-    
+
   # keeper.knowledge.api:test
   - name: test
     kind: function.lua
@@ -365,13 +365,14 @@ entries:
     modules:
       - json
       - http_client
+      - env
       - security
     imports:
       test: wippy.test:test
     method: define_tests
     pool:
       size: 1
-    
+
   # keeper.knowledge.api:update
   - name: update
     kind: function.lua
@@ -387,7 +388,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.knowledge.api:update.endpoint
   - name: update.endpoint
     kind: http.endpoint
@@ -396,4 +397,4 @@ entries:
     method: PUT
     func: update
     path: /keeper/knowledge/nodes/:id
-    
+

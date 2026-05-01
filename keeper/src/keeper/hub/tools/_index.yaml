@@ -31,7 +31,7 @@ entries:
             "component": {"type": "string", "description": "Hub module ref in org/name form"},
             "version": {"type": "string", "description": "Version or semver constraint, e.g. 0.5.0 or >=v0.0.0"},
             "id": {"type": "string", "description": "Explicit ns.dependency entry id for uninstall/list targeting"},
-            "namespace": {"type": "string", "description": "Dependency namespace for install, default app.deps"},
+            "namespace": {"type": "string", "description": "Dependency namespace override for install. Omit to reuse an existing dependency entry or choose a managed dependency namespace cluster."},
             "name": {"type": "string", "description": "Dependency entry name for install"},
             "parameters": {"description": "Requirement values as an object map or array of {name,value}"},
             "migration_policy": {"type": "string", "enum": ["none", "up", "block", "leave", "down"], "description": "Install: none/up. Uninstall: block/leave/down."},

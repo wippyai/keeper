@@ -6,8 +6,14 @@ local uuid = require("uuid")
 local sql = require("sql")
 local registry = require("registry")
 local http_client = require("http_client")
+local env = require("env")
 
-local BASE_URL = "http://localhost:8067"
+local function endpoint(path)
+    local base = env.get("PUBLIC_API_URL")
+    test.not_nil(base)
+    test.is_true(tostring(base) ~= "")
+    return tostring(base):gsub("/+$", "") .. path
+end
 
 local function define_tests()
     describe("Usage API", function()
@@ -81,7 +87,7 @@ local function define_tests()
 
         describe("HTTP endpoints", function()
             it("summary returns 401 without auth", function()
-                local res, err = http_client.get( BASE_URL .. "/api/v1/keeper/usage/summary?period=today", {
+                local res, err = http_client.get(endpoint("/api/v1/keeper/usage/summary?period=today"), {
                     headers = { Accept = "application/json" },
                 })
                 test.is_nil(err)
@@ -90,7 +96,7 @@ local function define_tests()
             end)
 
             it("by-time returns 401 without auth", function()
-                local res, err = http_client.get( BASE_URL .. "/api/v1/keeper/usage/by-time?period=week&interval=day", {
+                local res, err = http_client.get(endpoint("/api/v1/keeper/usage/by-time?period=week&interval=day"), {
                     headers = { Accept = "application/json" },
                 })
                 test.is_nil(err)

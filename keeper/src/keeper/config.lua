@@ -2,18 +2,12 @@ local registry = require("registry")
 
 local M = {}
 
-local DEFAULTS = {
-    app_db = "app:db",
-    admin_scope = "app.security:admin",
-    process_host = "app:processes",
-}
-
 local function read_default(name)
     local entry, err = registry.get("keeper.config:" .. name)
-    if err or not entry then return DEFAULTS[name] end
+    if err or not entry then error("keeper config missing: " .. tostring(name)) end
     local data = entry.data or {}
     local value = data.default
-    if value == nil or value == "" then return DEFAULTS[name] end
+    if value == nil or value == "" then error("keeper config empty: " .. tostring(name)) end
     return tostring(value)
 end
 
@@ -29,5 +23,8 @@ function M.process_host()
     return read_default("process_host")
 end
 
-return M
+function M.mcp_route()
+    return read_default("mcp_route")
+end
 
+return M

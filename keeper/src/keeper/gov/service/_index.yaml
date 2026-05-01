@@ -17,7 +17,7 @@ entries:
     imports:
       consts: keeper.gov:consts
     method: run
-    
+
   # keeper.gov.service:central.service
   - name: central.service
     kind: process.service
@@ -35,7 +35,7 @@ entries:
         groups:
           - keeper.gov.service.security:governance
     process: central
-    
+
   # keeper.gov.service:changeset
   - name: changeset
     kind: process.lua
@@ -51,7 +51,7 @@ entries:
       observers: keeper.gov.discovery:observers
       sync: keeper.gov.service:sync
     method: run
-    
+
   # keeper.gov.service:changeset_test
   - name: changeset_test
     kind: function.lua
@@ -70,7 +70,7 @@ entries:
     method: define_tests
     pool:
       size: 1
-    
+
   # keeper.gov.service:download
   - name: download
     kind: process.lua
@@ -87,7 +87,7 @@ entries:
       consts: keeper.gov:consts
       sync: keeper.gov.service:sync
     method: run
-    
+
   # keeper.gov.service:download_test
   - name: download_test
     kind: function.lua
@@ -107,36 +107,38 @@ entries:
     method: define_tests
     pool:
       size: 1
-    
+
   # keeper.gov.service:registry_ops
   - name: registry_ops
     kind: library.lua
     meta:
-      comment: Registry CRUD business layer — snapshot reads, filter/pagination, namespace grouping, update-entry orchestration via state.tools:apply
+      comment: Registry CRUD business layer — snapshot reads, filter/pagination, namespace grouping, update-entry orchestration via governance publish
     source: file://registry_ops.lua
     modules:
       - registry
-      - funcs
     imports:
       materialize: keeper.state.persist:materialize
-    
+      gov_client: keeper.gov:client
+      gov_consts: keeper.gov:consts
+
   # keeper.gov.service:registry_ops_test
   - name: registry_ops_test
     kind: function.lua
     meta:
       type: test
-      comment: Pure tests for registry_ops helpers (deep_copy, is_empty_table, is_json_array, merge_explicit, apply_updates)
+      comment: Pure tests for registry_ops helpers (deep_copy, is_empty_table, is_json_array, merge_explicit, apply_updates, entry_matches_query)
       suite: governance
     source: file://registry_ops_test.lua
     modules:
       - registry
     imports:
       registry_ops: keeper.gov.service:registry_ops
+      gov_consts: keeper.gov:consts
       test: wippy.test:test
     method: define_tests
     pool:
       size: 1
-    
+
   # keeper.gov.service:sync
   - name: sync
     kind: library.lua
@@ -151,7 +153,7 @@ entries:
       - fs
     imports:
       consts: keeper.gov:consts
-    
+
   # keeper.gov.service:sync_test
   - name: sync_test
     kind: function.lua
@@ -166,7 +168,7 @@ entries:
     method: define_tests
     pool:
       size: 1
-    
+
   # keeper.gov.service:test
   - name: test
     kind: function.lua
@@ -184,7 +186,7 @@ entries:
     method: define_tests
     pool:
       size: 1
-    
+
   # keeper.gov.service:upload
   - name: upload
     kind: process.lua
@@ -200,7 +202,7 @@ entries:
     imports:
       consts: keeper.gov:consts
     method: run
-    
+
   # keeper.gov.service:upload_test
   - name: upload_test
     kind: function.lua
@@ -220,4 +222,3 @@ entries:
     method: define_tests
     pool:
       size: 1
-    

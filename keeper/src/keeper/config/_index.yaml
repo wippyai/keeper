@@ -14,7 +14,6 @@ entries:
     kind: registry.entry
     meta:
       comment: Security scope used when Keeper needs to validate admin/root authority
-    default: app.security:admin
 
   # keeper.config:process_host
   - name: process_host
@@ -23,3 +22,9 @@ entries:
       comment: Process host used by Keeper-spawned runtime work
     default: app:processes
 
+  # keeper.config:mcp_route
+  - name: mcp_route
+    kind: registry.entry
+    meta:
+      comment: Route prefix for Keeper MCP on the host app gateway
+    default: /keeper-mcp/

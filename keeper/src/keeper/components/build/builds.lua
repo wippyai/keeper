@@ -32,7 +32,7 @@ local function publish(event, data)
 end
 
 local function get_db()
-    local db, err = sql.get(consts.DB_ID)
+    local db, err = sql.get(consts.db_id())
     if not db then return nil, "database unavailable: " .. (err or "unknown") end
     return db
 end

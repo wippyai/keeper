@@ -109,7 +109,7 @@ local function convert_to_changeset(added, deleted, modified)
         end
     end
     for _, item in ipairs(deleted) do
-        table.insert(changeset, { kind = REGISTRY_OPS.DELETE, entry = { id = item.id } })
+        table.insert(changeset, { kind = REGISTRY_OPS.DELETE, entry = { id = item.id, kind = item.entry and item.entry.kind or nil } })
     end
 
     if #conversion_errors > 0 then
@@ -386,4 +386,9 @@ local function handler(params)
     end)
 end
 
-return { handler = handler }
+return {
+    handler = handler,
+    _test = {
+        convert_to_changeset = convert_to_changeset,
+    },
+}

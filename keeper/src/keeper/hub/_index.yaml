@@ -11,6 +11,8 @@ entries:
     modules:
       - registry
       - hub
+    imports:
+      gov_consts: keeper.gov:consts
 
   # keeper.hub:lockfile
   - name: lockfile
@@ -52,6 +54,7 @@ entries:
       hub_dependencies_tool: keeper.hub.tools:dependencies
       hub_migrations_tool: keeper.hub.tools:migrations
       hub_service: keeper.hub:service
+      lockfile: keeper.hub:lockfile
       planner: keeper.hub:planner
       test: wippy.test:test
     method: define_tests

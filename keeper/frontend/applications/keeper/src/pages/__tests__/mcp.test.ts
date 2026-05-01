@@ -12,8 +12,6 @@ const mocks = vi.hoisted(() => ({
   createToken: vi.fn(),
   revokeToken: vi.fn(),
   listScopes: vi.fn(),
-  getAdminToken: vi.fn(),
-  setAdminToken: vi.fn(),
 }))
 
 vi.mock('../../composables/useWippy', () => ({
@@ -33,8 +31,6 @@ vi.mock('../../api/mcp', () => ({
   createToken: mocks.createToken,
   revokeToken: mocks.revokeToken,
   listScopes: mocks.listScopes,
-  getAdminToken: mocks.getAdminToken,
-  setAdminToken: mocks.setAdminToken,
 }))
 
 function mountPage() {
@@ -79,13 +75,10 @@ describe('MCP token creation', () => {
       ],
       config: {
         enabled: true,
-        public_enabled: false,
-        internal_url: 'http://localhost:9067/',
-        public_url: 'http://localhost:8067/keeper-mcp/',
-        public_path: '/keeper-mcp/',
+        url: 'https://app.example.test/keeper-mcp/',
+        path: '/keeper-mcp/',
       },
     })
-    mocks.getAdminToken.mockResolvedValue({ success: true, token: '' })
     mocks.createToken.mockResolvedValue({ success: true, token: { token: 'created-token' } })
   })
 
@@ -135,16 +128,14 @@ describe('MCP token creation', () => {
     wrapper.unmount()
   })
 
-  it('uses the configured public MCP URL in client snippets when public mode is enabled', async () => {
+  it('uses the configured MCP URL in client snippets', async () => {
     mocks.listScopes.mockResolvedValueOnce({
       scopes: [],
       presets: [],
       config: {
         enabled: true,
-        public_enabled: true,
-        internal_url: 'http://localhost:9067/',
-        public_url: 'https://ops.example.com/keeper-mcp/',
-        public_path: '/keeper-mcp/',
+        url: 'https://ops.example.com/keeper-mcp/',
+        path: '/keeper-mcp/',
       },
     })
 
@@ -153,7 +144,6 @@ describe('MCP token creation', () => {
 
     const snippets = wrapper.findAll('pre.snippet-code').map(pre => pre.text()).join('\n')
     expect(snippets).toContain('https://ops.example.com/keeper-mcp/')
-    expect(snippets).not.toContain('http://localhost:9067/')
 
     wrapper.unmount()
   })

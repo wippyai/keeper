@@ -60,13 +60,9 @@ local function write_disabled(res, message)
     res:write_json(jsonrpc_error(nil, -32000, message))
 end
 
-local function transport_enabled(res, public_mount)
+local function transport_enabled(res)
     if not auth.enabled() then
         write_disabled(res, "MCP disabled")
-        return false
-    end
-    if public_mount and not auth.public_enabled() then
-        write_disabled(res, "public MCP disabled")
         return false
     end
     return true
@@ -238,26 +234,17 @@ local MCP_METHODS = {
     ["ping"] = function(msg, _) return jsonrpc_response(msg.id, { status = "ok" }) end,
 }
 
-local PRE_AUTH_METHODS = {
-    ["initialize"] = true,
-    ["initialized"] = true,
-    ["notifications/initialized"] = true,
-    ["ping"] = true,
-}
-
-local function requires_session(method, public_mount)
-    -- Public MCP is an internet-facing mount when enabled. Authenticate the
-    -- whole JSON-RPC surface there, including initialize/ping, so the internal
-    -- env root bearer cannot be used as a public remote-access credential.
-    if public_mount then return true end
-    return not PRE_AUTH_METHODS[method]
+local function requires_session(_method)
+    -- The app gateway mount can be externally reachable, so authenticate the
+    -- whole JSON-RPC surface, including initialize/ping.
+    return true
 end
 
 -- HTTP handler
 
-local function handle_mount(public_mount)
+local function handle()
     local res = http.response()
-    if not transport_enabled(res, public_mount) then return end
+    if not transport_enabled(res) then return end
 
     local req = http.request()
 
@@ -289,11 +276,9 @@ local function handle_mount(public_mount)
     end
 
     local session
-    if requires_session(method, public_mount) then
+    if requires_session(method) then
         local auth_err
-        session, auth_err = auth.session_from_request(req, {
-            public_mount = public_mount,
-        })
+        session, auth_err = auth.session_from_request(req)
         if not session then
             res:set_status(http.STATUS.UNAUTHORIZED)
             res:write_json(jsonrpc_error(msg.id, -32000, auth_err or "unauthorized"))
@@ -310,16 +295,7 @@ local function handle_mount(public_mount)
     end
 end
 
-local function handle()
-    return handle_mount(false)
-end
-
-local function handle_app()
-    return handle_mount(true)
-end
-
 return {
     handle = handle,
-    handle_app = handle_app,
     _requires_session = requires_session,
 }

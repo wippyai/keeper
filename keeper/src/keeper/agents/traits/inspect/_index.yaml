@@ -21,6 +21,27 @@ entries:
       delegates, or context chains.
     tools:
       - keeper.agents.tools:manager
+
+  # keeper.agents.traits.inspect:agent_runner
+  - name: agent_runner
+    kind: registry.entry
+    meta:
+      type: agent.trait
+      title: Agent Runner
+      comment: Run selected Keeper agents through isolated dataflows
+      tags:
+        - inspect
+        - agents
+        - delegate
+        - dataflow
+      icon: tabler:robot
+    prompt: |
+      Use `agent_manager` first to identify the exact target agent id, then
+      use `delegate_agent` with a complete standalone message. The delegated
+      run is isolated; inherited context carries active task, branch, and
+      session fields when present.
+    tools:
+      - keeper.agents.tools:delegate
     
   # keeper.agents.traits.inspect:data_inspector
   - name: data_inspector

@@ -44,20 +44,6 @@ local function handler()
         return
     end
 
-    if not params.identity or params.identity == "" then
-        res:set_status(http.STATUS.BAD_REQUEST)
-        res:write_json({ success = false,
-            error = "identity is required (app_users.user_id in app.security:admin group)" })
-        return
-    end
-
-    local user_ok, user_err = auth.verify_active_user(params.identity)
-    if not user_ok then
-        res:set_status(http.STATUS.BAD_REQUEST)
-        res:write_json({ success = false, error = user_err })
-        return
-    end
-
     local access_mode = params.access_mode
     local scopes = params.scopes
     local trait_filter = params.trait_filter
@@ -94,17 +80,17 @@ local function handler()
         if scope == "mcp.root" then wants_root = true end
     end
     if wants_root then
-        local admin_ok, admin_err = auth.verify_admin_user(params.identity)
+        local admin_ok, admin_err = auth.verify_admin_user(issuer_id)
         if not admin_ok then
             res:set_status(http.STATUS.BAD_REQUEST)
-            res:write_json({ success = false, error = "mcp.root tokens require an active admin subject", details = admin_err })
+            res:write_json({ success = false, error = "mcp.root tokens require the current actor to be an active admin", details = admin_err })
             return
         end
     end
 
     local token_data, err = token_store.create({
         label = params.label,
-        identity = params.identity or "root",
+        identity = issuer_id,
         scopes = scopes,
         access_mode = access_mode,
         trait_filter = trait_filter,

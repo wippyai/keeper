@@ -19,7 +19,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.usage.api:get_summary.endpoint
   - name: get_summary.endpoint
     kind: http.endpoint
@@ -31,7 +31,7 @@ entries:
     method: GET
     func: get_summary
     path: /keeper/usage/summary
-    
+
   # keeper.usage.api:get_usage_by_model
   - name: get_usage_by_model
     kind: function.lua
@@ -49,7 +49,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.usage.api:get_usage_by_model.endpoint
   - name: get_usage_by_model.endpoint
     kind: http.endpoint
@@ -61,7 +61,7 @@ entries:
     method: GET
     func: get_usage_by_model
     path: /keeper/usage/by-model
-    
+
   # keeper.usage.api:get_usage_by_time
   - name: get_usage_by_time
     kind: function.lua
@@ -79,7 +79,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.usage.api:get_usage_by_time.endpoint
   - name: get_usage_by_time.endpoint
     kind: http.endpoint
@@ -91,7 +91,7 @@ entries:
     method: GET
     func: get_usage_by_time
     path: /keeper/usage/by-time
-    
+
   # keeper.usage.api:get_usage_by_user
   - name: get_usage_by_user
     kind: function.lua
@@ -109,7 +109,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.usage.api:get_usage_by_user.endpoint
   - name: get_usage_by_user.endpoint
     kind: http.endpoint
@@ -121,7 +121,7 @@ entries:
     method: GET
     func: get_usage_by_user
     path: /keeper/usage/by-user
-    
+
   # keeper.usage.api:test
   - name: test
     kind: function.lua
@@ -140,12 +140,13 @@ entries:
       - sql
       - registry
       - http_client
+      - env
       - security
     imports:
       test: wippy.test:test
       token_usage_repo: wippy.usage:token_usage_repo
     method: define_tests
-    
+
   # keeper.usage.api:time_utils
   - name: time_utils
     kind: library.lua
@@ -156,4 +157,4 @@ entries:
       - time
       - sql
       - registry
-    
+

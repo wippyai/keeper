@@ -11,38 +11,38 @@ entries:
       comment: Decides which conditional context agents should run for a given task
     prompt: |
       Decide which conditional context agents should run based on their conditions and the task.
-    
+
       ## Input
-    
+
       - task: the developer's task prompt
       - conditional_agents: formatted list of candidates with their conditions
-    
+
       Format:
       ```
       N. agent_id: namespace:agent
          instructions: what agent provides
          condition: when to use
       ```
-    
+
       Return the ids of agents whose condition matches the task.
-    
+
       ## Output
-    
+
       ```json
       { "selected": ["ns:agent1"], "reasoning": "why" }
       ```
     model: class:fast
     temperature: 0.1
     max_tokens: 2000
-    
-  # keeper.develop.context:e2e_context_chain_test
-  - name: e2e_context_chain_test
+
+  # keeper.develop.context:context_chain_flow_test
+  - name: context_chain_flow_test
     kind: function.lua
     meta:
       type: test
-      comment: E2E test for orchestrator context_chain mechanism
+      comment: Flow test for orchestrator context_chain mechanism
       suite: develop
-    source: file://e2e_context_chain_test.lua
+    source: file://context_chain_flow_test.lua
     modules:
       - funcs
       - json
@@ -51,7 +51,7 @@ entries:
     method: define_tests
     pool:
       size: 1
-    
+
   # keeper.develop.context:format_context
   - name: format_context
     kind: function.lua
@@ -65,7 +65,7 @@ entries:
       materialize: keeper.state.persist:materialize
       state_reader: keeper.state.persist:reader
     method: run
-    
+
   # keeper.develop.context:format_context_test
   - name: format_context_test
     kind: function.lua
@@ -85,7 +85,7 @@ entries:
     method: define_tests
     pool:
       size: 1
-    
+
   # keeper.develop.context:prepare_context
   - name: prepare_context
     kind: function.lua
@@ -115,7 +115,7 @@ entries:
       flow: userspace.dataflow.flow:flow
       scope: keeper.task:scope
     method: handler
-    
+
   # keeper.develop.context:prepare_context_test
   - name: prepare_context_test
     kind: function.lua
@@ -131,4 +131,4 @@ entries:
     method: define_tests
     pool:
       size: 1
-    
+

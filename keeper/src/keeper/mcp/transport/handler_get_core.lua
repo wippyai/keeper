@@ -29,27 +29,21 @@ local function write_error(res, status, message)
     res:write_json({ error = message })
 end
 
-local function transport_enabled(res, public_mount)
+local function transport_enabled(res)
     if not auth.enabled() then
         write_error(res, http.STATUS.NOT_FOUND, "MCP disabled")
-        return false
-    end
-    if public_mount and not auth.public_enabled() then
-        write_error(res, http.STATUS.NOT_FOUND, "public MCP disabled")
         return false
     end
     return true
 end
 
-local function handle_get_mount(public_mount)
+local function handle_get()
     local res = http.response()
-    if not transport_enabled(res, public_mount) then return end
+    if not transport_enabled(res) then return end
 
     local req = http.request()
 
-    local session, auth_err = auth.session_from_request(req, {
-        public_mount = public_mount,
-    })
+    local session, auth_err = auth.session_from_request(req)
     if not session then
         write_error(res, http.STATUS.UNAUTHORIZED, auth_err or "unauthorized")
         return
@@ -107,15 +101,6 @@ local function handle_get_mount(public_mount)
     -- Body empty; sse_relay middleware takes over and writes the SSE stream.
 end
 
-local function handle_get()
-    return handle_get_mount(false)
-end
-
-local function handle_get_app()
-    return handle_get_mount(true)
-end
-
 return {
     handle_get = handle_get,
-    handle_get_app = handle_get_app,
 }

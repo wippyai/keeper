@@ -20,7 +20,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.logger.api:clear.endpoint
   - name: clear.endpoint
     kind: http.endpoint
@@ -31,7 +31,7 @@ entries:
     method: POST
     func: clear
     path: /keeper/logger/clear
-    
+
   # keeper.logger.api:get_logs
   - name: get_logs
     kind: function.lua
@@ -50,7 +50,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.logger.api:get_logs.endpoint
   - name: get_logs.endpoint
     kind: http.endpoint
@@ -61,7 +61,7 @@ entries:
     method: GET
     func: get_logs
     path: /keeper/logger/logs
-    
+
   # keeper.logger.api:get_stats
   - name: get_stats
     kind: function.lua
@@ -80,7 +80,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.logger.api:get_stats.endpoint
   - name: get_stats.endpoint
     kind: http.endpoint
@@ -91,7 +91,7 @@ entries:
     method: GET
     func: get_stats
     path: /keeper/logger/stats
-    
+
   # keeper.logger.api:test
   - name: test
     kind: function.lua
@@ -105,9 +105,10 @@ entries:
     modules:
       - json
       - http_client
+      - env
     imports:
       test: wippy.test:test
     method: define_tests
     pool:
       size: 1
-    
+

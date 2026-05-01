@@ -3,12 +3,35 @@ local consts = require("consts")
 local materialize = require("materialize")
 local state_ops = require("state_ops")
 local gov_consts = require("gov_consts")
+local reconcile = require("reconcile")
 
 local log = logger:named("state.sync")
 
 local REGISTRY_OPS = gov_consts.REGISTRY_OPERATIONS
 
 local M = {}
+
+type RegistryChange = {
+    kind: string?,
+    entry: { id: string?, kind: string? }?,
+}
+
+type SyncArgs = {
+    changeset: {RegistryChange}?,
+    version: unknown?,
+    is_version_operation: boolean?,
+}
+
+function M.requires_reconciliation(changeset)
+    if type(changeset) ~= "table" then return false end
+    for _, op in ipairs(changeset) do
+        local entry = type(op.entry) == "table" and op.entry or {}
+        if entry.kind == "ns.dependency" then
+            return true
+        end
+    end
+    return false
+end
 
 function M.convert_ops(changeset, mat, branch)
     local commands = {}
@@ -63,7 +86,12 @@ function M.convert_ops(changeset, mat, branch)
 end
 local convert_ops = M.convert_ops
 
-local function run(args)
+local function run(args: SyncArgs, deps)
+    deps = deps or {}
+    local reconcile_mod = (deps.reconcile or reconcile) :: any
+    local state_ops_mod = (deps.state_ops or state_ops) :: any
+    local materialize_mod = (deps.materialize or materialize) :: any
+
     log:info("Registry changeset sync worker starting", {
         changeset_count = args.changeset and #args.changeset or 0,
         version = args.version,
@@ -79,11 +107,32 @@ local function run(args)
         }
     end
 
+    if M.requires_reconciliation(args.changeset) then
+        log:info("Dependency directive changed; running full state reconciliation", {
+            changeset_count = #args.changeset,
+            version = args.version,
+        })
+        local result, reconcile_err = reconcile_mod.run({
+            reason = "dependency directive changed",
+            version = args.version,
+        })
+        if not result or result.success == false then
+            return {
+                success = false,
+                error = reconcile_err or (result and result.error) or "state reconciliation failed",
+                version = args.version,
+            }
+        end
+        result.version = args.version
+        result.dependency_reconcile = true
+        return result
+    end
+
     log:info("Converting changeset to state commands", {
         changeset_count = #args.changeset
     })
 
-    local commands, conversion_errors = convert_ops(args.changeset, materialize, consts.BRANCH.MAIN)
+    local commands, conversion_errors = convert_ops(args.changeset, materialize_mod, consts.BRANCH.MAIN)
 
     for _, e in ipairs(conversion_errors) do
         log:warn("Changeset op failed", { index = e.index, entry_id = e.entry_id, error = e.error })
@@ -113,7 +162,7 @@ local function run(args)
         command_count = #commands
     })
 
-    local result, apply_err = state_ops.apply_commands(commands)
+    local result, apply_err = state_ops_mod.apply_commands(commands)
     if apply_err then
         log:error("Failed to apply commands", { error = apply_err })
         return {

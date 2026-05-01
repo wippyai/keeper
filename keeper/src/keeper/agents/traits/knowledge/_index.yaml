@@ -71,10 +71,13 @@ entries:
     
       Find existing knowledge:
       ```
+      {"action": "semantic", "query": "<meaning>", "kb": "General"}
       {"action": "search", "query": "<substr>", "scope_namespace": "keeper.state"}
       {"action": "list",   "node_type": "anti_pattern"}
       {"action": "get",    "node_id": "<id>"}
       ```
+      Prefer `semantic` for concept matching and `search` for exact names,
+      identifiers, or literal error text.
       `scope_kind`, `scope_namespace`, `scope_meta_type` narrow results to the
       surface you're working on.
     
@@ -98,4 +101,3 @@ entries:
     tools:
       - keeper.knowledge.tools:kb_read
       - keeper.knowledge.tools:fetch_docs
-    

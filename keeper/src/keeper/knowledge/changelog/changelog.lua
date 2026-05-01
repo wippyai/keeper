@@ -9,8 +9,9 @@ local consts = require("kb_consts")
 local OPS = gov_consts.REGISTRY_OPERATIONS
 
 local function get_db()
-    local db = sql.get(consts.DB_ID)
-    if not db then error("database " .. consts.DB_ID .. " is not available") end
+    local db_id = consts.db_id()
+    local db = sql.get(db_id)
+    if not db then error("database " .. db_id .. " is not available") end
     return db
 end
 

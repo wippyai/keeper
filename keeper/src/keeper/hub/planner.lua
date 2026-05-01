@@ -1,5 +1,6 @@
 local registry = require("registry")
 local hub_sdk = require("hub")
+local gov_consts = require("gov_consts")
 
 type ServiceError = unknown
 type Parameter = { name: string, value: string }
@@ -72,10 +73,12 @@ type ConstraintPart = {
 type PlannerDeps = {
     registry: unknown?,
     catalog: unknown?,
+    gov: unknown?,
 }
 type PlannerInstance = {
     registry: unknown,
     catalog: unknown,
+    gov: unknown,
     version_cache: {[string]: {VersionItem}},
     plan_install: (PlannerInstance, unknown) -> (unknown, unknown?),
 }
@@ -237,6 +240,69 @@ function M.resolve_dependency_id(args)
         return nil, err("BAD_REQUEST", "dependency name cannot be empty")
     end
     return ns .. ":" .. name, nil
+end
+
+local function entry_namespace(id: unknown): string?
+    return tostring(id or ""):match("^([^:]+):")
+end
+
+local function dependency_component(entry): string
+    local data = entry and entry.data or {}
+    return trim(data.component)
+end
+
+local function namespace_score(namespace: string, count: number): number
+    local lower = string.lower(namespace)
+    local score = count * 100
+    if lower == M.DEFAULT_DEP_NAMESPACE then score = score + 40 end
+    if lower == "deps" or lower:match("%.deps$") then score = score + 30 end
+    if lower == "dependencies" or lower:match("%.dependencies$") then score = score + 20 end
+    if lower == "app" or lower:match("^app%.") then score = score + 10 end
+    return score
+end
+
+local function managed_namespaces_from(gov): { string }
+    local getter = type(gov) == "table" and gov.get_managed_namespaces or nil
+    if type(getter) == "function" then
+        local ok, namespaces = pcall(getter)
+        if ok and type(namespaces) == "table" then
+            local out = {}
+            for _, ns in ipairs(namespaces) do
+                ns = trim(ns)
+                if ns ~= "" then table.insert(out, ns) end
+            end
+            if #out > 0 then return out end
+        end
+    end
+    return { "app", "keeper" }
+end
+
+local function namespace_is_managed_by(gov, namespace: string): boolean
+    namespace = trim(namespace)
+    if namespace == "" then return false end
+
+    local checker = type(gov) == "table" and gov.is_namespace_managed or nil
+    if type(checker) == "function" then
+        local ok, managed = pcall(checker, namespace)
+        if ok then return managed == true end
+    end
+
+    for _, root in ipairs(managed_namespaces_from(gov)) do
+        if namespace == root or namespace:sub(1, #root + 1) == root .. "." then
+            return true
+        end
+    end
+    return false
+end
+
+local function default_dependency_namespace_for(gov): string
+    if namespace_is_managed_by(gov, M.DEFAULT_DEP_NAMESPACE) then return M.DEFAULT_DEP_NAMESPACE end
+
+    local roots = managed_namespaces_from(gov)
+    for _, root in ipairs(roots) do
+        if root ~= "keeper" then return root .. ".deps" end
+    end
+    return (roots[1] or "app") .. ".deps"
 end
 
 function M.normalize_parameters(input): ({ Parameter }?, unknown?)
@@ -475,6 +541,18 @@ local REQUIREMENT_VALUE_KIND_BY_TARGET_PATH = {
     ["router"] = "http.router",
     [".router"] = "http.router",
     ["meta.router"] = "http.router",
+    [".meta.router"] = "http.router",
+    ["storage"] = "env.storage",
+    [".storage"] = "env.storage",
+    ["env_storage"] = "env.storage",
+    [".env_storage"] = "env.storage",
+}
+
+local REQUIREMENT_VALUE_KIND_BY_NAME = {
+    ["router"] = "http.router",
+    ["webhook_router"] = "http.router",
+    ["env_storage"] = "env.storage",
+    ["storage"] = "env.storage",
 }
 
 local function requirement_value_kind(req): string?
@@ -483,7 +561,19 @@ local function requirement_value_kind(req): string?
         local kind = REQUIREMENT_VALUE_KIND_BY_TARGET_PATH[path]
         if kind then return kind end
     end
-    return nil
+    return REQUIREMENT_VALUE_KIND_BY_NAME[string.lower(trim(req and req.name))]
+end
+
+local KIND_PREFIX_SEARCH = {
+    ["env.storage"] = true,
+}
+
+local function kind_matches(expected: string, actual: unknown): boolean
+    expected = trim(expected)
+    local kind = trim(actual)
+    if expected == "" or kind == "" then return false end
+    if kind == expected then return true end
+    return KIND_PREFIX_SEARCH[expected] == true and kind:sub(1, #expected + 1) == expected .. "."
 end
 
 function M.new(deps: PlannerDeps?)
@@ -491,6 +581,7 @@ function M.new(deps: PlannerDeps?)
     return setmetatable({
         registry = deps.registry or registry,
         catalog = deps.catalog or hub_sdk,
+        gov = deps.gov or gov_consts,
         version_cache = {},
     }, Planner) :: PlannerInstance
 end
@@ -508,6 +599,68 @@ function Planner:dependency_entries()
     if not rows then return nil, rows_err end
     table.sort(rows, function(a, b) return tostring(a.id) < tostring(b.id) end)
     return rows, nil
+end
+
+function Planner:existing_dependency_for_component(component)
+    local wanted = trim(component)
+    local deps, deps_err = self:dependency_entries()
+    if not deps then return nil, deps_err end
+    for _, dep in ipairs(deps) do
+        if dependency_component(dep) == wanted then
+            return dep, nil
+        end
+    end
+    return nil, nil
+end
+
+function Planner:preferred_dependency_namespace(): (string?, unknown?)
+    local deps, deps_err = self:dependency_entries()
+    if not deps then return nil, deps_err end
+
+    local counts = {}
+    for _, dep in ipairs(deps) do
+        local ns = entry_namespace(dep.id)
+        if ns and ns ~= "" and namespace_is_managed_by(self.gov, ns) then
+            counts[ns] = (counts[ns] or 0) + 1
+        end
+    end
+
+    local best = default_dependency_namespace_for(self.gov)
+    local best_score = namespace_score(best, 0)
+    for ns, count in pairs(counts) do
+        local score = namespace_score(ns, count)
+        if score > best_score or (score == best_score and ns < best) then
+            best = ns
+            best_score = score
+        end
+    end
+    return best, nil
+end
+
+function Planner:resolve_dependency_destination_args(args): (unknown?, unknown?)
+    local out = shallow_copy(args or {})
+    if trim(out.id) ~= "" then return out, nil end
+
+    local parsed, comp_err = M.parse_component(out.component)
+    if not parsed then return nil, comp_err end
+
+    local has_explicit_name = trim(out.name) ~= ""
+    local has_explicit_namespace = trim(out.namespace) ~= ""
+    if not has_explicit_name and not has_explicit_namespace then
+        local existing, existing_err = self:existing_dependency_for_component(parsed.component)
+        if existing_err then return nil, existing_err end
+        if existing and existing.id then
+            out.id = existing.id
+            return out, nil
+        end
+    end
+
+    if not has_explicit_namespace then
+        local namespace, namespace_err = self:preferred_dependency_namespace()
+        if not namespace then return nil, namespace_err end
+        out.namespace = namespace
+    end
+    return out, nil
 end
 
 function Planner:list_all_versions(component)
@@ -547,7 +700,7 @@ end
 
 function Planner:version_details(component, selected)
     if not selected or not self.catalog or not self.catalog.versions or not self.catalog.versions.get then
-        local with_deps, dep_err = self:manifest_dependency_details(component, selected)
+        local with_deps, dep_err = self:dependency_details(component, selected)
         if not with_deps then return nil, dep_err end
         return self:artifact_requirement_details(component, with_deps)
     end
@@ -563,14 +716,14 @@ function Planner:version_details(component, selected)
 
     local detailed, detail_err = self.catalog.versions.get(component, ref)
     if detailed then
-        local with_deps, dep_err = self:manifest_dependency_details(component, detailed)
+        local with_deps, dep_err = self:dependency_details(component, detailed)
         if not with_deps then return nil, dep_err end
         return self:artifact_requirement_details(component, with_deps)
     end
 
     -- Some Hub implementations return full records from list and do not support
     -- get-by-id/version. Planning must still work from the list payload.
-    local with_deps, dep_err = self:manifest_dependency_details(component, selected)
+    local with_deps, dep_err = self:dependency_details(component, selected)
     if not with_deps then return nil, dep_err end
     return self:artifact_requirement_details(component, with_deps)
 end
@@ -612,24 +765,32 @@ function Planner:artifact_requirement_details(component, selected)
     return merged, nil
 end
 
-function Planner:manifest_dependency_details(component, selected)
+function Planner:dependency_details(component, selected)
     if not selected then return selected, nil end
     local selected_item = selected :: VersionItem
     if #(selected_item.dependencies or {}) > 0 or not has_entry_kind(selected_item, "ns.dependency") then
         return selected, nil
     end
-    if not self.catalog or not self.catalog.manifest or not self.catalog.manifest.get then
-        return nil, err("INTERNAL", "hub manifest API unavailable for " .. component)
+    if not self.catalog or not self.catalog.dependencies or not self.catalog.dependencies.get then
+        return nil, err("INTERNAL", "hub dependency metadata API unavailable for " .. component)
     end
 
     local version = trim(selected_item.version)
-    local manifest, manifest_err = self.catalog.manifest.get(component, version ~= "" and version or nil)
-    if not manifest then
-        return nil, err("INTERNAL", "hub manifest lookup failed for " .. component .. ": " .. tostring(manifest_err))
+    local version_ref = version ~= "" and version or nil
+    if not version_ref and trim(selected_item.id) ~= "" then
+        version_ref = { id = selected_item.id }
+    end
+    if not version_ref then
+        return nil, err("INTERNAL", "cannot resolve Hub dependencies without version id or version")
+    end
+
+    local result, dependency_err = self.catalog.dependencies.get(component, version_ref)
+    if not result then
+        return nil, err("INTERNAL", "hub dependency lookup failed for " .. component .. ": " .. tostring(dependency_err))
     end
 
     local merged = shallow_copy(selected_item)
-    merged.dependencies = manifest.dependencies or {}
+    merged.dependencies = result.items or result.dependencies or {}
     return merged, nil
 end
 
@@ -814,7 +975,8 @@ function Planner:plan_requirements(graph, supplied_parameters)
     local function registry_values_for_kind(kind)
         kind = trim(kind)
         if kind == "" then return {}, nil end
-        local rows, rows_err = self:find_entries({ [".kind"] = kind })
+        local criteria = KIND_PREFIX_SEARCH[kind] == true and {} or { [".kind"] = kind }
+        local rows, rows_err = self:find_entries(criteria)
         if not rows then return nil, rows_err end
         table.sort(rows, function(a, b) return tostring(a.id) < tostring(b.id) end)
 
@@ -822,9 +984,9 @@ function Planner:plan_requirements(graph, supplied_parameters)
         local seen = {}
         for _, row in ipairs(rows or {}) do
             local value = trim(row.id)
-            if value ~= "" and not seen[value] then
+            if value ~= "" and kind_matches(kind, row.kind) and not seen[value] then
                 seen[value] = true
-                table.insert(out, { value = value, kind = kind })
+                table.insert(out, { value = value, kind = row.kind or kind })
             end
         end
         return out, nil
@@ -912,6 +1074,13 @@ function Planner:plan_requirements(graph, supplied_parameters)
 
                 local default_value = trim(req.default)
                 local default_compatible = compatible_value(default_value)
+                local invalid_value = false
+                local invalid_reason = nil
+                if value ~= nil and trim(value) ~= "" and not compatible_value(value) then
+                    invalid_value = true
+                    invalid_reason = "value must reference an existing " .. tostring(expected_kind)
+                    source = tostring(source or "provided") .. "_invalid"
+                end
                 if default_value ~= "" and default_compatible then
                     add_suggestion(
                         suggestions,
@@ -980,13 +1149,16 @@ function Planner:plan_requirements(graph, supplied_parameters)
                     description = req.description,
                     default = req.default,
                     targets = req.targets or {},
+                    expected_kind = expected_kind,
                     required = requirement_required(req),
                     value = value,
                     value_source = source or "empty",
+                    invalid = invalid_value,
+                    invalid_reason = invalid_reason,
                     suggestions = suggestions,
                     transitive = node.depth > 0,
                 }
-                row.missing = row.required and trim(value) == ""
+                row.missing = row.required and (trim(value) == "" or row.invalid == true)
                 table.insert(out, row)
             end
         end
@@ -1001,7 +1173,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
     local parameters = {}
     for _, row in ipairs(out) do
         if row.missing then table.insert(missing, row.parameter_name) end
-        if trim(row.value) ~= "" then
+        if trim(row.value) ~= "" and row.invalid ~= true then
             table.insert(parameters, { name = row.parameter_name, value = row.value })
         end
     end
@@ -1017,13 +1189,16 @@ end
 
 function Planner:plan_install(args)
     args = args or {}
-    local entry, entry_err = M.build_dependency_entry(args)
+    local planned_args, dest_err = self:resolve_dependency_destination_args(args)
+    if not planned_args then return nil, dest_err end
+
+    local entry, entry_err = M.build_dependency_entry(planned_args)
     if not entry then return nil, entry_err end
     local data = entry.data :: DependencyEntryData
 
     local graph, graph_err = self:resolve_install_graph(data.component, data.version, {
-        max_depth = args.max_depth,
-        max_modules = args.max_modules,
+        max_depth = planned_args.max_depth,
+        max_modules = planned_args.max_modules,
     })
     if not graph then return nil, graph_err end
 
@@ -1039,13 +1214,14 @@ function Planner:plan_install(args)
         missing_requirements = req_plan.missing,
         parameter_values = req_plan.values,
         recommended_parameters = req_plan.parameters,
-        migration_policy = args.migration_policy or (args.run_migrations == true and "up" or "none"),
+        migration_policy = planned_args.migration_policy or (planned_args.run_migrations == true and "up" or "none"),
         install_payload = {
             id = entry.id,
+            namespace = M.dependency_summary(entry).namespace,
             component = data.component,
             version = data.version,
             parameters = req_plan.parameters,
-            migration_policy = args.migration_policy or (args.run_migrations == true and "up" or "none"),
+            migration_policy = planned_args.migration_policy or (planned_args.run_migrations == true and "up" or "none"),
         },
     }, nil
 end

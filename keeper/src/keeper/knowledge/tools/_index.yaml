@@ -71,11 +71,12 @@ entries:
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["list_kbs", "list", "search", "get"],
-              "description": "list_kbs: list knowledge bases, list: list nodes, search: text search, get: get by ID"
+              "enum": ["list_kbs", "list", "search", "semantic", "get"],
+              "description": "list_kbs: list knowledge bases, list: list nodes, search: text search, semantic: embedding search, get: get by ID"
             },
             "kb": {"type": "string", "description": "Knowledge base name to scope results (optional, omit to search all)"},
-            "query": {"type": "string", "description": "Search query for 'search' action"},
+            "query": {"type": "string", "description": "Search query for 'search' or 'semantic' action"},
+            "model": {"type": "string", "description": "Optional embedding model override for semantic search"},
             "node_type": {
               "type": "string",
               "enum": ["pattern", "convention", "learning", "anti_pattern"],
@@ -93,7 +94,7 @@ entries:
       llm_alias: search_knowledge
       llm_description: |
         Search knowledge bases for patterns, conventions, decisions, and learnings.
-        Use 'list_kbs' to see available knowledge bases. Use 'list' to see nodes. Use 'search' for text search. Use 'get' for a specific node.
+        Use 'list_kbs' to see available knowledge bases. Use 'list' to see nodes. Use 'semantic' for embedding search, 'search' for text search, and 'get' for a specific node.
         All actions except 'get' accept an optional 'kb' parameter to scope to a specific knowledge base by name.
         Pass a 'goal' describing what you want to learn; large search results are compressed via a cheap LLM so only the relevant bits reach you. Use full=true to bypass.
       mcp:
@@ -104,6 +105,7 @@ entries:
       audit: keeper.task:audit
       kb_helpers: keeper.knowledge.tools:kb_helpers
       kb_repo: keeper.knowledge:repo
+      kb_service: keeper.knowledge.service:service
       summarize: keeper.internal.llm:summarize
     method: handler
     pool:
@@ -183,4 +185,3 @@ entries:
     method: define_tests
     pool:
       size: 1
-    

@@ -27,7 +27,7 @@ entries:
       branch_ctx: keeper.state.tools:branch_ctx
       cs_client: keeper.changeset:client
     method: handler
-    
+
   # keeper.state.tools:apply
   - name: apply
     kind: function.lua
@@ -46,7 +46,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.state.tools:branch
   - name: branch
     kind: function.lua
@@ -85,7 +85,7 @@ entries:
       audit: keeper.task:audit
       branch_ctx: keeper.state.tools:branch_ctx
     method: handler
-    
+
   # keeper.state.tools:branch_ctx
   - name: branch_ctx
     kind: library.lua
@@ -95,7 +95,7 @@ entries:
     modules:
       - ctx
       - funcs
-    
+
   # keeper.state.tools:branch_test
   - name: branch_test
     kind: function.lua
@@ -110,7 +110,6 @@ entries:
     method: define_tests
     pool:
       size: 1
-    
   # keeper.state.tools:compare
   - name: compare
     kind: function.lua
@@ -157,7 +156,7 @@ entries:
       state_reader: keeper.state.persist:reader
       summarize: keeper.internal.llm:summarize
     method: handler
-    
+
   # keeper.state.tools:edit
   - name: edit
     kind: function.lua
@@ -198,7 +197,7 @@ entries:
       audit: keeper.task:audit
       engine: keeper.state.patch:engine
     method: handler
-    
+
   # keeper.state.tools:entry_lib
   - name: entry_lib
     kind: library.lua
@@ -209,7 +208,7 @@ entries:
       - hash
     imports:
       state_reader: keeper.state.persist:reader
-    
+
   # keeper.state.tools:explore
   - name: explore
     kind: function.lua
@@ -263,14 +262,14 @@ entries:
       state_reader: keeper.state.persist:reader
       summarize: keeper.internal.llm:summarize
     method: handler
-    
+
   # keeper.state.tools:function_config
   - name: function_config
     kind: library.lua
     meta:
       comment: Static validator for function.*/library.*/process.* entry config (method, modules, imports)
     source: file://function_config.lua
-    
+
   # keeper.state.tools:get_entries
   - name: get_entries
     kind: function.lua
@@ -311,7 +310,7 @@ entries:
       state_reader: keeper.state.persist:reader
       summarize: keeper.internal.llm:summarize
     method: handler
-    
+
   # keeper.state.tools:push
   - name: push
     kind: function.lua
@@ -347,7 +346,7 @@ entries:
       materialize: keeper.state.persist:materialize
       state_client: keeper.state:client
     method: handler
-    
+
   # keeper.state.tools:reset
   - name: reset
     kind: function.lua
@@ -378,7 +377,7 @@ entries:
       entry_lib: keeper.state.tools:entry_lib
       state_reader: keeper.state.persist:reader
     method: handler
-    
+
   # keeper.state.tools:test
   - name: test
     kind: function.lua
@@ -400,9 +399,9 @@ entries:
       explore: keeper.state.tools:explore
       function_config: keeper.state.tools:function_config
       get_entries: keeper.state.tools:get_entries
+      push: keeper.state.tools:push
       reset: keeper.state.tools:reset
       test: wippy.test:test
     method: define_tests
     pool:
       size: 1
-    

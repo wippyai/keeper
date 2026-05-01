@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { Icon } from '@iconify/vue'
 import { useApi } from '../composables/useWippy'
-import { listTokens, createToken, revokeToken, listScopes, getAdminToken, setAdminToken, type MCPToken, type MCPScope, type MCPPreset, type MCPServerConfig } from '../api/mcp'
+import { listTokens, createToken, revokeToken, listScopes, type MCPToken, type MCPScope, type MCPPreset, type MCPServerConfig } from '../api/mcp'
 
 const api = useApi()
 
@@ -23,12 +23,6 @@ interface CurrentUser {
 
 const currentUser = ref<CurrentUser | null>(null)
 
-const adminToken = ref<string>('')
-const adminTokenLoading = ref(false)
-const showAdminToken = ref(false)
-const editAdminToken = ref(false)
-const adminTokenDraft = ref('')
-
 const showCreate = ref(false)
 const newLabel = ref('')
 const selectedScopes = ref<Set<string>>(new Set())
@@ -43,14 +37,10 @@ const copiedSnippet = ref<string | null>(null)
 const activeTokens = computed(() => tokens.value.filter(t => !t.revoked))
 const revokedTokens = computed(() => tokens.value.filter(t => t.revoked))
 
-const mcpHost = computed(() => window.location.hostname || 'localhost')
-const internalMcpUrl = computed(() => serverConfig.value?.internal_url || `http://${mcpHost.value}:9067/`)
-const publicMcpUrl = computed(() =>
-  serverConfig.value?.public_url || `${window.location.origin.replace(/\/$/, '')}/keeper-mcp/`
+const mcpUrl = computed(() =>
+  serverConfig.value?.url || ''
 )
-const publicMcpEnabled = computed(() => serverConfig.value?.public_enabled === true)
-const mcpUrl = computed(() => publicMcpEnabled.value ? publicMcpUrl.value : internalMcpUrl.value)
-const endpointMode = computed(() => publicMcpEnabled.value ? 'Public' : 'Internal')
+const endpointStatus = computed(() => serverConfig.value?.enabled === false ? 'Disabled' : 'Enabled')
 const snippetToken = computed(() => '<TOKEN>')
 const currentIdentity = computed(() =>
   currentUser.value?.user_id || currentUser.value?.id || currentUser.value?.email || ''
@@ -100,7 +90,6 @@ async function load() {
     scopes.value = scopesRes.scopes || []
     presets.value = scopesRes.presets || []
     serverConfig.value = scopesRes.config || null
-    await loadAdminToken()
   } catch (e: any) {
     error.value = e.message
   } finally {
@@ -117,45 +106,6 @@ async function loadCurrentUser() {
   } catch (e: any) {
     currentUser.value = null
   }
-}
-
-async function loadAdminToken() {
-  adminTokenLoading.value = true
-  try {
-    const res = await getAdminToken(api)
-    adminToken.value = res.token || ''
-  } catch (e: any) {
-    // ignore — endpoint may be missing on older builds
-  } finally {
-    adminTokenLoading.value = false
-  }
-}
-
-async function saveAdminToken() {
-  if (!adminTokenDraft.value.trim()) { error.value = 'Token required'; return }
-  try {
-    const res = await setAdminToken(api, adminTokenDraft.value.trim())
-    if (!res.success) { error.value = res.error || 'Save failed'; return }
-    adminToken.value = adminTokenDraft.value.trim()
-    editAdminToken.value = false
-    successMsg.value = 'Admin token updated'
-    setTimeout(() => { successMsg.value = null }, 2500)
-  } catch (e: any) {
-    error.value = e.message
-  }
-}
-
-function generateAdminToken() {
-  const bytes = new Uint8Array(32)
-  crypto.getRandomValues(bytes)
-  adminTokenDraft.value = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
-}
-
-function maskedAdminToken() {
-  const t = adminToken.value
-  if (!t) return ''
-  if (t.length <= 12) return '•'.repeat(t.length)
-  return t.slice(0, 6) + '•'.repeat(20) + t.slice(-4)
 }
 
 function applyPreset(preset: MCPPreset) {
@@ -292,7 +242,7 @@ onMounted(load)
         <div class="text-[10px]" style="color: var(--p-text-muted-color)">
           <span class="font-mono">{{ mcpUrl }}</span>
           <span class="mx-2">·</span>
-          <span>{{ endpointMode }}</span>
+          <span>{{ endpointStatus }}</span>
           <span class="mx-2">·</span>
           <span>{{ activeTokens.length }} token{{ activeTokens.length === 1 ? '' : 's' }}</span>
           <span class="mx-2">·</span>
@@ -316,56 +266,16 @@ onMounted(load)
     </div>
 
     <div class="flex-1 overflow-hidden flex min-h-0">
-      <!-- Left: admin + config -->
+      <!-- Left: server config -->
       <aside class="left-pane">
-        <!-- Admin access token -->
-        <section class="card">
-          <div class="card-title">
-            <Icon icon="tabler:shield-lock" class="w-3.5 h-3.5" />
-            <span>Admin Access Token</span>
-          </div>
-          <div class="card-help">Env-backed bearer that bypasses scope checks. Use this in your MCP client.</div>
-
-          <template v-if="!editAdminToken">
-            <div class="token-row">
-              <code class="token-val">{{ adminToken ? (showAdminToken ? adminToken : maskedAdminToken()) : '(not set)' }}</code>
-              <button v-if="adminToken" class="icon-btn" :title="showAdminToken ? 'Hide' : 'Show'" @click="showAdminToken = !showAdminToken">
-                <Icon :icon="showAdminToken ? 'tabler:eye-off' : 'tabler:eye'" class="w-3.5 h-3.5" />
-              </button>
-              <button v-if="adminToken" class="icon-btn" title="Copy" @click="copy(adminToken, 'admin')">
-                <Icon :icon="copiedSnippet === 'admin' ? 'tabler:check' : 'tabler:copy'" class="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <div class="btn-row">
-              <button class="mini-btn" @click="() => { editAdminToken = true; adminTokenDraft = adminToken }">
-                <Icon icon="tabler:edit" class="w-3 h-3" /> {{ adminToken ? 'Change' : 'Set' }}
-              </button>
-              <button v-if="adminToken" class="mini-btn danger" @click="() => { editAdminToken = true; adminTokenDraft = '' }">
-                <Icon icon="tabler:refresh" class="w-3 h-3" /> Rotate
-              </button>
-            </div>
-          </template>
-
-          <template v-else>
-            <input v-model="adminTokenDraft" class="input" placeholder="Bearer token value" />
-            <div class="btn-row">
-              <button class="mini-btn" @click="generateAdminToken"><Icon icon="tabler:dice" class="w-3 h-3" /> Generate</button>
-              <button class="mini-btn" @click="editAdminToken = false">Cancel</button>
-              <button class="mini-btn primary" @click="saveAdminToken"><Icon icon="tabler:check" class="w-3 h-3" /> Save</button>
-            </div>
-          </template>
-        </section>
-
         <!-- Server info -->
         <section class="card">
           <div class="card-title">
             <Icon icon="tabler:server" class="w-3.5 h-3.5" />
             <span>Server</span>
           </div>
-          <div class="kv"><span class="k">Host</span><span class="v mono">{{ mcpHost }}</span></div>
-          <div class="kv"><span class="k">Mode</span><span class="v">{{ endpointMode }}</span></div>
-          <div class="kv"><span class="k">Internal</span><span class="v mono">{{ internalMcpUrl }}</span></div>
-          <div class="kv"><span class="k">Public</span><span class="v mono">{{ publicMcpEnabled ? publicMcpUrl : 'disabled' }}</span></div>
+          <div class="kv"><span class="k">Status</span><span class="v">{{ endpointStatus }}</span></div>
+          <div class="kv"><span class="k">Endpoint</span><span class="v mono">{{ mcpUrl }}</span></div>
           <div class="kv"><span class="k">Protocol</span><span class="v">JSON-RPC 2.0</span></div>
           <div class="kv"><span class="k">Transport</span><span class="v">HTTP POST</span></div>
         </section>
@@ -378,7 +288,6 @@ onMounted(load)
           <div class="card-title">
             <Icon icon="tabler:rocket" class="w-3.5 h-3.5" />
             <span>Quick Connect</span>
-            <span v-if="!adminToken" class="warn-pill">no token set</span>
           </div>
 
           <div class="snippet">
@@ -432,7 +341,7 @@ onMounted(load)
 
           <div v-if="activeTokens.length === 0 && !loading" class="empty">
             <Icon icon="tabler:key-off" class="w-5 h-5" />
-            <span>No scoped tokens. Use the admin token above or create a restricted one for a specific agent.</span>
+            <span>No scoped tokens. Create one for the current user, then paste it into your MCP client.</span>
           </div>
 
           <div v-for="t in activeTokens" :key="t.token_id" class="t-row">

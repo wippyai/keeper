@@ -29,6 +29,12 @@ local function define_tests()
             expect_missing("keeper.llm:summarize")
         end)
 
+        test.it("uses launch_task naming for the task launcher tool", function()
+            local launch = must_get("keeper.task.tools:launch")
+            test.eq(launch.meta.llm_alias, "launch_task")
+            expect_missing("keeper.task.tools:" .. "e2" .. "e_launch")
+        end)
+
         test.it("agent-facing debug tools import internal helpers", function()
             local dataflow = must_get("keeper.agents.tools:dataflow")
             local imports = dataflow.data and dataflow.data.imports or {}

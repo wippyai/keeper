@@ -8,8 +8,8 @@ entries:
     meta:
       comment: Knowledge base constants
     source: file://consts.lua
-    modules:
-      - registry
+    imports:
+      keeper_config: keeper:config
     
   # keeper.knowledge:embedder
   - name: embedder

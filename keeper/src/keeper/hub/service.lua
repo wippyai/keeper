@@ -94,12 +94,17 @@ local function string_set(values)
     return out
 end
 
+local function is_module_owned_dependency(entry)
+    return entry and entry.meta and trim(entry.meta.module) ~= ""
+end
+
 local ERROR_KIND_BY_CODE = {
     BAD_REQUEST = errors.INVALID,
     NOT_FOUND = errors.NOT_FOUND,
     CONFLICT = errors.CONFLICT,
     REQUIREMENTS_MISSING = errors.CONFLICT,
     MIGRATIONS_APPLIED = errors.CONFLICT,
+    DEPENDENCY_GRAPH_FAILED = errors.CONFLICT,
 }
 
 local function err(code, message, details)
@@ -402,6 +407,17 @@ end
 function Service:dependency_entries()
     local rows, rows_err = self:find_entries({ [".kind"] = "ns.dependency" })
     if not rows then return nil, rows_err end
+    local deploy_deps = {}
+    for _, entry in ipairs(rows) do
+        -- Module-owned ns.dependency entries describe a package's dependency
+        -- graph. Only deployment dependency entries should be install/uninstall
+        -- roots; otherwise uninstall can keep dependencies required only by the
+        -- package being removed.
+        if not is_module_owned_dependency(entry) then
+            table.insert(deploy_deps, entry)
+        end
+    end
+    rows = deploy_deps
     table.sort(rows, function(a, b) return tostring(a.id) < tostring(b.id) end)
     return rows, nil
 end
@@ -413,6 +429,9 @@ function Service:find_dependency(args)
         if not entry then return nil, get_err end
         if entry.kind ~= "ns.dependency" then
             return nil, err("BAD_REQUEST", "entry is not an ns.dependency: " .. entry.id)
+        end
+        if is_module_owned_dependency(entry) then
+            return nil, err("BAD_REQUEST", "entry is a module-owned dependency, not an installed dependency root: " .. entry.id)
         end
         return entry, nil
     end
@@ -635,7 +654,7 @@ function Service:publish_dependency_changeset(args)
         if not registry_ops then
             return nil, err("INTERNAL", "governance registry operation constants unavailable")
         end
-        changeset = { { kind = registry_ops.DELETE, entry = { id = id } } }
+        changeset = { { kind = registry_ops.DELETE, entry = { id = id, kind = "ns.dependency" } } }
         entry_ids = { id }
     else
         return nil, err("BAD_REQUEST", "dependency publish action must be install or uninstall")
@@ -987,8 +1006,12 @@ function Service:plan_uninstall(args)
 
     local graph, keep_modules, graph_err = self:uninstall_graph_context(dep)
     if graph_err then
-        graph = {}
-        keep_modules = {}
+        return nil, err("DEPENDENCY_GRAPH_FAILED",
+            "failed to resolve dependency graph for uninstall; refusing to update registry or wippy.lock",
+            {
+                dependency = summary,
+                graph_error = error_summary(graph_err),
+            })
     end
 
     return {

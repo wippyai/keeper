@@ -159,6 +159,167 @@ local function define_tests()
         end)
 
         describe("sync.convert_ops", function()
+            it("flags dependency directive changes for full reconciliation", function()
+                test.is_true(sync.requires_reconciliation({
+                    { kind = "entry.create", entry = { id = "app.deps:foo", kind = "ns.dependency" } },
+                }))
+                test.is_true(sync.requires_reconciliation({
+                    { kind = "entry.update", entry = { id = "app.deps:foo", kind = "ns.dependency" } },
+                }))
+                test.is_true(sync.requires_reconciliation({
+                    { kind = "entry.delete", entry = { id = "app.deps:foo", kind = "ns.dependency" } },
+                }))
+                test.is_false(sync.requires_reconciliation({
+                    { kind = "entry.create", entry = { id = "app:foo", kind = "function.lua" } },
+                }))
+            end)
+
+            it("runs full reconciliation for dependency directive changes", function()
+                local calls = { reconcile = 0, apply = 0 }
+                local out = sync.run({
+                    version = 9,
+                    changeset = {
+                        { kind = "entry.create", entry = { id = "app.deps:foo", kind = "ns.dependency" } },
+                    },
+                }, {
+                    reconcile = {
+                        run = function(args)
+                            calls.reconcile = calls.reconcile + 1
+                            test.eq(args.reason, "dependency directive changed")
+                            return { success = true, changes_made = true, stats = {} }, nil
+                        end,
+                    },
+                    state_ops = {
+                        apply_commands = function()
+                            calls.apply = calls.apply + 1
+                            return { changes_made = true }, nil
+                        end,
+                    },
+                })
+
+                test.is_true(out.success)
+                test.is_true(out.dependency_reconcile)
+                test.eq(out.version, 9)
+                test.eq(calls.reconcile, 1)
+                test.eq(calls.apply, 0)
+            end)
+
+            it("reconciles dependency directive create, update, and delete operations", function()
+                for _, kind in ipairs({ "entry.create", "entry.update", "entry.delete" }) do
+                    local calls = { reconcile = 0, apply = 0 }
+                    local out = sync.run({
+                        version = kind,
+                        changeset = {
+                            { kind = kind, entry = { id = "app.deps:foo", kind = "ns.dependency" } },
+                        },
+                    }, {
+                        reconcile = {
+                            run = function()
+                                calls.reconcile = calls.reconcile + 1
+                                return { success = true, changes_made = true, stats = {} }, nil
+                            end,
+                        },
+                        state_ops = {
+                            apply_commands = function()
+                                calls.apply = calls.apply + 1
+                                return { changes_made = true }, nil
+                            end,
+                        },
+                    })
+
+                    test.is_true(out.success)
+                    test.is_true(out.dependency_reconcile)
+                    test.eq(calls.reconcile, 1)
+                    test.eq(calls.apply, 0)
+                end
+            end)
+
+            it("bubbles dependency reconciliation failures", function()
+                local out = sync.run({
+                    version = 10,
+                    changeset = {
+                        { kind = "entry.delete", entry = { id = "app.deps:foo", kind = "ns.dependency" } },
+                    },
+                }, {
+                    reconcile = {
+                        run = function()
+                            return { success = false, error = "reconcile exploded" }, nil
+                        end,
+                    },
+                    state_ops = {
+                        apply_commands = function()
+                            return { changes_made = true }, nil
+                        end,
+                    },
+                })
+
+                test.is_false(out.success)
+                test.eq(out.error, "reconcile exploded")
+                test.eq(out.version, 10)
+            end)
+
+            it("keeps normal entry changes on the incremental path", function()
+                local calls = { reconcile = 0, apply = 0 }
+                local out = sync.run({
+                    version = 11,
+                    changeset = {
+                        { kind = "entry.create", entry = { id = "app:handler", kind = "function.lua" } },
+                    },
+                }, {
+                    materialize = stub_materialize({}),
+                    reconcile = {
+                        run = function()
+                            calls.reconcile = calls.reconcile + 1
+                            return { success = true }, nil
+                        end,
+                    },
+                    state_ops = {
+                        apply_commands = function(commands)
+                            calls.apply = calls.apply + 1
+                            test.eq(#commands, 1)
+                            test.eq(commands[1].op, "set")
+                            test.eq(commands[1].entry_id, "app:handler")
+                            return { changes_made = true }, nil
+                        end,
+                    },
+                })
+
+                test.is_true(out.success)
+                test.eq(out.version, 11)
+                test.eq(calls.reconcile, 0)
+                test.eq(calls.apply, 1)
+            end)
+
+            it("reconciles the whole state when dependency directives are mixed with ordinary entries", function()
+                local calls = { reconcile = 0, apply = 0 }
+                local out = sync.run({
+                    version = 12,
+                    changeset = {
+                        { kind = "entry.create", entry = { id = "app:handler", kind = "function.lua" } },
+                        { kind = "entry.update", entry = { id = "app.deps:foo", kind = "ns.dependency" } },
+                    },
+                }, {
+                    materialize = stub_materialize({}),
+                    reconcile = {
+                        run = function()
+                            calls.reconcile = calls.reconcile + 1
+                            return { success = true, changes_made = true }, nil
+                        end,
+                    },
+                    state_ops = {
+                        apply_commands = function()
+                            calls.apply = calls.apply + 1
+                            return { changes_made = true }, nil
+                        end,
+                    },
+                })
+
+                test.is_true(out.success)
+                test.is_true(out.dependency_reconcile)
+                test.eq(calls.reconcile, 1)
+                test.eq(calls.apply, 0)
+            end)
+
             it("produces a set command + edges for entry.create", function()
                 local mat = stub_materialize({
                     edges_for = {

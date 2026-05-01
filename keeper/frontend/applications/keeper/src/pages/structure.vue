@@ -28,6 +28,7 @@ const graphEdges = ref<any[]>([])
 const loadingGraph = ref(false)
 const graphNs = ref('')
 const graphNsInput = ref('')
+const activeEntry = computed<RegistryEntry | null>(() => entryDetail.value?.entry || selectedEntry.value)
 function onKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault()
@@ -213,12 +214,19 @@ async function loadAll() {
 }
 
 async function handleSave(updates: { kind?: string; meta?: Record<string, any>; data?: Record<string, any> }) {
-  if (!selectedEntry.value) return
+  const entry = activeEntry.value
+  if (!entry) return
   saving.value = true
   try {
-    await updateEntry(api, selectedEntry.value.id, { ...updates, merge: true })
-    const r = await getEntry(api, selectedEntry.value.id)
+    await updateEntry(api, entry.id, { ...updates, merge: true })
+    const r = await getEntry(api, entry.id)
     entryDetail.value = r
+    selectedEntry.value = r.entry
+    const ns = entry.id.split(':')[0]
+    if (ns && nsEntries.value.has(ns)) {
+      const current = nsEntries.value.get(ns) || []
+      nsEntries.value.set(ns, current.map(item => item.id === entry.id ? r.entry : item))
+    }
     editorRef.value?.onSaveResult(true)
   } catch (e: any) {
     const msg = e.response?.data?.message || e.response?.data?.error || e.message
@@ -362,12 +370,12 @@ onUnmounted(() => {
 
       <!-- Right: editor / detail -->
       <div class="flex-1 flex flex-col overflow-hidden min-w-0">
-        <template v-if="selectedEntry">
+        <template v-if="activeEntry">
           <div class="shrink-0 px-4 py-2 flex items-center gap-2" style="border-bottom: 1px solid var(--p-content-border-color)">
-            <Icon :icon="kindIcon(selectedEntry.kind, selectedEntry.meta?.type)" class="w-4 h-4" :style="{ color: kindColor(selectedEntry.kind, selectedEntry.meta?.type) }" />
+            <Icon :icon="kindIcon(activeEntry.kind, activeEntry.meta?.type)" class="w-4 h-4" :style="{ color: kindColor(activeEntry.kind, activeEntry.meta?.type) }" />
             <div class="flex-1 min-w-0">
-              <div class="text-xs font-medium truncate" style="color: var(--p-text-color)">{{ entryName(selectedEntry.id) }}</div>
-              <div class="text-[10px] font-mono" style="color: var(--p-text-muted-color)">{{ selectedEntry.id }}</div>
+              <div class="text-xs font-medium truncate" style="color: var(--p-text-color)">{{ entryName(activeEntry.id) }}</div>
+              <div class="text-[10px] font-mono" style="color: var(--p-text-muted-color)">{{ activeEntry.id }}</div>
             </div>
             <div class="flex gap-1">
               <button v-for="t in (['edit', 'meta', 'data', 'raw'] as const)" :key="t" class="text-[10px] px-2 py-0.5 rounded" :class="{ 'tab-active': detailTab === t }" @click="detailTab = t">{{ t }}</button>
@@ -380,7 +388,7 @@ onUnmounted(() => {
           <div v-else-if="detailTab === 'edit'" class="flex-1 overflow-hidden">
             <EditorWrapper
               ref="editorRef"
-              :entry="selectedEntry"
+              :entry="activeEntry"
               :detail="entryDetail"
               @save="handleSave"
               @navigate="navigateToEntry"
@@ -390,9 +398,9 @@ onUnmounted(() => {
           <div v-else class="flex-1 overflow-y-auto p-4">
             <template v-if="detailTab === 'meta'">
               <div class="space-y-2 text-[11px]">
-                <div class="info-row"><span class="info-k">ID</span><span class="info-v font-mono">{{ selectedEntry.id }}</span></div>
-                <div class="info-row"><span class="info-k">Kind</span><span class="info-v">{{ selectedEntry.kind }}</span></div>
-                <template v-for="[key, val] in Object.entries(entryDetail?.entry?.meta || selectedEntry.meta || {})" :key="key">
+                <div class="info-row"><span class="info-k">ID</span><span class="info-v font-mono">{{ activeEntry.id }}</span></div>
+                <div class="info-row"><span class="info-k">Kind</span><span class="info-v">{{ activeEntry.kind }}</span></div>
+                <template v-for="[key, val] in Object.entries(activeEntry.meta || {})" :key="key">
                   <div class="info-row">
                     <span class="info-k">{{ key }}</span>
                     <span v-if="typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean'" class="info-v">{{ val }}</span>
@@ -406,15 +414,15 @@ onUnmounted(() => {
               </div>
               <div class="mt-3 pt-3" style="border-top: 1px solid var(--p-content-border-color)">
                 <div class="text-[10px] uppercase tracking-wider font-medium mb-1" style="color: var(--p-text-muted-color)">Raw Meta</div>
-                <pre class="json-block text-[10px]">{{ prettyJson(entryDetail?.entry?.meta || selectedEntry.meta) }}</pre>
+                <pre class="json-block text-[10px]">{{ prettyJson(activeEntry.meta) }}</pre>
               </div>
             </template>
             <template v-else-if="detailTab === 'data'">
-              <pre v-if="entryDetail?.entry?.data && Object.keys(entryDetail.entry.data).length > 0" class="json-block">{{ prettyJson(entryDetail.entry.data) }}</pre>
+              <pre v-if="activeEntry.data && Object.keys(activeEntry.data).length > 0" class="json-block">{{ prettyJson(activeEntry.data) }}</pre>
               <div v-else class="text-xs italic" style="color: var(--p-text-muted-color)">No data</div>
             </template>
             <template v-else>
-              <pre class="json-block text-[10px]">{{ prettyJson(entryDetail?.entry || selectedEntry) }}</pre>
+              <pre class="json-block text-[10px]">{{ prettyJson(activeEntry) }}</pre>
             </template>
           </div>
         </template>

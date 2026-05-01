@@ -47,7 +47,7 @@ local function migration_row(id)
 end
 
 local function define_tests()
-    test.describe("integrate_pipeline_migration_e2e", function()
+    test.describe("integrate_pipeline_migration", function()
         test.it("pipeline execute applies a live migration via migration_handler", function()
             reset()
             test.is_false(table_exists(PROBE_TBL), "probe_verify must not exist at start")

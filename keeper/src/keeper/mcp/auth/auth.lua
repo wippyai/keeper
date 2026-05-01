@@ -1,11 +1,9 @@
--- Admin actor + scope synthesis for MCP sessions.
+-- Actor + scope synthesis for MCP sessions.
 --
--- MCP bearer tokens (env or token-store) carry no wippy security context of
--- their own, so any downstream call that hits governance or a managed
--- registry needs a synthesized admin actor bound to the app.security:admin
--- scope. Call sites that share this pattern:
---   * handler.lua — dispatch a dynamic tool via funcs.call
---   * handler_get.lua — spawn the per-session SSE broker process
+-- MCP bearer tokens carry no Wippy security context of their own, so downstream
+-- calls that hit governance or the live registry need a synthesized actor bound
+-- to the app-configured admin scope. Tokens are stored subjects, not anonymous
+-- root credentials: session.identity is always a real app user.
 
 local security = require("security")
 local funcs = require("funcs")
@@ -14,26 +12,18 @@ local env = require("env")
 local consts = require("mcp_consts")
 local token_store = require("mcp_tokens")
 local authorizer = require("mcp_authorize")
+local config = require("keeper_config")
 
-local ADMIN_SCOPE_ID = consts.ADMIN_SCOPE_ID or "app.security:admin"
-local ADMIN_IDENTITY_ENV = "keeper.mcp:admin_identity"
-local ACCESS_TOKEN_ENV = "keeper.mcp:access_token"
 local ENABLED_ENV = "keeper.mcp:enabled"
-local PUBLIC_ENABLED_ENV = "keeper.mcp:public_enabled"
-local PUBLIC_URL_ENV = "keeper.mcp:public_url"
 local PUBLIC_API_URL_ENV = "PUBLIC_API_URL"
-local PUBLIC_PATH = "/keeper-mcp/"
-local INTERNAL_URL = "http://localhost:9067/"
-local DEFAULT_PUBLIC_BASE_URL = "http://localhost:8067"
 
 local M = {}
 
-M.ADMIN_SCOPE_ID = ADMIN_SCOPE_ID
 M.ENABLED_ENV = ENABLED_ENV
-M.PUBLIC_ENABLED_ENV = PUBLIC_ENABLED_ENV
-M.PUBLIC_URL_ENV = PUBLIC_URL_ENV
-M.PUBLIC_PATH = PUBLIC_PATH
-M.INTERNAL_URL = INTERNAL_URL
+
+local function admin_scope_id()
+    return consts.admin_scope_id()
+end
 
 local function bool_env(id, default)
     local value = env.get(id)
@@ -55,10 +45,6 @@ function M.enabled()
     return bool_env(ENABLED_ENV, true)
 end
 
-function M.public_enabled()
-    return bool_env(PUBLIC_ENABLED_ENV, false)
-end
-
 local function trim_slashes(url)
     url = tostring(url or "")
     while url:sub(-1) == "/" do
@@ -73,19 +59,21 @@ local function ensure_trailing_slash(url)
     return url .. "/"
 end
 
-function M.public_url()
-    local explicit = env.get(PUBLIC_URL_ENV)
-    if explicit and tostring(explicit) ~= "" then
-        return ensure_trailing_slash(explicit)
-    end
-
-    local base = env.get(PUBLIC_API_URL_ENV)
-    if not base or tostring(base) == "" then base = DEFAULT_PUBLIC_BASE_URL end
-    return trim_slashes(base) .. PUBLIC_PATH
+local function normalize_route(path)
+    path = tostring(path or "")
+    if path == "" then path = "/keeper-mcp/" end
+    if path:sub(1, 1) ~= "/" then path = "/" .. path end
+    return ensure_trailing_slash(path)
 end
 
-function M.internal_url()
-    return INTERNAL_URL
+function M.path()
+    return normalize_route(config.mcp_route())
+end
+
+function M.public_url()
+    local base = env.get(PUBLIC_API_URL_ENV)
+    if not base or tostring(base) == "" then return "" end
+    return trim_slashes(base) .. M.path()
 end
 
 function M.extract_token(req)
@@ -96,15 +84,15 @@ function M.extract_token(req)
     return nil
 end
 
--- Confirms a user_id exists in app_users and is a member of the
--- app.security:admin group. Returns (true, nil) on success, (false, reason)
+-- Confirms a user_id exists in app_users and is a member of the configured
+-- admin group. Returns (true, nil) on success, (false, reason)
 -- otherwise. Centralized so every surface that trusts a bearer to impersonate
 -- an admin routes through the same check.
 function M.verify_admin_user(user_id)
     if not user_id or user_id == "" then
         return false, "admin user_id required"
     end
-    local db, db_err = sql.get(consts.DB_ID)
+    local db, db_err = sql.get(consts.db_id())
     if db_err then return false, "db unavailable: " .. tostring(db_err) end
 
     local rows, q_err = db:query([[
@@ -116,7 +104,7 @@ function M.verify_admin_user(user_id)
            AND u.status = 'active'
            AND g.group_id = ?
          LIMIT 1
-    ]], { user_id, ADMIN_SCOPE_ID })
+    ]], { user_id, admin_scope_id() })
     db:release()
 
     if q_err then return false, "admin lookup failed: " .. tostring(q_err) end
@@ -130,7 +118,7 @@ function M.verify_active_user(user_id)
     if not user_id or user_id == "" then
         return false, "user_id required"
     end
-    local db, db_err = sql.get(consts.DB_ID)
+    local db, db_err = sql.get(consts.db_id())
     if db_err then return false, "db unavailable: " .. tostring(db_err) end
 
     local rows, q_err = db:query([[
@@ -149,47 +137,8 @@ function M.verify_active_user(user_id)
     return true, nil
 end
 
--- Resolves the identity that the env bearer token impersonates. Reads
--- MCP_ADMIN_IDENTITY via the keeper.mcp:admin_identity env entry and confirms
--- the value is a real admin user. Returns (user_id, nil) or (nil, reason).
--- The env token cannot authenticate unless this resolves successfully.
-function M.resolve_env_identity()
-    local user_id = env.get(ADMIN_IDENTITY_ENV)
-    if not user_id or user_id == "" then
-        return nil, "env MCP bearer disabled: " ..
-            ADMIN_IDENTITY_ENV .. " is not configured"
-    end
-    local ok, verr = M.verify_admin_user(user_id)
-    if not ok then return nil, verr end
-    return user_id, nil
-end
-
-function M.session_from_token(token, opts)
+function M.session_from_token(token)
     if not token or token == "" then return nil, "missing Authorization header" end
-    opts = opts or {}
-
-    local access_token = env.get(ACCESS_TOKEN_ENV)
-    if access_token and access_token ~= "" and token == access_token then
-        if opts.public_mount then
-            return nil, "env MCP bearer is not accepted on the public MCP mount"
-        end
-        local identity, ident_err = M.resolve_env_identity()
-        if not identity then return nil, ident_err end
-        local token_hash, hash_err = token_store.digest(token)
-        if hash_err then return nil, hash_err end
-        return {
-            token = token,
-            token_hash = token_hash,
-            label = "env",
-            identity = identity,
-            scopes = { consts.ROOT_SCOPE },
-            access_mode = "any",
-            trait_filter = nil,
-            tool_filter = nil,
-            default_active = {},
-            internal_root = true,
-        }, nil
-    end
 
     local session, err = token_store.get(token)
     if err then return nil, err end
@@ -200,9 +149,9 @@ function M.session_from_token(token, opts)
     return session, nil
 end
 
-function M.session_from_request(req, opts)
+function M.session_from_request(req)
     local token = M.extract_token(req)
-    return M.session_from_token(token, opts)
+    return M.session_from_token(token)
 end
 
 function M.admin_actor(session, via)
@@ -217,7 +166,7 @@ function M.admin_actor(session, via)
 end
 
 function M.admin_scope()
-    local scope, err = security.named_scope(ADMIN_SCOPE_ID)
+    local scope, err = security.named_scope(admin_scope_id())
     if err then return nil, "named_scope failed: " .. tostring(err) end
     return scope, nil
 end

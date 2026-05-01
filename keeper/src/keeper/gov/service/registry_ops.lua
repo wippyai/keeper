@@ -6,9 +6,10 @@
 -- + governance changeset run). HTTP handlers become thin adapters.
 
 local registry = require("registry")
-local funcs = require("funcs")
 
 local materialize = require("materialize")
+local gov_client = require("gov_client")
+local gov_consts = require("gov_consts")
 
 local M = {}
 
@@ -27,6 +28,29 @@ local function fail(code, message, extra)
         for k, v in pairs(extra) do err[k] = v end
     end
     return nil, err
+end
+
+local function lower(value)
+    if value == nil then return "" end
+    return string.lower(tostring(value))
+end
+
+function M.entry_matches_query(entry, query)
+    local q = lower(query)
+    if q == "" then return true end
+    local meta = entry.meta or {}
+    for _, value in pairs({
+        id = entry.id,
+        kind = entry.kind,
+        meta_type = meta.type,
+        title = meta.title,
+        name = meta.name,
+        comment = meta.comment,
+        description = meta.description,
+    }) do
+        if lower(value):find(q, 1, true) then return true end
+    end
+    return false
 end
 
 function M.deep_copy(original)
@@ -109,6 +133,36 @@ function M.apply_updates(entry, update_data, should_merge)
     return updated, updates_made
 end
 
+function M.update_changeset(entry)
+    local materialized, mat_err = materialize.entry(deep_copy(entry))
+    if not materialized then
+        return nil, "Failed to materialize entry: " .. tostring(mat_err)
+    end
+
+    local chunks = {
+        { type = "definition", content = materialized.definition },
+    }
+    if materialized.content and materialized.content ~= "" then
+        table.insert(chunks, { type = "content", content = materialized.content })
+    end
+
+    local registry_entry, rt_err = materialize.state_entry_to_registry({
+        id = materialized.id,
+        kind = materialized.kind,
+        chunks = chunks,
+    })
+    if not registry_entry then
+        return nil, "Failed to convert materialized entry: " .. tostring(rt_err)
+    end
+
+    return {
+        {
+            kind = gov_consts.REGISTRY_OPERATIONS.UPDATE,
+            entry = registry_entry,
+        },
+    }, nil
+end
+
 function M.get_entry(entry_id)
     if not entry_id or entry_id == "" then
         return fail(M.ERR.BAD_REQUEST, "Missing required query parameter: id")
@@ -147,6 +201,7 @@ function M.list_entries(params)
     local kind = params.kind
     local namespace = params.namespace
     local meta_type = params.meta_type
+    local query = params.query
 
     local criteria = {}
     if namespace and namespace ~= "" then criteria[".ns"] = namespace end
@@ -166,6 +221,16 @@ function M.list_entries(params)
 
     if not entries then
         return fail(M.ERR.INTERNAL, "Failed to get entries: " .. tostring(err))
+    end
+
+    if query and query ~= "" then
+        local filtered = {}
+        for _, entry in ipairs(entries) do
+            if M.entry_matches_query(entry, query) then
+                table.insert(filtered, entry)
+            end
+        end
+        entries = filtered
     end
 
     local total = #entries
@@ -191,6 +256,7 @@ function M.list_entries(params)
         namespace = namespace ~= "" and namespace or nil,
         kind      = kind ~= "" and kind or nil,
         meta_type = meta_type ~= "" and meta_type or nil,
+        query     = query ~= "" and query or nil,
         has_more  = end_index < total,
     }
 end
@@ -251,48 +317,29 @@ function M.update_entry(entry_id, update_data)
         return fail(M.ERR.BAD_REQUEST, "No updates provided (need at least one of: kind, meta, data)")
     end
 
-    local materialized, mat_err = materialize.entry(updated)
-    if not materialized then
-        return fail(M.ERR.INTERNAL, "Failed to materialize entry: " .. tostring(mat_err))
+    local changeset, changeset_err = M.update_changeset(updated)
+    if not changeset then
+        return fail(M.ERR.INTERNAL, changeset_err)
     end
 
-    local executor = funcs.new()
-    local cs_resp, cs_err = executor:call("keeper.state.tools:apply", {
-        title   = "Update entry " .. entry_id,
+    local publish_result, publish_err = gov_client.request_changes(changeset, {
         message = "HTTP update_entry: " .. entry_id,
-        publish = true,
-        patches = {
-            {
-                target     = "entry",
-                id         = materialized.id,
-                op         = "set",
-                kind       = materialized.kind,
-                definition = materialized.definition,
-                content    = materialized.content,
-            },
-        },
+        source = "keeper.registry",
+        request_hil = true,
     })
 
-    if cs_err or not cs_resp then
-        return fail(M.ERR.INTERNAL, "Failed to apply registry changes: " .. tostring(cs_err))
-    end
-    if not cs_resp.ok then
-        local first = cs_resp.errors and cs_resp.errors[1]
-        local message = first and first.message or "changeset failed"
-        return fail(M.ERR.CONFLICT, "Failed to apply registry changes: " .. message, {
-            stage        = cs_resp.stage,
-            changeset_id = cs_resp.changeset_id,
+    if publish_err or not publish_result then
+        return fail(M.ERR.CONFLICT, "Failed to apply registry changes: " .. tostring(publish_err), {
+            stage = "governance",
         })
     end
-
-    local push_version = cs_resp.push and cs_resp.push.version or nil
 
     return {
         message      = "Entry updated successfully",
         id           = entry_id,
         kind         = updated.kind,
-        version      = push_version,
-        changeset_id = cs_resp.changeset_id,
+        version      = publish_result.version,
+        changeset_id = publish_result.changeset and publish_result.changeset.id or nil,
         merge        = should_merge,
         updated      = {
             kind = update_data.kind ~= nil,

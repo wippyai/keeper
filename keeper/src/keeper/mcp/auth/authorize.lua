@@ -13,6 +13,7 @@ local TOOL_SCOPE_FALLBACKS = {
 
     ["keeper.agents.tools:data"] = { "state.read" },
     ["keeper.agents.tools:dataflow"] = { "state.read" },
+    ["keeper.agents.tools:delegate"] = { "agents.read", "agents.run" },
     ["keeper.agents.tools:manager"] = { "agents.read" },
     ["keeper.agents.tools:run_test"] = { "tests.run" },
     ["keeper.agents.tools:sessions"] = { "state.read" },
@@ -47,7 +48,7 @@ local TOOL_SCOPE_FALLBACKS = {
     ["keeper.state.tools:push"] = { "registry.write", "registry.sync" },
     ["keeper.state.tools:reset"] = { "registry.write" },
 
-    ["keeper.task.tools:e2e_launch"] = { "tasks.run" },
+    ["keeper.task.tools:launch"] = { "tasks.run" },
     ["keeper.task.tools:read_context"] = { "tasks.read" },
     ["keeper.task.tools:save_context"] = { "tasks.write" },
     ["keeper.task.tools:step_block"] = { "tasks.write" },
@@ -382,20 +383,42 @@ function M.validate_subject(session)
     end
     if session.internal_root == true then return true end
 
-    local db, db_err = sql.get(consts.DB_ID)
+    local db, db_err = sql.get(consts.db_id())
     if db_err then return false, "db unavailable: " .. tostring(db_err) end
     local rows, q_err = db:query([[
         SELECT user_id, status FROM app_users WHERE user_id = ? LIMIT 1
     ]], { session.identity })
-    db:release()
 
-    if q_err then return false, "user lookup failed: " .. tostring(q_err) end
+    if q_err then
+        db:release()
+        return false, "user lookup failed: " .. tostring(q_err)
+    end
     if not rows or #rows == 0 then
+        db:release()
         return false, "MCP token subject not found: " .. tostring(session.identity)
     end
     if rows[1].status ~= "active" then
+        db:release()
         return false, "MCP token subject is not active: " .. tostring(session.identity)
     end
+
+    if M.scope_set(session)[ROOT_SCOPE] == true then
+        local admin_rows, admin_err = db:query([[
+            SELECT user_id
+              FROM app_user_groups
+             WHERE user_id = ?
+               AND group_id = ?
+             LIMIT 1
+        ]], { session.identity, consts.admin_scope_id() })
+        db:release()
+        if admin_err then return false, "admin lookup failed: " .. tostring(admin_err) end
+        if not admin_rows or #admin_rows == 0 then
+            return false, "MCP root token subject is not admin: " .. tostring(session.identity)
+        end
+        return true
+    end
+
+    db:release()
     return true
 end
 

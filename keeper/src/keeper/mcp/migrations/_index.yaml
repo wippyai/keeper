@@ -8,59 +8,51 @@ entries:
     meta:
       type: migration
       comment: MCP token management table
-      order: 3
       target_db: app:db
     source: file://migration_01.lua
     imports:
       migration: wippy.migration:migration
     method: define
-    
+
   # keeper.mcp.migrations:migration_02
   - name: migration_02
     kind: function.lua
     meta:
       type: migration
       comment: Trait-based access control and session state
-      order: 4
       target_db: app:db
     source: file://migration_02.lua
     imports:
       migration: wippy.migration:migration
     method: define
-    
   # keeper.mcp.migrations:migration_03
   - name: migration_03
     kind: function.lua
     meta:
       type: migration
       comment: Session state overlay_branch column
-      order: 5
       target_db: app:db
     source: file://migration_03.lua
     imports:
       migration: wippy.migration:migration
     method: define
-    
   # keeper.mcp.migrations:migration_04
   - name: migration_04
     kind: function.lua
     meta:
       type: migration
       comment: Session state changeset_id column
-      order: 6
       target_db: app:db
     source: file://migration_04.lua
     imports:
       migration: wippy.migration:migration
     method: define
-    
   # keeper.mcp.migrations:migration_05
   - name: migration_05
     kind: function.lua
     meta:
       type: migration
       comment: Hash plaintext tokens at rest (sha256); re-key session_state
-      order: 7
       target_db: app:db
     source: file://migration_05.lua
     modules:
@@ -68,17 +60,16 @@ entries:
     imports:
       migration: wippy.migration:migration
     method: define
-    
+
   # keeper.mcp.migrations:migration_06
   - name: migration_06
     kind: function.lua
     meta:
       type: migration
       comment: Token issuer and revocation audit columns
-      order: 8
       target_db: app:db
     source: file://migration_06.lua
     imports:
       migration: wippy.migration:migration
     method: define
-    
+

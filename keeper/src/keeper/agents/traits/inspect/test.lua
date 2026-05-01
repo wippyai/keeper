@@ -5,6 +5,7 @@ local INSPECT_NS = "keeper.agents.traits.inspect:"
 
 local REQUIRED_TRAITS = {
     agent_manager = { "keeper.agents.tools:manager" },
+    agent_runner = { "keeper.agents.tools:delegate" },
     data_inspector = { "keeper.agents.tools:data" },
     flow_debugger = { "keeper.agents.tools:dataflow", "keeper.agents.tools:sessions" },
     test_runner = { "keeper.agents.tools:run_test", "keeper.agents.tools:test_endpoint" },

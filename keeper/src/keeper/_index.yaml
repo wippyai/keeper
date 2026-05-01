@@ -231,14 +231,6 @@ entries:
         path: .meta.router
       - entry: keeper.logger.api:get_stats.endpoint
         path: .meta.router
-      - entry: keeper.mcp.api:admin_token_get
-        path: .meta.router
-      - entry: keeper.mcp.api:admin_token_get.endpoint
-        path: .meta.router
-      - entry: keeper.mcp.api:admin_token_set
-        path: .meta.router
-      - entry: keeper.mcp.api:admin_token_set.endpoint
-        path: .meta.router
       - entry: keeper.mcp.api:create_token
         path: .meta.router
       - entry: keeper.mcp.api:create_token.endpoint
@@ -369,7 +361,6 @@ entries:
     kind: ns.requirement
     meta:
       description: Security scope that identifies Keeper administrators
-    default: app.security:admin
     targets:
       - entry: keeper.config:admin_scope
         path: .default
@@ -385,26 +376,30 @@ entries:
         path: .storage
       - entry: keeper.gov.env:managed_namespaces
         path: .storage
-      - entry: keeper.mcp:access_token
-        path: .storage
-      - entry: keeper.mcp:admin_identity
-        path: .storage
       - entry: keeper.mcp:enabled
-        path: .storage
-      - entry: keeper.mcp:public_enabled
-        path: .storage
-      - entry: keeper.mcp:public_url
         path: .storage
 
   # keeper:public_gateway
   - name: public_gateway
     kind: ns.requirement
     meta:
-      description: Public HTTP service used for the optional /keeper-mcp/ mount
+      description: HTTP service used for the /keeper-mcp/ mount
     default: app:gateway
     targets:
-      - entry: keeper.mcp:router.app
+      - entry: keeper.mcp:router
         path: .meta.server
+
+  # keeper:mcp_route
+  - name: mcp_route
+    kind: ns.requirement
+    meta:
+      description: Route prefix used by Keeper MCP on the app gateway
+    default: /keeper-mcp/
+    targets:
+      - entry: keeper.config:mcp_route
+        path: .default
+      - entry: keeper.mcp:router
+        path: .prefix
 
   # keeper:ui_server
   - name: ui_server

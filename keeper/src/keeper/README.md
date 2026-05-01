@@ -6,7 +6,7 @@ workflows.
 
 This module ships the compiled Keeper UI as an embedded filesystem and exposes
 the APIs needed to operate a Wippy application at runtime. Consumer apps install
-`keeper/keeper@0.5.2`; they do not need Keeper frontend source in their own
+`keeper/keeper@0.5.4`; they do not need Keeper frontend source in their own
 repository unless they are developing Keeper itself.
 
 ## Configuration
@@ -16,7 +16,8 @@ their own runtime resources without editing Keeper entries:
 
 - `keeper:api_router` routes Keeper HTTP APIs. Default: `app:api`.
 - `keeper:app_db` stores Keeper app-owned data and migrations. Default: `app:db`.
-- `keeper:admin_scope` identifies Keeper administrators. Default: `app.security:admin`.
+- `keeper:admin_scope` identifies Keeper administrators. Required; bind it to
+  the host application's admin security scope.
 - `keeper:env_storage` stores Keeper settings and MCP flags. Default: `app.env:store`.
 - `keeper:public_gateway` hosts the optional public MCP mount. Default: `app:gateway`.
 - `keeper:ui_server` serves embedded Keeper UI assets. Default: `app:gateway`.
@@ -36,6 +37,6 @@ install into unrelated Keeper or application changes.
 
 ## MCP
 
-Keeper MCP supports scoped tokens bound to a user identity. Local internal MCP
-can be exposed separately from the optional public MCP route, and public MCP is
-gated by Keeper environment settings.
+Keeper MCP supports scoped tokens bound to a user identity. The MCP route is
+mounted through the host application's configured public gateway and can be
+enabled or disabled with Keeper environment settings.

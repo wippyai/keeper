@@ -18,6 +18,7 @@ local function handler()
         kind      = req:query("kind"),
         namespace = req:query("namespace"),
         meta_type = req:query("meta.type"),
+        query     = req:query("q") or req:query("query"),
     })
     if err then
         res:set_status(STATUS_MAP[err.code] or http.STATUS.INTERNAL_ERROR)
@@ -37,6 +38,7 @@ local function handler()
         namespace = result.namespace,
         kind      = result.kind,
         meta_type = result.meta_type,
+        query     = result.query,
         has_more  = result.has_more,
         entries   = result.entries,
     })

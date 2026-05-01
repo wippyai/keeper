@@ -10,6 +10,15 @@ entries:
       title: Agents Read
       comment: Inspect public and internal Keeper agent catalog metadata
     id: agents.read
+
+  # keeper.mcp.scopes:agents.run
+  - name: agents.run
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Agents Run
+      comment: Start or run Keeper agents through dataflows
+    id: agents.run
     
   # keeper.mcp.scopes:app.ui
   - name: app.ui

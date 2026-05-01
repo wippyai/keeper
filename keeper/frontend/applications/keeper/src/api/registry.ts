@@ -41,12 +41,13 @@ export async function listNamespaces(api: ProxyApiInstance['api']): Promise<Name
 
 export async function listEntries(
   api: ProxyApiInstance['api'],
-  opts: { namespace?: string; kind?: string; metaType?: string; limit?: number; offset?: number } = {},
+  opts: { namespace?: string; kind?: string; metaType?: string; query?: string; limit?: number; offset?: number } = {},
 ): Promise<EntriesResponse> {
   const params: any = { limit: opts.limit || 200, offset: opts.offset || 0 }
   if (opts.namespace) params.namespace = opts.namespace
   if (opts.kind) params.kind = opts.kind
   if (opts.metaType) params['meta.type'] = opts.metaType
+  if (opts.query) params.q = opts.query
   const { data } = await api.get<EntriesResponse>('/api/v1/keeper/registry/entries', { params })
   return data
 }

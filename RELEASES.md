@@ -1,5 +1,35 @@
 # Release Notes
 
+## keeper/keeper 0.5.4
+
+`keeper/keeper@0.5.4` makes Hub requirement selection fully user-bound and
+registry-aware for apps with arbitrary namespaces.
+
+### Highlights
+
+- Install plans now expose the expected value kind for requirements, for example
+  `http.router` for endpoint router bindings.
+- The Hub install UI always lets the user type an exact registry id or contract
+  value; package defaults are shown as metadata, not pre-filled guesses.
+- Registry suggestions are live entries only. They are selectable, but never
+  required to use `app:*` names.
+- Manually typed resource values are validated against the expected registry
+  kind before install. Invalid values stay visible in the dialog with a clear
+  reason and are not sent as install parameters.
+
+### Verification
+
+- `keeper.hub:test` passes 49/49 in the running app.
+- `wippy lint --ns keeper.hub,keeper.hub.*` reports no issues.
+- Frontend Hub API tests pass.
+- Frontend type-check and production build pass.
+- Live plan smoke: `tenant.web:missing` is rejected as an invalid `http.router`.
+- Live plan smoke: `keeper.mcp:router` is accepted as a valid non-`app:*`
+  router requirement value.
+- UI smoke: the install dialog shows live router suggestions, a manual
+  `Enter http.router id or contract value` input, and disables install for an
+  invalid typed router id.
+
 ## keeper/keeper 0.5.3
 
 `keeper/keeper@0.5.3` hardens Hub dependency install planning and the

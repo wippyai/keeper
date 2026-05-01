@@ -2,6 +2,7 @@ local test = require("test")
 local registry = require("registry")
 local data = require("data_tool")
 local dataflow = require("dataflow_tool")
+local delegate = require("delegate_tool")
 local manager = require("manager_tool")
 local system = require("system_tool")
 
@@ -21,6 +22,72 @@ local function collect_agent_tools(agent_id)
         end
     end
     return seen, entry
+end
+
+local function fake_delegate_flow()
+    local captured = {}
+    local builder = {}
+
+    function builder:with_title(title)
+        captured.title = title
+        return self
+    end
+
+    function builder:with_metadata(metadata)
+        captured.metadata = metadata
+        return self
+    end
+
+    function builder:with_input(input)
+        captured.input = input
+        return self
+    end
+
+    function builder:with_data(data)
+        captured.data = data
+        return self
+    end
+
+    function builder:as(name)
+        captured.last_as = name
+        return self
+    end
+
+    function builder:to(target, input_key)
+        captured.to = { target = target, input_key = input_key }
+        return self
+    end
+
+    function builder:error_to(target)
+        captured.error_to = target
+        return self
+    end
+
+    function builder:agent(agent_id, config)
+        captured.agent_id = agent_id
+        captured.agent_config = config
+        return self
+    end
+
+    function builder:start()
+        captured.started = true
+        return "df_test_delegate"
+    end
+
+    function builder:run()
+        captured.ran = true
+        return { output = "done" }
+    end
+
+    return {
+        captured = captured,
+        module = {
+            create = function()
+                captured.created = true
+                return builder
+            end,
+        },
+    }
 end
 
 local function define_tests()
@@ -219,6 +286,73 @@ local function define_tests()
                     test.is_true(agent.public == true)
                     test.is_true(type(agent.tools) == "table")
                 end
+            end)
+        end)
+
+        describe("delegate helpers", function()
+            it("requires explicit target agent and message", function()
+                local v, err = delegate.normalize_args({ message = "hi" })
+                test.is_nil(v)
+                test.is_true(err:find("agent_id") ~= nil)
+
+                v, err = delegate.normalize_args({ agent_id = "keeper.agents:researcher" })
+                test.is_nil(v)
+                test.is_true(err:find("message") ~= nil)
+            end)
+
+            it("bounds iteration counts and tool calling mode", function()
+                local v, err = delegate.normalize_args({
+                    agent_id = "keeper.agents:researcher",
+                    message = "hi",
+                    max_iterations = 65,
+                })
+                test.is_nil(v)
+                test.is_true(err:find("max_iterations") ~= nil)
+
+                v, err = delegate.normalize_args({
+                    agent_id = "keeper.agents:researcher",
+                    message = "hi",
+                    tool_calling = "none",
+                })
+                test.is_nil(v)
+                test.is_true(err:find("tool_calling") ~= nil)
+            end)
+
+            it("starts a detached dataflow with inherited and explicit context", function()
+                local fake = fake_delegate_flow()
+                local old = delegate._set_deps({
+                    flow = fake.module,
+                    ctx = {
+                        all = function()
+                            return { overlay_branch = "ws/test", agent_id = "keeper.agents:caller" }
+                        end,
+                    },
+                    agent_registry = {
+                        get_by_id = function(id)
+                            return { id = id, title = "Researcher", name = "researcher" }
+                        end,
+                    },
+                })
+
+                local out, err = delegate.handler({
+                    agent_id = "keeper.agents:researcher",
+                    message = "inspect this",
+                    context = { extra = "value" },
+                    detached = true,
+                    max_iterations = 4,
+                })
+                delegate._set_deps(old)
+
+                test.is_nil(err)
+                test.eq(out.dataflow_id, "df_test_delegate")
+                test.is_true(fake.captured.started)
+                test.eq(fake.captured.metadata.target_agent, "keeper.agents:researcher")
+                test.eq(fake.captured.input.overlay_branch, "ws/test")
+                test.eq(fake.captured.input.extra, "value")
+                test.eq(fake.captured.agent_id, "keeper.agents:researcher")
+                test.eq(fake.captured.agent_config.arena.context.delegate_target_agent_id,
+                    "keeper.agents:researcher")
+                test.eq(fake.captured.agent_config.arena.max_iterations, 4)
             end)
         end)
 

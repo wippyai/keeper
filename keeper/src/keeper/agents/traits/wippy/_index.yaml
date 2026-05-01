@@ -37,6 +37,7 @@ entries:
       - keeper.agents.traits.state:comparer
       - keeper.agents.traits.state:editor
       - keeper.agents.traits.inspect:agent_manager
+      - keeper.agents.traits.inspect:agent_runner
       - keeper.agents.traits.inspect:task_debugger
       - keeper.agents.traits.inspect:system_inspector
       - keeper.agents.traits.inspect:test_runner

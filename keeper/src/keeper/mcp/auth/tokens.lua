@@ -95,7 +95,7 @@ function tokens.create(params)
     local token_hash, herr = digest(raw_token)
     if herr then return nil, herr end
 
-    local db, db_err = sql.get(consts.DB_ID)
+    local db, db_err = sql.get(consts.db_id())
     if db_err then return nil, "Database error: " .. tostring(db_err) end
 
     local now = time.now():unix()
@@ -142,7 +142,7 @@ function tokens.get(raw_token)
     local token_hash, herr = digest(raw_token)
     if herr then return nil, herr end
 
-    local db, db_err = sql.get(consts.DB_ID)
+    local db, db_err = sql.get(consts.db_id())
     if db_err then return nil, "Database error: " .. tostring(db_err) end
 
     local rows, query_err = db:query([[
@@ -172,7 +172,7 @@ function tokens.get(raw_token)
 end
 
 function tokens.list()
-    local db, db_err = sql.get(consts.DB_ID)
+    local db, db_err = sql.get(consts.db_id())
     if db_err then return nil, "Database error: " .. tostring(db_err) end
 
     local rows, query_err = db:query([[
@@ -201,7 +201,7 @@ function tokens.revoke(token_hash, revoked_by)
         return nil, "token hash required"
     end
 
-    local db, db_err = sql.get(consts.DB_ID)
+    local db, db_err = sql.get(consts.db_id())
     if db_err then return nil, "Database error: " .. tostring(db_err) end
 
     local now = time.now():unix()
@@ -229,7 +229,7 @@ function tokens.get_active_traits(raw_token)
     local key, herr = digest(raw_token)
     if herr then return nil, herr end
 
-    local db, db_err = sql.get(consts.DB_ID)
+    local db, db_err = sql.get(consts.db_id())
     if db_err then return nil, "Database error: " .. tostring(db_err) end
 
     local rows, query_err = db:query(
@@ -248,7 +248,7 @@ function tokens.set_active_traits(raw_token, trait_ids)
     local key, herr = digest(raw_token)
     if herr then return false, herr end
 
-    local db, db_err = sql.get(consts.DB_ID)
+    local db, db_err = sql.get(consts.db_id())
     if db_err then return false, "Database error: " .. tostring(db_err) end
 
     local payload = encode_value(trait_ids or {})
@@ -278,7 +278,7 @@ function tokens.get_overlay_branch(raw_token)
     local key, herr = digest(raw_token)
     if herr then return nil, herr end
 
-    local db, db_err = sql.get(consts.DB_ID)
+    local db, db_err = sql.get(consts.db_id())
     if db_err then return nil, "Database error: " .. tostring(db_err) end
 
     local rows, query_err = db:query(
@@ -299,7 +299,7 @@ function tokens.set_overlay_branch(raw_token, branch)
     local key, herr = digest(raw_token)
     if herr then return false, herr end
 
-    local db, db_err = sql.get(consts.DB_ID)
+    local db, db_err = sql.get(consts.db_id())
     if db_err then return false, "Database error: " .. tostring(db_err) end
 
     local now = time.now():unix()
@@ -327,7 +327,7 @@ function tokens.get_changeset_id(raw_token)
     local key, herr = digest(raw_token)
     if herr then return nil, herr end
 
-    local db, db_err = sql.get(consts.DB_ID)
+    local db, db_err = sql.get(consts.db_id())
     if db_err then return nil, "Database error: " .. tostring(db_err) end
 
     local rows, query_err = db:query(
@@ -348,7 +348,7 @@ function tokens.set_changeset_id(raw_token, changeset_id)
     local key, herr = digest(raw_token)
     if herr then return false, herr end
 
-    local db, db_err = sql.get(consts.DB_ID)
+    local db, db_err = sql.get(consts.db_id())
     if db_err then return false, "Database error: " .. tostring(db_err) end
 
     local now = time.now():unix()

@@ -2,13 +2,13 @@ version: "1.0"
 namespace: keeper.task.tools
 
 entries:
-  # keeper.task.tools:e2e_launch
-  - name: e2e_launch
+  # keeper.task.tools:launch
+  - name: launch
     kind: function.lua
     meta:
       type: tool
-      title: E2E Launch Task
-      comment: Create + start a task in one call (E2E harness for push/autobuild verification)
+      title: Launch Task
+      comment: Create and optionally start a Keeper task in one call
       input_schema: |
         {
           "type": "object",
@@ -20,12 +20,12 @@ entries:
           },
           "required": ["title"]
         }
-      llm_alias: e2e_launch
-      llm_description: Create a task and optionally start the orchestration cycle in one call. Session's synthesized admin acts as the author.
+      llm_alias: launch_task
+      llm_description: Create a tracked Keeper task and optionally start the orchestration cycle in one call. Session's synthesized admin acts as the author.
       mcp:
         required_scopes:
           - tasks.run
-    source: file://e2e_launch.lua
+    source: file://launch.lua
     modules:
       - security
     imports:
@@ -34,7 +34,7 @@ entries:
     method: handler
     pool:
       size: 1
-    
+
   # keeper.task.tools:finish
   - name: finish
     kind: function.lua
@@ -53,7 +53,7 @@ entries:
     method: handler
     pool:
       size: 2
-    
+
   # keeper.task.tools:finish_test
   - name: finish_test
     kind: function.lua
@@ -78,7 +78,7 @@ entries:
     method: define_tests
     pool:
       size: 1
-    
+
   # keeper.task.tools:plan_test
   - name: plan_test
     kind: function.lua
@@ -100,7 +100,7 @@ entries:
     method: define_tests
     pool:
       size: 1
-    
+
   # keeper.task.tools:read_context
   - name: read_context
     kind: function.lua
@@ -133,7 +133,7 @@ entries:
       nodes_reader: keeper.task.persist:nodes_reader
       summarize: keeper.internal.llm:summarize
     method: handler
-    
+
   # keeper.task.tools:read_context_test
   - name: read_context_test
     kind: function.lua
@@ -158,7 +158,7 @@ entries:
     method: define_tests
     pool:
       size: 1
-    
+
   # keeper.task.tools:save_context
   - name: save_context
     kind: function.lua
@@ -188,7 +188,7 @@ entries:
       audit: keeper.task:audit
       nodes_writer: keeper.task.persist:nodes_writer
     method: handler
-    
+
   # keeper.task.tools:step_block
   - name: step_block
     kind: function.lua
@@ -218,7 +218,7 @@ entries:
       nodes_reader: keeper.task.persist:nodes_reader
       nodes_writer: keeper.task.persist:nodes_writer
     method: handler
-    
+
   # keeper.task.tools:step_done
   - name: step_done
     kind: function.lua
@@ -249,7 +249,7 @@ entries:
       nodes_reader: keeper.task.persist:nodes_reader
       nodes_writer: keeper.task.persist:nodes_writer
     method: handler
-    
+
   # keeper.task.tools:tools_test
   - name: tools_test
     kind: function.lua
@@ -261,6 +261,7 @@ entries:
     modules:
       - sql
     imports:
+      launch: keeper.task.tools:launch
       nodes_reader: keeper.task.persist:nodes_reader
       read_context: keeper.task.tools:read_context
       save_context: keeper.task.tools:save_context
@@ -273,7 +274,7 @@ entries:
     method: define_tests
     pool:
       size: 1
-    
+
   # keeper.task.tools:write_plan
   - name: write_plan
     kind: function.lua
@@ -326,7 +327,7 @@ entries:
     method: handler
     pool:
       size: 1
-    
+
   # keeper.task.tools:write_spec
   - name: write_spec
     kind: function.lua
@@ -359,4 +360,4 @@ entries:
       nodes_writer: keeper.task.persist:nodes_writer
       task_writer: keeper.task.persist:writer
     method: handler
-    
+

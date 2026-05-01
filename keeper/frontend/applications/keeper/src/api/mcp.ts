@@ -36,10 +36,8 @@ export interface MCPPreset {
 
 export interface MCPServerConfig {
   enabled: boolean
-  public_enabled: boolean
-  internal_url: string
-  public_url: string
-  public_path: string
+  url: string
+  path: string
 }
 
 export async function listTokens(api: AxiosInstance) {
@@ -49,7 +47,6 @@ export async function listTokens(api: AxiosInstance) {
 
 export async function createToken(api: AxiosInstance, params: {
   label: string
-  identity: string
   scopes?: string[]
   preset?: string
   access_mode?: 'any' | 'traits' | 'tools_only'
@@ -70,14 +67,4 @@ export async function revokeToken(api: AxiosInstance, token: string) {
 export async function listScopes(api: AxiosInstance) {
   const { data } = await api.get('/api/v1/keeper/mcp/scopes')
   return data as { success: boolean; scopes: MCPScope[]; presets: MCPPreset[]; config?: MCPServerConfig }
-}
-
-export async function getAdminToken(api: AxiosInstance) {
-  const { data } = await api.get('/api/v1/keeper/mcp/admin_token')
-  return data as { success: boolean; token: string }
-}
-
-export async function setAdminToken(api: AxiosInstance, token: string) {
-  const { data } = await api.post('/api/v1/keeper/mcp/admin_token', { token })
-  return data as { success: boolean; error?: string }
 }

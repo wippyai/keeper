@@ -22,6 +22,8 @@ export interface HubEntrySummary {
 
 export interface HubDependency {
   id: string
+  namespace?: string
+  name?: string
   component?: string
   version?: string
   source?: string
@@ -46,8 +48,11 @@ export interface ListMigrationsResponse {
 }
 
 export interface InstallPayload {
+  id?: string
   component: string
   version?: string
+  namespace?: string
+  name?: string
   branch?: string
   migration_policy?: 'none' | 'up'
   run_migrations?: boolean
@@ -65,11 +70,14 @@ export interface HubPlanRequirement extends HubRequirement {
   version?: string
   depth?: number
   dependency_path?: string
+  expected_kind?: string
   required?: boolean
   missing?: boolean
   value?: string
   value_source?: 'provided' | 'provided_bare' | 'existing' | 'existing_bare' | 'suggested' | 'default' | 'empty' | string
-  suggestions?: Array<{ value: string; label?: string; source?: string; kind?: string; preferred?: boolean }>
+  invalid?: boolean
+  invalid_reason?: string
+  suggestions?: Array<{ value: string; label?: string; source?: string; kind?: string; preferred?: boolean; dependency_id?: string }>
   transitive?: boolean
 }
 

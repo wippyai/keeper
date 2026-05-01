@@ -2,58 +2,6 @@ version: "1.0"
 namespace: keeper.mcp.api
 
 entries:
-  # keeper.mcp.api:admin_token_get
-  - name: admin_token_get
-    kind: function.lua
-    meta:
-      comment: Get MCP admin access token (env-backed, private)
-      router: app:api
-    source: file://admin_token_get.lua
-    modules:
-      - http
-      - env
-      - security
-    imports:
-      mcp_auth: keeper.mcp.auth:auth
-    method: handle_get
-    pool:
-      size: 2
-    
-  # keeper.mcp.api:admin_token_get.endpoint
-  - name: admin_token_get.endpoint
-    kind: http.endpoint
-    meta:
-      router: app:api
-    method: GET
-    func: admin_token_get
-    path: /keeper/mcp/admin_token
-    
-  # keeper.mcp.api:admin_token_set
-  - name: admin_token_set
-    kind: function.lua
-    meta:
-      comment: Set MCP admin access token
-      router: app:api
-    source: file://admin_token_set.lua
-    modules:
-      - http
-      - env
-      - security
-    imports:
-      mcp_auth: keeper.mcp.auth:auth
-    method: handle_post
-    pool:
-      size: 2
-    
-  # keeper.mcp.api:admin_token_set.endpoint
-  - name: admin_token_set.endpoint
-    kind: http.endpoint
-    meta:
-      router: app:api
-    method: POST
-    func: admin_token_set
-    path: /keeper/mcp/admin_token
-    
   # keeper.mcp.api:create_token
   - name: create_token
     kind: function.lua

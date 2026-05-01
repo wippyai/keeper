@@ -42,7 +42,6 @@ entries:
     imports:
       render: keeper.internal.flow:render
     method: handler
-    
   # keeper.agents.tools:dataflow
   - name: dataflow
     kind: function.lua
@@ -126,6 +125,49 @@ entries:
     source: file://manager.lua
     modules:
       - registry
+    method: handler
+
+  # keeper.agents.tools:delegate
+  - name: delegate
+    kind: function.lua
+    meta:
+      type: tool
+      title: Agent Delegate
+      comment: Run a selected Keeper agent through a dataflow and return its result
+      tags:
+        - agents
+        - delegate
+        - dataflow
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "agent_id": {"type": "string", "description": "Agent entry id, e.g. keeper.agents:researcher"},
+            "message": {"type": "string", "description": "Complete request to send to the target agent"},
+            "context": {"type": "object", "description": "Extra context merged into the agent arena context"},
+            "detached": {"type": "boolean", "description": "Start the agent dataflow asynchronously and return dataflow_id"},
+            "max_iterations": {"type": "integer", "description": "Agent iteration cap, 1..64 (default 16)"},
+            "min_iterations": {"type": "integer", "description": "Minimum iterations, 1..max_iterations (default 1)"},
+            "tool_calling": {"type": "string", "enum": ["auto", "any"], "description": "Agent tool calling mode (default auto)"},
+            "system_prompt": {"type": "string", "description": "Optional arena prompt override"},
+            "model": {"type": "string", "description": "Optional model override"},
+            "title": {"type": "string", "description": "Optional dataflow title"}
+          },
+          "required": ["agent_id", "message"]
+        }
+      llm_alias: delegate_agent
+      llm_description: Run a selected Keeper agent in its own dataflow. Use manager first to discover agent ids. Pass a complete message because this creates an isolated agent run; inherited ctx carries active branch/task/session fields.
+      mcp:
+        required_scopes:
+          - agents.read
+          - agents.run
+    source: file://delegate.lua
+    modules:
+      - ctx
+    imports:
+      agent_registry: wippy.agent.discovery:registry
+      audit: keeper.task:audit
+      flow: userspace.dataflow.flow:flow
     method: handler
     
   # keeper.agents.tools:run_test
@@ -289,6 +331,7 @@ entries:
     imports:
       data_tool: keeper.agents.tools:data
       dataflow_tool: keeper.agents.tools:dataflow
+      delegate_tool: keeper.agents.tools:delegate
       manager_tool: keeper.agents.tools:manager
       system_tool: keeper.agents.tools:system
       test: wippy.test:test
@@ -329,8 +372,8 @@ entries:
       - security
       - http_client
       - json
+      - env
     imports:
       audit: keeper.task:audit
       consts: keeper.components:consts
     method: handler
-    

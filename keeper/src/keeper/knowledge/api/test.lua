@@ -1,14 +1,20 @@
 local test = require("test")
 local json = require("json")
 local http_client = require("http_client")
+local env = require("env")
 
-local BASE_URL = "http://localhost:8067"
+local function endpoint(path)
+    local base = env.get("PUBLIC_API_URL")
+    test.not_nil(base)
+    test.is_true(tostring(base) ~= "")
+    return tostring(base):gsub("/+$", "") .. path
+end
 
 local function define_tests()
     describe("Knowledge API", function()
         describe("GET /keeper/knowledge/kbs", function()
             it("returns 401 without auth", function()
-                local res, err = http_client.get(BASE_URL .. "/api/v1/keeper/knowledge/kbs", {
+                local res, err = http_client.get(endpoint("/api/v1/keeper/knowledge/kbs"), {
                     headers = { Accept = "application/json" },
                 })
                 test.is_nil(err)
@@ -19,7 +25,7 @@ local function define_tests()
 
         describe("POST /keeper/knowledge/kbs", function()
             it("returns 401 without auth", function()
-                local res, err = http_client.post(BASE_URL .. "/api/v1/keeper/knowledge/kbs", {
+                local res, err = http_client.post(endpoint("/api/v1/keeper/knowledge/kbs"), {
                     headers = {
                         Accept = "application/json",
                         ["Content-Type"] = "application/json",
@@ -34,7 +40,7 @@ local function define_tests()
 
         describe("GET /keeper/knowledge/nodes", function()
             it("returns 401 without auth", function()
-                local res, err = http_client.get(BASE_URL .. "/api/v1/keeper/knowledge/nodes", {
+                local res, err = http_client.get(endpoint("/api/v1/keeper/knowledge/nodes"), {
                     headers = { Accept = "application/json" },
                 })
                 test.is_nil(err)
@@ -45,7 +51,7 @@ local function define_tests()
 
         describe("GET /keeper/knowledge/nodes/:id", function()
             it("returns 401 without auth", function()
-                local res, err = http_client.get(BASE_URL .. "/api/v1/keeper/knowledge/nodes/test-id", {
+                local res, err = http_client.get(endpoint("/api/v1/keeper/knowledge/nodes/test-id"), {
                     headers = { Accept = "application/json" },
                 })
                 test.is_nil(err)
@@ -56,7 +62,7 @@ local function define_tests()
 
         describe("POST /keeper/knowledge/nodes", function()
             it("returns 401 without auth", function()
-                local res, err = http_client.post(BASE_URL .. "/api/v1/keeper/knowledge/nodes", {
+                local res, err = http_client.post(endpoint("/api/v1/keeper/knowledge/nodes"), {
                     headers = {
                         Accept = "application/json",
                         ["Content-Type"] = "application/json",
@@ -71,7 +77,7 @@ local function define_tests()
 
         describe("GET /keeper/knowledge/search", function()
             it("returns 401 without auth", function()
-                local res, err = http_client.get(BASE_URL .. "/api/v1/keeper/knowledge/search?q=test", {
+                local res, err = http_client.get(endpoint("/api/v1/keeper/knowledge/search?q=test"), {
                     headers = { Accept = "application/json" },
                 })
                 test.is_nil(err)
@@ -82,7 +88,7 @@ local function define_tests()
 
         describe("GET /keeper/knowledge/stats", function()
             it("returns 401 without auth", function()
-                local res, err = http_client.get(BASE_URL .. "/api/v1/keeper/knowledge/stats", {
+                local res, err = http_client.get(endpoint("/api/v1/keeper/knowledge/stats"), {
                     headers = { Accept = "application/json" },
                 })
                 test.is_nil(err)
@@ -93,7 +99,7 @@ local function define_tests()
 
         describe("POST /keeper/knowledge/seed", function()
             it("returns 401 without auth", function()
-                local res, err = http_client.post(BASE_URL .. "/api/v1/keeper/knowledge/seed", {
+                local res, err = http_client.post(endpoint("/api/v1/keeper/knowledge/seed"), {
                     headers = {
                         Accept = "application/json",
                         ["Content-Type"] = "application/json",
@@ -108,7 +114,7 @@ local function define_tests()
 
         describe("GET /keeper/knowledge/semantic-search", function()
             it("returns 401 without auth", function()
-                local res, err = http_client.get(BASE_URL .. "/api/v1/keeper/knowledge/semantic-search?q=test", {
+                local res, err = http_client.get(endpoint("/api/v1/keeper/knowledge/semantic-search?q=test"), {
                     headers = { Accept = "application/json" },
                 })
                 test.is_nil(err)
