@@ -10,7 +10,7 @@ Each child directory is an independent Wippy module with its own `wippy.yaml`,
 
 ## Modules
 
-### `keeper/keeper@0.5.7`
+### `keeper/keeper@0.5.8`
 
 Keeper provides the operator surface for a Wippy app:
 

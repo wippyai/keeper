@@ -1,5 +1,24 @@
 # Release Notes
 
+## keeper/keeper 0.5.8
+
+`keeper/keeper@0.5.8` republishes the Keeper 0.5.7 source using the released
+`github.com/wippyai/wapp v0.1.1` resource reader/writer and the restored Wippy
+pack integrity gate.
+
+### Verification
+
+- Wippy runtime PR #261 switches from the `wapp` pseudo-version to
+  `github.com/wippyai/wapp v0.1.1`.
+- `wapp` PR #1 is merged to `main`, tagged `v0.1.1`, and released on GitHub.
+- Focused runtime package tests passed:
+  `go test ./cmd/wippy/cmd ./cmd/internal/entries ./boot/build/stages ./boot/deps/hub`.
+- Keeper publish dry-run passed with the fixed runtime binary:
+  `make publish-keeper-dry-run WIPPY=/tmp/wippy-packcheck`.
+- Local unpack smoke passed by packing Keeper UI, installing the pack from a temp
+  lock with `options.unpack_modules: true`, and verifying
+  `ui_static_fs/assets/tsMode-BI5rsYdF.js` extracted at 22062 bytes.
+
 ## keeper/keeper 0.5.7
 
 `keeper/keeper@0.5.7` separates task-time context research from durable
