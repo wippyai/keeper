@@ -19,9 +19,14 @@ their own runtime resources without editing Keeper entries:
 - `keeper:admin_scope` identifies Keeper administrators. Required; bind it to
   the host application's admin security scope.
 - `keeper:env_storage` stores Keeper settings and MCP flags. Default: `app.env:store`.
-- `keeper:public_gateway` hosts the optional public MCP mount. Default: `app:gateway`.
+- `keeper:public_gateway` hosts the Keeper MCP HTTP router. Default: `app:gateway`.
+- `keeper:mcp_route` controls the MCP client path. Default: `/keeper-mcp/`.
 - `keeper:ui_server` serves embedded Keeper UI assets. Default: `app:gateway`.
 - `keeper:process_host` runs Keeper-spawned runtime work. Default: `app:processes`.
+
+The MCP client URL is the host application's public API base plus
+`keeper:mcp_route`. Do not configure clients from Keeper docs against a
+hardcoded local port.
 
 ## Hub
 

@@ -1,5 +1,20 @@
 # Release Notes
 
+## keeper/keeper 0.5.10
+
+`keeper/keeper@0.5.10` corrects the MCP configuration documentation.
+
+### Highlights
+
+- README requirement docs now include `keeper:mcp_route`.
+- MCP docs describe the app-gateway route as the client URL surface instead of
+  implying a separate optional/public endpoint.
+- User-facing docs no longer point operators toward a hardcoded local MCP port.
+
+### Verification
+
+- `make lint WIPPY=/tmp/wippy-packcheck`
+
 ## keeper/keeper 0.5.9
 
 `keeper/keeper@0.5.9` tightens the task-agent boundary after the KB curator split.
@@ -206,6 +221,7 @@ The module keeps runtime integration explicit through namespace requirements:
 - `keeper:admin_scope`
 - `keeper:env_storage`
 - `keeper:public_gateway`
+- `keeper:mcp_route`
 - `keeper:ui_server`
 - `keeper:process_host`
 

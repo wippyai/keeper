@@ -10,7 +10,7 @@ Each child directory is an independent Wippy module with its own `wippy.yaml`,
 
 ## Modules
 
-### `keeper/keeper@0.5.9`
+### `keeper/keeper@0.5.10`
 
 Keeper provides the operator surface for a Wippy app:
 
@@ -40,9 +40,14 @@ bind Keeper to their own runtime resources without editing Keeper entries:
 - `keeper:app_db` defaults to `app:db` and is used for Keeper app-owned tables.
 - `keeper:admin_scope` defaults to `app.security:admin`.
 - `keeper:env_storage` defaults to `app.env:store` and stores Keeper settings and MCP flags.
-- `keeper:public_gateway` defaults to `app:gateway` and is used for the optional public MCP mount.
+- `keeper:public_gateway` defaults to `app:gateway` and hosts the Keeper MCP HTTP router.
+- `keeper:mcp_route` defaults to `/keeper-mcp/` and controls the MCP client path.
 - `keeper:ui_server` defaults to `app:gateway` and serves embedded Keeper UI assets.
 - `keeper:process_host` defaults to `app:processes` for Keeper-spawned runtime work.
+
+The MCP client URL is the host application's public API base plus
+`keeper:mcp_route` (for example `/keeper-mcp/`). Keeper does not require or
+document a hardcoded local port for user connections.
 
 The module also declares dependency requirements for Wippy runtime modules such as
 `wippy/agent`, `wippy/dataflow`, `wippy/llm`, `wippy/migration`, `wippy/security`,
