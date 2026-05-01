@@ -1,6 +1,6 @@
 organization: keeper
 module: usage
-version: 0.1.0
+version: 0.1.1
 description: Keeper usage analytics UI and API module
 license: BSL-1.1
 repository: https://github.com/wippyai/module-keeper
@@ -13,4 +13,3 @@ keywords:
 exclude_meta:
   type:
     - test
-

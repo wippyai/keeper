@@ -1,5 +1,44 @@
 # Release Notes
 
+## keeper/keeper 0.5.5
+
+`keeper/keeper@0.5.5` hardens runtime Hub installs, dependency state sync, MCP
+tooling, and the registry-backed requirement UI.
+
+### Highlights
+
+- Dependency directive create/update/delete now triggers full state
+  reconciliation, so generated module entries cannot remain stale after install
+  or uninstall.
+- Hub uninstall preserves `ns.dependency` kind in delete changesets and blocks
+  unsafe uninstall when migrations are still applied unless the user chooses a
+  migration policy.
+- Install planning exposes transitive requirements with expected kinds and live
+  registry suggestions while still allowing explicit typed ids.
+- MCP root/admin token endpoints were removed in favor of scoped actor-bound
+  token creation through the public Keeper route.
+- Agent delegation, knowledge tools, and inspect/component traits are organized
+  under the Keeper tool surface for remote development.
+- Keeper UI source rebuild controls are hidden for installed modules; embedded
+  static assets remain the served package surface.
+
+### Verification
+
+- `keeper.state.service:test`, `keeper.state.tools:test`, and `keeper.hub:test`
+  pass 193/193 in a live app.
+- Live Hub smoke installed `wippy/embeddings@0.3.13` with transitive
+  requirements, ran its migration up, rejected unsafe uninstall, then
+  uninstalled with `migration_policy=down` and verified cleanup.
+- Focused Keeper lint for state and Hub namespaces reports no issues.
+- `keeper/usage` lint reports no issues.
+- Frontend tests pass 48/48.
+- `make publish-dry-run` packed both modules successfully before publish.
+
+## keeper/usage 0.1.1
+
+`keeper/usage@0.1.1` updates the usage API tests and package metadata for the
+Keeper 0.5.5 release.
+
 ## keeper/keeper 0.5.4
 
 `keeper/keeper@0.5.4` makes Hub requirement selection fully user-bound and
