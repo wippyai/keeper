@@ -17,6 +17,11 @@ end
 
 local M = {}
 
+local function is_postgres(db)
+    local ok, t = pcall(function() return db:type() end)
+    return ok and t == sql.type.POSTGRES
+end
+
 local function now_iso()
     return time.now():format("2006-01-02T15:04:05Z")
 end
@@ -41,27 +46,39 @@ function M.record_changeset(args)
         if op.kind == OPS.CREATE then op_type = "create"
         elseif op.kind == OPS.DELETE then op_type = "delete" end
 
-        db:execute([[
-            INSERT INTO keeper_changelog (version, timestamp, user_id, request_id, op_type, entry_id, entry_kind, entry_meta_type, namespace, summary, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ]], { version, ts, user_id, request_id, op_type, entry_id, entry_kind, entry_meta_type, namespace, "{}", ts })
+        sql.builder.insert("keeper_changelog")
+            :set_map({
+                version = version,
+                timestamp = ts,
+                user_id = user_id or sql.NULL,
+                request_id = request_id or sql.NULL,
+                op_type = op_type,
+                entry_id = entry_id or sql.NULL,
+                entry_kind = entry_kind or sql.NULL,
+                entry_meta_type = entry_meta_type or sql.NULL,
+                namespace = namespace or sql.NULL,
+                summary = "{}",
+                created_at = ts,
+            })
+            :run_with(db)
+            :exec()
     end
 end
 
 function M.list(params)
     local db = get_db()
     params = params or {}
-    local where, values = {}, {}
-    if params.namespace then table.insert(where, "namespace = ?"); table.insert(values, params.namespace) end
-    if params.entry_id then table.insert(where, "entry_id = ?"); table.insert(values, params.entry_id) end
-    if params.op_type then table.insert(where, "op_type = ?"); table.insert(values, params.op_type) end
-    if params.since then table.insert(where, "timestamp >= ?"); table.insert(values, params.since) end
+    local q = sql.builder.select("*"):from("keeper_changelog")
+    if params.namespace then q = q:where("namespace = ?", params.namespace) end
+    if params.entry_id then q = q:where("entry_id = ?", params.entry_id) end
+    if params.op_type then q = q:where("op_type = ?", params.op_type) end
+    if params.since then q = q:where("timestamp >= ?", params.since) end
 
-    local where_clause = #where > 0 and (" WHERE " .. table.concat(where, " AND ")) or ""
-    table.insert(values, params.limit or 100)
-    table.insert(values, params.offset or 0)
-
-    local rows, err = db:query("SELECT * FROM keeper_changelog" .. where_clause .. " ORDER BY id DESC LIMIT ? OFFSET ?", values)
+    local rows, err = q:order_by("id DESC")
+        :limit(params.limit or 100)
+        :offset(params.offset or 0)
+        :run_with(db)
+        :query()
     if err then return nil, "Failed to list changelog: " .. err end
 
     local entries = {}
@@ -79,15 +96,28 @@ end
 function M.list_versions(params)
     local db = get_db()
     params = params or {}
-    local rows, err = db:query([[
-        SELECT version, MIN(timestamp) as timestamp, user_id, request_id,
-            COUNT(*) as change_count,
-            SUM(CASE WHEN op_type = 'create' THEN 1 ELSE 0 END) as creates,
-            SUM(CASE WHEN op_type = 'update' THEN 1 ELSE 0 END) as updates,
-            SUM(CASE WHEN op_type = 'delete' THEN 1 ELSE 0 END) as deletes,
-            GROUP_CONCAT(DISTINCT namespace) as namespaces
-        FROM keeper_changelog GROUP BY version, request_id ORDER BY version DESC LIMIT ?
-    ]], { params.limit or 50 })
+    local ns_agg = "GROUP_CONCAT(DISTINCT namespace) as namespaces"
+    if is_postgres(db) then
+        ns_agg = "STRING_AGG(DISTINCT namespace, ',') as namespaces"
+    end
+
+    local rows, err = sql.builder.select(
+            "version",
+            "MIN(timestamp) as timestamp",
+            "user_id",
+            "request_id",
+            "COUNT(*) as change_count",
+            "SUM(CASE WHEN op_type = 'create' THEN 1 ELSE 0 END) as creates",
+            "SUM(CASE WHEN op_type = 'update' THEN 1 ELSE 0 END) as updates",
+            "SUM(CASE WHEN op_type = 'delete' THEN 1 ELSE 0 END) as deletes",
+            ns_agg
+        )
+        :from("keeper_changelog")
+        :group_by("version", "user_id", "request_id")
+        :order_by("version DESC")
+        :limit(params.limit or 50)
+        :run_with(db)
+        :query()
     if err then return nil, "Failed to list versions: " .. err end
 
     local versions = {}

@@ -65,10 +65,31 @@ type DataReadOptions = {
     content?: boolean,
 }
 
-local function db()
+local function db(): any
     local d, err = sql.get(config.app_db())
     if err then error("db: " .. err) end
     return d
+end
+
+local function is_postgres(d: any): boolean
+    local ok, t = pcall(function() return d:type() end)
+    return ok and t == sql.type.POSTGRES
+end
+
+local function bind(statement: string, params: any): string
+    if not params or #params == 0 then return statement end
+    local n = 0
+    return (statement:gsub("%?", function()
+        n = n + 1
+        return "$" .. tostring(n)
+    end))
+end
+
+local function db_query(d: any, statement: string, params: any): any
+    if is_postgres(d) then
+        statement = bind(statement, params)
+    end
+    return d:query(statement, params)
 end
 
 local function parse_json(s)
@@ -135,7 +156,7 @@ function M.overview(filters, limit)
 
     table.insert(params, limit)
 
-    local rows, err = d:query(query, params)
+    local rows, err = db_query(d, query, params)
     d:release()
     if err then error("overview query: " .. tostring(err)) end
 
@@ -300,7 +321,7 @@ function M.search_content(query, opts)
     ]]
     table.insert(params, limit)
 
-    local rows, err = d:query(sql_q, params)
+    local rows, err = db_query(d, sql_q, params)
     d:release()
     if err then error("search_content: " .. tostring(err)) end
 
@@ -337,7 +358,7 @@ function M.agent_stats(opts)
         ORDER BY n.created_at DESC
         LIMIT 5000
     ]]
-    local rows, err = d:query(sql_q, params)
+    local rows, err = db_query(d, sql_q, params)
     d:release()
     if err then error("agent_stats: " .. tostring(err)) end
 
@@ -390,7 +411,7 @@ function M.tool_stats(opts)
         WHERE ]] .. table.concat(where, " AND ") .. [[
         LIMIT 20000
     ]]
-    local rows, err = d:query(sql_q, params)
+    local rows, err = db_query(d, sql_q, params)
     d:release()
     if err then error("tool_stats: " .. tostring(err)) end
 
@@ -435,7 +456,7 @@ function M.flow_stats(opts)
     local sql_q = [[
         SELECT status, COUNT(*) AS cnt FROM dataflows
     ]] .. where .. [[ GROUP BY status ]]
-    local rows, err = d:query(sql_q, params)
+    local rows, err = db_query(d, sql_q, params)
     if err then d:release(); error("flow_stats: " .. tostring(err)) end
 
     local agg = { by_status = {}, total = 0 }
@@ -451,7 +472,7 @@ function M.flow_stats(opts)
     if opts.since then
         sql2 = sql2 .. " WHERE created_at >= ?"
     end
-    local r2, err2 = d:query(sql2, opts.since and { opts.since } or {})
+    local r2, err2 = db_query(d, sql2, opts.since and { opts.since } or {})
     d:release()
     if err2 then error("flow_stats nodes: " .. tostring(err2)) end
     agg.total_nodes = r2 and r2[1] and tonumber(r2[1].c) or 0

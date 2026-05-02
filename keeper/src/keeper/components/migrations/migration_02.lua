@@ -46,5 +46,17 @@ return require("migration").define(function()
                 return true
             end)
         end)
+
+        database("postgres", function()
+            up(function(db)
+                db:execute("DROP TABLE IF EXISTS keeper_fe_capture_locks")
+                db:execute("DROP TABLE IF EXISTS keeper_fe_screenshots")
+                return true
+            end)
+
+            down(function(db)
+                return true
+            end)
+        end)
     end)
 end)

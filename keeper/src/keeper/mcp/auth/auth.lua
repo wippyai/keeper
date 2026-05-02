@@ -95,16 +95,15 @@ function M.verify_admin_user(user_id)
     local db, db_err = sql.get(consts.db_id())
     if db_err then return false, "db unavailable: " .. tostring(db_err) end
 
-    local rows, q_err = db:query([[
-        SELECT u.user_id
-          FROM app_users u
-          JOIN app_user_groups g
-            ON g.user_id = u.user_id
-         WHERE u.user_id = ?
-           AND u.status = 'active'
-           AND g.group_id = ?
-         LIMIT 1
-    ]], { user_id, admin_scope_id() })
+    local rows, q_err = sql.builder.select("u.user_id")
+        :from("app_users u")
+        :join("app_user_groups g ON g.user_id = u.user_id")
+        :where("u.user_id = ?", user_id)
+        :where("u.status = 'active'")
+        :where("g.group_id = ?", admin_scope_id())
+        :limit(1)
+        :run_with(db)
+        :query()
     db:release()
 
     if q_err then return false, "admin lookup failed: " .. tostring(q_err) end
@@ -121,13 +120,13 @@ function M.verify_active_user(user_id)
     local db, db_err = sql.get(consts.db_id())
     if db_err then return false, "db unavailable: " .. tostring(db_err) end
 
-    local rows, q_err = db:query([[
-        SELECT user_id
-          FROM app_users
-         WHERE user_id = ?
-           AND status = 'active'
-         LIMIT 1
-    ]], { user_id })
+    local rows, q_err = sql.builder.select("user_id")
+        :from("app_users")
+        :where("user_id = ?", user_id)
+        :where("status = 'active'")
+        :limit(1)
+        :run_with(db)
+        :query()
     db:release()
 
     if q_err then return false, "user lookup failed: " .. tostring(q_err) end

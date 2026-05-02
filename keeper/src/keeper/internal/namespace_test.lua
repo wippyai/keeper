@@ -61,6 +61,25 @@ local function define_tests()
                 test.eq(imports.summarize, "keeper.internal.llm:summarize", id .. " must use the internal summarizer")
             end
         end)
+
+        test.it("app-db migrations support sqlite and postgres", function()
+            for _, id in ipairs({
+                "keeper.components.migrations:migration_01",
+                "keeper.components.migrations:migration_02",
+                "keeper.knowledge.migrations:migration_01",
+                "keeper.mcp.migrations:migration_01",
+                "keeper.mcp.migrations:migration_02",
+                "keeper.mcp.migrations:migration_03",
+                "keeper.mcp.migrations:migration_04",
+                "keeper.mcp.migrations:migration_05",
+                "keeper.mcp.migrations:migration_06",
+            }) do
+                local entry = must_get(id)
+                local source = tostring(entry.data and entry.data.source or "")
+                test.is_true(source:find('database%("sqlite"', 1) ~= nil, id .. " must keep sqlite support")
+                test.is_true(source:find('database%("postgres"', 1) ~= nil, id .. " must support postgres app DBs")
+            end
+        end)
     end)
 end
 

@@ -16,10 +16,31 @@ local config = require("keeper_config")
 
 local M = {}
 
-local function db()
+local function db(): any
     local d, err = sql.get(config.app_db())
     if err then error("db: " .. err) end
     return d
+end
+
+local function is_postgres(d: any): boolean
+    local ok, t = pcall(function() return d:type() end)
+    return ok and t == sql.type.POSTGRES
+end
+
+local function bind(statement: string, params: any): string
+    if not params or #params == 0 then return statement end
+    local n = 0
+    return (statement:gsub("%?", function()
+        n = n + 1
+        return "$" .. tostring(n)
+    end))
+end
+
+local function db_query(d: any, statement: string, params: any): any
+    if is_postgres(d) then
+        statement = bind(statement, params)
+    end
+    return d:query(statement, params)
 end
 
 -- Overview: list user's sessions with rolled-up message count and recent activity.
@@ -64,7 +85,7 @@ function M.overview(user_id, opts)
     table.insert(params, limit)
     table.insert(params, offset)
 
-    local rows, err = d:query(q, params)
+    local rows, err = db_query(d, q, params)
     d:release()
     if err then error("overview query: " .. tostring(err)) end
 
@@ -110,7 +131,7 @@ end
 -- Count + counts-by-type rollup for one session.
 function M.message_counts(session_id)
     local d = db()
-    local rows, err = d:query([[
+    local rows, err = db_query(d, [[
         SELECT type, COUNT(*) AS c FROM messages
         WHERE session_id = ?
         GROUP BY type
@@ -149,7 +170,7 @@ end
 -- Get artifact meta (no content).
 function M.get_artifact(artifact_id)
     local d = db()
-    local rows, err = d:query([[
+    local rows, err = db_query(d, [[
         SELECT artifact_id, session_id, user_id, kind, title, meta, created_at, updated_at
         FROM artifacts
         WHERE artifact_id = ?
@@ -187,7 +208,7 @@ function M.usage_by_model(user_id, opts)
         GROUP BY model_id
         ORDER BY (SUM(prompt_tokens) + SUM(completion_tokens)) DESC
     ]]
-    local rows, err = d:query(q, params)
+    local rows, err = db_query(d, q, params)
     d:release()
     if err then error("usage_by_model: " .. tostring(err)) end
     local out = {}
@@ -207,7 +228,7 @@ end
 -- Token usage tied to a session's primary_context_id.
 function M.usage_for_session(session_id)
     local d = db()
-    local rows, err = d:query([[
+    local rows, err = db_query(d, [[
         SELECT u.model_id, u.prompt_tokens, u.completion_tokens,
                COALESCE(u.thinking_tokens, 0) AS thinking_tokens,
                COALESCE(u.cache_read_tokens, 0) AS cache_read_tokens,
@@ -281,7 +302,7 @@ function M.search_messages(user_id, query, opts)
         LIMIT ?
     ]]
     table.insert(params, limit)
-    local rows, err = d:query(q, params)
+    local rows, err = db_query(d, q, params)
     d:release()
     if err then error("search_messages: " .. tostring(err)) end
 
@@ -321,7 +342,7 @@ function M.user_dataflows(user_id, opts)
         LIMIT ?
     ]]
     table.insert(params, limit)
-    local rows, err = d:query(q, params)
+    local rows, err = db_query(d, q, params)
     d:release()
     if err then error("user_dataflows: " .. tostring(err)) end
 
@@ -349,7 +370,7 @@ function M.user_stats(user_id, opts)
     end
     local sq = "SELECT COUNT(*) AS c, status FROM sessions WHERE "
         .. table.concat(sq_where, " AND ") .. " GROUP BY status"
-    local srows, err = d:query(sq, sq_params)
+    local srows, err = db_query(d, sq, sq_params)
     if err then d:release(); error("user_stats sessions: " .. tostring(err)) end
 
     local sess = { total = 0, by_status = {} }
@@ -372,7 +393,7 @@ function M.user_stats(user_id, opts)
         table.insert(mq_params, opts.since)
     end
     mq = mq .. " GROUP BY m.type"
-    local mrows, merr = d:query(mq, mq_params)
+    local mrows, merr = db_query(d, mq, mq_params)
     if merr then d:release(); error("user_stats messages: " .. tostring(merr)) end
     local msgs = { total = 0, by_type = {} }
     for _, r in ipairs(mrows or {}) do
@@ -390,7 +411,7 @@ function M.user_stats(user_id, opts)
         ar = ar .. " AND created_at >= ?"
         table.insert(ar_params, opts.since)
     end
-    local arows, aerr = d:query(ar, ar_params)
+    local arows, aerr = db_query(d, ar, ar_params)
     if aerr then d:release(); error("user_stats artifacts: " .. tostring(aerr)) end
     local artifacts_total = (arows and arows[1] and tonumber(arows[1].c)) or 0
 

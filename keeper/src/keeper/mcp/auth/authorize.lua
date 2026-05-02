@@ -385,9 +385,12 @@ function M.validate_subject(session)
 
     local db, db_err = sql.get(consts.db_id())
     if db_err then return false, "db unavailable: " .. tostring(db_err) end
-    local rows, q_err = db:query([[
-        SELECT user_id, status FROM app_users WHERE user_id = ? LIMIT 1
-    ]], { session.identity })
+    local rows, q_err = sql.builder.select("user_id", "status")
+        :from("app_users")
+        :where("user_id = ?", session.identity)
+        :limit(1)
+        :run_with(db)
+        :query()
 
     if q_err then
         db:release()
@@ -403,13 +406,13 @@ function M.validate_subject(session)
     end
 
     if M.scope_set(session)[ROOT_SCOPE] == true then
-        local admin_rows, admin_err = db:query([[
-            SELECT user_id
-              FROM app_user_groups
-             WHERE user_id = ?
-               AND group_id = ?
-             LIMIT 1
-        ]], { session.identity, consts.admin_scope_id() })
+        local admin_rows, admin_err = sql.builder.select("user_id")
+            :from("app_user_groups")
+            :where("user_id = ?", session.identity)
+            :where("group_id = ?", consts.admin_scope_id())
+            :limit(1)
+            :run_with(db)
+            :query()
         db:release()
         if admin_err then return false, "admin lookup failed: " .. tostring(admin_err) end
         if not admin_rows or #admin_rows == 0 then

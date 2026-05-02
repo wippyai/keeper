@@ -2,6 +2,7 @@ local test = require("test")
 local uuid = require("uuid")
 local sql = require("sql")
 local kb_repo = require("kb_repo")
+local kb_consts = require("kb_consts")
 
 local function define_tests()
     describe("Knowledge Base Repository", function()
@@ -52,9 +53,13 @@ local function define_tests()
                 kb_repo.delete(id)
             end
             for _, id in ipairs(created_kb_ids) do
-                local db = sql.get("app:db")
+                local db = sql.get(kb_consts.db_id())
                 if db then
-                    db:execute("DELETE FROM keeper_kbs WHERE id = ?", { id })
+                    sql.builder.delete("keeper_kbs")
+                        :where("id = ?", id)
+                        :run_with(db)
+                        :exec()
+                    db:release()
                 end
             end
         end)
@@ -250,6 +255,53 @@ local function define_tests()
                 test.is_nil(err)
                 test.not_nil(nodes)
                 test.is_true(#nodes <= 1)
+            end)
+        end)
+
+        describe("search_by_embedding", function()
+            it("finds embedded nodes using the portable fallback path", function()
+                local node, err = kb_repo.create({
+                    title = "Embedding fallback target",
+                    content = "portable semantic search target",
+                    node_type = "learning",
+                })
+                test.is_nil(err)
+                test.not_nil(node)
+                table.insert(created_node_ids, node.id)
+
+                local db = sql.get(kb_consts.db_id())
+                test.not_nil(db)
+                sql.builder.delete("keeper_kb_embeddings")
+                    :where("node_id = ?", node.id)
+                    :run_with(db)
+                    :exec()
+                sql.builder.insert("keeper_kb_embeddings")
+                    :set_map({
+                        node_id = node.id,
+                        embedding = "[1,0,0]",
+                        title = node.title,
+                        content_preview = node.content,
+                    })
+                    :run_with(db)
+                    :exec()
+                sql.builder.update("keeper_kb_nodes")
+                    :set("embedded", 1)
+                    :where("id = ?", node.id)
+                    :run_with(db)
+                    :exec()
+                db:release()
+
+                local results, search_err = kb_repo.search_by_embedding({ 1, 0, 0 }, { limit = 3 })
+                test.is_nil(search_err)
+                test.not_nil(results)
+                local found = false
+                for _, result in ipairs(results) do
+                    if result.id == node.id then
+                        found = true
+                        test.not_nil(result.distance)
+                    end
+                end
+                test.is_true(found)
             end)
         end)
 

@@ -41,5 +41,39 @@ return require("migration").define(function()
                 return true
             end)
         end)
+
+        database("postgres", function()
+            up(function(db)
+                local _, err
+
+                _, err = db:execute("ALTER TABLE keeper_mcp_tokens ADD COLUMN IF NOT EXISTS access_mode TEXT NOT NULL DEFAULT 'tools_only'")
+                if err then error("add access_mode: " .. err) end
+
+                _, err = db:execute("ALTER TABLE keeper_mcp_tokens ADD COLUMN IF NOT EXISTS available_traits TEXT")
+                if err then error("add available_traits: " .. err) end
+
+                _, err = db:execute("ALTER TABLE keeper_mcp_tokens ADD COLUMN IF NOT EXISTS available_tools TEXT")
+                if err then error("add available_tools: " .. err) end
+
+                _, err = db:execute("ALTER TABLE keeper_mcp_tokens ADD COLUMN IF NOT EXISTS default_active TEXT NOT NULL DEFAULT '[]'")
+                if err then error("add default_active: " .. err) end
+
+                _, err = db:execute([[
+                    CREATE TABLE IF NOT EXISTS keeper_mcp_session_state (
+                        token TEXT PRIMARY KEY,
+                        active_traits TEXT NOT NULL DEFAULT '[]',
+                        updated_at INTEGER NOT NULL
+                    )
+                ]])
+                if err then error("create keeper_mcp_session_state: " .. err) end
+
+                return true
+            end)
+
+            down(function(db)
+                db:execute("DROP TABLE IF EXISTS keeper_mcp_session_state")
+                return true
+            end)
+        end)
     end)
 end)

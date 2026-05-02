@@ -41,6 +41,11 @@ local function now_seconds()
     return os.time()
 end
 
+local function is_postgres(db)
+    local ok, t = pcall(function() return db:type() end)
+    return ok and t == sql.type.POSTGRES
+end
+
 local function resolve_component(component_id)
     local desc, err = scanner.get(component_id)
     if not desc then return nil, err or "component not found" end
@@ -55,15 +60,20 @@ end
 
 local function prune_old(db, component_id)
     -- Retention: keep last N per component.
-    local res = db:query(
-        "SELECT build_id FROM keeper_fe_builds WHERE component_id = ? ORDER BY started_at DESC",
-        { component_id }
-    )
+    local res = sql.builder.select("build_id")
+        :from("keeper_fe_builds")
+        :where("component_id = ?", component_id)
+        :order_by("started_at DESC")
+        :run_with(db)
+        :query()
     if not res then return end
     local keep = consts.BUILD_RETENTION_PER_COMPONENT
     if #res <= keep then return end
     for i = keep + 1, #res do
-        db:execute("DELETE FROM keeper_fe_builds WHERE build_id = ?", { res[i].build_id })
+        sql.builder.delete("keeper_fe_builds")
+            :where("build_id = ?", res[i].build_id)
+            :run_with(db)
+            :exec()
     end
 end
 
@@ -91,10 +101,13 @@ function M.start(component_id, opts)
     end
 
     -- Only one running build per component at a time.
-    local existing = db:query(
-        "SELECT build_id FROM keeper_fe_builds WHERE component_id = ? AND status IN (?, ?) LIMIT 1",
-        { component_id, consts.BUILD_STATUS.QUEUED, consts.BUILD_STATUS.RUNNING }
-    )
+    local existing = sql.builder.select("build_id")
+        :from("keeper_fe_builds")
+        :where("component_id = ?", component_id)
+        :where("status IN (?, ?)", consts.BUILD_STATUS.QUEUED, consts.BUILD_STATUS.RUNNING)
+        :limit(1)
+        :run_with(db)
+        :query()
     if existing and existing[1] then
         return nil, "a build is already in progress for " .. component_id .. ": " .. existing[1].build_id
     end
@@ -110,15 +123,22 @@ function M.start(component_id, opts)
     local toolchain = desc.toolchain or "fe_node"
     local started = now_seconds()
 
-    local ok, ierr = db:execute([[
-        INSERT INTO keeper_fe_builds
-        (build_id, component_id, component_path, session_id, trigger, triggered_by,
-         status, command, image, toolchain, started_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ]], {
-        build_id, component_id, desc.path, opts.session_id, trigger, opts.triggered_by or "",
-        consts.BUILD_STATUS.QUEUED, cmd, image, toolchain, started,
-    })
+    local ok, ierr = sql.builder.insert("keeper_fe_builds")
+        :set_map({
+            build_id = build_id,
+            component_id = component_id,
+            component_path = desc.path,
+            session_id = opts.session_id or sql.NULL,
+            trigger = trigger,
+            triggered_by = opts.triggered_by or "",
+            status = consts.BUILD_STATUS.QUEUED,
+            command = cmd,
+            image = image,
+            toolchain = toolchain,
+            started_at = started,
+        })
+        :run_with(db)
+        :exec()
     if not ok then
         return nil, "failed to create build row: " .. (ierr or "unknown")
     end
@@ -147,7 +167,11 @@ function M.get(build_id)
     if not build_id then return nil, "build_id required" end
     local db, err = get_db()
     if not db then return nil, err end
-    local rows = db:query("SELECT * FROM keeper_fe_builds WHERE build_id = ?", { build_id })
+    local rows = sql.builder.select("*")
+        :from("keeper_fe_builds")
+        :where("build_id = ?", build_id)
+        :run_with(db)
+        :query()
     if not rows or not rows[1] then return nil, "not found" end
     return rows[1]
 end
@@ -159,15 +183,20 @@ function M.get_with_lines(build_id, since_seq)
     if not db then return nil, derr or "db unavailable" end
     local rows
     if since_seq and since_seq > 0 then
-        rows = db:query(
-            "SELECT seq, stream, at, text FROM keeper_fe_build_lines WHERE build_id = ? AND seq > ? ORDER BY seq",
-            { build_id, since_seq }
-        )
+        rows = sql.builder.select("seq", "stream", "at", "text")
+            :from("keeper_fe_build_lines")
+            :where("build_id = ?", build_id)
+            :where("seq > ?", since_seq)
+            :order_by("seq")
+            :run_with(db)
+            :query()
     else
-        rows = db:query(
-            "SELECT seq, stream, at, text FROM keeper_fe_build_lines WHERE build_id = ? ORDER BY seq",
-            { build_id }
-        )
+        rows = sql.builder.select("seq", "stream", "at", "text")
+            :from("keeper_fe_build_lines")
+            :where("build_id = ?", build_id)
+            :order_by("seq")
+            :run_with(db)
+            :query()
     end
     build.lines = rows or {}
     return build
@@ -179,15 +208,20 @@ function M.list(component_id, limit)
     limit = limit or 50
     local rows
     if component_id and component_id ~= "" then
-        rows = db:query(
-            "SELECT * FROM keeper_fe_builds WHERE component_id = ? ORDER BY started_at DESC LIMIT ?",
-            { component_id, limit }
-        )
+        rows = sql.builder.select("*")
+            :from("keeper_fe_builds")
+            :where("component_id = ?", component_id)
+            :order_by("started_at DESC")
+            :limit(limit)
+            :run_with(db)
+            :query()
     else
-        rows = db:query(
-            "SELECT * FROM keeper_fe_builds ORDER BY started_at DESC LIMIT ?",
-            { limit }
-        )
+        rows = sql.builder.select("*")
+            :from("keeper_fe_builds")
+            :order_by("started_at DESC")
+            :limit(limit)
+            :run_with(db)
+            :query()
     end
     return rows or {}
 end
@@ -198,15 +232,29 @@ function M.append_line(build_id, stream, text)
     local db, err = get_db()
     if not db then return nil, err end
 
-    -- Use a subquery to get next seq; sqlite handles concurrency at the db level.
-    local ok, e = db:execute([[
+    -- Keep the sequence assignment inside the database statement. Builder
+    -- values cannot embed SQL expressions yet, so this is the one intentional
+    -- dialect branch in the build log repository.
+    local stmt = [[
         INSERT INTO keeper_fe_build_lines (build_id, seq, stream, at, text)
         VALUES (
             ?,
             COALESCE((SELECT MAX(seq) + 1 FROM keeper_fe_build_lines WHERE build_id = ?), 1),
             ?, ?, ?
         )
-    ]], { build_id, build_id, stream, now_seconds(), tostring(text) })
+    ]]
+    local args = { build_id, build_id, stream, now_seconds(), tostring(text) }
+    if is_postgres(db) then
+        stmt = [[
+            INSERT INTO keeper_fe_build_lines (build_id, seq, stream, at, text)
+            VALUES (
+                $1,
+                COALESCE((SELECT MAX(seq) + 1 FROM keeper_fe_build_lines WHERE build_id = $2), 1),
+                $3, $4, $5
+            )
+        ]]
+    end
+    local ok, e = db:execute(stmt, args)
     if not ok then return nil, e end
     publish("build.line", { build_id = build_id, stream = stream, text = tostring(text) })
     return true
@@ -215,10 +263,12 @@ end
 function M.mark_running(build_id)
     local db = get_db()
     if not db then return end
-    db:execute(
-        "UPDATE keeper_fe_builds SET status = ? WHERE build_id = ? AND status = ?",
-        { consts.BUILD_STATUS.RUNNING, build_id, consts.BUILD_STATUS.QUEUED }
-    )
+    sql.builder.update("keeper_fe_builds")
+        :set("status", consts.BUILD_STATUS.RUNNING)
+        :where("build_id = ?", build_id)
+        :where("status = ?", consts.BUILD_STATUS.QUEUED)
+        :run_with(db)
+        :exec()
     publish("build.started", { build_id = build_id })
 end
 
@@ -226,12 +276,14 @@ function M.tail_stderr(build_id, limit)
     local db = get_db()
     if not db then return nil end
     limit = tonumber(limit) or 5
-    local rows = db:query([[
-        SELECT text FROM keeper_fe_build_lines
-        WHERE build_id = ? AND stream = ?
-        ORDER BY seq DESC
-        LIMIT ?
-    ]], { build_id, consts.BUILD_STREAM.STDERR, limit })
+    local rows = sql.builder.select("text")
+        :from("keeper_fe_build_lines")
+        :where("build_id = ?", build_id)
+        :where("stream = ?", consts.BUILD_STREAM.STDERR)
+        :order_by("seq DESC")
+        :limit(limit)
+        :run_with(db)
+        :query()
     if not rows or #rows == 0 then return nil end
     local lines = {}
     for i = #rows, 1, -1 do
@@ -246,12 +298,14 @@ function M.tail_output(build_id, limit)
     local db = get_db()
     if not db then return nil end
     limit = tonumber(limit) or 5
-    local rows = db:query([[
-        SELECT text FROM keeper_fe_build_lines
-        WHERE build_id = ? AND stream IN (?, ?)
-        ORDER BY seq DESC
-        LIMIT ?
-    ]], { build_id, consts.BUILD_STREAM.STDERR, consts.BUILD_STREAM.STDOUT, limit })
+    local rows = sql.builder.select("text")
+        :from("keeper_fe_build_lines")
+        :where("build_id = ?", build_id)
+        :where("stream IN (?, ?)", consts.BUILD_STREAM.STDERR, consts.BUILD_STREAM.STDOUT)
+        :order_by("seq DESC")
+        :limit(limit)
+        :run_with(db)
+        :query()
     if not rows or #rows == 0 then return nil end
     local lines = {}
     for i = #rows, 1, -1 do
@@ -276,12 +330,19 @@ function M.finish(build_id, status, exit_code, err_text)
         end
     end
     local finished = now_seconds()
-    local duration_ms = (finished - (build.started_at or finished)) * 1000
-    db:execute([[
-        UPDATE keeper_fe_builds
-        SET status = ?, exit_code = ?, error = ?, duration_ms = ?, finished_at = ?
-        WHERE build_id = ?
-    ]], { status, exit_code, err_text, duration_ms, finished, build_id })
+    local started_at = tonumber(build.started_at) or finished
+    local duration_ms = (finished - started_at) * 1000
+    sql.builder.update("keeper_fe_builds")
+        :set_map({
+            status = status,
+            exit_code = exit_code or sql.NULL,
+            error = err_text or sql.NULL,
+            duration_ms = duration_ms,
+            finished_at = finished,
+        })
+        :where("build_id = ?", build_id)
+        :run_with(db)
+        :exec()
     publish("build.finished", { build_id = build_id, status = status, component_id = build.component_id })
 end
 

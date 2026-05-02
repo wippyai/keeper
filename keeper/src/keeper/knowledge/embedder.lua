@@ -44,14 +44,26 @@ local function embed_node(id, params)
     if not embedding then return nil, "No embedding vector" end
 
     local db = get_db()
-    db:execute("DELETE FROM keeper_kb_embeddings WHERE node_id = ?", { id })
-    local _, insert_err = db:execute([[
-        INSERT INTO keeper_kb_embeddings (node_id, embedding, title, content_preview)
-        VALUES (?, ?, ?, ?)
-    ]], { id, json.encode(embedding), node.title, node.content:sub(1, 200) })
+    sql.builder.delete("keeper_kb_embeddings")
+        :where("node_id = ?", id)
+        :run_with(db)
+        :exec()
+    local _, insert_err = sql.builder.insert("keeper_kb_embeddings")
+        :set_map({
+            node_id = id,
+            embedding = json.encode(embedding),
+            title = node.title,
+            content_preview = node.content:sub(1, 200),
+        })
+        :run_with(db)
+        :exec()
     if insert_err then return nil, "Failed to store embedding: " .. insert_err end
 
-    db:execute("UPDATE keeper_kb_nodes SET embedded = 1 WHERE id = ?", { id })
+    sql.builder.update("keeper_kb_nodes")
+        :set("embedded", 1)
+        :where("id = ?", id)
+        :run_with(db)
+        :exec()
 
     pcall(function()
         process.send(consts.CENTRAL, consts.TOPIC, { event = consts.EVENTS.NODE_EMBEDDED, data = { id = id, title = node.title, model = model } })

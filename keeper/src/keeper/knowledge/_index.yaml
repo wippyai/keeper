@@ -70,6 +70,7 @@ entries:
       - sql
       - uuid
     imports:
+      kb_consts: keeper.knowledge:consts
       kb_repo: keeper.knowledge:repo
       test: wippy.test:test
     method: define_tests

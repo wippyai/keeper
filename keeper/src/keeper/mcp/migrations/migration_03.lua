@@ -15,5 +15,19 @@ return require("migration").define(function()
                 return true
             end)
         end)
+
+        database("postgres", function()
+            up(function(db)
+                local _, err = db:execute(
+                    "ALTER TABLE keeper_mcp_session_state ADD COLUMN IF NOT EXISTS overlay_branch TEXT"
+                )
+                if err then error("add overlay_branch: " .. err) end
+                return true
+            end)
+
+            down(function(db)
+                return true
+            end)
+        end)
     end)
 end)

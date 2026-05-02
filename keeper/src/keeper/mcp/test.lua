@@ -24,8 +24,14 @@ local function define_tests()
             for _, raw_value in ipairs(created_tokens) do
                 local raw = tostring(raw_value)
                 local digest = hash.sha256(raw)
-                db:execute("DELETE FROM keeper_mcp_tokens WHERE token = ?", { digest })
-                db:execute("DELETE FROM keeper_mcp_session_state WHERE token = ?", { digest })
+                sql.builder.delete("keeper_mcp_tokens")
+                    :where("token = ?", digest)
+                    :run_with(db)
+                    :exec()
+                sql.builder.delete("keeper_mcp_session_state")
+                    :where("token = ?", digest)
+                    :run_with(db)
+                    :exec()
             end
             db:release()
         end)
@@ -49,8 +55,13 @@ local function define_tests()
         end
 
         local function add_column_if_missing(db, ddl, label)
+            local ok, db_type = pcall(function() return db:type() end)
+            if ok and db_type == sql.type.POSTGRES then
+                ddl = ddl:gsub("ADD COLUMN ", "ADD COLUMN IF NOT EXISTS ")
+            end
             local _, err = db:execute(ddl)
-            if err and not tostring(err):find("duplicate column", 1, true) then
+            local msg = tostring(err)
+            if err and not msg:find("duplicate column", 1, true) and not msg:find("already exists", 1, true) then
                 error(label .. ": " .. tostring(err))
             end
         end
@@ -145,15 +156,19 @@ local function define_tests()
                 })
 
                 local db = open_db()
-                local rows = db:query(
-                    "SELECT COUNT(*) AS n FROM keeper_mcp_tokens WHERE token = ?",
-                    { tok.token })
+                local rows = sql.builder.select("COUNT(*) AS n")
+                    :from("keeper_mcp_tokens")
+                    :where("token = ?", tok.token)
+                    :run_with(db)
+                    :query()
                 test.eq(rows[1].n, 0, "raw token must not appear in DB")
 
                 local digest = hash.sha256(tok.token)
-                local hrows = db:query(
-                    "SELECT COUNT(*) AS n FROM keeper_mcp_tokens WHERE token = ?",
-                    { digest })
+                local hrows = sql.builder.select("COUNT(*) AS n")
+                    :from("keeper_mcp_tokens")
+                    :where("token = ?", digest)
+                    :run_with(db)
+                    :query()
                 db:release()
                 test.eq(hrows[1].n, 1, "hash of raw token must be the stored key")
             end)

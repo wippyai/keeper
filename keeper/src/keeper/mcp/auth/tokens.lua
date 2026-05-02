@@ -61,6 +61,10 @@ local function decode_value(s, default)
     return decoded
 end
 
+local function truthy(v)
+    return v == true or v == 1 or v == "1"
+end
+
 local function row_to_session(row)
     if not row then return nil end
     local access_mode = row.access_mode
@@ -102,23 +106,23 @@ function tokens.create(params)
     local expires = params.expires_at or 0
     local issued_by = params.issued_by or params.identity or ""
 
-    local _, exec_err = db:execute([[
-        INSERT INTO keeper_mcp_tokens
-          (token, label, identity, scopes, access_mode, available_traits, available_tools, default_active, issued_by, created_at, expires_at, revoked)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-    ]], {
-        token_hash,
-        params.label or "",
-        params.identity or "root",
-        encode_value(params.scopes or {}),
-        access_mode,
-        encode_value(params.trait_filter),
-        encode_value(params.tool_filter),
-        encode_value(params.default_active or {}),
-        issued_by,
-        now,
-        expires,
-    })
+    local _, exec_err = sql.builder.insert("keeper_mcp_tokens")
+        :set_map({
+            token = token_hash,
+            label = params.label or "",
+            identity = params.identity or "root",
+            scopes = encode_value(params.scopes or {}),
+            access_mode = access_mode,
+            available_traits = encode_value(params.trait_filter),
+            available_tools = encode_value(params.tool_filter),
+            default_active = encode_value(params.default_active or {}),
+            issued_by = issued_by,
+            created_at = now,
+            expires_at = expires,
+            revoked = 0,
+        })
+        :run_with(db)
+        :exec()
     db:release()
 
     if exec_err then return nil, "Insert failed: " .. tostring(exec_err) end
@@ -145,18 +149,21 @@ function tokens.get(raw_token)
     local db, db_err = sql.get(consts.db_id())
     if db_err then return nil, "Database error: " .. tostring(db_err) end
 
-    local rows, query_err = db:query([[
-        SELECT token, label, identity, scopes, access_mode, available_traits, available_tools,
-               default_active, issued_by, created_at, expires_at, revoked, revoked_at, revoked_by
-        FROM keeper_mcp_tokens WHERE token = ?
-    ]], { token_hash })
+    local rows, query_err = sql.builder.select(
+            "token", "label", "identity", "scopes", "access_mode", "available_traits", "available_tools",
+            "default_active", "issued_by", "created_at", "expires_at", "revoked", "revoked_at", "revoked_by"
+        )
+        :from("keeper_mcp_tokens")
+        :where("token = ?", token_hash)
+        :run_with(db)
+        :query()
     db:release()
 
     if query_err then return nil, "Query failed: " .. tostring(query_err) end
     if not rows or #rows == 0 then return nil end
 
     local row = rows[1]
-    if row.revoked == 1 then return nil, "Token revoked" end
+    if truthy(row.revoked) then return nil, "Token revoked" end
 
     local now = time.now():unix()
     if row.expires_at and row.expires_at > 0 and row.expires_at < now then
@@ -187,7 +194,7 @@ function tokens.list()
     local result = {}
     for _, row in ipairs(rows or {}) do
         local entry = row_to_session(row)
-        entry.revoked = row.revoked == 1
+        entry.revoked = truthy(row.revoked)
         table.insert(result, entry)
     end
     return result, nil
@@ -205,13 +212,11 @@ function tokens.revoke(token_hash, revoked_by)
     if db_err then return nil, "Database error: " .. tostring(db_err) end
 
     local now = time.now():unix()
-    local _, exec_err = db:execute([[
-        UPDATE keeper_mcp_tokens
-           SET revoked = 1,
-               revoked_at = ?,
-               revoked_by = ?
-         WHERE token = ?
-    ]], { now, revoked_by or "", token_hash })
+    local _, exec_err = sql.builder.update("keeper_mcp_tokens")
+        :set_map({ revoked = 1, revoked_at = now, revoked_by = revoked_by or "" })
+        :where("token = ?", token_hash)
+        :run_with(db)
+        :exec()
     db:release()
 
     if exec_err then return nil, "Revoke failed: " .. tostring(exec_err) end
@@ -232,10 +237,11 @@ function tokens.get_active_traits(raw_token)
     local db, db_err = sql.get(consts.db_id())
     if db_err then return nil, "Database error: " .. tostring(db_err) end
 
-    local rows, query_err = db:query(
-        "SELECT active_traits FROM keeper_mcp_session_state WHERE token = ?",
-        { key }
-    )
+    local rows, query_err = sql.builder.select("active_traits")
+        :from("keeper_mcp_session_state")
+        :where("token = ?", key)
+        :run_with(db)
+        :query()
     db:release()
 
     if query_err then return nil, "Query failed: " .. tostring(query_err) end
@@ -254,11 +260,11 @@ function tokens.set_active_traits(raw_token, trait_ids)
     local payload = encode_value(trait_ids or {})
     local now = time.now():unix()
 
-    local _, exec_err = db:execute([[
-        INSERT INTO keeper_mcp_session_state (token, active_traits, updated_at)
-        VALUES (?, ?, ?)
-        ON CONFLICT(token) DO UPDATE SET active_traits = excluded.active_traits, updated_at = excluded.updated_at
-    ]], { key, payload, now })
+    local _, exec_err = sql.builder.insert("keeper_mcp_session_state")
+        :set_map({ token = key, active_traits = payload, updated_at = now })
+        :suffix("ON CONFLICT(token) DO UPDATE SET active_traits = excluded.active_traits, updated_at = excluded.updated_at")
+        :run_with(db)
+        :exec()
     db:release()
 
     if exec_err then return false, "Upsert failed: " .. tostring(exec_err) end
@@ -281,10 +287,11 @@ function tokens.get_overlay_branch(raw_token)
     local db, db_err = sql.get(consts.db_id())
     if db_err then return nil, "Database error: " .. tostring(db_err) end
 
-    local rows, query_err = db:query(
-        "SELECT overlay_branch FROM keeper_mcp_session_state WHERE token = ?",
-        { key }
-    )
+    local rows, query_err = sql.builder.select("overlay_branch")
+        :from("keeper_mcp_session_state")
+        :where("token = ?", key)
+        :run_with(db)
+        :query()
     db:release()
 
     if query_err then return nil, "Query failed: " .. tostring(query_err) end
@@ -303,11 +310,16 @@ function tokens.set_overlay_branch(raw_token, branch)
     if db_err then return false, "Database error: " .. tostring(db_err) end
 
     local now = time.now():unix()
-    local _, exec_err = db:execute([[
-        INSERT INTO keeper_mcp_session_state (token, active_traits, overlay_branch, updated_at)
-        VALUES (?, '[]', ?, ?)
-        ON CONFLICT(token) DO UPDATE SET overlay_branch = excluded.overlay_branch, updated_at = excluded.updated_at
-    ]], { key, branch, now })
+    local _, exec_err = sql.builder.insert("keeper_mcp_session_state")
+        :set_map({
+            token = key,
+            active_traits = "[]",
+            overlay_branch = branch or sql.NULL,
+            updated_at = now,
+        })
+        :suffix("ON CONFLICT(token) DO UPDATE SET overlay_branch = excluded.overlay_branch, updated_at = excluded.updated_at")
+        :run_with(db)
+        :exec()
     db:release()
 
     if exec_err then return false, "Upsert failed: " .. tostring(exec_err) end
@@ -330,10 +342,11 @@ function tokens.get_changeset_id(raw_token)
     local db, db_err = sql.get(consts.db_id())
     if db_err then return nil, "Database error: " .. tostring(db_err) end
 
-    local rows, query_err = db:query(
-        "SELECT changeset_id FROM keeper_mcp_session_state WHERE token = ?",
-        { key }
-    )
+    local rows, query_err = sql.builder.select("changeset_id")
+        :from("keeper_mcp_session_state")
+        :where("token = ?", key)
+        :run_with(db)
+        :query()
     db:release()
 
     if query_err then return nil, "Query failed: " .. tostring(query_err) end
@@ -352,11 +365,16 @@ function tokens.set_changeset_id(raw_token, changeset_id)
     if db_err then return false, "Database error: " .. tostring(db_err) end
 
     local now = time.now():unix()
-    local _, exec_err = db:execute([[
-        INSERT INTO keeper_mcp_session_state (token, active_traits, changeset_id, updated_at)
-        VALUES (?, '[]', ?, ?)
-        ON CONFLICT(token) DO UPDATE SET changeset_id = excluded.changeset_id, updated_at = excluded.updated_at
-    ]], { key, changeset_id, now })
+    local _, exec_err = sql.builder.insert("keeper_mcp_session_state")
+        :set_map({
+            token = key,
+            active_traits = "[]",
+            changeset_id = changeset_id or sql.NULL,
+            updated_at = now,
+        })
+        :suffix("ON CONFLICT(token) DO UPDATE SET changeset_id = excluded.changeset_id, updated_at = excluded.updated_at")
+        :run_with(db)
+        :exec()
     db:release()
 
     if exec_err then return false, "Upsert failed: " .. tostring(exec_err) end
