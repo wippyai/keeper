@@ -259,6 +259,18 @@ local function define_tests()
         end)
 
         describe("search_by_embedding", function()
+            it("uses legacy and canonical embedding class aliases by default", function()
+                local models = kb_consts.embedding_models()
+                test.eq(models[1], "class:embed")
+                test.eq(models[2], "class:embedding")
+            end)
+
+            it("respects an explicit embedding model override", function()
+                local models = kb_consts.embedding_models("app.models:custom-embed")
+                test.eq(#models, 1)
+                test.eq(models[1], "app.models:custom-embed")
+            end)
+
             it("finds embedded nodes using the portable fallback path", function()
                 local node, err = kb_repo.create({
                     title = "Embedding fallback target",

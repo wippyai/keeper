@@ -28,14 +28,25 @@ local function get_db()
     return db
 end
 
+local function embed_text(text: string, requested_model: string?): (table?, string?, string?)
+    local last_err = nil
+    for _, model in ipairs(consts.embedding_models(requested_model)) do
+        local result, err = llm.embed(text, { model = model, dimensions = consts.EMBED.DIMENSIONS })
+        if result then
+            return result, nil, model
+        end
+        last_err = err or "no result"
+    end
+    return nil, last_err or "no result", nil
+end
+
 local function embed_node(id, params)
     params = params or {}
-    local model = params.model or consts.EMBED.MODEL
     local node = kb_repo.get(id)
     if not node then return nil, "Node not found" end
 
     local text = node.title .. "\n\n" .. node.content
-    local embed_result, err = llm.embed(text, { model = model, dimensions = consts.EMBED.DIMENSIONS })
+    local embed_result, err, model = embed_text(text, params.model)
     if err or not embed_result then return nil, "Embedding failed: " .. (err or "no result") end
 
     local result = embed_result.result

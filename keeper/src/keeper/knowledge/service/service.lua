@@ -166,12 +166,20 @@ function M.search_semantic(params)
     if not params or not params.query or params.query == "" then
         return fail(M.ERR.BAD_REQUEST, "Query is required")
     end
-    local model = params.model or consts.EMBED.MODEL
 
-    local embed_result, embed_err = llm.embed(params.query, {
-        model = model,
-        dimensions = consts.EMBED.DIMENSIONS,
-    })
+    local embed_result = nil
+    local embed_err = nil
+    local model = nil
+    for _, candidate in ipairs(consts.embedding_models(params.model)) do
+        embed_result, embed_err = llm.embed(params.query, {
+            model = candidate,
+            dimensions = consts.EMBED.DIMENSIONS,
+        })
+        if embed_result then
+            model = candidate
+            break
+        end
+    end
     if embed_err or not embed_result then
         return fail(M.ERR.INTERNAL, "Embedding failed: " .. (embed_err or "no result"))
     end

@@ -41,7 +41,24 @@ M.EVENTS = {
 
 M.EMBED = {
     MODEL = "class:embed",
+    FALLBACK_MODELS = { "class:embedding" },
     DIMENSIONS = 512,
 }
+
+function M.embedding_models(model: string?): {string}
+    if type(model) == "string" and model ~= "" then
+        return { model }
+    end
+
+    local models = { M.EMBED.MODEL }
+    local seen = { [M.EMBED.MODEL] = true }
+    for _, fallback in ipairs(M.EMBED.FALLBACK_MODELS) do
+        if type(fallback) == "string" and fallback ~= "" and not seen[fallback] then
+            table.insert(models, fallback)
+            seen[fallback] = true
+        end
+    end
+    return models
+end
 
 return M
