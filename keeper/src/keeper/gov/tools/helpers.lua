@@ -5,7 +5,11 @@ local DEFAULT_TIMEOUT = "90s"
 function M.format_stats(stats)
     if type(stats) ~= "table" then return "" end
     local parts = {}
-    local ordered = { "created", "updated", "deleted", "unchanged", "skipped", "total" }
+    local ordered = {
+        "created", "updated", "deleted", "unchanged", "skipped", "total",
+        "create", "update", "delete",
+        "skipped_unmanaged_source", "skipped_unmanaged_registry", "managed_namespaces",
+    }
     for _, k in ipairs(ordered) do
         if stats[k] ~= nil then
             table.insert(parts, k .. "=" .. tostring(stats[k]))
@@ -21,6 +25,14 @@ function M.format_stats(stats)
     return table.concat(parts, " ")
 end
 
+function M.sync_options(input)
+    local options = {}
+    if type(input) == "table" and input.managed_namespaces ~= nil then
+        options.managed_namespaces = input.managed_namespaces
+    end
+    return options
+end
+
 local function extract_diff_error(diff_resp)
     if not diff_resp or diff_resp.ok then return nil end
     if diff_resp.errors and diff_resp.errors[1] then
@@ -33,7 +45,7 @@ function M.run_sync(opts, input)
     input = input or {}
     local timeout = input.timeout or DEFAULT_TIMEOUT
 
-    local result, err = opts.gov_fn({}, timeout)
+    local result, err = opts.gov_fn(M.sync_options(input), timeout)
     if not result then
         return nil, opts.tool_name .. " failed: " .. tostring(err or "unknown error")
     end
@@ -51,6 +63,7 @@ function M.run_sync(opts, input)
         message       = result.message,
         version       = result.version,
         stats         = result.stats,
+        details       = result.details,
         journaled     = diff_rows,
         journal_error = diff_error,
     }

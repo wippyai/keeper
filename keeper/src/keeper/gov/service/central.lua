@@ -399,6 +399,9 @@ local handlers = {
                 if result and result.success then
                     response.version = result.version
                     if upload_result.stats then response.stats = upload_result.stats end
+                    if not response.details and upload_result.details then
+                        response.details = upload_result.details
+                    end
 
                     state.filesystem_changes_pending = false
                     state.registry_changes_pending   = true

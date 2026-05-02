@@ -127,6 +127,26 @@ local function define_tests()
                 test.eq(value, "app,keeper.tools")
             end)
 
+            it("uses one-shot managed namespace options without changing stored config", function()
+                with_managed_namespaces({}, function()
+                    local namespaces, err = gov_consts.get_effective_managed_namespaces({
+                        managed_namespaces = "alpha,alpha.tools",
+                    })
+                    test.is_nil(err)
+                    test.eq(#namespaces, 2)
+                    test.eq(namespaces[1], "alpha")
+                    test.eq(#gov_consts.get_managed_namespaces(), 0)
+                end)
+            end)
+
+            it("one-shot namespace filter matches children and rejects siblings", function()
+                local pred, namespaces, err = gov_consts.namespace_filter({ managed_namespaces = { "alpha" } })
+                test.is_nil(err)
+                test.eq(#namespaces, 1)
+                test.is_true(pred("alpha.tools.work"))
+                test.eq(pred("alpha2"), false)
+            end)
+
             it("returns full configuration table", function()
                 local config = gov_consts.get_config()
                 test.not_nil(config)

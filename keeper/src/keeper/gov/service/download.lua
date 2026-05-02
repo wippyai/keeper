@@ -19,16 +19,20 @@ local FIELD_ORDER: {string} = {
 }
 
 -- Filter entries to only include managed namespaces (including child namespaces)
-local function filter_managed_entries(entries)
+local function filter_managed_entries(entries, options)
+    local is_managed, managed_namespaces, filter_err = consts.namespace_filter(options)
+    if not is_managed then
+        return nil, nil, nil, filter_err
+    end
+
     local filtered = {}
     local skipped = {}
-
-    for _, entry in ipairs(entries) do
+    for _, entry in ipairs(entries or {}) do
         local namespace = nil
         if entry.id then
             namespace = entry.id:match("^([^:]+):")
         end
-        if namespace and consts.is_namespace_managed(namespace) then
+        if namespace and is_managed(namespace) then
             table.insert(filtered, entry)
         else
             table.insert(skipped, {
@@ -41,14 +45,34 @@ local function filter_managed_entries(entries)
     if #skipped > 0 then
         log:info("Skipped unmanaged namespace entries", {
             skipped_count = #skipped,
-            managed_namespaces = consts.get_managed_namespaces()
+            managed_namespaces = managed_namespaces
         })
         for _, skip in ipairs(skipped) do
             log:debug("Skipped entry", skip)
         end
     end
 
-    return filtered
+    return filtered, skipped, managed_namespaces, nil
+end
+
+local function skipped_summary(skipped)
+    local summary = { count = 0, namespaces = {}, sample = {} }
+    if type(skipped) ~= "table" then return summary end
+
+    local seen = {}
+    for _, row in ipairs(skipped) do
+        summary.count = summary.count + 1
+        local ns = tostring(row.namespace or "unknown")
+        if not seen[ns] then
+            seen[ns] = true
+            table.insert(summary.namespaces, ns)
+        end
+        if #summary.sample < 10 then
+            table.insert(summary.sample, tostring(row.id or "unknown"))
+        end
+    end
+    table.sort(summary.namespaces)
+    return summary
 end
 
 -- Walk namespace-dot segments, ensuring each directory exists.
@@ -134,7 +158,14 @@ local function download(options: unknown)
     end
 
     local all_entries = snapshot:entries()
-    local filtered_entries = filter_managed_entries(all_entries)
+    local filtered_entries, skipped_entries, managed_namespaces, filter_err =
+        filter_managed_entries(all_entries, options)
+    if not filtered_entries then
+        return {
+            success = false,
+            message = filter_err or "Invalid managed namespaces"
+        }
+    end
 
     log:info("Retrieved entries from registry", {
         total_count = #all_entries,
@@ -146,11 +177,14 @@ local function download(options: unknown)
         namespaces = 0,
         entries = 0,
         files = 0,
-        files_skipped = 0
+        files_skipped = 0,
+        skipped_unmanaged_registry = #skipped_entries,
+        managed_namespaces = type(managed_namespaces) == "table" and #managed_namespaces or 0,
     }
 
     for _, entry in ipairs(filtered_entries) do
-        local ns, name = string.match(entry.id, "(.+):(.+)")
+        local entry_id = tostring(entry.id or "")
+        local ns, name = string.match(entry_id, "(.+):(.+)")
         if ns and name then
             if not namespaces[ns] then
                 namespaces[ns] = {
@@ -173,7 +207,11 @@ local function download(options: unknown)
                 end
             end
 
-            local config = sync.pick_kind_config(entry.kind, entry.meta and entry.meta.type)
+            local meta_type = nil
+            if type(entry.meta) == "table" then
+                meta_type = entry.meta.type
+            end
+            local config = sync.pick_kind_config(tostring(entry.kind or ""), meta_type)
 
             if config and config.source_field and config.extension then
                 local source_field = config.source_field
@@ -209,7 +247,7 @@ local function download(options: unknown)
             table.insert(namespaces[ns].entries, yaml_entry)
             stats.entries = stats.entries + 1
         else
-            log:warn("Invalid ID format, skipping entry", { entry_id = entry.id })
+            log:warn("Invalid ID format, skipping entry", { entry_id = entry_id })
         end
     end
 
@@ -288,9 +326,15 @@ local function download(options: unknown)
     log:info("Download completed", stats)
     return {
         success = true,
-        message = "Registry successfully synchronized to filesystem",
+        message = "Managed registry successfully synchronized to filesystem",
         stats = stats,
-        file_ops = file_ops
+        file_ops = file_ops,
+        details = {
+            managed_namespaces = managed_namespaces or {},
+            skipped_unmanaged = {
+                registry = skipped_summary(skipped_entries),
+            },
+        },
     }
 end
 

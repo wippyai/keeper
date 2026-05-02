@@ -1,5 +1,32 @@
 # Release Notes
 
+## keeper/keeper 0.5.15
+
+`keeper/keeper@0.5.15` improves governance filesystem sync feedback and one-shot
+namespace sync for agents and remote MCP operators.
+
+### Highlights
+
+- `sync_from_fs` and `sync_to_fs` now accept an optional `managed_namespaces`
+  argument for one-shot app syncs without mutating stored governance config.
+- Sync responses now report unmanaged namespace skips in `stats` and
+  `details.skipped_unmanaged`, so "no changes needed" cannot hide source files
+  that were ignored by the namespace allow-list.
+- Governance prompts now tell agents to pass the app namespace explicitly when
+  `GOV_MANAGED_NAMESPACES` is unset, and to avoid adding `keeper` unless the
+  checkout actually contains Keeper source.
+- Download/upload paths share the same namespace filter semantics, including
+  child namespace matching and sibling rejection.
+
+### Verification
+
+- `wippy run test keeper.gov.service:upload_test keeper.gov.service:download_test keeper.gov.tools:test keeper.gov.service:test`
+  passed 74/74.
+- `wippy run test keeper.gov.service:test keeper.gov.service:changeset_test keeper.mcp:test keeper.mcp.surface:surface_test keeper.gov.service:upload_test keeper.gov.service:download_test keeper.gov.tools:test`
+  passed 243/243.
+- `wippy lint --cache-reset --ns keeper --ns 'keeper.*'` checked 403 entries
+  with no issues.
+
 ## keeper/keeper 0.5.10
 
 `keeper/keeper@0.5.10` corrects the MCP configuration documentation.

@@ -41,6 +41,33 @@ local function define_tests()
                 local out = helpers.format_stats({ created = 0, updated = 0 })
                 test.eq(out, "created=0 updated=0")
             end)
+
+            it("includes sync unmanaged skip counters", function()
+                local out = helpers.format_stats({
+                    skipped_unmanaged_source = 2,
+                    skipped_unmanaged_registry = 3,
+                    managed_namespaces = 1,
+                })
+                test.is_true(out:find("skipped_unmanaged_source=2", 1, true) ~= nil)
+                test.is_true(out:find("skipped_unmanaged_registry=3", 1, true) ~= nil)
+                test.is_true(out:find("managed_namespaces=1", 1, true) ~= nil)
+            end)
+        end)
+
+        describe("sync_options", function()
+            it("passes one-shot managed_namespaces without other input", function()
+                local opts = helpers.sync_options({ managed_namespaces = { "alpha" }, timeout = "30s" })
+                local namespaces = opts.managed_namespaces or {}
+                test.eq(#namespaces, 1)
+                test.eq(namespaces[1], "alpha")
+                test.is_nil(opts.timeout)
+            end)
+
+            it("returns empty options when no managed_namespaces provided", function()
+                local opts = helpers.sync_options({ timeout = "30s" })
+                test.not_nil(opts)
+                test.eq(next(opts), nil)
+            end)
         end)
 
         describe("run_sync", function()
@@ -105,12 +132,14 @@ local function define_tests()
                 helpers.run_sync({
                     tool_name = "sync_test",
                     direction = "Up",
-                    gov_fn = function(_, timeout)
+                    gov_fn = function(options, timeout)
                         seen_timeout = timeout
+                        local namespaces = options.managed_namespaces or {}
+                        test.eq(namespaces[1], "alpha")
                         return { message = "ok", stats = {} }
                     end,
                     diff_fn = function() return { ok = true, rows_written = 0 } end,
-                }, { timeout = "30s" })
+                }, { timeout = "30s", managed_namespaces = { "alpha" } })
                 test.eq(seen_timeout, "30s")
             end)
         end)

@@ -8,7 +8,7 @@ entries:
     meta:
       comment: Shared helpers for gov tools (stats formatter, sync pipeline)
     source: file://helpers.lua
-    
+
   # keeper.gov.tools:sync_from_fs
   - name: sync_from_fs
     kind: function.lua
@@ -24,11 +24,18 @@ entries:
         {
           "type": "object",
           "properties": {
-            "timeout": {"type": "string", "description": "Governance operation timeout (default 90s)"}
+            "timeout": {"type": "string", "description": "Governance operation timeout (default 90s)"},
+            "managed_namespaces": {
+              "description": "Optional one-shot namespace allow-list for this sync. Use your app namespace, for example ['myapp']; does not persist GOV_MANAGED_NAMESPACES.",
+              "oneOf": [
+                {"type": "array", "items": {"type": "string"}},
+                {"type": "string"}
+              ]
+            }
           }
         }
       llm_alias: sync_from_fs
-      llm_description: Upload filesystem changes (src/**) into the registry through the governance pipeline. Use after editing files on disk so the running registry matches the source tree. Returns {summary, message, version, stats}.
+      llm_description: Upload filesystem changes (src/**) into the registry through the governance pipeline. Use after editing files on disk so the running registry matches the source tree. Pass managed_namespaces for the app namespace when GOV_MANAGED_NAMESPACES is not configured. Returns {summary, message, version, stats, details}; details.skipped_unmanaged shows namespaces ignored by the allow-list.
       mcp:
         required_scopes:
           - registry.sync
@@ -54,11 +61,18 @@ entries:
         {
           "type": "object",
           "properties": {
-            "timeout": {"type": "string", "description": "Governance operation timeout (default 90s)"}
+            "timeout": {"type": "string", "description": "Governance operation timeout (default 90s)"},
+            "managed_namespaces": {
+              "description": "Optional one-shot namespace allow-list for this sync. Use your app namespace, for example ['myapp']; does not persist GOV_MANAGED_NAMESPACES.",
+              "oneOf": [
+                {"type": "array", "items": {"type": "string"}},
+                {"type": "string"}
+              ]
+            }
           }
         }
       llm_alias: sync_to_fs
-      llm_description: Download the current registry state back to the managed filesystem (src/**) through the governance pipeline. Use after registry-side edits so the source tree matches what is running. Returns {summary, message, version, stats}.
+      llm_description: Download the current registry state back to the managed filesystem (src/**) through the governance pipeline. Use after registry-side edits so the source tree matches what is running. Pass managed_namespaces for the app namespace when GOV_MANAGED_NAMESPACES is not configured. Returns {summary, message, version, stats, details}; details.skipped_unmanaged shows namespaces ignored by the allow-list.
       mcp:
         required_scopes:
           - registry.sync
@@ -83,4 +97,3 @@ entries:
     method: define_tests
     pool:
       size: 1
-    

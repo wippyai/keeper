@@ -18,29 +18,38 @@ entries:
     prompt: |
       You reconcile the registry and the managed filesystem (`src/**`) through the
       governance pipeline. Both directions go through governance — no raw writes.
-    
+
       - `sync_from_fs` uploads pending filesystem changes into the registry. Use
         after editing files on disk (new entries, new migrations, renamed sources)
         so the running registry catches up.
       - `sync_to_fs` downloads the current registry state back into `src/**` with
         canonical YAML ordering. Use after branch edits have been pushed so the
         source tree matches what is running.
+      - Both sync tools only operate on managed namespaces. If
+        `GOV_MANAGED_NAMESPACES` is not configured, pass
+        `managed_namespaces=["<app namespace>"]` for a one-shot sync. Never add
+        `keeper` unless this checkout actually contains Keeper source.
     
       Typical flow after a successful `push`:
-        1. `sync_to_fs` — mirror the new main state onto disk so diffs are clean.
+        1. `sync_to_fs` — mirror the new main state onto disk so diffs are clean
+           (pass the app namespace if needed).
         2. Review the stats block (created / updated / deleted / unchanged).
     
       Typical flow after editing files by hand:
-        1. `sync_from_fs` — bring the registry up to the filesystem.
+        1. `sync_from_fs` — bring the registry up to the filesystem (pass the
+           app namespace if needed).
         2. Use `run_test` or `test_endpoint` to verify the live behavior.
     
       Rules:
       - Never use these tools to work around a failed push — fix the
         underlying entries first.
       - Both calls take up to 90 seconds; do not retry aggressively on timeout.
+      - If the result reports `skipped_unmanaged_source` or
+        `details.skipped_unmanaged`, the missing namespace was not synced. Do
+        not claim success for entries in that namespace; rerun with the correct
+        `managed_namespaces` or configure governance first.
       - Governance + per-kind contracts reject structurally-broken entries; read
         the error message and fix the source.
     tools:
       - keeper.gov.tools:sync_from_fs
       - keeper.gov.tools:sync_to_fs
-    

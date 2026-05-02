@@ -6,7 +6,7 @@ workflows.
 
 This module ships the compiled Keeper UI as an embedded filesystem and exposes
 the APIs needed to operate a Wippy application at runtime. Consumer apps install
-`keeper/keeper@0.5.14`; they do not need Keeper frontend source in their own
+`keeper/keeper@0.5.15`; they do not need Keeper frontend source in their own
 repository unless they are developing Keeper itself.
 
 ## Configuration

@@ -172,6 +172,35 @@ function consts.get_managed_namespaces()
     return namespaces or default_managed_namespaces()
 end
 
+function consts.get_effective_managed_namespaces(options)
+    if type(options) == "table" and options.managed_namespaces ~= nil then
+        local namespaces, err = consts.normalize_managed_namespaces(options.managed_namespaces)
+        if not namespaces then return nil, err end
+        return namespaces, nil
+    end
+    return consts.get_managed_namespaces(), nil
+end
+
+function consts.is_namespace_in(namespace, managed_namespaces)
+    namespace = trim(namespace)
+    if namespace == "" or type(managed_namespaces) ~= "table" then return false end
+    for _, managed_ns in ipairs(managed_namespaces) do
+        managed_ns = trim(managed_ns)
+        if namespace == managed_ns or namespace:sub(1, #managed_ns + 1) == managed_ns .. "." then
+            return true
+        end
+    end
+    return false
+end
+
+function consts.namespace_filter(options)
+    local managed_namespaces, err = consts.get_effective_managed_namespaces(options)
+    if not managed_namespaces then return nil, nil, err end
+    return function(namespace)
+        return consts.is_namespace_in(namespace, managed_namespaces)
+    end, managed_namespaces, nil
+end
+
 function consts.set_managed_namespaces(namespaces)
     local value, normalize_err = consts.serialize_managed_namespaces(namespaces)
     if not value then return nil, normalize_err end
@@ -188,16 +217,7 @@ end
 
 -- Check if namespace is managed
 function consts.is_namespace_managed(namespace)
-    namespace = trim(namespace)
-    if namespace == "" then return false end
-    local managed_namespaces = consts.get_managed_namespaces()
-    for _, managed_ns in ipairs(managed_namespaces) do
-        managed_ns = trim(managed_ns)
-        if namespace == managed_ns or namespace:sub(1, #managed_ns + 1) == managed_ns .. "." then
-            return true
-        end
-    end
-    return false
+    return consts.is_namespace_in(namespace, consts.get_managed_namespaces())
 end
 
 -- Get governance configuration

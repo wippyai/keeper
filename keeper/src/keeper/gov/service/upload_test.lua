@@ -100,6 +100,28 @@ local function define_tests()
             end)
         end)
 
+        describe("skipped_summary", function()
+            it("summarizes skipped unmanaged namespaces deterministically", function()
+                local summary = upload.skipped_summary({
+                    { id = "alpha.tools:a", namespace = "alpha.tools" },
+                    { id = "beta:x", namespace = "beta" },
+                    { id = "alpha.tools:b", namespace = "alpha.tools" },
+                })
+                test.eq(summary.count, 3)
+                test.eq(#summary.namespaces, 2)
+                test.eq(summary.namespaces[1], "alpha.tools")
+                test.eq(summary.namespaces[2], "beta")
+                test.eq(#summary.sample, 3)
+            end)
+
+            it("returns an empty summary for nil input", function()
+                local summary = upload.skipped_summary(nil)
+                test.eq(summary.count, 0)
+                test.eq(#summary.namespaces, 0)
+                test.eq(#summary.sample, 0)
+            end)
+        end)
+
         describe("registry delta visibility", function()
             it("detects meta-only updates used by sync_from_fs", function()
                 local current = {
