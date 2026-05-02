@@ -13,6 +13,7 @@ local message_repo = require("message_repo")
 local artifact_repo = require("artifact_repo")
 
 local config = require("keeper_config")
+local sql_dialect = require("sql_dialect")
 
 local M = {}
 
@@ -22,25 +23,8 @@ local function db(): any
     return d
 end
 
-local function is_postgres(d: any): boolean
-    local ok, t = pcall(function() return d:type() end)
-    return ok and t == sql.type.POSTGRES
-end
-
-local function bind(statement: string, params: any): string
-    if not params or #params == 0 then return statement end
-    local n = 0
-    return (statement:gsub("%?", function()
-        n = n + 1
-        return "$" .. tostring(n)
-    end))
-end
-
 local function db_query(d: any, statement: string, params: any): any
-    if is_postgres(d) then
-        statement = bind(statement, params)
-    end
-    return d:query(statement, params)
+    return sql_dialect.query(d, statement, params)
 end
 
 -- Overview: list user's sessions with rolled-up message count and recent activity.

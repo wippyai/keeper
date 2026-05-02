@@ -17,6 +17,7 @@ end
 local function define_tests()
     test.describe("keeper internal namespace conventions", function()
         test.it("keeps shared helpers under keeper.internal", function()
+            must_get("keeper.internal:sql_dialect")
             must_get("keeper.internal.flow:render")
             must_get("keeper.internal.flow:repo")
             must_get("keeper.internal.session:repo")

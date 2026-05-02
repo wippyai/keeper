@@ -2,6 +2,30 @@ version: "1.0"
 namespace: keeper.internal
 
 entries:
+  # keeper.internal:sql_dialect
+  - name: sql_dialect
+    kind: library.lua
+    meta:
+      comment: Small dialect helpers for Keeper-owned SQL that cannot use sql.builder cleanly
+    source: file://sql_dialect.lua
+    modules:
+      - sql
+
+  # keeper.internal:sql_dialect_test
+  - name: sql_dialect_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Tests for dialect-aware SQL placeholder binding
+      suite: internal
+    source: file://sql_dialect_test.lua
+    imports:
+      sql_dialect: keeper.internal:sql_dialect
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+
   # keeper.internal:namespace_test
   - name: namespace_test
     kind: function.lua

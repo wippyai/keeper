@@ -71,6 +71,7 @@ entries:
       dataflow_repo: userspace.dataflow.persist:dataflow_repo
       keeper_config: keeper:config
       node_reader: userspace.dataflow.persist:node_reader
+      sql_dialect: keeper.internal:sql_dialect
     
   # keeper.internal.flow:repo_test
   - name: repo_test

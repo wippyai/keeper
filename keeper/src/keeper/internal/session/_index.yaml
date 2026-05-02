@@ -15,5 +15,6 @@ entries:
       artifact_repo: wippy.session.persist:artifact_repo
       keeper_config: keeper:config
       message_repo: wippy.session.persist:message_repo
+      sql_dialect: keeper.internal:sql_dialect
       session_repo: wippy.session.persist:session_repo
     
