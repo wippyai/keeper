@@ -1,0 +1,39 @@
+version: "1.0"
+namespace: keeper.mcp.security
+
+entries:
+  # keeper.mcp.security:session_runtime
+  - name: session_runtime
+    kind: security.policy
+    meta:
+      comment: Runtime permissions used by scoped MCP sessions after Keeper has filtered the MCP tool surface.
+    groups:
+      - keeper.mcp.security:session
+    policy:
+      resources: '*'
+      actions: '*'
+      effect: allow
+
+  # keeper.mcp.security:session_forbid_call_tool
+  - name: session_forbid_call_tool
+    kind: security.policy
+    meta:
+      comment: Scoped MCP sessions may call only surfaced MCP tools; arbitrary registry-tool dispatch is root-only.
+    groups:
+      - keeper.mcp.security:session
+    policy:
+      resources: '*'
+      actions: keeper.mcp.call_tool
+      effect: deny
+
+  # keeper.mcp.security:root_runtime
+  - name: root_runtime
+    kind: security.policy
+    meta:
+      comment: Full runtime permissions for mcp.root sessions bound to an active Keeper admin actor.
+    groups:
+      - keeper.mcp.security:root
+    policy:
+      resources: '*'
+      actions: '*'
+      effect: allow

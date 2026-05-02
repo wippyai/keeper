@@ -1,9 +1,11 @@
 -- Actor + scope synthesis for MCP sessions.
 --
 -- MCP bearer tokens carry no Wippy security context of their own, so downstream
--- calls that hit governance or the live registry need a synthesized actor bound
--- to the app-configured admin scope. Tokens are stored subjects, not anonymous
--- root credentials: session.identity is always a real app user.
+-- calls that hit governance or the live registry need a synthesized actor plus
+-- a native Wippy security scope. Tokens are stored subjects, not anonymous root
+-- credentials: session.identity is always a real app user. The app-configured
+-- admin scope identifies who may mint root tokens; Keeper-owned MCP security
+-- groups define what those sessions can do at runtime.
 
 local security = require("security")
 local funcs = require("funcs")
@@ -16,13 +18,15 @@ local config = require("keeper_config")
 
 local ENABLED_ENV = "keeper.mcp:enabled"
 local PUBLIC_API_URL_ENV = "PUBLIC_API_URL"
+local MCP_SESSION_SCOPE = "keeper.mcp.security:session"
+local MCP_ROOT_SCOPE = "keeper.mcp.security:root"
 
 local M = {}
 
 M.ENABLED_ENV = ENABLED_ENV
 
 local function admin_scope_id()
-    return consts.admin_scope_id()
+    return consts.admin_scope_id_checked()
 end
 
 local function bool_env(id, default)
@@ -92,6 +96,9 @@ function M.verify_admin_user(user_id)
     if not user_id or user_id == "" then
         return false, "admin user_id required"
     end
+    local scope_id, scope_err = admin_scope_id()
+    if not scope_id then return false, scope_err end
+
     local db, db_err = sql.get(consts.db_id())
     if db_err then return false, "db unavailable: " .. tostring(db_err) end
 
@@ -100,7 +107,7 @@ function M.verify_admin_user(user_id)
         :join("app_user_groups g ON g.user_id = u.user_id")
         :where("u.user_id = ?", user_id)
         :where("u.status = 'active'")
-        :where("g.group_id = ?", admin_scope_id())
+        :where("g.group_id = ?", scope_id)
         :limit(1)
         :run_with(db)
         :query()
@@ -165,20 +172,69 @@ function M.admin_actor(session, via)
 end
 
 function M.admin_scope()
-    local scope, err = security.named_scope(admin_scope_id())
+    local scope_id, config_err = admin_scope_id()
+    if not scope_id then return nil, consts.config_error_message(config_err) end
+
+    local scope, err = security.named_scope(scope_id)
     if err then return nil, "named_scope failed: " .. tostring(err) end
     return scope, nil
 end
 
+function M.session_scope(session)
+    local scope_id = MCP_SESSION_SCOPE
+    if authorizer.is_root(session) then
+        scope_id = MCP_ROOT_SCOPE
+    end
+
+    local scope, err = security.named_scope(scope_id)
+    if err then return nil, "named_scope failed: " .. tostring(err) end
+    return scope, nil
+end
+
+function M.admin_failure(err)
+    if type(err) == "table" and type(err.code) == "string" and
+        err.code:find("KEEPER_CONFIG_", 1, true) == 1 then
+        return 503, {
+            success = false,
+            code = err.code,
+            error = "Keeper configuration incomplete",
+            details = err,
+        }
+    end
+    return 403, {
+        success = false,
+        code = "FORBIDDEN",
+        error = "Admin required",
+        details = err,
+    }
+end
+
 function M.admin_identity(session, via)
     local actor = M.admin_actor(session, via)
-    local scope, err = M.admin_scope()
+    local scope, err = M.session_scope(session)
     if err then return nil, nil, err end
     return actor, scope, nil
 end
 
--- admin_call builds an executor bound to the synthesized admin actor/scope for
--- a session and invokes a registry function. Centralizes the funcs.new +
+function M.session_allows(session, action, resource)
+    if type(action) ~= "string" or action == "" then
+        return false, "security action required"
+    end
+    if type(session) ~= "table" or type(session.identity) ~= "string" or session.identity == "" then
+        return false, "MCP session identity required"
+    end
+    local ok, actor_or_err = pcall(M.admin_actor, session, "mcp.security")
+    if not ok then return false, tostring(actor_or_err) end
+    local actor = actor_or_err
+    local scope, err = M.session_scope(session)
+    if err then return false, err end
+    local result = scope:evaluate(actor, action, resource or "")
+    if result == "allow" then return true end
+    return false, "native security denied " .. action .. " on " .. tostring(resource or "")
+end
+
+-- admin_call builds an executor bound to the synthesized session actor/scope
+-- and invokes a registry function. Centralizes the funcs.new +
 -- with_actor/with_scope/with_context chain used by handler.lua and meta.lua.
 function M.admin_call(session, via, fn_id, args, context)
     if type(fn_id) ~= "string" or fn_id == "" then

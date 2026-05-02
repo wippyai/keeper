@@ -119,41 +119,12 @@ entries:
     meta:
       type: mcp.preset
       title: Root
-      comment: Full trait catalog, activate anything on demand
+      comment: Full MCP access for the current admin actor. Bypasses trait, tool, and action scope filters.
       icon: tabler:shield-star
     access_mode: any
     default_active: {}
     scopes:
       - mcp.root
-      - mcp.introspect
-      - agents.read
-      - agents.run
-      - app.ui
-      - registry.read
-      - registry.write
-      - registry.sync
-      - state.read
-      - state.write
-      - hub.read
-      - hub.write
-      - hub.migrate
-      - knowledge.read
-      - knowledge.write
-      - logger.read
-      - logger.write
-      - pm.read
-      - pm.write
-      - env.read
-      - env.write
-      - tests.run
-      - functions.call
-      - components.read
-      - components.write
-      - components.build
-      - components.capture
-      - tasks.read
-      - tasks.write
-      - tasks.run
     
   # keeper.mcp.presets:wippy_operator
   - name: wippy_operator

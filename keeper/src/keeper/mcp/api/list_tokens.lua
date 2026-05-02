@@ -15,8 +15,9 @@ local function handler()
     end
     local admin_ok, admin_err = auth.verify_admin_user(actor:id())
     if not admin_ok then
-        res:set_status(http.STATUS.FORBIDDEN)
-        res:write_json({ success = false, error = "Admin required", details = admin_err })
+        local status, payload = auth.admin_failure(admin_err)
+        res:set_status(status)
+        res:write_json(payload)
         return
     end
 

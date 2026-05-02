@@ -1,0 +1,28 @@
+version: "1.0"
+namespace: app.env
+
+entries:
+  - name: defaults
+    kind: env.storage.static
+    meta:
+      comment: Deterministic bootstrap values for Keeper module tests
+    values:
+      USERSPACE_USER_ADMIN_GROUP_ID: app.security:admin
+      USERSPACE_USER_DEFAULT_GROUP_ID: app.security:user
+      USERSPACE_USER_DEFAULT_ADMIN_EMAIL: admin@wippy.local
+      USERSPACE_USER_DEFAULT_ADMIN_PASSWORD: admin123
+
+  - name: file
+    kind: env.storage.file
+    meta:
+      comment: Mutable environment storage for Keeper module tests
+    file_path: ./.wippy/test.env
+    auto_create: true
+
+  - name: store
+    kind: env.storage.router
+    meta:
+      comment: Environment variable storage for Keeper module tests
+    storages:
+      - app.env:file
+      - app.env:defaults

@@ -11,14 +11,13 @@ entries:
     default: "100"
     storage: app.env:store
     variable: GOV_LINTER_LEVEL
-    
+
   # keeper.gov.env:managed_namespaces
   - name: managed_namespaces
     kind: env.variable
     meta:
-      comment: Comma-separated list of namespaces managed by governance
+      comment: Comma-separated list of app-owned namespaces governance may sync between src/** and the registry. Empty by default; set explicitly for dynamic FS sync.
       icon: tabler:list
-    default: app,keeper
+    default: ""
     storage: app.env:store
     variable: GOV_MANAGED_NAMESPACES
-    

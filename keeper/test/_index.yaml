@@ -1,0 +1,118 @@
+version: "1.0"
+namespace: app
+
+entries:
+  - name: db
+    kind: db.sql.sqlite
+    meta:
+      comment: SQLite database for Keeper module tests
+    file: ":memory:"
+
+  - name: processes
+    kind: process.host
+    lifecycle:
+      auto_start: true
+
+  - name: gateway
+    kind: http.service
+    meta:
+      comment: Test HTTP service
+    addr: :19097
+    lifecycle:
+      auto_start: true
+
+  - name: api.public
+    kind: http.router
+    meta:
+      comment: Test public API router
+      server: gateway
+    prefix: /api/public
+
+  - name: api
+    kind: http.router
+    meta:
+      comment: Test authenticated API router
+      server: gateway
+    prefix: /api
+
+  - name: dep.userspace.users
+    kind: ns.dependency
+    meta:
+      description: Userspace user tables and default admin seed for Keeper tests
+    component: userspace/users
+    parameters:
+      - name: env_storage
+        value: app.env:store
+      - name: public_router
+        value: app:api.public
+      - name: router
+        value: app:api
+
+  - name: dep.userspace.uploads
+    kind: ns.dependency
+    meta:
+      description: Upload repository dependency required by wippy/session prompt building
+    component: userspace/uploads
+    parameters:
+      - name: database_resource
+        value: app:db
+      - name: router
+        value: app:api
+      - name: env_storage
+        value: app.env:store
+      - name: storage_id
+        value: app:uploads
+      - name: storage_s3
+        value: app:uploads.s3
+
+  - name: dep.wippy.bootloader
+    kind: ns.dependency
+    meta:
+      description: Bootloader for applying module migrations in tests
+    component: wippy/bootloader
+    parameters:
+      - name: application_host
+        value: app:processes
+      - name: env_storage
+        value: app.env:store
+
+  - name: dep.keeper
+    kind: ns.dependency
+    meta:
+      description: Keeper module under test
+    component: keeper/keeper
+    parameters:
+      - name: api_router
+        value: app:api
+      - name: app_db
+        value: app:db
+      - name: env_storage
+        value: app.env:store
+      - name: public_gateway
+        value: app:gateway
+      - name: ui_server
+        value: app:gateway
+      - name: process_host
+        value: app:processes
+      - name: admin_scope
+        value: app.security:admin
+      # Keeper imports wippy/session as a real module dependency. The test host
+      # configures its public requirements through the standard fully-qualified
+      # dependency parameters, so session behavior is exercised instead of
+      # stubbed.
+      - name: wippy.session:database_resource
+        value: app:db
+      - name: wippy.session:api_router
+        value: app:api
+      - name: wippy.session:env_storage
+        value: app.env:store
+      - name: wippy.session:default_host
+        value: app:processes
+      - name: wippy.llm:process_host
+        value: app:processes
+      - name: wippy.llm:env_storage
+        value: app.env:store
+      - name: wippy.views:api_router
+        value: app:api.public
+      - name: wippy.views:env_storage
+        value: app.env:store

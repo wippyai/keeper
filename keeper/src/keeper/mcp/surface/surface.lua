@@ -8,6 +8,7 @@
 --     surface before/after activation.
 
 local mcp_traits = require("mcp_traits")
+local mcp_auth = require("mcp_auth")
 
 local M = {}
 
@@ -120,7 +121,7 @@ M.META_TOOLS = {
     },
     {
         name = "call_tool",
-        description = "Invoke any registry tool by id with the given arguments, as the session's synthesized admin. Uses the same dispatch path the MCP client would use if the tool were in its tool list — so it works for tools added after the MCP client snapshot. Session context (overlay_branch, changeset_id) is injected automatically.",
+        description = "Invoke any registry tool by id with the given arguments. Requires native Keeper MCP root security and uses the same dispatch path the MCP client would use if the tool were in its tool list, so it works for tools added after the MCP client snapshot. Session context (overlay_branch, changeset_id) is injected automatically.",
         inputSchema = {
             type = "object",
             properties = {
@@ -131,14 +132,29 @@ M.META_TOOLS = {
             required = { "id" },
         },
         always_visible = true,
+        required_security = {
+            action = "keeper.mcp.call_tool",
+            resource = "call_tool",
+        },
     },
 }
 
 M.ALWAYS_VISIBLE = {}
 M.MUTATES_SURFACE = {}
+M.META_REQUIRED_SECURITY = {}
 for _, m in ipairs(M.META_TOOLS) do
     if m.always_visible then M.ALWAYS_VISIBLE[m.name] = true end
     if m.mutates_surface then M.MUTATES_SURFACE[m.name] = true end
+    if m.required_security then M.META_REQUIRED_SECURITY[m.name] = m.required_security end
+end
+
+function M.meta_allowed(session, name)
+    local required = M.META_REQUIRED_SECURITY[name]
+    if not required then return true end
+    if type(session) ~= "table" then
+        return false, "tool requires native security: " .. tostring(name)
+    end
+    return mcp_auth.session_allows(session, required.action, required.resource or name)
 end
 
 function M.supports_traits(session)
@@ -176,7 +192,8 @@ function M.build(session)
     local supports = M.supports_traits(session)
 
     for _, m in ipairs(M.META_TOOLS) do
-        if supports or m.always_visible then
+        local allowed = M.meta_allowed(session, m.name)
+        if allowed and (supports or m.always_visible) then
             table.insert(tool_list, {
                 name = m.name,
                 description = m.description,

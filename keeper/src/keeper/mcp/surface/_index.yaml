@@ -17,7 +17,7 @@ entries:
       mcp_traits: keeper.mcp.surface:traits
       mcp_validate: keeper.mcp.surface:validate
       tools_disc: wippy.agent.discovery:tools
-    
+
   # keeper.mcp.surface:surface
   - name: surface
     kind: library.lua
@@ -25,6 +25,7 @@ entries:
       comment: Tool surface builder — composes meta-tools with materialized dynamic tools per session
     source: file://surface.lua
     imports:
+      mcp_auth: keeper.mcp.auth:auth
       mcp_traits: keeper.mcp.surface:traits
     
   # keeper.mcp.surface:surface_test
@@ -79,4 +80,3 @@ entries:
     method: define_tests
     pool:
       size: 1
-    

@@ -3,6 +3,16 @@ local registry = require("registry")
 local gov_client = require("gov_client")
 local gov_consts = require("gov_consts")
 
+local function with_managed_namespaces(namespaces, fn)
+    local before = gov_consts.get_managed_namespaces()
+    local _, set_err = gov_consts.set_managed_namespaces(namespaces)
+    if set_err then error(set_err) end
+
+    local ok, err = pcall(fn)
+    gov_consts.set_managed_namespaces(before)
+    if not ok then error(err) end
+end
+
 local function define_tests()
     describe("Governance", function()
 
@@ -56,12 +66,10 @@ local function define_tests()
                 test.eq(gov_consts.DEFAULTS.TIMEOUT, "10m")
             end)
 
-            it("defines default managed namespaces", function()
+            it("defaults to no managed namespaces", function()
                 local defaults = gov_consts.DEFAULTS.MANAGED_NAMESPACES
                 test.not_nil(defaults)
-                test.is_true(#defaults >= 2)
-                test.eq(defaults[1], "app")
-                test.eq(defaults[2], "keeper")
+                test.eq(#defaults, 0)
             end)
 
             it("defines filesystem constants", function()
@@ -72,13 +80,17 @@ local function define_tests()
 
         describe("namespace management", function()
             it("recognizes managed namespace", function()
-                test.is_true(gov_consts.is_namespace_managed("app"))
+                with_managed_namespaces({ "app" }, function()
+                    test.is_true(gov_consts.is_namespace_managed("app"))
+                end)
             end)
 
             it("recognizes sub-namespace of managed namespace", function()
-                test.is_true(gov_consts.is_namespace_managed("app.users"))
-                test.is_true(gov_consts.is_namespace_managed("app.settings.theme"))
-                test.is_true(gov_consts.is_namespace_managed("keeper.gov"))
+                with_managed_namespaces({ "app", "keeper" }, function()
+                    test.is_true(gov_consts.is_namespace_managed("app.users"))
+                    test.is_true(gov_consts.is_namespace_managed("app.settings.theme"))
+                    test.is_true(gov_consts.is_namespace_managed("keeper.gov"))
+                end)
             end)
 
             it("rejects unmanaged namespace", function()
@@ -87,7 +99,9 @@ local function define_tests()
             end)
 
             it("rejects namespace that starts with managed prefix but is not a sub-namespace", function()
-                test.eq(gov_consts.is_namespace_managed("application"), false)
+                with_managed_namespaces({ "app" }, function()
+                    test.eq(gov_consts.is_namespace_managed("application"), false)
+                end)
             end)
         end)
 
@@ -128,10 +142,12 @@ local function define_tests()
             end)
 
             it("get_managed_namespaces returns a table", function()
-                local ns = gov_consts.get_managed_namespaces()
-                test.not_nil(ns)
-                test.is_true(type(ns) == "table")
-                test.is_true(#ns > 0)
+                with_managed_namespaces({}, function()
+                    local ns = gov_consts.get_managed_namespaces()
+                    test.not_nil(ns)
+                    test.is_true(type(ns) == "table")
+                    test.eq(#ns, 0)
+                end)
             end)
         end)
 
@@ -275,13 +291,15 @@ local function define_tests()
             end)
 
             it("managed namespace check applies to extracted namespace", function()
-                local entry_id = "app.users:some_entry"
-                local namespace = entry_id:match("^([^:]+):")
-                test.is_true(gov_consts.is_namespace_managed(namespace))
+                with_managed_namespaces({ "app" }, function()
+                    local entry_id = "app.users:some_entry"
+                    local namespace = entry_id:match("^([^:]+):")
+                    test.is_true(gov_consts.is_namespace_managed(namespace))
 
-                local unmanaged_id = "system:some_entry"
-                local unmanaged_ns = unmanaged_id:match("^([^:]+):")
-                test.eq(gov_consts.is_namespace_managed(unmanaged_ns), false)
+                    local unmanaged_id = "system:some_entry"
+                    local unmanaged_ns = unmanaged_id:match("^([^:]+):")
+                    test.eq(gov_consts.is_namespace_managed(unmanaged_ns), false)
+                end)
             end)
         end)
     end)

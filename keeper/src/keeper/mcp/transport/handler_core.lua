@@ -4,7 +4,7 @@
 --   * Parse the incoming JSON-RPC envelope and route the method.
 --   * Authenticate the bearer token against env or the token store.
 --   * Dispatch tools/call to the meta-tool handler layer, or to the
---     registered registry tool via funcs + admin scope.
+--     registered registry tool via funcs + synthesized MCP actor/scope.
 --
 -- All tool catalog composition lives in keeper.mcp.surface:surface. All
 -- meta-tool behavior lives in keeper.mcp.surface:meta. This file is
@@ -106,6 +106,12 @@ local function handle_tools_call(msg, session)
     -- Meta-tool short-circuit. Trait-management tools require any/traits mode;
     -- tools flagged always_visible (session_info) work in every mode.
     local meta_fn = rawget(meta.HANDLERS, tool_name)
+    if meta_fn then
+        local meta_allowed, meta_err = surface.meta_allowed(session, tool_name)
+        if not meta_allowed then
+            return tool_error(msg.id, meta_err or ("tool not allowed: " .. tool_name))
+        end
+    end
     if meta_fn and not (surface.ALWAYS_VISIBLE[tool_name] or surface.supports_traits(session)) then
         return tool_error(msg.id, "tool not available in access_mode=" .. tostring(session.access_mode))
     end

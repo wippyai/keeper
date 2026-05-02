@@ -92,7 +92,7 @@ local SEED_DATA = {
     {
         node_type = "decision",
         title = "Managed Namespaces",
-        content = "Namespaces `app`, `keeper`, `userspace`, and `wippy` are managed by governance.\n\nManaged namespaces go through the linting pipeline and changeset observers on modification. Unmanaged namespaces can be modified freely.\n\nSet via `GOV_MANAGED_NAMESPACES` environment variable.",
+        content = "Keeper manages no registry namespaces by default. Filesystem sync is opt-in through `GOV_MANAGED_NAMESPACES` (for example `app` during app development).\n\nManaged namespaces go through the linting pipeline and changeset observers on modification. Only include namespaces whose source exists in the active `src/**` tree; installed dependencies such as `keeper.*`, `userspace.*`, and `wippy.*` must not be managed by an app unless their source is intentionally vendored.",
         source = "seed",
         confidence = 1.0,
     },

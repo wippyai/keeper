@@ -56,6 +56,13 @@ local function define_tests()
                 test.is_true(surface.ALWAYS_VISIBLE.call_tool == true)
             end)
 
+            it("declares native security requirements separately from visibility", function()
+                local req = surface.META_REQUIRED_SECURITY.call_tool
+                test.not_nil(req)
+                test.eq(req.action, "keeper.mcp.call_tool")
+                test.eq(req.resource, "call_tool")
+            end)
+
             it("does not include trait-management tools", function()
                 test.is_nil(surface.ALWAYS_VISIBLE.use_trait)
                 test.is_nil(surface.ALWAYS_VISIBLE.drop_trait)

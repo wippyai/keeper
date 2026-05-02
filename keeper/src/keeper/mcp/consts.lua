@@ -10,6 +10,14 @@ function M.admin_scope_id(): string
     return config.admin_scope()
 end
 
+function M.admin_scope_id_checked(): (string?, unknown?)
+    return config.read_default("admin_scope")
+end
+
+function M.config_error_message(err: unknown): string
+    return config.error_message(err)
+end
+
 M.PROTOCOL_VERSION = "2025-03-26"
 M.STRICT_TOOL_SCOPES = true
 

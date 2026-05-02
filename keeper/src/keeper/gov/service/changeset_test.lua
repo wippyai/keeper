@@ -65,6 +65,19 @@ local function define_tests()
         end)
 
         describe("check_basic_shape", function()
+            it("governance manages no namespace by default", function()
+                gov_consts.set_managed_namespaces({})
+                local managed = gov_consts.get_managed_namespaces()
+                test.eq(#managed, 0)
+
+                local issues = changeset_proc.check_basic_shape({
+                    { kind = gov_consts.REGISTRY_OPERATIONS.CREATE,
+                      entry = { id = "app.x:svc", kind = "function.lua" } },
+                })
+                test.eq(#issues, 1)
+                test.is_true(issues[1].message:find(gov_consts.ERRORS.UNMANAGED_NAMESPACE, 1, true) ~= nil)
+            end)
+
             it("flags empty / nil / non-table changeset with NO_CHANGESET", function()
                 for _, input in ipairs({ nil, {}, "bogus" }) do
                     local issues = changeset_proc.check_basic_shape(input)
@@ -76,10 +89,12 @@ local function define_tests()
             end)
 
             it("returns empty issues for a valid create in a managed namespace", function()
+                gov_consts.set_managed_namespaces({ "app" })
                 local issues = changeset_proc.check_basic_shape({
                     { kind = gov_consts.REGISTRY_OPERATIONS.CREATE,
                       entry = { id = "app.x:svc", kind = "function.lua" } },
                 })
+                gov_consts.set_managed_namespaces({})
                 test.eq(#issues, 0)
             end)
 
@@ -108,30 +123,36 @@ local function define_tests()
             end)
 
             it("flags unmanaged namespace on create", function()
+                gov_consts.set_managed_namespaces({ "app" })
                 local issues = changeset_proc.check_basic_shape({
                     { kind = gov_consts.REGISTRY_OPERATIONS.CREATE,
                       entry = { id = "random.ns:thing", kind = "function.lua" } },
                 })
+                gov_consts.set_managed_namespaces({})
                 test.eq(#issues, 1)
                 test.is_true(issues[1].message:find(gov_consts.ERRORS.UNMANAGED_NAMESPACE, 1, true) ~= nil)
                 test.is_true(issues[1].message:find("random.ns", 1, true) ~= nil)
             end)
 
             it("accumulates issues across multiple rows", function()
+                gov_consts.set_managed_namespaces({ "app" })
                 local issues = changeset_proc.check_basic_shape({
                     { kind = gov_consts.REGISTRY_OPERATIONS.CREATE,
                       entry = { id = "app.x:svc", kind = "function.lua" } },
                     { entry = { id = "missing-kind" } },
                     { kind = "bogus", entry = { id = "app.y:other" } },
                 })
+                gov_consts.set_managed_namespaces({})
                 test.eq(#issues, 2)
             end)
 
             it("does NOT flag unmanaged namespace for DELETE-by-id only check (delete still scans id)", function()
+                gov_consts.set_managed_namespaces({ "app" })
                 local issues = changeset_proc.check_basic_shape({
                     { kind = gov_consts.REGISTRY_OPERATIONS.DELETE,
                       entry = { id = "app.x:svc" } },
                 })
+                gov_consts.set_managed_namespaces({})
                 test.eq(#issues, 0)
             end)
         end)

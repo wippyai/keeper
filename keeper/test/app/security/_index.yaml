@@ -1,0 +1,25 @@
+version: "1.0"
+namespace: app.security
+
+entries:
+  - name: admin_policy
+    kind: security.policy
+    meta:
+      comment: Admin policy used by Keeper module tests
+    groups:
+      - app.security:admin
+    policy:
+      resources: '*'
+      actions: '*'
+      effect: allow
+
+  - name: user_policy
+    kind: security.policy
+    meta:
+      comment: Default user policy used by userspace/users test bootstrap
+    groups:
+      - app.security:user
+    policy:
+      resources: '*'
+      actions: registry.read
+      effect: allow

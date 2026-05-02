@@ -45,7 +45,7 @@ local consts = {
     DEFAULTS = {
         TIMEOUT = "10m",
         LINTER_LEVEL = 100,
-        MANAGED_NAMESPACES = {"app", "keeper"},
+        MANAGED_NAMESPACES = {},
     },
 
     -- Error Messages
@@ -151,9 +151,6 @@ function consts.normalize_managed_namespaces(input)
                 table.insert(out, namespace)
             end
         end
-    end
-    if #out == 0 then
-        return nil, "at least one managed namespace is required"
     end
     return out, nil
 end

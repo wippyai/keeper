@@ -63,7 +63,7 @@ function M.apply_control(session, result)
     end
 end
 
--- Invoke a tool by registry id as the session's synthesized admin.
+-- Invoke a tool by registry id as the session's synthesized MCP actor/scope.
 -- Merges session-scoped context (overlay_branch, changeset_id) onto base_context,
 -- wraps admin_call in pcall, and applies any _control.session mutations back
 -- to the token store on success.

@@ -1,0 +1,4 @@
+organization: keeper
+module: keeper-test
+description: Test host for the Keeper module
+

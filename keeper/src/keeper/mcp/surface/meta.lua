@@ -262,6 +262,9 @@ function M.list_tools(args, session)
 end
 
 function M.call_tool(args, session)
+    local meta_ok, meta_err = surface.meta_allowed(session, "call_tool")
+    if not meta_ok then return nil, meta_err end
+
     args = args or {}
     local id = args.id
     if type(id) ~= "string" or id == "" then

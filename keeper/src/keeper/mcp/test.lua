@@ -778,14 +778,23 @@ local function define_tests()
                 end
             end)
 
-            it("strict mode denies external tools without explicit MCP scopes", function()
+            it("strict mode denies non-root external tools without explicit MCP scopes", function()
                 local ok, err = mcp_authorize.tool(
-                    { scopes = { "mcp.root" } },
+                    { scopes = { "state.read" } },
                     "wippy.agent.tools:delay_tool"
                 )
                 test.is_true(not ok)
                 test.not_nil(err)
                 test.is_true(err:find("required_scopes") ~= nil)
+            end)
+
+            it("root scope can use registered tools missing explicit MCP scopes", function()
+                local session = { scopes = { "mcp.root" } }
+                local ok, err = mcp_authorize.tool(session, "wippy.agent.tools:delay_tool")
+                test.is_true(ok, tostring(err))
+
+                local call_ok, call_err = mcp_authorize.tool_call(session, "wippy.agent.tools:delay_tool", nil, {})
+                test.is_true(call_ok, tostring(call_err))
             end)
 
             it("root scope bypasses normal tool scopes", function()
@@ -1047,6 +1056,33 @@ local function define_tests()
                 test.eq(resolved.tools.hub_dependencies.registry_id, "keeper.hub.tools:dependencies")
                 test.eq(resolved.tools.hub_migrations.registry_id, "keeper.hub.tools:migrations")
             end)
+
+            it("composite traits expand through nested trait ids under the same filter", function()
+                local preset = mcp_policy.get_preset("wippy_operator")
+                local expanded, err = mcp_traits._expand_trait_ids({
+                    access_mode = preset.access_mode,
+                    scopes = preset.scopes,
+                    trait_filter = preset.trait_filter,
+                }, preset.default_active)
+
+                test.is_nil(err)
+                local found = {}
+                for _, id in ipairs(expanded or {}) do found[id] = true end
+                test.is_true(found["keeper.agents.traits.wippy:operator"] == true)
+                test.is_true(found["keeper.agents.traits.state:explorer"] == true)
+                test.is_true(found["keeper.agents.traits.hub:operator"] == true)
+            end)
+
+            it("composite traits cannot smuggle nested traits outside token filters", function()
+                local expanded, err = mcp_traits._expand_trait_ids({
+                    access_mode = "traits",
+                    scopes = { "mcp.introspect" },
+                    trait_filter = { namespaces = { "keeper.agents.traits.wippy" } },
+                }, { "keeper.agents.traits.wippy:operator" })
+
+                test.is_nil(expanded)
+                test.not_nil(err)
+            end)
         end)
 
         describe("create_token + preset smoke", function()
@@ -1190,6 +1226,20 @@ local function define_tests()
                 local ok, err = mcp_auth.verify_admin_user("")
                 test.is_false(ok)
                 test.not_nil(err)
+            end)
+
+            it("admin config failures become explicit service errors, not generic admin denials", function()
+                local status, payload = mcp_auth.admin_failure({
+                    code = "KEEPER_CONFIG_EMPTY",
+                    key = "admin_scope",
+                    requirement = "keeper:admin_scope",
+                    entry = "keeper.config:admin_scope",
+                    message = "Keeper configuration empty: admin_scope",
+                })
+                test.eq(status, 503)
+                test.eq(payload.error, "Keeper configuration incomplete")
+                test.eq(payload.code, "KEEPER_CONFIG_EMPTY")
+                test.eq(payload.details.requirement, "keeper:admin_scope")
             end)
 
             it("verify_admin_user rejects unknown user", function()
@@ -1419,6 +1469,7 @@ local function define_tests()
             it("use_trait validates trait_filter", function()
                 local session = new_session({
                     access_mode = "traits",
+                    scopes = { "mcp.introspect", "state.read" },
                     trait_filter = { namespaces = { "plugin.traits" } },
                 })
                 local result, err = mcp_meta.use_trait(
@@ -1469,9 +1520,36 @@ local function define_tests()
                 return mcp_tokens.get(tok.token)
             end
 
-            it("list_tools and call_tool are always_visible", function()
+            local function tool_names(session)
+                local list, _, err = mcp_surface.build(session)
+                test.is_nil(err)
+                local names = {}
+                for _, t in ipairs(list or {}) do names[t.name] = true end
+                return names
+            end
+
+            it("list_tools is always visible and call_tool declares native root security", function()
                 test.is_true(mcp_surface.ALWAYS_VISIBLE.list_tools == true)
                 test.is_true(mcp_surface.ALWAYS_VISIBLE.call_tool == true)
+                local req = mcp_surface.META_REQUIRED_SECURITY.call_tool
+                test.not_nil(req)
+                test.eq(req.action, "keeper.mcp.call_tool")
+            end)
+
+            it("native MCP security hides call_tool from non-root sessions", function()
+                local scoped = new_session({
+                    access_mode = "any",
+                    scopes = { "state.read", "mcp.introspect" },
+                })
+                local root = new_session({
+                    access_mode = "any",
+                    scopes = { "mcp.root" },
+                })
+
+                test.is_nil(tool_names(scoped).call_tool,
+                    "scoped sessions must not see arbitrary registry-tool dispatch")
+                test.is_true(tool_names(root).call_tool == true,
+                    "root sessions should see call_tool")
             end)
 
             it("list_tools surfaces known registry tools", function()
@@ -1509,6 +1587,7 @@ local function define_tests()
             it("list_tools respects tool_filter (namespaces)", function()
                 local session = new_session({
                     access_mode = "tools_only",
+                    scopes = { "mcp.introspect", "state.read" },
                     tool_filter = { namespaces = { "keeper.state.tools" } },
                 })
                 local result = mcp_meta.list_tools({}, session)
@@ -1542,19 +1621,19 @@ local function define_tests()
                 test.is_true(err:find("not a tool") ~= nil)
             end)
 
-            it("call_tool denies tools outside session filter", function()
+            it("call_tool is denied for non-root sessions by native security", function()
                 local session = new_session({
-                    access_mode = "tools_only",
-                    scopes = { "state.read" },
-                    tool_filter = { exclude_ids = { "keeper.state.tools:get_entries" } },
+                    access_mode = "any",
+                    scopes = { "state.read", "mcp.introspect" },
                 })
                 local result, err = mcp_meta.call_tool({ id = "keeper.state.tools:get_entries" }, session)
                 test.is_nil(result)
                 test.not_nil(err)
+                test.is_true(err:find("keeper.mcp.call_tool") ~= nil)
             end)
 
             it("call_tool rejects arguments that violate declared schema", function()
-                local session = new_session({ access_mode = "any", scopes = { "state.read" } })
+                local session = new_session({ access_mode = "any", scopes = { "mcp.root" } })
                 local result, err = mcp_meta.call_tool({
                     id = "keeper.state.tools:explore",
                     arguments = {},
@@ -1565,7 +1644,7 @@ local function define_tests()
             end)
 
             it("call_tool rejects non-object arguments", function()
-                local session = new_session({ access_mode = "any", scopes = { "state.read" } })
+                local session = new_session({ access_mode = "any", scopes = { "mcp.root" } })
                 local result, err = mcp_meta.call_tool({
                     id = "keeper.state.tools:explore",
                     arguments = "not a table",
@@ -1575,7 +1654,7 @@ local function define_tests()
             end)
 
             it("call_tool dispatches a real read tool end-to-end", function()
-                local session = new_session({ access_mode = "any", scopes = { "state.read" } })
+                local session = new_session({ access_mode = "any", scopes = { "mcp.root" } })
                 local result, err = mcp_meta.call_tool({
                     id = "keeper.state.tools:explore",
                     arguments = { operation = "tree", root = "keeper.mcp", depth = 1 },

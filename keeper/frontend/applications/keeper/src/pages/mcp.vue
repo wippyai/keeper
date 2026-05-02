@@ -37,9 +37,52 @@ const copiedSnippet = ref<string | null>(null)
 const activeTokens = computed(() => tokens.value.filter(t => !t.revoked))
 const revokedTokens = computed(() => tokens.value.filter(t => t.revoked))
 
-const mcpUrl = computed(() =>
-  serverConfig.value?.url || ''
-)
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/+$/, '')
+}
+
+function normalizeRoutePath(path: string | undefined) {
+  const route = path?.trim() || '/keeper-mcp/'
+  const prefixed = route.startsWith('/') ? route : `/${route}`
+  return prefixed.endsWith('/') ? prefixed : `${prefixed}/`
+}
+
+function browserOrigin() {
+  if (typeof window === 'undefined') return ''
+  return window.location.origin || ''
+}
+
+function apiErrorMessage(e: unknown) {
+  const err = e as {
+    message?: string
+    response?: {
+      data?: {
+        error?: string
+        details?: string | { message?: string; requirement?: string }
+      }
+    }
+  }
+  const data = err.response?.data
+  if (data?.error) {
+    const details = data.details
+    if (typeof details === 'string' && details) return `${data.error}: ${details}`
+    if (details && typeof details === 'object') {
+      const suffix = details.message || details.requirement
+      if (suffix) return `${data.error}: ${suffix}`
+    }
+    return data.error
+  }
+  return err.message || 'Request failed'
+}
+
+const mcpUrl = computed(() => {
+  const configured = serverConfig.value?.url?.trim()
+  if (configured) return configured
+
+  const origin = browserOrigin()
+  if (!origin) return ''
+  return `${trimTrailingSlash(origin)}${normalizeRoutePath(serverConfig.value?.path)}`
+})
 const endpointStatus = computed(() => serverConfig.value?.enabled === false ? 'Disabled' : 'Enabled')
 const snippetToken = computed(() => '<TOKEN>')
 const currentIdentity = computed(() =>
@@ -90,8 +133,8 @@ async function load() {
     scopes.value = scopesRes.scopes || []
     presets.value = scopesRes.presets || []
     serverConfig.value = scopesRes.config || null
-  } catch (e: any) {
-    error.value = e.message
+  } catch (e: unknown) {
+    error.value = apiErrorMessage(e)
   } finally {
     loading.value = false
   }
@@ -103,7 +146,7 @@ async function loadCurrentUser() {
     if (data.success && data.user) {
       currentUser.value = data.user
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     currentUser.value = null
   }
 }
@@ -159,8 +202,8 @@ async function doCreate() {
     } else {
       error.value = result.error || 'Create failed'
     }
-  } catch (e: any) {
-    error.value = e.message
+  } catch (e: unknown) {
+    error.value = apiErrorMessage(e)
   } finally {
     creating.value = false
   }
@@ -171,7 +214,7 @@ async function copy(text: string, id: string) {
     await navigator.clipboard.writeText(text)
     copiedSnippet.value = id
     setTimeout(() => { copiedSnippet.value = null }, 1500)
-  } catch (e: any) { error.value = e?.response?.data?.error || e.message }
+  } catch (e: unknown) { error.value = apiErrorMessage(e) }
 }
 
 async function doRevoke(tokenId: string) {
@@ -184,8 +227,8 @@ async function doRevoke(tokenId: string) {
     } else {
       error.value = result.error || 'Revoke failed'
     }
-  } catch (e: any) {
-    error.value = e.message
+  } catch (e: unknown) {
+    error.value = apiErrorMessage(e)
   }
 }
 

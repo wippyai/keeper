@@ -6,7 +6,7 @@ workflows.
 
 This module ships the compiled Keeper UI as an embedded filesystem and exposes
 the APIs needed to operate a Wippy application at runtime. Consumer apps install
-`keeper/keeper@0.5.4`; they do not need Keeper frontend source in their own
+`keeper/keeper@0.5.13`; they do not need Keeper frontend source in their own
 repository unless they are developing Keeper itself.
 
 ## Configuration
@@ -24,9 +24,35 @@ their own runtime resources without editing Keeper entries:
 - `keeper:ui_server` serves embedded Keeper UI assets. Default: `app:gateway`.
 - `keeper:process_host` runs Keeper-spawned runtime work. Default: `app:processes`.
 
+Keeper imports `wippy/session` as a real module dependency for session and
+artifact inspection. If the host app needs non-default session resources,
+configure that dependency through standard transitive dependency parameters on
+the Keeper install, for example `wippy.session:database_resource`,
+`wippy.session:api_router`, `wippy.session:env_storage`, and
+`wippy.session:default_host`.
+
 The MCP client URL is the host application's public API base plus
 `keeper:mcp_route`. Do not configure clients from Keeper docs against a
 hardcoded local port.
+
+### Governance Filesystem Sync
+
+Keeper does not manage any registry namespace by default. This is intentional:
+installed modules such as `keeper.*`, `userspace.*`, and `wippy.*` are Hub
+dependencies, not source owned by the host application's `src/**` tree.
+
+Dynamic filesystem sync (`sync_from_fs` / `sync_to_fs`) is opt-in. Configure the
+comma-separated `GOV_MANAGED_NAMESPACES` environment variable, or update the
+same value from Keeper's registry settings, before using FS sync. Typical app
+development uses:
+
+```env
+GOV_MANAGED_NAMESPACES=app
+```
+
+Only include `keeper` when developing Keeper itself from a checkout that
+contains Keeper source. Adding a namespace means governance may create, update,
+and delete live registry entries in that namespace to match filesystem source.
 
 ## Hub
 

@@ -37,6 +37,10 @@ function mountPage() {
   return mount(MCPPage, { attachTo: document.body })
 }
 
+function setTestUrl(url: string) {
+  ;(window as unknown as { happyDOM: { setURL: (url: string) => void } }).happyDOM.setURL(url)
+}
+
 function dialogButton(label: string) {
   return Array.from(document.body.querySelectorAll<HTMLButtonElement>('.dialog-box button'))
     .find(button => button.textContent?.trim() === label)
@@ -46,6 +50,7 @@ describe('MCP token creation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     document.body.innerHTML = ''
+    setTestUrl('http://localhost:3000/')
 
     mocks.api.get.mockResolvedValue({
       data: {
@@ -144,6 +149,27 @@ describe('MCP token creation', () => {
 
     const snippets = wrapper.findAll('pre.snippet-code').map(pre => pre.text()).join('\n')
     expect(snippets).toContain('https://ops.example.com/keeper-mcp/')
+
+    wrapper.unmount()
+  })
+
+  it('falls back to the browser origin when the backend public URL is not configured', async () => {
+    setTestUrl('https://console.example.test/c/keeper:main/settings/mcp')
+    mocks.listScopes.mockResolvedValueOnce({
+      scopes: [],
+      presets: [],
+      config: {
+        enabled: true,
+        url: '',
+        path: '/custom-mcp/',
+      },
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const snippets = wrapper.findAll('pre.snippet-code').map(pre => pre.text()).join('\n')
+    expect(snippets).toContain('https://console.example.test/custom-mcp/')
 
     wrapper.unmount()
   })

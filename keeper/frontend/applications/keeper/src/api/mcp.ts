@@ -47,6 +47,7 @@ export async function listTokens(api: AxiosInstance) {
 
 export async function createToken(api: AxiosInstance, params: {
   label: string
+  identity?: string
   scopes?: string[]
   preset?: string
   access_mode?: 'any' | 'traits' | 'tools_only'

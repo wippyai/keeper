@@ -73,6 +73,7 @@ function M.trait_allowed(session, trait_id)
     if not entry.meta or entry.meta.type ~= TRAIT_META_TYPE then
         return false, "entry is not a trait: " .. tostring(trait_id)
     end
+    if mcp_authorize.is_root(session) then return true end
     local filter = session and session.trait_filter
     if not filter then return true end
     local tags = entry.meta.tags or {}
@@ -84,6 +85,9 @@ function M.tool_allowed(session, tool_id)
     if not entry then return false, err or "tool not found: " .. tostring(tool_id) end
     if not entry.meta or entry.meta.type ~= TOOL_META_TYPE then
         return false, "entry is not a tool: " .. tostring(tool_id)
+    end
+    if mcp_authorize.is_root(session) then
+        return mcp_authorize.tool(session, tool_id, entry)
     end
     local filter = session and session.tool_filter
     local tags = entry.meta.tags or {}
@@ -97,7 +101,7 @@ end
 
 -- Return traits visible to this session (filter resolved against registry).
 function M.list_catalog(session)
-    local filter = session and session.trait_filter
+    local filter = mcp_authorize.is_root(session) and nil or (session and session.trait_filter)
     local entries = fetch_trait_entries_with_meta()
 
     local result = {}
@@ -143,6 +147,8 @@ local function supports_traits(session)
     return mode == "any" or mode == "traits"
 end
 
+local expand_trait_ids
+
 -- Active set (persisted per token). Falls back to default_active when the
 -- session has never written state.
 function M.get_active(session)
@@ -171,6 +177,11 @@ function M.validate_trait_ids(session, trait_ids)
         if not allowed then
             return false, err or ("trait not allowed: " .. id)
         end
+    end
+
+    local expanded, expand_err = expand_trait_ids(session, trait_ids)
+    if not expanded then
+        return false, expand_err
     end
     return true
 end
@@ -255,11 +266,74 @@ function M._prune_missing_traits(active)
     return prune_missing_traits(active)
 end
 
+-- Keeper traits may be composites that reference other traits. The upstream
+-- agent compiler treats raw_spec.traits as a flat list, so the MCP surface
+-- expands composites here, after token trait filters have been applied.
+function expand_trait_ids(session, active)
+    local expanded = {}
+    local seen = {}
+    local visiting = {}
+
+    local function expand_one(id)
+        if seen[id] then return true end
+        if visiting[id] then return true end
+
+        local allowed, allow_err = M.trait_allowed(session, id)
+        if not allowed then
+            return false, allow_err or ("trait not allowed: " .. tostring(id))
+        end
+
+        local entry, err = registry.get(id)
+        if not entry then
+            return false, err or ("trait not found: " .. tostring(id))
+        end
+        if not entry.meta or entry.meta.type ~= TRAIT_META_TYPE then
+            return false, "entry is not a trait: " .. tostring(id)
+        end
+
+        visiting[id] = true
+        seen[id] = true
+        table.insert(expanded, id)
+
+        local data = entry.data or {}
+        local children = data.traits or {}
+        if type(children) == "table" then
+            for _, child_id in ipairs(children) do
+                if type(child_id) == "string" and child_id ~= "" then
+                    local ok, child_err = expand_one(child_id)
+                    if not ok then
+                        visiting[id] = nil
+                        return false, child_err
+                    end
+                end
+            end
+        end
+
+        visiting[id] = nil
+        return true
+    end
+
+    for _, id in ipairs(active or {}) do
+        local ok, err = expand_one(id)
+        if not ok then return nil, err end
+    end
+
+    return expanded, nil
+end
+
+function M._expand_trait_ids(session, active)
+    return expand_trait_ids(session, active)
+end
+
 -- Materialization (any/traits modes): feed active trait set through the agent
 -- compiler so MCP tooling shares the exact resolution pipeline agents use.
 function M.resolve(session)
     local active = M.get_active(session) or {}
     local pruned, dropped = prune_missing_traits(active)
+    local expanded, expand_err = expand_trait_ids(session, pruned)
+    if expand_err then
+        return nil, expand_err
+    end
     local token = type(session) == "table" and session.token or nil
     local label = type(session) == "table" and session.label or nil
     local identity = type(session) == "table" and session.identity or nil
@@ -271,13 +345,13 @@ function M.resolve(session)
         mcp_tokens.set_active_traits(token, pruned)
     end
 
-    if #pruned == 0 then
+    if #expanded == 0 then
         return { tools = {}, prompt = "", prompt_funcs = {}, step_funcs = {} }
     end
 
     local synthetic = {
         id = "keeper.mcp.session:" .. (type(label) == "string" and label or "unknown"),
-        traits = pruned,
+        traits = expanded,
         tools = {},
         context = {
             _mcp_session = true,
@@ -311,7 +385,7 @@ end
 -- tools_only mode: resolve the tool_filter against the registry tool catalog
 -- and materialize matching tool ids via tools_disc, bypassing the trait layer.
 function M.resolve_tools_only(session)
-    local filter = session and session.tool_filter
+    local filter = mcp_authorize.is_root(session) and nil or (session and session.tool_filter)
     local entries = fetch_tool_entries_with_meta()
 
     local tools = {}

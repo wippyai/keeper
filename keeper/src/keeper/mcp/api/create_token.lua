@@ -19,8 +19,12 @@ local function handler()
     local issuer_id = actor:id()
     local issuer_ok, issuer_err = auth.verify_admin_user(issuer_id)
     if not issuer_ok then
-        res:set_status(http.STATUS.FORBIDDEN)
-        res:write_json({ success = false, error = "MCP token issuance requires an active admin user", details = issuer_err })
+        local status, payload = auth.admin_failure(issuer_err)
+        if payload.error == "Admin required" then
+            payload.error = "MCP token issuance requires an active admin user"
+        end
+        res:set_status(status)
+        res:write_json(payload)
         return
     end
 
@@ -82,10 +86,18 @@ local function handler()
     if wants_root then
         local admin_ok, admin_err = auth.verify_admin_user(issuer_id)
         if not admin_ok then
-            res:set_status(http.STATUS.BAD_REQUEST)
-            res:write_json({ success = false, error = "mcp.root tokens require the current actor to be an active admin", details = admin_err })
+            local status, payload = auth.admin_failure(admin_err)
+            if payload.error == "Admin required" then
+                payload.error = "mcp.root tokens require the current actor to be an active admin"
+            end
+            res:set_status(status)
+            res:write_json(payload)
             return
         end
+        scopes = { "mcp.root" }
+        access_mode = "any"
+        trait_filter = nil
+        tool_filter = nil
     end
 
     local token_data, err = token_store.create({

@@ -256,10 +256,11 @@ function M.tool(session, tool_id, entry)
     end
 
     local required = M.required_scopes(tool_id, entry)
-    if not has_items(required) and consts.STRICT_TOOL_SCOPES then
+    local is_root = M.is_root(session)
+    if not is_root and not has_items(required) and consts.STRICT_TOOL_SCOPES then
         return false, "tool has no MCP required_scopes: " .. tool_id
     end
-    local ok, err = M.require_scopes(session, required)
+    local ok, err = require_scopes_with_set(is_root, M.scope_set(session), required)
     if not ok then return false, err end
     return true, nil, entry
 end
@@ -283,7 +284,7 @@ function M.tool_call(session, tool_id, entry, arguments)
     local set = M.scope_set(session)
     local is_root = session and session.internal_root == true or set[ROOT_SCOPE] == true
     local required = M.required_scopes(tool_id, entry)
-    if not has_items(required) and consts.STRICT_TOOL_SCOPES then
+    if not is_root and not has_items(required) and consts.STRICT_TOOL_SCOPES then
         return false, "tool has no MCP required_scopes: " .. tool_id
     end
     local ok, err = require_scopes_with_set(is_root, set, required)
@@ -406,10 +407,15 @@ function M.validate_subject(session)
     end
 
     if M.scope_set(session)[ROOT_SCOPE] == true then
+        local admin_scope_id, scope_err = consts.admin_scope_id_checked()
+        if not admin_scope_id then
+            db:release()
+            return false, consts.config_error_message(scope_err)
+        end
         local admin_rows, admin_err = sql.builder.select("user_id")
             :from("app_user_groups")
             :where("user_id = ?", session.identity)
-            :where("group_id = ?", consts.admin_scope_id())
+            :where("group_id = ?", admin_scope_id)
             :limit(1)
             :run_with(db)
             :query()

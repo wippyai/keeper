@@ -112,7 +112,10 @@ function M.require_admin_actor(res)
 
     local ok, admin_err = mcp_auth.verify_admin_user(actor:id())
     if not ok then
-        M.write_error(res, "FORBIDDEN", "Admin required", admin_err)
+        local status, payload = mcp_auth.admin_failure(admin_err)
+        res:set_status(status)
+        res:set_content_type(http.CONTENT.JSON)
+        res:write_json(payload)
         return nil
     end
     return actor
