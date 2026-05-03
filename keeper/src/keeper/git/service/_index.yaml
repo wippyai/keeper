@@ -1,0 +1,106 @@
+version: "1.0"
+namespace: keeper.git.service
+
+entries:
+  # keeper.git.service:async_task
+  - name: async_task
+    kind: library.lua
+    meta:
+      comment: Helper for spawn → relay started/finished/failed → reply pattern used by every async LLM handler
+    source: file://async_task.lua
+    modules:
+      - process
+      - uuid
+    
+  # keeper.git.service:async_task_test
+  - name: async_task_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for async task success/failure relay behavior
+      suite: git
+    source: file://async_task_test.lua
+    imports:
+      async_task: keeper.git.service:async_task
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.git.service:central
+  - name: central
+    kind: process.lua
+    meta:
+      comment: keeper.git central — routes inbox messages to per-op handlers, ticks staleness
+    source: file://central.lua
+    modules:
+      - process
+      - channel
+      - time
+      - logger
+    imports:
+      decisions_handler: keeper.git.service.handlers:decisions
+      explain_handler: keeper.git.service.handlers:explain
+      git_consts: keeper.git:consts
+      push_handler: keeper.git.service.handlers:push
+      rebuild_handler: keeper.git.service.handlers:rebuild
+      snapshot_handler: keeper.git.service.handlers:snapshot
+      split_handler: keeper.git.service.handlers:split
+      state: keeper.git.service:state
+    method: run
+    
+  # keeper.git.service:central.service
+  - name: central.service
+    kind: process.service
+    meta:
+      comment: Always-running git index supervisor
+    host: keeper.gov:processes
+    lifecycle:
+      depends_on:
+        - keeper.gov:processes
+        - keeper.state:db
+      auto_start: true
+      security:
+        actor:
+          id: keeper.git.supervisor
+        groups:
+          - keeper.gov.service.security:governance
+    process: central
+    
+  # keeper.git.service:snapshot
+  - name: snapshot
+    kind: library.lua
+    meta:
+      comment: In-memory cluster snapshot shape — empty/get_cluster/set_decision/update_recommendation/reorder/to_summary
+    source: file://snapshot.lua
+    imports:
+      git_consts: keeper.git:consts
+      push_policy: keeper.git.flows:push_policy
+    
+  # keeper.git.service:snapshot_test
+  - name: snapshot_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for snapshot helpers
+      suite: git
+    source: file://snapshot_test.lua
+    imports:
+      git_consts: keeper.git:consts
+      snapshot_lib: keeper.git.service:snapshot
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.git.service:state
+  - name: state
+    kind: library.lua
+    meta:
+      comment: Encapsulates central's mutable state — snapshot/stale/rebuilding_now with mutation methods
+    source: file://state.lua
+    imports:
+      git_consts: keeper.git:consts
+      run_repo: keeper.git.persist:run_repo
+      snapshot: keeper.git.service:snapshot
+    

@@ -1,0 +1,255 @@
+version: "1.0"
+namespace: keeper.git.api
+
+entries:
+  # keeper.git.api:explain
+  - name: explain
+    kind: function.lua
+    meta:
+      comment: AI deep-dive on a single recommendation — explains the finding + concrete fix steps
+      router: app:api
+    source: file://explain.lua
+    modules:
+      - http
+      - security
+    imports:
+      git_client: keeper.git:client
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.git.api:explain.endpoint
+  - name: explain.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: explain
+    path: /keeper/git/clusters/{id}/recommendations/{rec_id}/explain
+    
+  # keeper.git.api:get_cluster
+  - name: get_cluster
+    kind: function.lua
+    meta:
+      comment: Fetch a single cluster (full detail incl. recommendations + change_ids)
+      router: app:api
+    source: file://get_cluster.lua
+    modules:
+      - http
+      - security
+    imports:
+      git_client: keeper.git:client
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.git.api:get_cluster.endpoint
+  - name: get_cluster.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: get_cluster
+    path: /keeper/git/clusters/{id}
+    
+  # keeper.git.api:get_diff
+  - name: get_diff
+    kind: function.lua
+    meta:
+      comment: Unified diff for one path vs the configured diff_base — returns parsed hunks for nice rendering
+      router: app:api
+    source: file://get_diff.lua
+    modules:
+      - http
+      - security
+      - funcs
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.git.api:get_diff.endpoint
+  - name: get_diff.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: get_diff
+    path: /keeper/git/diff
+    
+  # keeper.git.api:list_clusters
+  - name: list_clusters
+    kind: function.lua
+    meta:
+      comment: List all clusters in the live snapshot (with counts + stale flag)
+      router: app:api
+    source: file://list_clusters.lua
+    modules:
+      - http
+      - security
+    imports:
+      git_client: keeper.git:client
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.git.api:list_clusters.endpoint
+  - name: list_clusters.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: list_clusters
+    path: /keeper/git/clusters
+    
+  # keeper.git.api:push
+  - name: push
+    kind: function.lua
+    meta:
+      comment: Bulk-push approved clusters via existing keeper.state.tools:push (per-cluster atomic, partial-batch survivable)
+      router: app:api
+    source: file://push.lua
+    modules:
+      - http
+      - security
+    imports:
+      git_client: keeper.git:client
+    method: handler
+    pool:
+      size: 1
+    
+  # keeper.git.api:push.endpoint
+  - name: push.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: push
+    path: /keeper/git/push
+    
+  # keeper.git.api:rebuild
+  - name: rebuild
+    kind: function.lua
+    meta:
+      comment: 'Rebuild the cluster index from real git working tree. Body opts: sync_first, tracked_dirs, diff_base.'
+      router: app:api
+    source: file://rebuild.lua
+    modules:
+      - http
+      - security
+    imports:
+      git_client: keeper.git:client
+    method: handler
+    pool:
+      size: 1
+    
+  # keeper.git.api:rebuild.endpoint
+  - name: rebuild.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: rebuild
+    path: /keeper/git/rebuild
+    
+  # keeper.git.api:set_decision
+  - name: set_decision
+    kind: function.lua
+    meta:
+      comment: Update a cluster's decision (pending/approved/skipped/pushed)
+      router: app:api
+    source: file://set_decision.lua
+    modules:
+      - http
+      - security
+    imports:
+      git_client: keeper.git:client
+      git_consts: keeper.git:consts
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.git.api:set_decision.endpoint
+  - name: set_decision.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: PATCH
+    func: set_decision
+    path: /keeper/git/clusters/{id}/decision
+    
+  # keeper.git.api:split_cluster
+  - name: split_cluster
+    kind: function.lua
+    meta:
+      comment: Apply a group spec — splits source cluster into N child clusters with detector-driven verdicts
+      router: app:api
+    source: file://split_cluster.lua
+    modules:
+      - http
+      - security
+    imports:
+      git_client: keeper.git:client
+    method: handler
+    pool:
+      size: 1
+    
+  # keeper.git.api:split_cluster.endpoint
+  - name: split_cluster.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: split_cluster
+    path: /keeper/git/clusters/{id}/split
+    
+  # keeper.git.api:suggest_split
+  - name: suggest_split
+    kind: function.lua
+    meta:
+      comment: Propose how to split a too-large cluster — by_prefix / by_kind / ai
+      router: app:api
+    source: file://suggest_split.lua
+    modules:
+      - http
+      - security
+    imports:
+      git_client: keeper.git:client
+    method: handler
+    pool:
+      size: 1
+    
+  # keeper.git.api:suggest_split.endpoint
+  - name: suggest_split.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: suggest_split
+    path: /keeper/git/clusters/{id}/suggest-split
+    
+  # keeper.git.api:update_recommendation
+  - name: update_recommendation
+    kind: function.lua
+    meta:
+      comment: Update a recommendation state (open/acknowledged/fixed/split) within a cluster
+      router: app:api
+    source: file://update_recommendation.lua
+    modules:
+      - http
+      - security
+    imports:
+      git_client: keeper.git:client
+      git_consts: keeper.git:consts
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.git.api:update_recommendation.endpoint
+  - name: update_recommendation.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: PATCH
+    func: update_recommendation
+    path: /keeper/git/clusters/{id}/recommendations/{rec_id}
+    

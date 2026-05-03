@@ -1,0 +1,325 @@
+version: "1.0"
+namespace: keeper.git.flows
+
+entries:
+  # keeper.git.flows:cluster_factory
+  - name: cluster_factory
+    kind: library.lua
+    meta:
+      comment: Single source of truth for assembling cluster objects — runs detectors, derives verdict, returns the cluster shape
+    source: file://cluster_factory.lua
+    modules:
+      - uuid
+    imports:
+      architecture: keeper.git.detectors:architecture
+      coverage: keeper.git.detectors:coverage
+      git_consts: keeper.git:consts
+      push_policy: keeper.git.flows:push_policy
+      security_d: keeper.git.detectors:security
+      verdict_d: keeper.git.detectors:verdict
+    
+  # keeper.git.flows:cluster_factory_test
+  - name: cluster_factory_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for cluster_factory.build (topic / suspect / split shapes, stats, ids)
+      suite: git
+    source: file://cluster_factory_test.lua
+    imports:
+      cluster_factory: keeper.git.flows:cluster_factory
+      git_consts: keeper.git:consts
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.git.flows:clusterer
+  - name: clusterer
+    kind: library.lua
+    meta:
+      comment: LLM-driven topical clustering — one llm.generate call returning JSON cluster array
+    source: file://clusterer.lua
+    modules:
+      - logger
+      - time
+    imports:
+      prompt: wippy.llm:prompt
+      llm: wippy.llm:llm
+      llm_groups: keeper.git.flows:llm_groups
+    
+  # keeper.git.flows:clusterer_parallel
+  - name: clusterer_parallel
+    kind: library.lua
+    meta:
+      comment: Parallel wrapper around clusterer for large git change sets
+    source: file://clusterer_parallel.lua
+    modules:
+      - channel
+      - logger
+      - time
+    imports:
+      clusterer: keeper.git.flows:clusterer
+    
+  # keeper.git.flows:clusterer_parallel_test
+  - name: clusterer_parallel_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for clusterer_parallel partition + path_prefix
+      suite: git
+    source: file://clusterer_parallel_test.lua
+    imports:
+      clusterer_parallel: keeper.git.flows:clusterer_parallel
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.git.flows:clusterer_test
+  - name: clusterer_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for clusterer build_user_prompt (no LLM call)
+      suite: git
+    source: file://clusterer_test.lua
+    imports:
+      clusterer: keeper.git.flows:clusterer
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.git.flows:explain
+  - name: explain
+    kind: library.lua
+    meta:
+      comment: Per-recommendation deep-dive via LLM — single Sonnet call returning structured fix steps
+    source: file://explain.lua
+    modules:
+      - logger
+      - time
+    imports:
+      prompt: wippy.llm:prompt
+      llm: wippy.llm:llm
+    
+  # keeper.git.flows:file_diff
+  - name: file_diff
+    kind: function.lua
+    meta:
+      comment: Returns parsed diff hunks for one file vs the configured base — used by the FE diff viewer
+    source: file://file_diff.lua
+    imports:
+      git_scan: keeper.git.flows:git_scan
+    method: handler
+    pool:
+      size: 2
+    
+  # keeper.git.flows:file_diff_test
+  - name: file_diff_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for the unified-diff parser
+      suite: git
+    source: file://file_diff_test.lua
+    imports:
+      file_diff: keeper.git.flows:file_diff
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.git.flows:git_config
+  - name: git_config
+    kind: library.lua
+    meta:
+      comment: Project-level git scan config — reads .keeper/git.json overrides over consts defaults; per-call opts win over file
+    source: file://git_config.lua
+    modules:
+      - json
+      - logger
+      - system
+      - exec
+    imports:
+      git_consts: keeper.git:consts
+    
+  # keeper.git.flows:git_scan
+  - name: git_scan
+    kind: library.lua
+    meta:
+      comment: Git working-tree scanner — wraps git status + git diff via host shell; respects tracked_dirs config; returns change rows
+    source: file://git_scan.lua
+    modules:
+      - exec
+      - logger
+      - funcs
+      - system
+    imports:
+      git_config: keeper.git.flows:git_config
+      git_consts: keeper.git:consts
+      gov_consts: keeper.gov:consts
+    
+  # keeper.git.flows:git_scan_test
+  - name: git_scan_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for git_scan path validation used by the diff endpoint
+      suite: git
+    source: file://git_scan_test.lua
+    imports:
+      git_scan: keeper.git.flows:git_scan
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.git.flows:llm_groups
+  - name: llm_groups
+    kind: library.lua
+    meta:
+      comment: Shared parser+validator for LLM responses returning arrays of named change_id groups (clusterer + suggest_split)
+    source: file://llm_groups.lua
+    modules:
+      - json
+    
+  # keeper.git.flows:llm_groups_test
+  - name: llm_groups_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for llm_groups parse + validate
+      suite: git
+    source: file://llm_groups_test.lua
+    imports:
+      llm_groups: keeper.git.flows:llm_groups
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.git.flows:push
+  - name: push
+    kind: library.lua
+    meta:
+      comment: Per-cluster push helper — validates cluster, routes through keeper.state.tools:push, surfaces per-cluster results
+    source: file://push.lua
+    modules:
+      - funcs
+      - logger
+    imports:
+      git_consts: keeper.git:consts
+      push_policy: keeper.git.flows:push_policy
+    
+  # keeper.git.flows:push_policy
+  - name: push_policy
+    kind: library.lua
+    meta:
+      comment: Shared push-readiness policy for summaries, split refresh, and push execution
+    source: file://push_policy.lua
+    imports:
+      git_consts: keeper.git:consts
+    
+  # keeper.git.flows:push_test
+  - name: push_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for push_flow validation (no actual keeper.state.tools:push invocation)
+      suite: git
+    source: file://push_test.lua
+    imports:
+      git_consts: keeper.git:consts
+      push_flow: keeper.git.flows:push
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.git.flows:rebuild
+  - name: rebuild
+    kind: library.lua
+    meta:
+      comment: Git rebuild workflow — scans working tree, peels suspects, clusters via LLM, persists snapshot
+    source: file://rebuild.lua
+    modules:
+      - logger
+      - time
+      - uuid
+    imports:
+      cluster_factory: keeper.git.flows:cluster_factory
+      clusterer_parallel: keeper.git.flows:clusterer_parallel
+      git_consts: keeper.git:consts
+      git_scan: keeper.git.flows:git_scan
+      run_repo: keeper.git.persist:run_repo
+      snapshot: keeper.git.service:snapshot
+      suspect: keeper.git.detectors:suspect
+    
+  # keeper.git.flows:rebuild_test
+  - name: rebuild_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for rebuild workflow guardrails
+      suite: git
+    source: file://rebuild_test.lua
+    imports:
+      rebuild_flow: keeper.git.flows:rebuild
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.git.flows:split
+  - name: split
+    kind: library.lua
+    meta:
+      comment: Pure-Lua cluster split helpers — propose_by_prefix, propose_by_kind, validate_groups, apply_split
+    source: file://split.lua
+    
+  # keeper.git.flows:split_test
+  - name: split_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for split.lua — propose_by_prefix, propose_by_kind, validate_groups, apply_split
+      suite: git
+    source: file://split_test.lua
+    imports:
+      split_lib: keeper.git.flows:split
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.git.flows:suggest_split
+  - name: suggest_split
+    kind: library.lua
+    meta:
+      comment: One LLM call returning 2-4 sub-cluster proposals for a too-large cluster
+    source: file://suggest_split.lua
+    modules:
+      - logger
+      - time
+    imports:
+      prompt: wippy.llm:prompt
+      llm: wippy.llm:llm
+      llm_groups: keeper.git.flows:llm_groups
+    
+  # keeper.git.flows:suggest_split_test
+  - name: suggest_split_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for suggest_split build_user_prompt (no LLM call)
+      suite: git
+    source: file://suggest_split_test.lua
+    imports:
+      suggest_split_flow: keeper.git.flows:suggest_split
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+    

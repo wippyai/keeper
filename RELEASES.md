@@ -1,5 +1,28 @@
 # Release Notes
 
+## keeper/keeper 0.5.16
+
+`keeper/keeper@0.5.16` temporarily bundles the Keeper Git review workflow into
+the main Keeper module until it is split back into a standalone module.
+
+### Highlights
+
+- `keeper.git.*` registry entries are now shipped with `keeper/keeper`.
+- The compiled Git UI is embedded as `keeper.components:git_static_fs` and
+  served at `/app/keeper-git` through the app-provided UI server requirement.
+- Git API endpoints are included in the `keeper:api_router` requirement so apps
+  with non-default API routers can install Keeper without hardcoded `app:api`.
+- Git scan tests now pass explicit managed namespace config, preserving the
+  safe governance default of managing no namespaces unless configured.
+
+### Verification
+
+- `wippy lint --ns 'keeper,keeper.*' --summary --limit 200 --no-color` checked
+  460 entries with no issues.
+- `wippy run test keeper.git.service:async_task_test keeper.git.service:snapshot_test keeper.git.detectors:detectors_test keeper.git.flows:cluster_factory_test keeper.git.flows:clusterer_test keeper.git.flows:clusterer_parallel_test keeper.git.flows:file_diff_test keeper.git.flows:git_scan_test keeper.git.flows:llm_groups_test keeper.git.flows:push_test keeper.git.flows:rebuild_test keeper.git.flows:split_test keeper.git.flows:suggest_split_test`
+  passed 128/128.
+- `make publish-keeper-dry-run` passed and packed the bundled module.
+
 ## keeper/keeper 0.5.15
 
 `keeper/keeper@0.5.15` improves governance filesystem sync feedback and one-shot

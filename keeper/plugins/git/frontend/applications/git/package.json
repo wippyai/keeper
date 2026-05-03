@@ -1,0 +1,71 @@
+{
+  "name": "@wippy/app-keeper-git",
+  "version": "1.0.0",
+  "specification": "wippy-component-1.0",
+  "title": "Git",
+  "description": "Standalone git push / PR clustering plugin for Wippy",
+  "files": [
+    "dist/",
+    "src/",
+    "package.json"
+  ],
+  "browser": "dist/app.js",
+  "wippy": {
+    "type": "page",
+    "title": "Git",
+    "icon": "tabler:git-pull-request",
+    "path": "dist/app.html",
+    "proxy": {
+      "enabled": true,
+      "injections": {
+        "css": {
+          "fonts": true,
+          "themeConfig": true,
+          "iframe": true,
+          "primevue": true,
+          "customCss": true,
+          "customVariables": true
+        },
+        "tailwindConfig": false,
+        "resizeObserver": false,
+        "preventLinkClicks": false,
+        "iconifyIcons": false
+      }
+    },
+    "scripts": {
+      "build": "build",
+      "debug": "build:debug"
+    },
+    "outDir": "static/keeper-git"
+  },
+  "scripts": {
+    "build": "vite build",
+    "build:debug": "vite build --mode development",
+    "dev": "vite build --watch",
+    "type-check": "vue-tsc --build --force"
+  },
+  "dependencies": {
+    "@wippy-fe/theme": "^0.0.12"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@vitejs/plugin-vue": "^5.0.0",
+    "@wippy-fe/types-global-proxy": "^0.0.12",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "primevue": "^4.3.3",
+    "tailwindcss": "3",
+    "typescript": "^5.0.0",
+    "vite": "^6.0.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.6.4",
+    "vue-tsc": "^2.0.0"
+  },
+  "peerDependencies": {
+    "@iconify/vue": "^5.0.0",
+    "@wippy-fe/proxy": "^0.0.12",
+    "axios": "^1.0.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.0.0"
+  }
+}

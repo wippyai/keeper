@@ -1,0 +1,67 @@
+version: "1.0"
+namespace: keeper.git.detectors
+
+entries:
+  # keeper.git.detectors:architecture
+  - name: architecture
+    kind: library.lua
+    meta:
+      comment: Architecture-fit detector — governance touches, multi-namespace scope creep, large cluster size
+    source: file://architecture.lua
+    imports:
+      git_consts: keeper.git:consts
+    
+  # keeper.git.detectors:coverage
+  - name: coverage
+    kind: library.lua
+    meta:
+      comment: Test coverage detector — flags new entries with no associated test in the same cluster
+    source: file://coverage.lua
+    imports:
+      git_consts: keeper.git:consts
+    
+  # keeper.git.detectors:detectors_test
+  - name: detectors_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for suspect/coverage/security/architecture/verdict detectors
+      suite: git
+    source: file://detectors_test.lua
+    imports:
+      architecture: keeper.git.detectors:architecture
+      coverage: keeper.git.detectors:coverage
+      git_consts: keeper.git:consts
+      security: keeper.git.detectors:security
+      suspect: keeper.git.detectors:suspect
+      test: wippy.test:test
+      verdict: keeper.git.detectors:verdict
+    method: define_tests
+    pool:
+      size: 1
+    
+  # keeper.git.detectors:security
+  - name: security
+    kind: library.lua
+    meta:
+      comment: Security/audit detector — flags large delete batches and auth/policy touches
+    source: file://security.lua
+    imports:
+      git_consts: keeper.git:consts
+    
+  # keeper.git.detectors:suspect
+  - name: suspect
+    kind: library.lua
+    meta:
+      comment: Suspect/orphan heuristic — pattern-matches throwaway file names (.bak, _scratch, zzz_, TODO_remove…)
+    source: file://suspect.lua
+    
+  # keeper.git.detectors:verdict
+  - name: verdict
+    kind: library.lua
+    meta:
+      comment: Compose verdict (ready/closer_look/do_not_push) + importance from detector recommendations
+    source: file://verdict.lua
+    imports:
+      git_consts: keeper.git:consts
+    

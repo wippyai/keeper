@@ -1,8 +1,8 @@
-.PHONY: lint lint-keeper lint-usage build-keeper-frontend publish-dry-run publish-keeper-dry-run publish-usage-dry-run publish publish-keeper publish-usage
+.PHONY: lint lint-keeper lint-usage build-keeper-frontend build-keeper-git-frontend publish-dry-run publish-keeper-dry-run publish-usage-dry-run publish publish-keeper publish-usage
 
 WIPPY ?= wippy
 
-KEEPER_VERSION ?= 0.5.15
+KEEPER_VERSION ?= 0.5.16
 USAGE_VERSION ?= 0.1.1
 
 lint: lint-keeper lint-usage
@@ -19,9 +19,15 @@ build-keeper-frontend:
 	mkdir -p keeper/static/keeper
 	cp -a keeper/frontend/applications/keeper/dist/. keeper/static/keeper/
 
+build-keeper-git-frontend:
+	cd keeper/plugins/git/frontend/applications/git && npm install --no-audit --no-fund --prefer-offline && npm run build
+	rm -rf keeper/static/keeper-git
+	mkdir -p keeper/static/keeper-git
+	cp -a keeper/plugins/git/frontend/applications/git/dist/. keeper/static/keeper-git/
+
 publish-dry-run: publish-keeper-dry-run publish-usage-dry-run
 
-publish-keeper-dry-run: build-keeper-frontend
+publish-keeper-dry-run: build-keeper-frontend build-keeper-git-frontend
 	cd keeper && $(WIPPY) publish --dry-run --version $(KEEPER_VERSION)
 
 publish-usage-dry-run:
@@ -29,7 +35,7 @@ publish-usage-dry-run:
 
 publish: publish-keeper publish-usage
 
-publish-keeper: build-keeper-frontend
+publish-keeper: build-keeper-frontend build-keeper-git-frontend
 	cd keeper && $(WIPPY) publish --version $(KEEPER_VERSION)
 
 publish-usage:

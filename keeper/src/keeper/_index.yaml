@@ -151,6 +151,46 @@ entries:
         path: .meta.router
       - entry: keeper.hub.api:uninstall_dependency.endpoint
         path: .meta.router
+      - entry: keeper.git.api:explain
+        path: .meta.router
+      - entry: keeper.git.api:explain.endpoint
+        path: .meta.router
+      - entry: keeper.git.api:get_cluster
+        path: .meta.router
+      - entry: keeper.git.api:get_cluster.endpoint
+        path: .meta.router
+      - entry: keeper.git.api:get_diff
+        path: .meta.router
+      - entry: keeper.git.api:get_diff.endpoint
+        path: .meta.router
+      - entry: keeper.git.api:list_clusters
+        path: .meta.router
+      - entry: keeper.git.api:list_clusters.endpoint
+        path: .meta.router
+      - entry: keeper.git.api:push
+        path: .meta.router
+      - entry: keeper.git.api:push.endpoint
+        path: .meta.router
+      - entry: keeper.git.api:rebuild
+        path: .meta.router
+      - entry: keeper.git.api:rebuild.endpoint
+        path: .meta.router
+      - entry: keeper.git.api:set_decision
+        path: .meta.router
+      - entry: keeper.git.api:set_decision.endpoint
+        path: .meta.router
+      - entry: keeper.git.api:split_cluster
+        path: .meta.router
+      - entry: keeper.git.api:split_cluster.endpoint
+        path: .meta.router
+      - entry: keeper.git.api:suggest_split
+        path: .meta.router
+      - entry: keeper.git.api:suggest_split.endpoint
+        path: .meta.router
+      - entry: keeper.git.api:update_recommendation
+        path: .meta.router
+      - entry: keeper.git.api:update_recommendation.endpoint
+        path: .meta.router
       - entry: keeper.knowledge.api:create
         path: .meta.router
       - entry: keeper.knowledge.api:create.endpoint
@@ -409,6 +449,8 @@ entries:
     default: app:gateway
     targets:
       - entry: keeper.components:ui_static
+        path: .meta.server
+      - entry: keeper.components:git_static
         path: .meta.server
 
   # keeper:process_host

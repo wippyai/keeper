@@ -1,0 +1,53 @@
+version: "1.0"
+namespace: keeper.git
+
+entries:
+  # keeper.git:client
+  - name: client
+    kind: library.lua
+    meta:
+      comment: Thin facade over the keeper.git central service — send_and_wait wrapper for HTTP handlers and tools
+    source: file://client.lua
+    modules:
+      - process
+      - channel
+      - time
+      - uuid
+    imports:
+      git_consts: keeper.git:consts
+    
+  # keeper.git:consts
+  - name: consts
+    kind: library.lua
+    meta:
+      comment: Git domain enums and process identity (cluster decisions, importance, verdict, severity, ops)
+    source: file://consts.lua
+    
+  # keeper.git:main
+  - name: main
+    kind: registry.entry
+    meta:
+      name: keeper.git
+      type: view.page
+      title: Git
+      group: develop
+      icon: tabler:git-pull-request
+      order: 2
+      announced: true
+      base_path: ""
+      entry_point: app.html
+      parent: keeper
+      secure: false
+      url: /app/keeper-git
+    proxy:
+      css:
+        custom_css: true
+        custom_variables: true
+        fonts: true
+        iframe: true
+        prime_vue: true
+        theme_config: true
+      enabled: true
+      iconify_icons: true
+      tailwind_config: true
+    

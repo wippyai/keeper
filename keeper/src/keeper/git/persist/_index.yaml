@@ -1,0 +1,16 @@
+version: "1.0"
+namespace: keeper.git.persist
+
+entries:
+  # keeper.git.persist:run_repo
+  - name: run_repo
+    kind: library.lua
+    meta:
+      comment: CRUD over keeper_git_runs — single table holding cluster index snapshots
+    source: file://run_repo.lua
+    modules:
+      - sql
+      - json
+    imports:
+      git_consts: keeper.git:consts
+    

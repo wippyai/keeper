@@ -1,0 +1,67 @@
+version: "1.0"
+namespace: keeper.git.service.handlers
+
+entries:
+  # keeper.git.service.handlers:decisions
+  - name: decisions
+    kind: library.lua
+    meta:
+      comment: Handlers for set_decision and update_recommendation
+    source: file://decisions.lua
+    imports:
+      git_consts: keeper.git:consts
+    
+  # keeper.git.service.handlers:explain
+  - name: explain
+    kind: library.lua
+    meta:
+      comment: Per-recommendation AI deep-dive handler
+    source: file://explain.lua
+    imports:
+      async_task: keeper.git.service:async_task
+      explain_flow: keeper.git.flows:explain
+      git_consts: keeper.git:consts
+    
+  # keeper.git.service.handlers:push
+  - name: push
+    kind: library.lua
+    meta:
+      comment: Bulk-push handler — routes approved clusters through keeper.state.tools:push
+    source: file://push.lua
+    imports:
+      git_consts: keeper.git:consts
+      push_flow: keeper.git.flows:push
+    
+  # keeper.git.service.handlers:rebuild
+  - name: rebuild
+    kind: library.lua
+    meta:
+      comment: Rebuild handler — manual mode sync, AI mode async via async_task
+    source: file://rebuild.lua
+    imports:
+      async_task: keeper.git.service:async_task
+      git_consts: keeper.git:consts
+      rebuild_flow: keeper.git.flows:rebuild
+    
+  # keeper.git.service.handlers:snapshot
+  - name: snapshot
+    kind: library.lua
+    meta:
+      comment: Handlers for list_clusters and get_cluster
+    source: file://snapshot.lua
+    imports:
+      git_consts: keeper.git:consts
+    
+  # keeper.git.service.handlers:split
+  - name: split
+    kind: library.lua
+    meta:
+      comment: Suggest-split + apply-split handlers
+    source: file://split.lua
+    imports:
+      async_task: keeper.git.service:async_task
+      cluster_factory: keeper.git.flows:cluster_factory
+      git_consts: keeper.git:consts
+      split_lib: keeper.git.flows:split
+      suggest_split_flow: keeper.git.flows:suggest_split
+    

@@ -1,0 +1,67 @@
+version: "1.0"
+namespace: keeper.git.tools
+
+entries:
+  # keeper.git.tools:push
+  - name: push
+    kind: function.lua
+    meta:
+      type: tool
+      title: Push Approved Clusters
+      description: Push every approved cluster through governance (lint → version → migrations → tests → registry → fs). Per-cluster atomic; partial-batch failures keep remaining clusters running.
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "cluster_ids": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Cluster IDs to push (must all be in decision=approved state)"
+            },
+            "message": { "type": "string", "description": "Optional commit message attached to every push" }
+          },
+          "required": ["cluster_ids"]
+        }
+      mcp:
+        required_scopes:
+          - registry.write
+          - registry.sync
+    source: file://push.lua
+    imports:
+      git_client: keeper.git:client
+    method: handler
+    
+  # keeper.git.tools:rebuild
+  - name: rebuild
+    kind: function.lua
+    meta:
+      type: tool
+      title: Rebuild Git Cluster Index
+      description: Rebuild the cluster index over all pending unstaged changes — runs the clusterer + detectors and replaces the live snapshot.
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["manual", "ai"],
+              "description": "manual returns synchronously; ai starts an async LLM rebuild and returns a request id"
+            },
+            "model": { "type": "string", "description": "Override LLM class for clustering (default: class:smart)" },
+            "max_changes": { "type": "integer", "description": "Max pending changes to consider (default: 2000)" },
+            "tracked_dirs": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Optional repo-relative directory prefixes to scan"
+            },
+            "diff_base": { "type": "string", "description": "Git diff base (default: HEAD)" }
+          }
+        }
+      mcp:
+        required_scopes:
+          - state.read
+    source: file://rebuild.lua
+    imports:
+      git_client: keeper.git:client
+    method: handler
+    
