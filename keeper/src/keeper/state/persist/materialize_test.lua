@@ -32,6 +32,24 @@ local function define_tests()
             }
         end
 
+        local function legacy_jet_page()
+            return {
+                id = "test.legacy.views:approval",
+                kind = "template.jet",
+                meta = {
+                    type = "view.page",
+                    name = "approval",
+                    title = "Approval",
+                    secure = true,
+                },
+                data = {
+                    source = "<main>{{ title }}</main>",
+                    set = "test.legacy.views:templates",
+                    data_func = "test.legacy.views:approval.data",
+                },
+            }
+        end
+
         describe("entry", function()
             it("produces valid state entry with required fields", function()
                 local result, err = materialize.entry(simple_entry())
@@ -103,6 +121,37 @@ local function define_tests()
                 test.not_nil(result)
                 test.is_nil(result.content)
                 test.is_nil(result.content_hash)
+            end)
+
+            it("materializes legacy template.jet pages as .jet source entries", function()
+                local result, err = materialize.entry(legacy_jet_page())
+                test.is_nil(err)
+                test.not_nil(result)
+                test.eq(result.id, "test.legacy.views:approval")
+                test.eq(result.kind, "template.jet")
+                test.eq(result.content, "<main>{{ title }}</main>")
+                test.not_nil(result.content_hash)
+                test.is_true(result.definition:find("kind: template.jet", 1, true) ~= nil)
+                test.is_true(result.definition:find("source: file://approval.jet", 1, true) ~= nil)
+                test.is_true(result.definition:find("set: test.legacy.views:templates", 1, true) ~= nil)
+                test.is_true(result.definition:find("data_func: test.legacy.views:approval.data", 1, true) ~= nil)
+                test.eq(result.attributes["meta.type"], "view.page")
+            end)
+
+            it("materializes template.set without inventing a content chunk", function()
+                local result, err = materialize.entry({
+                    id = "test.legacy.views:templates",
+                    kind = "template.set",
+                    meta = { description = "Legacy Jet template set" },
+                    data = { engine = { development_mode = true } },
+                })
+                test.is_nil(err)
+                test.not_nil(result)
+                test.eq(result.kind, "template.set")
+                test.is_nil(result.content)
+                test.is_nil(result.content_hash)
+                test.is_true(result.definition:find("kind: template.set", 1, true) ~= nil)
+                test.is_true(result.definition:find("development_mode: true", 1, true) ~= nil)
             end)
         end)
 

@@ -11,6 +11,13 @@ local function define_tests()
                 test.eq(cfg.extension, ".lua")
             end)
 
+            it("returns the direct config for legacy template.jet pages", function()
+                local cfg = sync.pick_kind_config("template.jet", nil)
+                test.not_nil(cfg)
+                test.eq(cfg.source_field, "source")
+                test.eq(cfg.extension, ".jet")
+            end)
+
             it("falls through to the meta.type branch for registry.entry", function()
                 local cfg = sync.pick_kind_config("registry.entry", "view.page")
                 test.not_nil(cfg)
@@ -134,6 +141,24 @@ local function define_tests()
                     }),
                     "./app/x/landing.html"
                 )
+            end)
+
+            it("builds a .jet path for legacy template.jet pages", function()
+                test.eq(
+                    sync.entry_file_path({
+                        id = "app.legacy.views:approval",
+                        kind = "template.jet",
+                        meta = { type = "view.page" },
+                    }),
+                    "./app/legacy/views/approval.jet"
+                )
+            end)
+
+            it("does not invent a source file for template.set entries", function()
+                test.is_nil(sync.entry_file_path({
+                    id = "app.legacy.views:templates",
+                    kind = "template.set",
+                }))
             end)
 
             it("returns nil when the kind has no canonical file mapping", function()
