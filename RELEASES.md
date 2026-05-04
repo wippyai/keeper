@@ -1,5 +1,26 @@
 # Release Notes
 
+## keeper/keeper 0.5.18
+
+`keeper/keeper@0.5.18` preserves legacy Jet view support while keeping Keeper's
+modern frontend build pipeline focused on compiled component pages.
+
+### Highlights
+
+- Generic state editing can create `template.set` and `template.jet` entries for
+  legacy `view.page` plugins.
+- Governance filesystem sync now has regression coverage for materializing
+  `template.jet` pages as `.jet` source files without inventing source files for
+  `template.set` entries.
+- Integrate build handling skips `template.jet` file sources because they are
+  rendered by `wippy/views`, not by Keeper's Vue/Vite component builder.
+
+### Verification
+
+- `wippy lint --ns keeper.state,keeper.gov,keeper.develop.integrate.handlers,keeper.changeset.service --limit 200 --no-color`
+- `wippy run test -- keeper.state.persist:materialize_test keeper.gov.service:sync_test keeper.develop.integrate.handlers:build_handler_test keeper.develop.integrate.handlers:view_handler_test keeper.changeset.service:diff_render_test keeper.state.tools:test`
+- `wippy run test` in `framework/src/views/test`
+
 ## keeper/keeper 0.5.16
 
 `keeper/keeper@0.5.16` temporarily bundles the Keeper Git review workflow into

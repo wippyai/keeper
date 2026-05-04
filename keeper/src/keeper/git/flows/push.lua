@@ -104,8 +104,9 @@ function M.push_many(clusters_by_id, cluster_ids, message, mark_pushed_fn, opts)
         local cluster = clusters_by_id[cid]
         if not cluster then
             failed = failed + 1
-            table.insert(results, { cluster_id = cid, ok = false, error = "unknown cluster_id" })
+            table.insert(results, { cluster_id = cid, branch = nil, ok = false, error = "unknown cluster_id" })
         else
+            local branch = cluster.primary_changeset_id and branch_for(cluster.primary_changeset_id) or nil
             if opts.dry_run then
                 local plan = M.plan_cluster(cluster, message)
                 if not plan.ok then failed = failed + 1 end
@@ -114,12 +115,13 @@ function M.push_many(clusters_by_id, cluster_ids, message, mark_pushed_fn, opts)
                 local res, err = M.push_cluster(cluster, message)
                 if err then
                     failed = failed + 1
-                    table.insert(results, { cluster_id = cid, ok = false, error = err })
+                    table.insert(results, { cluster_id = cid, branch = branch, ok = false, error = err })
                     log:warn("cluster push failed", { cluster_id = cid, error = err })
                 else
                     pushed = pushed + 1
                     table.insert(results, {
                         cluster_id = cid,
+                        branch = branch,
                         ok = true,
                         version  = res and res.version,
                         added    = res and res.added,
