@@ -212,7 +212,7 @@ function tokens.revoke(token_hash, revoked_by)
     if db_err then return nil, "Database error: " .. tostring(db_err) end
 
     local now = time.now():unix()
-    local _, exec_err = sql.builder.update("keeper_mcp_tokens")
+    local result, exec_err = sql.builder.update("keeper_mcp_tokens")
         :set_map({ revoked = 1, revoked_at = now, revoked_by = revoked_by or "" })
         :where("token = ?", token_hash)
         :run_with(db)
@@ -220,6 +220,9 @@ function tokens.revoke(token_hash, revoked_by)
     db:release()
 
     if exec_err then return nil, "Revoke failed: " .. tostring(exec_err) end
+    if not result or tonumber(result.rows_affected or 0) == 0 then
+        return false, "token not found"
+    end
     return true, nil
 end
 
