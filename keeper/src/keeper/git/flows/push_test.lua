@@ -115,6 +115,80 @@ local cases = {
         end,
     },
     {
+        name = "plan_cluster returns non-mutating publish plan for approved cluster",
+        fn = function()
+            local plan = push_flow.plan_cluster({
+                id = "cl1",
+                title = "app.notes",
+                decision = consts.DECISIONS.APPROVED,
+                verdict = consts.VERDICTS.READY,
+                source = "changeset",
+                primary_changeset_id = "cs1",
+                changeset_ids = { "cs1" },
+                changes = {
+                    { change_id = "a", category = "registry", managed_namespace = true },
+                },
+                stats = { files = 1, namespaces = { "app.notes" }, added = 10, removed = 2 },
+            }, "ship notes")
+            test.is_true(plan.ok)
+            test.is_true(plan.pushable)
+            test.is_true(plan.approved)
+            test.eq(plan.branch, "ws/cs1")
+            test.eq(plan.message, "ship notes")
+            test.eq(plan.stats.files, 1)
+            test.eq(plan.stats.namespaces[1], "app.notes")
+            test.eq(#plan.blockers, 0)
+        end,
+    },
+    {
+        name = "plan_cluster reports both approval and push blockers",
+        fn = function()
+            local plan = push_flow.plan_cluster({
+                id = "cl1",
+                decision = consts.DECISIONS.PENDING,
+                source = "git_scan",
+                changes = {
+                    { change_id = "a", category = "registry", managed_namespace = true },
+                },
+            })
+            test.is_false(plan.ok)
+            test.is_false(plan.pushable)
+            test.is_false(plan.approved)
+            test.is_true(plan.blockers[1]:find("not approved") ~= nil)
+            test.is_true(plan.blockers[2]:find("review%-only") ~= nil)
+        end,
+    },
+    {
+        name = "push_many dry_run does not invoke mark_pushed",
+        fn = function()
+            local marked = 0
+            local res = push_flow.push_many(
+                {
+                    a = {
+                        id = "a",
+                        decision = consts.DECISIONS.APPROVED,
+                        source = "changeset",
+                        primary_changeset_id = "csA",
+                        changeset_ids = { "csA" },
+                        changes = {
+                            { change_id = "x", category = "registry", managed_namespace = true },
+                        },
+                    },
+                },
+                { "a" },
+                "dry run",
+                function() marked = marked + 1 end,
+                { dry_run = true }
+            )
+            test.is_true(res.ok)
+            test.is_true(res.dry_run)
+            test.eq(res.pushed, 0)
+            test.eq(res.failed, 0)
+            test.eq(marked, 0)
+            test.eq(res.results[1].branch, "ws/csA")
+        end,
+    },
+    {
         name = "push_many returns ghost-id failures without invoking funcs",
         fn = function()
             local res = push_flow.push_many(

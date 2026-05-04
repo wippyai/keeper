@@ -24,7 +24,9 @@ local function handler()
         return
     end
 
-    local result, err = git_client.push(cluster_ids, body.message)
+    local result, err = git_client.push(cluster_ids, body.message, nil, {
+        dry_run = body.dry_run == true,
+    })
     if err then
         res:set_status(http.STATUS.INTERNAL_ERROR)
         res:set_content_type(http.CONTENT.JSON)
@@ -35,7 +37,7 @@ local function handler()
     res:set_status(http.STATUS.OK)
     res:set_content_type(http.CONTENT.JSON)
     res:write_json({ success = true,
-        ok = result.ok, results = result.results,
+        ok = result.ok, dry_run = result.dry_run == true, results = result.results,
         pushed = result.pushed, failed = result.failed })
 end
 

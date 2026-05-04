@@ -16,6 +16,7 @@ local rebuild_handler = require("rebuild_handler")
 local push_handler = require("push_handler")
 local explain_handler = require("explain_handler")
 local split_handler = require("split_handler")
+local pr_handler = require("pr_handler")
 
 local log = logger:named("keeper.git.central")
 local state = state_lib.new()
@@ -47,6 +48,7 @@ local handlers = {
     [consts.OPERATIONS.EXPLAIN_RECOMMENDATION] = explain_handler.handle,
     [consts.OPERATIONS.SUGGEST_SPLIT]          = split_handler.suggest,
     [consts.OPERATIONS.SPLIT_CLUSTER]          = split_handler.apply,
+    [consts.OPERATIONS.PULL_REQUEST]           = pr_handler.handle,
 }
 
 local function dispatch(msg)

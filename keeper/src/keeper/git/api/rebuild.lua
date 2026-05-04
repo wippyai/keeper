@@ -17,13 +17,21 @@ local function handler()
 
     local body = req:body_json() or {}
     local snapshot, err = git_client.rebuild({
-        mode         = body.mode,    -- "manual" | "ai" (default ai)
-        model        = body.model,
-        max_changes  = tonumber(body.max_changes),
-        sync_first   = body.sync_first and true or false,
-        tracked_dirs = body.tracked_dirs,
-        diff_base    = body.diff_base,
-        request_id   = body.request_id,
+        mode               = body.mode,    -- "manual" | "ai" (default ai)
+        model              = body.model,
+        max_changes        = tonumber(body.max_changes),
+        sync_first         = body.sync_first and true or false,
+        tracked_dirs       = body.tracked_dirs,
+        managed_namespaces = body.managed_namespaces,
+        diff_base          = body.diff_base,
+        untracked_mode     = body.untracked_mode,
+        change_source      = body.change_source,
+        changeset_id       = body.changeset_id,
+        states             = body.states,
+        kind               = body.kind,
+        actor_id           = body.actor_id,
+        session_id         = body.session_id,
+        request_id         = body.request_id,
     })
     if err then
         res:set_status(http.STATUS.INTERNAL_ERROR)

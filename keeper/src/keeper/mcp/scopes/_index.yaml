@@ -92,6 +92,33 @@ entries:
       comment: Call any registered Wippy function
     id: functions.call
 
+  # keeper.mcp.scopes:git.read
+  - name: git.read
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Git Read
+      comment: Inspect Keeper git review clusters and repository PR readiness
+    id: git.read
+
+  # keeper.mcp.scopes:git.write
+  - name: git.write
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Git Write
+      comment: Review, approve, and push Keeper git clusters
+    id: git.write
+
+  # keeper.mcp.scopes:git.pr
+  - name: git.pr
+    kind: registry.entry
+    meta:
+      type: mcp.scope
+      title: Git Pull Requests
+      comment: Create repository commits, pushes, and GitHub pull requests through explicit confirmed actions
+    id: git.pr
+
   # keeper.mcp.scopes:hub.migrate
   - name: hub.migrate
     kind: registry.entry

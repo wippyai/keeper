@@ -37,6 +37,9 @@ entries:
       - components.build
       - components.capture
       - functions.call
+      - git.read
+      - git.write
+      - git.pr
     trait_filter:
       tags_any:
         - state
@@ -163,6 +166,9 @@ entries:
       - components.build
       - components.capture
       - functions.call
+      - git.read
+      - git.write
+      - git.pr
     trait_filter:
       tags_any:
         - wippy
@@ -178,6 +184,7 @@ entries:
         - frontend
         - ui
         - gov
+        - git
         - sync
         - knowledge
         - context

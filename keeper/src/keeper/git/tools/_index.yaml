@@ -2,6 +2,75 @@ version: "1.0"
 namespace: keeper.git.tools
 
 entries:
+  # keeper.git.tools:list_clusters
+  - name: list_clusters
+    kind: function.lua
+    meta:
+      type: tool
+      title: List Git Review Clusters
+      description: Return the current git review snapshot with cluster summaries, counts, decisions, blockers, and pushability.
+      input_schema: |
+        { "type": "object", "properties": {} }
+      mcp:
+        required_scopes:
+          - git.read
+    source: file://list_clusters.lua
+    imports:
+      git_client: keeper.git:client
+    method: handler
+
+  # keeper.git.tools:get_cluster
+  - name: get_cluster
+    kind: function.lua
+    meta:
+      type: tool
+      title: Get Git Review Cluster
+      description: Return full detail for one git review cluster including every change and recommendation.
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "cluster_id": { "type": "string", "description": "Cluster id from list_clusters" }
+          },
+          "required": ["cluster_id"]
+        }
+      mcp:
+        required_scopes:
+          - git.read
+    source: file://get_cluster.lua
+    imports:
+      git_client: keeper.git:client
+    method: handler
+
+  # keeper.git.tools:set_decision
+  - name: set_decision
+    kind: function.lua
+    meta:
+      type: tool
+      title: Set Git Cluster Decision
+      description: Mark a reviewed cluster pending, approved, skipped, or pushed. Approval only marks intent; push still enforces push blockers.
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "cluster_id": { "type": "string", "description": "Cluster id from list_clusters" },
+            "decision": {
+              "type": "string",
+              "enum": ["pending", "approved", "skipped", "pushed"],
+              "description": "New review decision"
+            }
+          },
+          "required": ["cluster_id", "decision"]
+        }
+      mcp:
+        required_scopes:
+          - git.write
+    source: file://set_decision.lua
+    imports:
+      git_client: keeper.git:client
+      git_consts: keeper.git:consts
+    method: handler
+
   # keeper.git.tools:push
   - name: push
     kind: function.lua
@@ -18,15 +87,59 @@ entries:
               "items": { "type": "string" },
               "description": "Cluster IDs to push (must all be in decision=approved state)"
             },
-            "message": { "type": "string", "description": "Optional commit message attached to every push" }
+            "message": { "type": "string", "description": "Optional commit message attached to every push" },
+            "dry_run": {
+              "type": "boolean",
+              "description": "When true, return a non-mutating publish plan instead of pushing"
+            }
           },
           "required": ["cluster_ids"]
         }
       mcp:
         required_scopes:
-          - registry.write
+          - git.write
           - registry.sync
     source: file://push.lua
+    imports:
+      git_client: keeper.git:client
+    method: handler
+
+  # keeper.git.tools:pull_request
+  - name: pull_request
+    kind: function.lua
+    meta:
+      type: tool
+      title: Plan or Create Pull Request
+      description: Inspect repo PR readiness, build a dry-run PR plan, or execute explicit git add/commit/push/gh-pr steps when confirm=true.
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["status", "plan", "create", "full"],
+              "description": "status inspects repo; plan is dry-run; create executes push+PR; full can also stage/commit paths"
+            },
+            "dry_run": { "type": "boolean", "description": "Defaults true. Return commands without executing." },
+            "confirm": { "type": "boolean", "description": "Required true for any non-dry-run execution." },
+            "remote": { "type": "string", "description": "Git remote to push (default origin)" },
+            "base_branch": { "type": "string", "description": "Target branch for the PR (default main)" },
+            "head_branch": { "type": "string", "description": "Feature branch for the PR (default current branch)" },
+            "title": { "type": "string", "description": "Pull request title" },
+            "body": { "type": "string", "description": "Pull request body" },
+            "draft": { "type": "boolean", "description": "Create as draft PR" },
+            "commit_message": { "type": "string", "description": "Optional commit message. When set, paths[] is required." },
+            "paths": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Repo-relative paths to stage when commit_message is set"
+            }
+          }
+        }
+      mcp:
+        required_scopes:
+          - git.pr
+    source: file://pull_request.lua
     imports:
       git_client: keeper.git:client
     method: handler
@@ -49,6 +162,20 @@ entries:
             },
             "model": { "type": "string", "description": "Override LLM class for clustering (default: class:smart)" },
             "max_changes": { "type": "integer", "description": "Max pending changes to consider (default: 2000)" },
+            "change_source": {
+              "type": "string",
+              "enum": ["git_scan", "changeset", "mixed"],
+              "description": "git_scan is review-only; changeset is pushable; mixed keeps both sources separated"
+            },
+            "changeset_id": {
+              "type": "string",
+              "description": "Optional changeset id for changeset or mixed rebuilds"
+            },
+            "managed_namespaces": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Registry namespace prefixes that may be reviewed as managed"
+            },
             "tracked_dirs": {
               "type": "array",
               "items": { "type": "string" },
@@ -59,7 +186,7 @@ entries:
         }
       mcp:
         required_scopes:
-          - state.read
+          - git.read
     source: file://rebuild.lua
     imports:
       git_client: keeper.git:client

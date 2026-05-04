@@ -76,6 +76,31 @@ entries:
       - name: env_storage
         value: app.env:store
 
+  - name: dep.wippy.session
+    kind: ns.dependency
+    meta:
+      description: Session module configured explicitly for Keeper tests
+    component: wippy/session
+    parameters:
+      - name: database_resource
+        value: app:db
+      - name: api_router
+        value: app:api
+      - name: env_storage
+        value: app.env:store
+      - name: default_host
+        value: app:processes
+      - name: token_checkpoint_threshold
+        value: "50000"
+      - name: max_message_limit
+        value: "500"
+      - name: gc_interval
+        value: 300s
+      - name: delegation_func_id
+        value: ""
+      - name: on_session_end_func_id
+        value: ""
+
   - name: dep.keeper
     kind: ns.dependency
     meta:
@@ -96,18 +121,6 @@ entries:
         value: app:processes
       - name: admin_scope
         value: app.security:admin
-      # Keeper imports wippy/session as a real module dependency. The test host
-      # configures its public requirements through the standard fully-qualified
-      # dependency parameters, so session behavior is exercised instead of
-      # stubbed.
-      - name: wippy.session:database_resource
-        value: app:db
-      - name: wippy.session:api_router
-        value: app:api
-      - name: wippy.session:env_storage
-        value: app.env:store
-      - name: wippy.session:default_host
-        value: app:processes
       - name: wippy.llm:process_host
         value: app:processes
       - name: wippy.llm:env_storage

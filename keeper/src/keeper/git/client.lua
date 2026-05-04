@@ -88,9 +88,14 @@ function M.split_cluster(cluster_id, groups, timeout)
         { cluster_id = cluster_id, groups = groups }, timeout or "30s")
 end
 
-function M.push(cluster_ids, message, timeout)
+function M.push(cluster_ids, message, timeout, opts)
+    opts = opts or {}
     return send_and_wait(consts.OPERATIONS.PUSH,
-        { cluster_ids = cluster_ids, message = message }, timeout or "120s")
+        { cluster_ids = cluster_ids, message = message, dry_run = opts.dry_run == true }, timeout or "120s")
+end
+
+function M.pull_request(args, timeout)
+    return send_and_wait(consts.OPERATIONS.PULL_REQUEST, args or {}, timeout or "120s")
 end
 
 return M

@@ -60,6 +60,7 @@ entries:
       - time
     imports:
       clusterer: keeper.git.flows:clusterer
+      git_consts: keeper.git:consts
     
   # keeper.git.flows:clusterer_parallel_test
   - name: clusterer_parallel_test
@@ -143,6 +144,7 @@ entries:
       - system
       - exec
     imports:
+      gov_consts: keeper.gov:consts
       git_consts: keeper.git:consts
     
   # keeper.git.flows:git_scan
@@ -170,7 +172,35 @@ entries:
       suite: git
     source: file://git_scan_test.lua
     imports:
+      git_config: keeper.git.flows:git_config
+      gov_consts: keeper.gov:consts
       git_scan: keeper.git.flows:git_scan
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+
+  # keeper.git.flows:changeset_scan
+  - name: changeset_scan
+    kind: library.lua
+    meta:
+      comment: Changeset-backed scanner for pushable Git review clusters; reads live Keeper changesets and pending journal rows
+    source: file://changeset_scan.lua
+    imports:
+      cs_consts: keeper.changeset:consts
+      cs_repo: keeper.changeset.persist:repo
+      git_config: keeper.git.flows:git_config
+
+  # keeper.git.flows:changeset_scan_test
+  - name: changeset_scan_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for changeset-backed scan row classification
+      suite: git
+    source: file://changeset_scan_test.lua
+    imports:
+      changeset_scan: keeper.git.flows:changeset_scan
       test: wippy.test:test
     method: define_tests
     pool:
@@ -221,6 +251,33 @@ entries:
     source: file://push_policy.lua
     imports:
       git_consts: keeper.git:consts
+
+  # keeper.git.flows:pull_request
+  - name: pull_request
+    kind: library.lua
+    meta:
+      comment: Explicit git/GitHub PR planner and executor with dry-run-first semantics
+    source: file://pull_request.lua
+    modules:
+      - exec
+      - system
+    imports:
+      git_consts: keeper.git:consts
+
+  # keeper.git.flows:pull_request_test
+  - name: pull_request_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Pure tests for pull request plan validation and command construction
+      suite: git
+    source: file://pull_request_test.lua
+    imports:
+      pr_flow: keeper.git.flows:pull_request
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
     
   # keeper.git.flows:push_test
   - name: push_test
@@ -249,6 +306,7 @@ entries:
       - time
       - uuid
     imports:
+      changeset_scan: keeper.git.flows:changeset_scan
       cluster_factory: keeper.git.flows:cluster_factory
       clusterer_parallel: keeper.git.flows:clusterer_parallel
       git_consts: keeper.git:consts

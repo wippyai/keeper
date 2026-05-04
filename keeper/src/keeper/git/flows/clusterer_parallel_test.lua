@@ -76,6 +76,16 @@ local cases = {
         end,
     },
     {
+        name = "effective_max_parallel clamps invalid and oversized values",
+        fn = function()
+            test.eq(cp._effective_max_parallel(nil, 10), cp.DEFAULT_MAX_PARALLEL)
+            test.eq(cp._effective_max_parallel(0, 10), 1)
+            test.eq(cp._effective_max_parallel(-4, 10), 1)
+            test.eq(cp._effective_max_parallel(100, 3), 3)
+            test.eq(cp._effective_max_parallel(2.9, 10), 2)
+        end,
+    },
+    {
         name = "run with empty input returns ok+empty",
         fn = function()
             local r = cp.run({}, {})

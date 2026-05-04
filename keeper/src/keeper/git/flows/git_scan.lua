@@ -1,5 +1,7 @@
--- Reads the actual git working tree via `git status --porcelain` +
--- `git diff --numstat`. Filters by tracked dirs / exclude patterns.
+-- Reads the actual git working tree via NUL-delimited `git status` +
+-- `git diff --numstat`. The scan passes configured tracked dirs as Git
+-- pathspecs before doing Lua-side validation, so large repos don't pay to
+-- enumerate unrelated trees.
 -- Returns change rows in the same shape rebuild.lua + clusterer.lua expect.
 
 local exec = require("exec")
@@ -74,11 +76,34 @@ local function is_excluded(path: string, patterns: string[]?)
 end
 
 local function in_tracked(path: string, tracked_dirs: string[]?)
-    if not tracked_dirs or #tracked_dirs == 0 then return true end
+    if not tracked_dirs then return true end
+    if #tracked_dirs == 0 then return false end
     for _, d in ipairs(tracked_dirs) do
         if path:sub(1, #d) == d then return true end
     end
     return false
+end
+
+local function pathspec_args(tracked_dirs: string[]?)
+    if not tracked_dirs then return "" end
+    local args = {}
+    for _, dir in ipairs(tracked_dirs) do
+        table.insert(args, shell_escape(dir))
+    end
+    if #args == 0 then return "" end
+    return " -- " .. table.concat(args, " ")
+end
+
+local VALID_UNTRACKED_MODES = {
+    no = true,
+    normal = true,
+    all = true,
+}
+
+local function normalize_untracked_mode(mode)
+    mode = tostring(mode or consts.DEFAULT_UNTRACKED_MODE)
+    if VALID_UNTRACKED_MODES[mode] then return mode end
+    return consts.DEFAULT_UNTRACKED_MODE
 end
 
 local function normalize_repo_path(path: unknown): (string?, string?)
@@ -129,7 +154,7 @@ end
 
 local function validate_scan_path(
     path: unknown,
-    cfg: { tracked_dirs: string[]?, exclude_patterns: string[]?, diff_base: string?, source: string?, managed_namespaces: string[]? }?
+    cfg: { tracked_dirs: string[]?, exclude_patterns: string[]?, diff_base: string?, source: string?, managed_namespaces: string[]?, untracked_mode: string? }?
 ): (string?, string?)
     local normalized, err = normalize_repo_path(path)
     if err then return nil, err end
@@ -187,7 +212,10 @@ local function category(path)
     return "filesystem"
 end
 
-local function classify_path(path, cfg)
+local function classify_path(
+    path,
+    cfg: { tracked_dirs: string[]?, exclude_patterns: string[]?, diff_base: string?, source: string?, managed_namespaces: string[]?, untracked_mode: string? }?
+)
     local cat = category(path)
     local namespace = nil
     local managed = nil
@@ -205,7 +233,10 @@ local function classify_path(path, cfg)
     }
 end
 
-local function should_include_change(path, cfg)
+local function should_include_change(
+    path,
+    cfg: { tracked_dirs: string[]?, exclude_patterns: string[]?, diff_base: string?, source: string?, managed_namespaces: string[]?, untracked_mode: string? }
+)
     if is_excluded(path, cfg.exclude_patterns) or not in_tracked(path, cfg.tracked_dirs) then
         return false, "excluded"
     end
@@ -222,42 +253,65 @@ local function path_to_change_id(path)
     return "g-" .. path:gsub("[^%w]", "_")
 end
 
--- Parse `git status --porcelain` output. Lines look like:
---   "XY <path>" with exact 2-char status, single space, then path.
---   Renames: "R  <old> -> <new>" (with -z this would be NUL-separated).
-local function parse_status(stdout)
+local function split_nul(stdout)
+    local parts = {}
+    local start = 1
+    while start <= #stdout do
+        local stop = stdout:find("\0", start, true)
+        if not stop then break end
+        table.insert(parts, stdout:sub(start, stop - 1))
+        start = stop + 1
+    end
+    return parts
+end
+
+-- Parse `git status --porcelain=v1 -z`. Records are NUL-delimited and rename
+-- records are `XY new-path\0old-path\0`; we keep the new path because that is
+-- the file the user can review/push.
+local function parse_status_z(stdout)
     local rows = {}
-    for line in stdout:gmatch("[^\n]+") do
-        if #line >= 4 then
-            local xy = line:sub(1, 2)
-            local rest = line:sub(4)
-            -- Handle rename arrow if present
-            local arrow = rest:find(" %-> ")
-            local path = arrow and rest:sub(arrow + 4) or rest
-            -- strip surrounding quotes if git emitted them
-            if path:sub(1, 1) == '"' and path:sub(-1) == '"' then
-                path = path:sub(2, -2)
-            end
+    local parts = split_nul(stdout or "")
+    local i = 1
+    while i <= #parts do
+        local rec = parts[i]
+        if #rec >= 4 then
+            local xy = rec:sub(1, 2)
+            local path = rec:sub(4)
             table.insert(rows, { xy = xy, path = path })
+            local x = xy:sub(1, 1)
+            if x == "R" or x == "C" then
+                i = i + 1 -- old path, consumed only to advance the stream
+            end
         end
+        i = i + 1
     end
     return rows
 end
 
--- Parse `git diff --numstat HEAD` output. Lines: "<added>\t<removed>\t<path>"
--- Binary files have "-\t-\t<path>" (we record as 0/0).
-local function parse_numstat(stdout)
+-- Parse `git diff --numstat -z`. Normal records are
+-- `<added>\t<removed>\t<path>\0`; rename records are
+-- `<added>\t<removed>\t\0<old>\0<new>\0`. We index by the new path.
+local function parse_numstat_z(stdout)
     local map = {}
-    for line in stdout:gmatch("[^\n]+") do
-        local added, removed, path = line:match("^([%d-]+)\t([%d-]+)\t(.+)$")
-        if path then
-            local renamed = path:match(" => (.+)}")
-            if renamed then path = path:gsub("{[^}]*}", "") end
-            map[path] = {
-                added = tonumber(added) or 0,
-                removed = tonumber(removed) or 0,
-            }
+    local parts = split_nul(stdout or "")
+    local i = 1
+    while i <= #parts do
+        local rec = parts[i]
+        local added, removed, path = rec:match("^([%d-]+)\t([%d-]+)\t(.*)$")
+        if added then
+            if path == "" then
+                -- Rename/copy with -z: the next two NUL records are old/new.
+                path = parts[i + 2] or parts[i + 1] or ""
+                i = i + 2
+            end
+            if path ~= "" then
+                map[path] = {
+                    added = tonumber(added) or 0,
+                    removed = tonumber(removed) or 0,
+                }
+            end
         end
+        i = i + 1
     end
     return map
 end
@@ -274,7 +328,7 @@ local function is_untracked_path(cwd, path)
 end
 
 -- Public: list_changes(opts)
---   opts.tracked_dirs (table[string])  -- override default; nil/empty => all
+--   opts.tracked_dirs (table[string])  -- override default; nil => resolved default; empty => scan nothing
 --   opts.diff_base    (string)         -- "HEAD" / "main" / etc.
 -- Returns ({ change }[], nil) or (nil, err)
 function M.list_changes(opts)
@@ -285,10 +339,21 @@ function M.list_changes(opts)
     local base = cfg.diff_base
     local cwd = project_root()
 
+    if tracked and #tracked == 0 then
+        log:info("git scan skipped: no tracked dirs", {
+            cwd = cwd, config_source = cfg.source,
+        })
+        return {}, cfg
+    end
+
+    local pathspec = pathspec_args(tracked)
+    local untracked_mode = normalize_untracked_mode(cfg.untracked_mode)
+
     -- 1. status (gives untracked + staged + worktree). Use `git -C <root>`
     -- so we don't need a shell to chdir.
     local status_cmd = "git -C " .. shell_escape(cwd) ..
-        " status --porcelain --untracked-files=all"
+        " status --porcelain=v1 -z --untracked-files=" .. shell_escape(untracked_mode) ..
+        pathspec
     local s_res, s_err = run(status_cmd)
     if s_err then return nil, "git status: " .. s_err end
     if s_res.code ~= 0 then
@@ -297,13 +362,14 @@ function M.list_changes(opts)
 
     -- 2. numstat against base (gives line counts; tracked-only)
     local diff_cmd = "git -C " .. shell_escape(cwd) ..
-        " diff --numstat " .. shell_escape(base)
+        " diff --numstat -z " .. shell_escape(base) ..
+        pathspec
     local d_res, d_err = run(diff_cmd)
     if d_err then return nil, "git diff: " .. d_err end
-    local numstat = (d_res and d_res.code == 0) and parse_numstat(d_res.stdout) or {}
+    local numstat = (d_res and d_res.code == 0) and parse_numstat_z(d_res.stdout) or {}
 
     -- 3. compose
-    local status_rows = parse_status(s_res.stdout)
+    local status_rows = parse_status_z(s_res.stdout)
     local out = {}
     local skipped_unmanaged = 0
     for _, row in ipairs(status_rows) do
@@ -336,7 +402,7 @@ function M.list_changes(opts)
     end
     log:info("git scan", {
         cwd = cwd, tracked_dirs = tracked, base = base,
-        config_source = cfg.source,
+        config_source = cfg.source, untracked_mode = untracked_mode,
         total = #out, status_lines = #status_rows,
         skipped_unmanaged = skipped_unmanaged,
     })
@@ -401,9 +467,13 @@ end
 -- Sync registry overlay -> filesystem. Wraps keeper.gov.tools:sync_to_fs.
 -- Returns (result, err). Best-effort: any error is surfaced but doesn't abort
 -- caller flow; caller decides whether to continue.
-function M.sync_registry_to_fs()
+function M.sync_registry_to_fs(cfg)
     local f = funcs.new()
-    local result, err = f:call("keeper.gov.tools:sync_to_fs", {})
+    local args = {}
+    if cfg and cfg.managed_namespaces then
+        args.managed_namespaces = cfg.managed_namespaces
+    end
+    local result, err = f:call("keeper.gov.tools:sync_to_fs", args)
     if err then return nil, err end
     return result, nil
 end
@@ -411,5 +481,8 @@ end
 M._validate_scan_path = validate_scan_path
 M._classify_path = classify_path
 M._should_include_change = should_include_change
+M._parse_status_z = parse_status_z
+M._parse_numstat_z = parse_numstat_z
+M._pathspec_args = pathspec_args
 
 return M

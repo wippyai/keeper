@@ -13,6 +13,10 @@ import {
 import { listChangelog, listVersions, opColor, opIcon, type ChangelogEntry, type VersionSummary } from '../api/changelog'
 import { kindColor, kindIcon, syncUndo, syncRedo, getSyncState } from '../api/registry'
 import { listPlugins, type KeeperPlugin } from '../api/plugins'
+import {
+  listGitClusters, pullRequest, pushGitClusters, rebuildGit, setGitClusterDecision,
+  type GitClusterSummary, type GitSnapshot, type PullRequestResult, type PullRequestStatus,
+} from '../api/git'
 import PluginHost from '../components/PluginHost.vue'
 
 const api = useApi()
@@ -23,7 +27,7 @@ const router = useRouter()
 // ============================================================================
 // Top-level tab
 // ============================================================================
-const mainTab = ref<'pending' | 'history' | 'versions'>('pending')
+const mainTab = ref<'pending' | 'history' | 'versions' | 'git'>('pending')
 
 // ============================================================================
 // PENDING tab state (from changesets page)
@@ -243,6 +247,141 @@ async function doUndo() { undoing.value = true; try { await syncUndo(api); await
 async function doRedo() { redoing.value = true; try { await syncRedo(api); await fetchHistory() } catch (e: any) { error.value = e?.response?.data?.error || 'Redo failed' } redoing.value = false }
 
 // ============================================================================
+// GIT / PR tab state
+// ============================================================================
+const gitLoading = ref(false)
+const gitSnapshot = ref<GitSnapshot | null>(null)
+const prStatus = ref<PullRequestStatus | null>(null)
+const prResult = ref<PullRequestResult | null>(null)
+const prRunning = ref(false)
+const prForm = ref({
+  base_branch: 'main',
+  head_branch: '',
+  title: '',
+  body: '',
+  draft: true,
+  commit_message: '',
+  paths_text: '',
+})
+
+const gitClusters = computed<GitClusterSummary[]>(() => gitSnapshot.value?.clusters || [])
+const approvedPushableClusters = computed(() => gitClusters.value.filter(c => c.decision === 'approved' && c.pushable === true))
+
+async function loadGitClusters() {
+  gitLoading.value = true
+  try {
+    gitSnapshot.value = await listGitClusters(api)
+  } catch (e: any) {
+    error.value = e?.response?.data?.error || e.message
+  } finally {
+    gitLoading.value = false
+  }
+}
+
+async function rebuildGitClusters() {
+  gitLoading.value = true
+  try {
+    await rebuildGit(api, { mode: 'manual', change_source: 'mixed' })
+    await loadGitClusters()
+  } catch (e: any) {
+    error.value = e?.response?.data?.error || e.message
+  } finally {
+    gitLoading.value = false
+  }
+}
+
+async function setClusterDecision(cluster: GitClusterSummary, decision: string) {
+  try {
+    await setGitClusterDecision(api, cluster.cluster_id, decision)
+    await loadGitClusters()
+  } catch (e: any) {
+    error.value = e?.response?.data?.error || e.message
+  }
+}
+
+async function dryRunPushApproved() {
+  const ids = approvedPushableClusters.value.map(c => c.cluster_id)
+  if (ids.length === 0) return
+  try {
+    const res = await pushGitClusters(api, ids, 'Keeper git dry-run', true)
+    prResult.value = {
+      dry_run: true,
+      commands: [{ label: 'keeper governance push dry-run', command: JSON.stringify(res.results || res), mutates: false }],
+    }
+  } catch (e: any) {
+    error.value = e?.response?.data?.error || e.message
+  }
+}
+
+function prPaths(): string[] {
+  return prForm.value.paths_text
+    .split('\n')
+    .map(s => s.trim())
+    .filter(Boolean)
+}
+
+async function inspectPrStatus() {
+  prRunning.value = true
+  try {
+    const res = await pullRequest(api, { action: 'status' })
+    prStatus.value = res.result as PullRequestStatus
+    if (!prForm.value.head_branch && prStatus.value?.current_branch) {
+      prForm.value.head_branch = prStatus.value.current_branch
+    }
+  } catch (e: any) {
+    error.value = e?.response?.data?.error || e.message
+  } finally {
+    prRunning.value = false
+  }
+}
+
+async function planPr() {
+  prRunning.value = true
+  try {
+    const res = await pullRequest(api, {
+      action: 'plan',
+      dry_run: true,
+      base_branch: prForm.value.base_branch,
+      head_branch: prForm.value.head_branch || undefined,
+      title: prForm.value.title,
+      body: prForm.value.body,
+      draft: prForm.value.draft,
+      commit_message: prForm.value.commit_message || undefined,
+      paths: prPaths(),
+    })
+    prResult.value = res.result
+    prStatus.value = res.result.status || prStatus.value
+  } catch (e: any) {
+    error.value = e?.response?.data?.error || e.message
+  } finally {
+    prRunning.value = false
+  }
+}
+
+async function createPr() {
+  prRunning.value = true
+  try {
+    const res = await pullRequest(api, {
+      action: prForm.value.commit_message ? 'full' : 'create',
+      dry_run: false,
+      confirm: true,
+      base_branch: prForm.value.base_branch,
+      head_branch: prForm.value.head_branch || undefined,
+      title: prForm.value.title,
+      body: prForm.value.body,
+      draft: prForm.value.draft,
+      commit_message: prForm.value.commit_message || undefined,
+      paths: prPaths(),
+    })
+    prResult.value = res.result
+  } catch (e: any) {
+    error.value = e?.response?.data?.error || e.message
+  } finally {
+    prRunning.value = false
+  }
+}
+
+// ============================================================================
 // Shared
 // ============================================================================
 function timeAgo(ts: string) {
@@ -314,6 +453,11 @@ function onSelect(cs: Changeset) {
           class="px-2.5 py-1 rounded text-[11px] font-medium transition-colors"
           :style="{ background: mainTab === 'versions' ? 'var(--p-primary-color)' + '18' : 'transparent', color: mainTab === 'versions' ? 'var(--p-primary-color)' : 'var(--p-text-muted-color)' }">
           Versions
+        </button>
+        <button @click="mainTab = 'git'; if (!gitSnapshot) loadGitClusters(); if (!prStatus) inspectPrStatus()"
+          class="px-2.5 py-1 rounded text-[11px] font-medium transition-colors"
+          :style="{ background: mainTab === 'git' ? 'var(--p-primary-color)' + '18' : 'transparent', color: mainTab === 'git' ? 'var(--p-primary-color)' : 'var(--p-text-muted-color)' }">
+          Git / PR
         </button>
         <div class="w-px h-4 mx-1" style="background: var(--p-content-border-color)" />
         <button @click="doUndo" :disabled="undoing" class="flex items-center gap-1 px-2 py-1 rounded text-[10px] hover:bg-[var(--kp-hover-bg)]" style="color: var(--p-text-muted-color)">
@@ -583,6 +727,121 @@ function onSelect(cs: Changeset) {
               <DiffViewer v-else-if="diffData" :baseline="diffData.baseline" :current="diffData.current" :language="diffData.language" class="flex-1" />
             </template>
             </template>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================== GIT / PR TAB ======================== -->
+    <div v-if="mainTab === 'git'" class="flex flex-1 min-h-0 overflow-hidden">
+      <div class="w-[380px] flex-shrink-0 overflow-y-auto" style="border-right: 1px solid var(--p-content-border-color)">
+        <div class="sticky top-0 z-10 px-3 py-2 flex items-center gap-2" style="background: var(--p-content-background); border-bottom: 1px solid var(--p-surface-100)">
+          <button @click="rebuildGitClusters" :disabled="gitLoading" class="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium" style="background: var(--p-primary-color); color: white">
+            <Icon :icon="gitLoading ? 'tabler:loader-2' : 'tabler:refresh'" class="w-3 h-3" :class="{ 'animate-spin': gitLoading }" />
+            Rebuild
+          </button>
+          <button @click="loadGitClusters" :disabled="gitLoading" class="px-2 py-1 rounded text-[10px] hover:bg-[var(--kp-hover-bg)]" style="color: var(--p-text-muted-color)">Refresh</button>
+          <button @click="dryRunPushApproved" :disabled="approvedPushableClusters.length === 0" class="ml-auto px-2 py-1 rounded text-[10px] hover:bg-[var(--kp-hover-bg)]" style="color: var(--p-primary-color)">
+            Dry-run push {{ approvedPushableClusters.length || '' }}
+          </button>
+        </div>
+
+        <div v-if="gitLoading && gitClusters.length === 0" class="p-4 text-[11px]" style="color: var(--p-text-muted-color)">Loading git clusters...</div>
+        <div v-else-if="gitClusters.length === 0" class="p-5 text-center text-[11px]" style="color: var(--p-text-muted-color)">
+          <Icon icon="tabler:git-pull-request" class="w-7 h-7 mx-auto mb-1 opacity-15" />
+          <div>No git review snapshot. Rebuild to scan changes.</div>
+        </div>
+        <div v-else class="divide-y" style="border-color: var(--p-surface-100)">
+          <div v-for="cluster in gitClusters" :key="cluster.cluster_id" class="px-3 py-2">
+            <div class="flex items-start gap-2">
+              <Icon :icon="cluster.pushable ? 'tabler:circle-check' : 'tabler:circle-dashed'" class="w-3.5 h-3.5 mt-0.5" :style="{ color: cluster.pushable ? 'var(--p-success-500)' : 'var(--p-text-muted-color)' }" />
+              <div class="flex-1 min-w-0">
+                <div class="text-[11px] font-medium truncate" style="color: var(--p-text-color)" :title="cluster.title">{{ cluster.title }}</div>
+                <div class="flex items-center gap-1.5 text-[9px] mt-0.5" style="color: var(--p-text-muted-color)">
+                  <span>{{ cluster.change_count || cluster.stats?.total || 0 }} changes</span>
+                  <span>&middot;</span>
+                  <span>{{ cluster.source || 'mixed' }}</span>
+                  <span v-if="cluster.verdict">&middot; {{ cluster.verdict }}</span>
+                  <span v-if="cluster.rec_open"> &middot; {{ cluster.rec_open }} open recs</span>
+                </div>
+              </div>
+              <select :value="cluster.decision" @change="setClusterDecision(cluster, ($event.target as HTMLSelectElement).value)"
+                class="px-1.5 py-0.5 rounded text-[10px]" style="background: var(--p-surface-100); color: var(--p-text-color); border: 1px solid var(--p-content-border-color)">
+                <option value="pending">pending</option>
+                <option value="approved">approved</option>
+                <option value="skipped">skipped</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex-1 min-w-0 overflow-y-auto">
+        <div class="px-5 py-3" style="border-bottom: 1px solid var(--p-surface-100)">
+          <div class="flex items-center gap-2 mb-2">
+            <Icon icon="tabler:git-pull-request" class="w-4 h-4" style="color: var(--p-primary-color)" />
+            <span class="text-[13px] font-semibold">Pull request</span>
+            <button @click="inspectPrStatus" :disabled="prRunning" class="ml-auto px-2 py-1 rounded text-[10px] hover:bg-[var(--kp-hover-bg)]" style="color: var(--p-text-muted-color)">Inspect</button>
+          </div>
+          <div v-if="prStatus" class="grid grid-cols-2 lg:grid-cols-4 gap-2 text-[10px]">
+            <div class="px-2 py-1 rounded" style="background: var(--p-surface-50)"><span style="color: var(--p-text-muted-color)">Branch</span><div class="font-mono truncate">{{ prStatus.current_branch }}</div></div>
+            <div class="px-2 py-1 rounded" style="background: var(--p-surface-50)"><span style="color: var(--p-text-muted-color)">Worktree</span><div :class="prStatus.dirty ? 'text-warn-500' : 'text-success-500'">{{ prStatus.dirty ? 'dirty' : 'clean' }}</div></div>
+            <div class="px-2 py-1 rounded" style="background: var(--p-surface-50)"><span style="color: var(--p-text-muted-color)">GH CLI</span><div :class="prStatus.gh_authenticated ? 'text-success-500' : 'text-warn-500'">{{ prStatus.gh_authenticated ? 'authenticated' : 'not authenticated' }}</div></div>
+            <div class="px-2 py-1 rounded" style="background: var(--p-surface-50)"><span style="color: var(--p-text-muted-color)">Protected</span><div :class="prStatus.protected_branch ? 'text-danger-500' : 'text-success-500'">{{ prStatus.protected_branch ? 'yes' : 'no' }}</div></div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 p-5">
+          <div class="space-y-3">
+            <div class="grid grid-cols-2 gap-2">
+              <label class="text-[10px]" style="color: var(--p-text-muted-color)">Base branch
+                <input v-model="prForm.base_branch" class="mt-1 w-full px-2 py-1.5 rounded text-[11px]" style="background: var(--p-surface-100); border: 1px solid var(--p-content-border-color); color: var(--p-text-color)" />
+              </label>
+              <label class="text-[10px]" style="color: var(--p-text-muted-color)">Head branch
+                <input v-model="prForm.head_branch" class="mt-1 w-full px-2 py-1.5 rounded text-[11px]" style="background: var(--p-surface-100); border: 1px solid var(--p-content-border-color); color: var(--p-text-color)" />
+              </label>
+            </div>
+            <label class="block text-[10px]" style="color: var(--p-text-muted-color)">Title
+              <input v-model="prForm.title" class="mt-1 w-full px-2 py-1.5 rounded text-[11px]" style="background: var(--p-surface-100); border: 1px solid var(--p-content-border-color); color: var(--p-text-color)" />
+            </label>
+            <label class="block text-[10px]" style="color: var(--p-text-muted-color)">Body
+              <textarea v-model="prForm.body" rows="5" class="mt-1 w-full px-2 py-1.5 rounded text-[11px] font-mono" style="background: var(--p-surface-100); border: 1px solid var(--p-content-border-color); color: var(--p-text-color)" />
+            </label>
+            <label class="flex items-center gap-2 text-[11px]" style="color: var(--p-text-color)">
+              <input v-model="prForm.draft" type="checkbox" />
+              Create as draft
+            </label>
+            <label class="block text-[10px]" style="color: var(--p-text-muted-color)">Optional commit message
+              <input v-model="prForm.commit_message" class="mt-1 w-full px-2 py-1.5 rounded text-[11px]" style="background: var(--p-surface-100); border: 1px solid var(--p-content-border-color); color: var(--p-text-color)" />
+            </label>
+            <label class="block text-[10px]" style="color: var(--p-text-muted-color)">Paths to stage when committing
+              <textarea v-model="prForm.paths_text" rows="4" placeholder="src/app/file.lua" class="mt-1 w-full px-2 py-1.5 rounded text-[11px] font-mono" style="background: var(--p-surface-100); border: 1px solid var(--p-content-border-color); color: var(--p-text-color)" />
+            </label>
+            <div class="flex items-center gap-2">
+              <button @click="planPr" :disabled="prRunning || !prForm.title.trim()" class="px-3 py-1.5 rounded text-[11px] font-medium" style="background: var(--p-primary-color); color: white">Dry-run PR</button>
+              <button @click="createPr" :disabled="prRunning || !prForm.title.trim()" class="px-3 py-1.5 rounded text-[11px] font-medium bg-danger-500/10 text-danger-500">Execute PR</button>
+            </div>
+          </div>
+
+          <div class="min-w-0">
+            <div class="text-[10px] font-semibold uppercase tracking-wider mb-2" style="color: var(--p-text-muted-color)">Plan / result</div>
+            <div v-if="!prResult" class="p-4 rounded text-[11px]" style="background: var(--p-surface-50); color: var(--p-text-muted-color)">Run a dry-run first to see exact commands.</div>
+            <div v-else class="space-y-2">
+              <a v-if="prResult.pr_url" :href="prResult.pr_url" target="_blank" class="inline-flex items-center gap-1 text-[11px]" style="color: var(--p-primary-color)">
+                <Icon icon="tabler:external-link" class="w-3 h-3" /> {{ prResult.pr_url }}
+              </a>
+              <div v-for="(cmd, i) in prResult.commands || []" :key="i" class="rounded p-2" style="background: var(--p-surface-50); border: 1px solid var(--p-surface-100)">
+                <div class="flex items-center gap-2 text-[10px] mb-1">
+                  <span class="font-semibold" style="color: var(--p-text-color)">{{ cmd.label }}</span>
+                  <span v-if="cmd.mutates" class="px-1 py-px rounded text-[9px] bg-warn-500/10 text-warn-500">mutates</span>
+                </div>
+                <pre class="text-[10px] whitespace-pre-wrap break-all" style="color: var(--p-text-muted-color)">{{ cmd.command }}</pre>
+              </div>
+              <div v-for="(res, i) in prResult.results || []" :key="`r-${i}`" class="rounded p-2" style="background: var(--p-surface-50); border: 1px solid var(--p-surface-100)">
+                <div class="text-[10px] font-semibold" style="color: var(--p-text-color)">{{ res.label }} · exit {{ res.exit_code }}</div>
+                <pre class="text-[10px] whitespace-pre-wrap break-all" style="color: var(--p-text-muted-color)">{{ res.stdout || res.stderr }}</pre>
+              </div>
+            </div>
           </div>
         </div>
       </div>

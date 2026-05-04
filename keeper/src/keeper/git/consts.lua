@@ -23,6 +23,7 @@ local consts = {
         DECISION_CHANGED      = "git.cluster.decision_changed",
         STALE                 = "git.index.stale",
         PUSHED                = "git.cluster.pushed",
+        PR_CREATED            = "git.pull_request.created",
     },
 
     OPERATIONS = {
@@ -35,6 +36,7 @@ local consts = {
         SUGGEST_SPLIT          = "suggest_split",
         SPLIT_CLUSTER          = "split_cluster",
         PUSH                   = "push",
+        PULL_REQUEST           = "pull_request",
     },
 
     -- Cluster decision (user intent)
@@ -86,8 +88,8 @@ local consts = {
     -- Snapshot is marked stale after this many new journal rows accumulate.
     STALE_AFTER_CHANGES = 5,
 
-    -- Default tracked dirs — only files under these prefixes are surfaced.
-    -- An empty list means "track everything git reports".
+    -- Fallback tracked dirs for Keeper development configs. Installed apps
+    -- derive defaults from GOV_MANAGED_NAMESPACES in keeper.git.flows:git_config.
     DEFAULT_TRACKED_DIRS = ({
         "src/",
         "frontend/applications/",
@@ -111,11 +113,21 @@ local consts = {
     -- Diff base — what we compare working tree against.
     DEFAULT_DIFF_BASE = "HEAD",
 
+    -- Git untracked scan mode. `all` preserves full file-level visibility;
+    -- large projects can set `normal` or `no` in .keeper/git.json when their
+    -- untracked tree is intentionally huge.
+    DEFAULT_UNTRACKED_MODE = "all",
+
     -- Run history retention — drop runs beyond this many
     RUN_HISTORY_KEEP = 10,
 
     -- Guardrail for AI rebuilds over very large dirty trees.
     DEFAULT_MAX_CHANGES = 2000,
+
+    -- Bound concurrent AI bucket calls. Large repos can produce many path
+    -- buckets; this cap keeps clustering from turning one rebuild into
+    -- unbounded model/process fan-out.
+    DEFAULT_CLUSTER_MAX_PARALLEL = 6,
 
     ERRORS = {
         MAILBOX_SEND_FAILED = "git mailbox send failed",

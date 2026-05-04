@@ -8,7 +8,9 @@ local M = {}
 
 function M.handler(params)
     params = params or {}
-    return git_client.push(params.cluster_ids, params.message)
+    return git_client.push(params.cluster_ids, params.message, nil, {
+        dry_run = params.dry_run == true,
+    })
 end
 
 return M

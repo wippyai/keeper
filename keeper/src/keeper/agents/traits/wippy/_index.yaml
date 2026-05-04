@@ -45,6 +45,7 @@ entries:
       - keeper.agents.traits.components:ui
       - keeper.agents.traits.hub:operator
       - keeper.agents.traits.gov:syncer
+      - keeper.agents.traits.git:reviewer
       - keeper.agents.traits.knowledge:reader
       - keeper.agents.traits.context.frontend:frontend_aware
       - keeper.agents.traits.context.migrations:migrations_aware

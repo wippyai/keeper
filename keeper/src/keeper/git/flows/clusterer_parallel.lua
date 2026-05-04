@@ -9,6 +9,7 @@ local channel = require("channel")
 local logger = require("logger")
 local time = require("time")
 local clusterer = require("clusterer")
+local consts = require("git_consts")
 
 local log = logger:named("keeper.git.clusterer_parallel")
 
@@ -37,6 +38,15 @@ type BucketMessage = {
 M.SOFT_LIMIT = 250
 -- Hard ceiling per bucket so a runaway LLM call can't hang the whole rebuild.
 M.BUCKET_TIMEOUT_SEC = 90
+M.DEFAULT_MAX_PARALLEL = consts.DEFAULT_CLUSTER_MAX_PARALLEL
+
+local function effective_max_parallel(value, bucket_count)
+    local n = tonumber(value or M.DEFAULT_MAX_PARALLEL) or M.DEFAULT_MAX_PARALLEL
+    n = math.floor(n)
+    if n < 1 then n = 1 end
+    if bucket_count and bucket_count > 0 and n > bucket_count then n = bucket_count end
+    return n
+end
 
 local function path_prefix(path, depth)
     local parts = {}
@@ -108,10 +118,22 @@ function M.run(changes, opts)
     })
 
     local done = channel.new(#buckets)
-    for i, b in ipairs(buckets) do
+    local next_bucket = 1
+    local worker_count = effective_max_parallel(opts.max_parallel or opts.cluster_max_parallel, #buckets)
+
+    -- Start a bounded worker pool instead of one coroutine per bucket. The
+    -- clusterer call may be an expensive model request; on large repos this cap
+    -- turns the path partitioner into backpressure rather than fan-out.
+    for _ = 1, worker_count do
         coroutine.spawn(function()
-            local res = clusterer.run(b.items, opts)
-            done:send({ idx = i, key = b.key, count = #b.items, result = res })
+            while true do
+                local idx = next_bucket
+                next_bucket = next_bucket + 1
+                local b = buckets[idx]
+                if not b then return end
+                local res = clusterer.run(b.items, opts)
+                done:send({ idx = idx, key = b.key, count = #b.items, result = res })
+            end
         end)
     end
 
@@ -187,6 +209,7 @@ function M.run(changes, opts)
     log:info("parallel clustering done", {
         bucket_count = #buckets, fail_count = fail_count,
         cluster_count = #all_clusters, duration_ms = duration_ms,
+        worker_count = worker_count,
     })
 
     if fail_count == #buckets then
@@ -205,10 +228,12 @@ function M.run(changes, opts)
         duration_ms    = duration_ms,
         bucket_results = bucket_results,
         partial        = fail_count > 0,
+        worker_count   = worker_count,
     }
 end
 
 M._partition   = partition
 M._path_prefix = path_prefix
+M._effective_max_parallel = effective_max_parallel
 
 return M

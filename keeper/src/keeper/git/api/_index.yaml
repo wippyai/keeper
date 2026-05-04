@@ -125,6 +125,31 @@ entries:
     method: POST
     func: push
     path: /keeper/git/push
+
+  # keeper.git.api:pull_request
+  - name: pull_request
+    kind: function.lua
+    meta:
+      comment: Plan or execute the explicit git/GitHub pull request flow
+      router: app:api
+    source: file://pull_request.lua
+    modules:
+      - http
+      - security
+    imports:
+      git_client: keeper.git:client
+    method: handler
+    pool:
+      size: 1
+
+  # keeper.git.api:pull_request.endpoint
+  - name: pull_request.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: pull_request
+    path: /keeper/git/pull-request
     
   # keeper.git.api:rebuild
   - name: rebuild

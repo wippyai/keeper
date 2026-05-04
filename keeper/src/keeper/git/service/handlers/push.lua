@@ -20,10 +20,13 @@ function M.handle(payload, deps)
         function(cid)
             deps.state:mark_pushed(cid)
             deps.relay(consts.EVENTS.PUSHED, { cluster_id = cid })
-        end
+        end,
+        { dry_run = args.dry_run == true }
     )
 
-    deps.state:persist(deps.log)
+    if args.dry_run ~= true then
+        deps.state:persist(deps.log)
+    end
     deps.reply(payload, result)
 end
 

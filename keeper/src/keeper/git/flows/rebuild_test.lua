@@ -43,6 +43,46 @@ local cases = {
             test.is_nil(err)
         end,
     },
+    {
+        name = "partitioning keeps separate changesets out of the same clusterer call",
+        fn = function()
+            local parts = rebuild_flow._partition_changes({
+                {
+                    change_id = "a",
+                    source = "changeset",
+                    changeset_id = "cs-2",
+                },
+                {
+                    change_id = "b",
+                    source = "changeset",
+                    changeset_id = "cs-1",
+                },
+                {
+                    change_id = "c",
+                    source = "changeset",
+                    changeset_id = "cs-2",
+                },
+            })
+
+            test.eq(#parts, 2)
+            test.eq(parts[1].key, "changeset:cs-1")
+            test.eq(#parts[1].changes, 1)
+            test.eq(parts[2].key, "changeset:cs-2")
+            test.eq(#parts[2].changes, 2)
+        end,
+    },
+    {
+        name = "partitioning leaves git scan changes together as review-only source",
+        fn = function()
+            local parts = rebuild_flow._partition_changes({
+                { change_id = "a", source = "git_scan" },
+                { change_id = "b", source = "git_scan" },
+            })
+            test.eq(#parts, 1)
+            test.eq(parts[1].key, "source:git_scan")
+            test.eq(#parts[1].changes, 2)
+        end,
+    },
 }
 
 local function define_tests()

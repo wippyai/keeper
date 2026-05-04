@@ -12,6 +12,7 @@ local logger = require("logger")
 local consts = require("git_consts")
 local run_repo = require("run_repo")
 local git_scan = require("git_scan")
+local changeset_scan = require("changeset_scan")
 local suspect = require("suspect")
 local clusterer_parallel = require("clusterer_parallel")
 local cluster_factory = require("cluster_factory")
@@ -33,6 +34,13 @@ local function enforce_max_changes(changes: unknown[]?, max_changes: unknown)
     return true, nil
 end
 
+local function normalize_change_source(value: unknown): string
+    local source = type(value) == "string" and value or ""
+    if source == "changeset" or source == "changesets" then return "changeset" end
+    if source == "mixed" then return "mixed" end
+    return "git_scan"
+end
+
 local function now_iso()
     return time.now():format("2006-01-02T15:04:05Z")
 end
@@ -43,15 +51,52 @@ local function gen_id(prefix)
     return (prefix or "") .. id
 end
 
+local function partition_key(ch)
+    if ch.source == "changeset" then
+        return "changeset:" .. tostring(ch.changeset_id or "missing")
+    end
+    return "source:" .. tostring(ch.source or "unknown")
+end
+
+local function partition_changes(changes)
+    local by_key = {}
+    local order = {}
+    for _, ch in ipairs(changes or {}) do
+        local key = partition_key(ch)
+        if not by_key[key] then
+            by_key[key] = {}
+            table.insert(order, key)
+        end
+        table.insert(by_key[key], ch)
+    end
+    table.sort(order)
+
+    local out = {}
+    for _, key in ipairs(order) do
+        table.insert(out, { key = key, changes = by_key[key] })
+    end
+    return out
+end
+
 function M._enforce_max_changes(changes: unknown[]?, max_changes: unknown)
     return enforce_max_changes(changes, max_changes)
+end
+
+function M._partition_changes(changes)
+    return partition_changes(changes)
 end
 
 -- Manual mode: deterministic grouping by 2nd-level path prefix, no LLM.
 local function manual_cluster(topic_changes)
     local groups = {}
     for _, ch in ipairs(topic_changes) do
-        local key = (ch.target:match("^([^/]+/[^/]+)") or "root") .. "/"
+        local target = tostring(ch.target or "")
+        local key
+        if ch.category == "registry" then
+            key = ch.namespace or ch.ns_root or target:match("^([^:]+)") or "registry"
+        else
+            key = (target:match("^([^/]+/[^/]+)") or "filesystem") .. "/"
+        end
         groups[key] = groups[key] or { title = key, change_ids = {} }
         table.insert(groups[key].change_ids, ch.change_id)
     end
@@ -91,6 +136,27 @@ local function build_topic_clusters(specs, changes_by_id)
     return clusters
 end
 
+local function build_clusters_for_partitions(topic_changes, opts, changes_by_id)
+    local clusters = {}
+    local meta = { model = nil, duration_ms = 0 }
+    for _, partition in ipairs(partition_changes(topic_changes)) do
+        local result = (opts.mode == "manual")
+            and manual_cluster(partition.changes)
+            or  ai_cluster(partition.changes, opts)
+
+        if not result.ok then
+            return nil, "clusterer: " .. tostring(result.error)
+        end
+        meta.model = meta.model or result.model
+        meta.duration_ms = meta.duration_ms + (tonumber(result.duration_ms) or 0)
+
+        for _, c in ipairs(build_topic_clusters(result.clusters, changes_by_id)) do
+            table.insert(clusters, c)
+        end
+    end
+    return clusters, nil, meta
+end
+
 local function build_orphan_cluster(orphan_pairs, changes_by_id)
     if #orphan_pairs == 0 then return nil end
     local change_ids, recs, change_list = {}, {}, {}
@@ -123,7 +189,44 @@ local function build_orphan_cluster(orphan_pairs, changes_by_id)
     )
 end
 
--- opts: { mode = "manual" | "ai" (default ai), model?, sync_first?, tracked_dirs?, diff_base? }
+local function build_orphan_clusters(orphan_pairs, changes_by_id)
+    local by_key = {}
+    local order = {}
+    for _, op in ipairs(orphan_pairs or {}) do
+        local key = partition_key(op.change or {})
+        if not by_key[key] then
+            by_key[key] = {}
+            table.insert(order, key)
+        end
+        table.insert(by_key[key], op)
+    end
+    table.sort(order)
+
+    local out = {}
+    for _, key in ipairs(order) do
+        local c = build_orphan_cluster(by_key[key], changes_by_id)
+        if c then table.insert(out, c) end
+    end
+    return out
+end
+
+local function load_pending(opts)
+    local source = normalize_change_source(opts.change_source or opts.source)
+    if source == "changeset" then
+        return changeset_scan.list_changes(opts)
+    end
+    if source == "mixed" then
+        local git_pending, git_cfg = git_scan.list_changes(opts)
+        if not git_pending then return nil, git_cfg end
+        local cs_pending, cs_cfg = changeset_scan.list_changes(opts)
+        if not cs_pending then return nil, cs_cfg end
+        for _, ch in ipairs(cs_pending) do table.insert(git_pending, ch) end
+        return git_pending, { git = git_cfg, changeset = cs_cfg, source = "mixed" }
+    end
+    return git_scan.list_changes(opts)
+end
+
+-- opts: { mode = "manual" | "ai" (default ai), model?, sync_first?, tracked_dirs?, diff_base?, change_source? }
 function M.run(opts)
     opts = opts or {}
     local started_at = now_iso()
@@ -138,10 +241,14 @@ function M.run(opts)
         log:warn("rebuild: failed to insert run row (continuing)", { error = ierr })
     end
 
-    if opts.sync_first then
+    local change_source = normalize_change_source(opts.change_source or opts.source)
+
+    if opts.sync_first and change_source ~= "changeset" then
         local before_sync, before_cfg = git_scan.list_changes({
-            tracked_dirs = opts.tracked_dirs,
-            diff_base    = opts.diff_base,
+            tracked_dirs       = opts.tracked_dirs,
+            managed_namespaces = opts.managed_namespaces,
+            diff_base          = opts.diff_base,
+            untracked_mode     = opts.untracked_mode,
         })
         if not before_sync then
             local serr = "git_scan pre-sync: " .. tostring(before_cfg or "returned nil")
@@ -165,7 +272,7 @@ function M.run(opts)
             return nil, nil, berr
         end
 
-        local _, sync_err = git_scan.sync_registry_to_fs()
+        local _, sync_err = git_scan.sync_registry_to_fs(before_cfg)
         if sync_err then
             local sync_msg = "sync_to_fs failed: " .. tostring(sync_err)
             run_repo.update(run_id, {
@@ -175,12 +282,22 @@ function M.run(opts)
         end
     end
 
-    local pending, cfg = git_scan.list_changes({
-        tracked_dirs = opts.tracked_dirs,
-        diff_base    = opts.diff_base,
+    local pending, cfg = load_pending({
+        tracked_dirs       = opts.tracked_dirs,
+        managed_namespaces = opts.managed_namespaces,
+        diff_base          = opts.diff_base,
+        untracked_mode     = opts.untracked_mode,
+        change_source      = change_source,
+        changeset_id       = opts.changeset_id,
+        states             = opts.states,
+        kind               = opts.kind,
+        actor_id           = opts.actor_id,
+        session_id         = opts.session_id,
+        limit              = opts.limit,
+        per_changeset_limit = opts.per_changeset_limit,
     })
     if not pending then
-        local perr = "git_scan: " .. tostring(cfg or "returned nil")
+        local perr = "change scan: " .. tostring(cfg or "returned nil")
         run_repo.update(run_id, {
             finished_at = now_iso(), status = consts.RUN_STATUS.FAILED, error = perr,
         })
@@ -200,35 +317,32 @@ function M.run(opts)
 
     local topic_changes, orphan_pairs = suspect.partition(pending)
 
-    local result = (opts.mode == "manual")
-        and manual_cluster(topic_changes)
-        or  ai_cluster(topic_changes, opts)
-
-    if not result.ok then
+    local topic_clusters, cluster_err, cluster_meta = build_clusters_for_partitions(topic_changes, opts, changes_by_id)
+    if cluster_err then
         run_repo.update(run_id, {
-            finished_at = now_iso(), status = consts.RUN_STATUS.FAILED, error = result.error,
+            finished_at = now_iso(), status = consts.RUN_STATUS.FAILED, error = cluster_err,
         })
-        return nil, nil, "clusterer: " .. result.error
+        return nil, nil, cluster_err
     end
 
     local snap = snapshot_lib.empty()
     snap.run_id = run_id
     snap.built_at = now_iso()
     snap.journal_size_at_build = #pending
-    snap.ai_model = result.model
+    snap.ai_model = opts.mode == "manual" and "manual" or (cluster_meta and cluster_meta.model) or opts.model
+    snap.change_source = change_source
     snap.git_config = cfg or nil
 
-    for _, c in ipairs(build_topic_clusters(result.clusters, changes_by_id)) do
+    for _, c in ipairs(topic_clusters or {}) do
         snap.clusters[c.id] = c
         table.insert(snap.cluster_order, c.id)
     end
 
-    local orphan = build_orphan_cluster(orphan_pairs, changes_by_id)
-    if orphan then
+    for _, orphan in ipairs(build_orphan_clusters(orphan_pairs, changes_by_id)) do
         snap.clusters[orphan.id] = orphan
         table.insert(snap.cluster_order, orphan.id)
-        for _, op in ipairs(orphan_pairs) do
-            table.insert(snap.orphans, op.change.change_id)
+        for _, change_id in ipairs(orphan.change_ids or {}) do
+            table.insert(snap.orphans, change_id)
         end
     end
 
@@ -241,7 +355,7 @@ function M.run(opts)
         status        = consts.RUN_STATUS.FINISHED,
         journal_size  = #pending,
         cluster_count = #snap.cluster_order,
-        ai_model      = result.model,
+        ai_model      = snap.ai_model,
         payload       = snap,
     }
     local _, uerr = run_repo.update(run_id, {
@@ -261,7 +375,8 @@ function M.run(opts)
     log:info("rebuild ok", {
         run_id = run_id, clusters = #snap.cluster_order,
         topic_changes = #topic_changes, orphans = #orphan_pairs,
-        duration_ms = result.duration_ms,
+        change_source = change_source,
+        duration_ms = cluster_meta and cluster_meta.duration_ms or nil,
     })
 
     return snap, row, nil

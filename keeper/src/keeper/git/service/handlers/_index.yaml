@@ -31,6 +31,16 @@ entries:
     imports:
       git_consts: keeper.git:consts
       push_flow: keeper.git.flows:push
+
+  # keeper.git.service.handlers:pr
+  - name: pr
+    kind: library.lua
+    meta:
+      comment: Pull request handler — plans or executes explicit git/gh PR steps
+    source: file://pr.lua
+    imports:
+      git_consts: keeper.git:consts
+      pr_flow: keeper.git.flows:pull_request
     
   # keeper.git.service.handlers:rebuild
   - name: rebuild

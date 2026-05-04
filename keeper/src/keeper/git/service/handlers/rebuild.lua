@@ -9,12 +9,22 @@ local M = {}
 
 local function rebuild_args(args)
     return {
-        mode         = args.mode,
-        model        = args.model,
-        max_changes  = args.max_changes,
-        sync_first   = args.sync_first,
-        tracked_dirs = args.tracked_dirs,
-        diff_base    = args.diff_base,
+        mode               = args.mode,
+        model              = args.model,
+        max_changes        = args.max_changes,
+        sync_first         = args.sync_first,
+        tracked_dirs       = args.tracked_dirs,
+        managed_namespaces = args.managed_namespaces,
+        diff_base          = args.diff_base,
+        untracked_mode     = args.untracked_mode,
+        change_source      = args.change_source,
+        changeset_id       = args.changeset_id,
+        states             = args.states,
+        kind               = args.kind,
+        actor_id           = args.actor_id,
+        session_id         = args.session_id,
+        limit              = args.limit,
+        per_changeset_limit = args.per_changeset_limit,
     }
 end
 
