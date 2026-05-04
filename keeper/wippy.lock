@@ -6,8 +6,8 @@ modules:
       version: 0.4.1
       hash: c154e2cc11ca94ddd368307aced96cfbbd411a58e74e46339d50b4a9befc1d65
     - name: userspace/uploads
-      version: 0.5.5
-      hash: 50d673dd201249b280d1f19a9051e8715e759af5db75b76a4132237020b1c7c9
+      version: 0.5.8
+      hash: a5af7462e52160af236a7d89b5dfedcd4efb3cad49d8b17f39335b0a05e2ee5f
     - name: userspace/users
       version: 0.1.5
       hash: 09ee988bed624dff05e78a1bf71203cdab46833b91b3c6b062a079c968688a80
@@ -36,8 +36,8 @@ modules:
       version: 0.4.0
       hash: 8dcf047cbf88a56fbbfa843aab09a37e8e809400ec887e1ff09471aa699fe7af
     - name: wippy/session
-      version: 0.1.12
-      hash: 05997c8fe8a92d1b0478595458a6862bf69f71954d773b65134f82b947c29702
+      version: 0.1.14
+      hash: df048af74a28fb28a91e6529ce2a5426f682e471047b0fae43f6c33274e9d3ad
     - name: wippy/terminal
       version: 0.4.3
       hash: 56141fae39a0e7a996dee6a9e8d7d45beb1a6c62bf7aeb79dd27ce8b72694a49
