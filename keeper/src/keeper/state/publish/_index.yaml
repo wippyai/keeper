@@ -19,10 +19,24 @@ entries:
       comment: governance primitive — current_version shape, input guards on publish / restore_version
       suite: publish
     source: file://governance_test.lua
+    modules:
+      - funcs
+      - security
     imports:
       governance: keeper.state.publish:governance
       test: wippy.test:test
     method: define_tests
+    pool:
+      size: 1
+
+  - name: current_version_probe
+    kind: function.lua
+    meta:
+      comment: Test helper for exercising governance.current_version with an explicit security context
+    source: file://current_version_probe.lua
+    imports:
+      governance: keeper.state.publish:governance
+    method: handle
     pool:
       size: 1
     

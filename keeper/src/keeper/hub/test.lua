@@ -1414,6 +1414,14 @@ local function define_tests()
                             data = { component = "acme/older", version = "v1.0.0" },
                         },
                     }),
+                    gov = {
+                        get_managed_namespaces = function()
+                            return { "app" }
+                        end,
+                        is_namespace_managed = function(namespace)
+                            return namespace == "app" or namespace:sub(1, 4) == "app."
+                        end,
+                    },
                 }) :: any
 
                 local plan, err = svc:plan_install({
@@ -1425,6 +1433,48 @@ local function define_tests()
                 test.eq(plan.dependency.id, "app.plugins:app")
                 test.eq(plan.dependency.namespace, "app.plugins")
                 test.eq(plan.install_payload.namespace, "app.plugins")
+            end)
+
+            it("ignores existing dependency clusters when governance manages no namespaces", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/app"] = {
+                            { version = "v1.0.0", requirements = {} },
+                        },
+                    }),
+                    registry = fake_registry({
+                        {
+                            id = "app.plugins:alpha",
+                            kind = "ns.dependency",
+                            meta = {},
+                            data = { component = "acme/alpha", version = "v1.0.0" },
+                        },
+                        {
+                            id = "app.plugins:beta",
+                            kind = "ns.dependency",
+                            meta = {},
+                            data = { component = "acme/beta", version = "v1.0.0" },
+                        },
+                    }),
+                    gov = {
+                        get_managed_namespaces = function()
+                            return {}
+                        end,
+                        is_namespace_managed = function()
+                            return false
+                        end,
+                    },
+                }) :: any
+
+                local plan, err = svc:plan_install({
+                    component = "acme/app",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(err)
+                test.eq(plan.dependency.id, "app.deps:app")
+                test.eq(plan.dependency.namespace, "app.deps")
+                test.eq(plan.install_payload.namespace, "app.deps")
             end)
 
             it("falls back to a managed dependency namespace when app is not managed", function()

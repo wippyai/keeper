@@ -1,0 +1,17 @@
+version: "1.0"
+namespace: app.probe.unit2
+
+entries:
+  - name: 01_create_unit2_table
+    kind: function.lua
+    meta:
+      type: migration
+      comment: Second probe migration fixture for Keeper integrate handler tests
+      target_db: app:db
+      timestamp: "2025-01-01T00:00:01Z"
+    source: file://01_create_unit2_table.lua
+    imports:
+      migration: wippy.migration:migration
+    method: define
+    pool:
+      size: 1

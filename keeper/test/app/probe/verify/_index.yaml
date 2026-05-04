@@ -1,0 +1,17 @@
+version: "1.0"
+namespace: app.probe.verify
+
+entries:
+  - name: 01_create_probe_table
+    kind: function.lua
+    meta:
+      type: migration
+      comment: Probe migration fixture for Keeper integrate handler tests
+      target_db: app:db
+      timestamp: "2025-01-01T00:00:00Z"
+    source: file://01_create_probe_table.lua
+    imports:
+      migration: wippy.migration:migration
+    method: define
+    pool:
+      size: 1

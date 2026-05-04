@@ -75,6 +75,8 @@ entries:
     source: file://stages_lib_test.lua
     modules:
       - sql
+      - funcs
+      - security
     imports:
       nodes_writer: keeper.task.persist:nodes_writer
       stages_lib: keeper.develop.integrate.stages:stages_lib

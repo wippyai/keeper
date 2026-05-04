@@ -97,9 +97,8 @@ entries:
     modules:
       - json
       - http_client
-      - env
       - security
     imports:
       test: wippy.test:test
+      api_test: keeper.tests:api_test
     method: define_tests
-
