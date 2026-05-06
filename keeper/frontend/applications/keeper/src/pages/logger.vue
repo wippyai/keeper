@@ -132,8 +132,10 @@ async function doClear() {
 }
 
 // Stream new entries via websocket
+let unsubLogs: (() => void) | null = null
+
 function setupStream() {
-  instance.on('keeper.logs', (evt: any) => {
+  unsubLogs = instance.on('keeper.logs', (evt: any) => {
     const data = evt?.data || evt
     const entry = data.entry
     const counters = data.counters
@@ -157,6 +159,10 @@ function onLogEvent(entry?: LogEntry, counters?: LogCounters) {
 onMounted(() => {
   load()
   setupStream()
+})
+
+onUnmounted(() => {
+  unsubLogs?.()
 })
 
 function fmt(n: number): string {

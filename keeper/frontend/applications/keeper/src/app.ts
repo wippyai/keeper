@@ -6,7 +6,6 @@ import App from './app/app.vue'
 import { AXIOS_INSTANCE, HOST_API, WIPPY_INSTANCE, WIPPY_CONFIG, ON_SUBSCRIPTION } from './constants'
 import type { OnSubscription } from './constants'
 import { createAppRouter } from './router'
-import '@wippy-fe/theme/theme-config.css'
 import './styles.css'
 import './tailwind.css'
 

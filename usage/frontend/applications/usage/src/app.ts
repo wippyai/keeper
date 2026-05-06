@@ -3,7 +3,6 @@ import { createApp } from 'vue'
 import App from './app/App.vue'
 import { AXIOS_INSTANCE, HOST_API, WIPPY_INSTANCE, WIPPY_CONFIG } from './constants'
 import { createAppRouter } from './router'
-import '@wippy-fe/theme/theme-config.css'
 import './styles.css'
 import './tailwind.css'
 
@@ -44,7 +43,7 @@ export async function createUsageApp() {
   app.provide(WIPPY_INSTANCE, instance)
   app.provide(WIPPY_CONFIG, config)
 
-  app.use(createAppRouter(initialPath))
+  app.use(createAppRouter(hostApi, instance, initialPath))
   return app
 }
 

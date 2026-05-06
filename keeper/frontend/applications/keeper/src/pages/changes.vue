@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import { useApi, useWippy } from '../composables/useWippy'
@@ -324,7 +324,7 @@ async function inspectPrStatus() {
   prRunning.value = true
   try {
     const res = await pullRequest(api, { action: 'status' })
-    prStatus.value = res.result as PullRequestStatus
+    prStatus.value = res.result as unknown as PullRequestStatus
     if (!prForm.value.head_branch && prStatus.value?.current_branch) {
       prForm.value.head_branch = prStatus.value.current_branch
     }
@@ -396,6 +396,8 @@ function timeAgo(ts: string) {
   } catch { return '' }
 }
 
+let unsubChangeset: (() => void) | null = null
+
 onMounted(async () => {
   await loadChangesets()
   fetchHistory()
@@ -404,12 +406,16 @@ onMounted(async () => {
   const qid = route.query.id
   const rid = typeof pid === 'string' && pid ? pid : (typeof qid === 'string' ? qid : '')
   if (rid) selectById(rid)
-  instance.on('keeper.changeset', (evt: any) => {
+  unsubChangeset = instance.on('keeper.changeset', (evt: any) => {
     const data = evt?.data || evt
     if (!data?.event) return
     loadChangesets()
     if (selected.value && data.changeset_id === selected.value.changeset_id) refreshSelected()
   })
+})
+
+onUnmounted(() => {
+  unsubChangeset?.()
 })
 
 function onSelect(cs: Changeset) {

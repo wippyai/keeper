@@ -50,15 +50,16 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { useApi } from '../composables/useWippy'
+import { useApi, useWippy } from '../composables/useWippy'
 
 const api = useApi()
+const instance = useWippy()
 
 const entries = ref([])
 const eventTypeFilter = ref('')
 const sinceFilter = ref('')
 const eventTypes = ref([])
-let eventSource = null
+let unsubAudit = null
 
 const formatTime = (ts) => {
   return new Date(ts).toLocaleString()
@@ -83,24 +84,17 @@ const extractEventTypes = (rows) => {
   eventTypes.value = Array.from(types).sort()
 }
 
-const connectSSE = () => {
-  eventSource = new EventSource('/api/v1/keeper/audit/stream')
-  eventSource.addEventListener('audit.created', (e) => {
-    const newEntry = JSON.parse(e.data)
-    entries.value.unshift(newEntry)
-  })
-  eventSource.onerror = () => {
-    setTimeout(connectSSE, 2000)
-  }
-}
-
 onMounted(() => {
   loadEntries()
-  connectSSE()
+  unsubAudit = instance.on('keeper.audit', (evt) => {
+    const data = evt?.data || evt
+    const entry = data?.entry || data
+    if (entry && entry.entry_id) entries.value.unshift(entry)
+  })
 })
 
 onUnmounted(() => {
-  if (eventSource) eventSource.close()
+  if (unsubAudit) unsubAudit()
 })
 </script>
 

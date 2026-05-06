@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import { useApi, useWippy } from '../composables/useWippy'
@@ -197,13 +197,19 @@ const completedDesigns = computed(() =>
 const archivedDesigns = computed(() => filtered.value.filter(d => d.archived))
 const totalMatches = computed(() => filtered.value.length)
 
+let unsub: (() => void) | null = null
+
 onMounted(async () => {
   load()
-  instance.on('keeper.task', () => load())
+  unsub = instance.on('keeper.task', () => load())
   try {
     const { data } = await api.get('/api/v1/keeper/tasks/stats')
     if (data && data.success !== false) stats.value = data
   } catch {}
+})
+
+onUnmounted(() => {
+  unsub?.()
 })
 </script>
 

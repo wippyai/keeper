@@ -565,12 +565,7 @@ onMounted(() => {
     if (data.task_id && data.task_id !== taskId.value) return
     scheduleLoad()
   }
-  // @ts-ignore
-  instance.on('keeper.task', handler)
-  relayOff = () => {
-    // @ts-ignore
-    if (instance.off) instance.off('keeper.task', handler)
-  }
+  relayOff = instance.on('keeper.task', handler)
 })
 onUnmounted(stopPolling)
 
