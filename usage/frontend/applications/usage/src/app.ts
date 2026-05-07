@@ -35,6 +35,21 @@ export async function createUsageApp() {
   const axios = await window.$W.api()
   const instance = await window.$W.instance()
 
+  // 401 → auth-expired. See keeper-main src/app.ts for rationale.
+  axios.interceptors.response.use(
+    (response) => response,
+    (error: any) => {
+      if (error?.response?.status === 401) {
+        hostApi.handleError('auth-expired', {
+          url: error?.config?.url,
+          method: error?.config?.method,
+          message: error?.message,
+        })
+      }
+      return Promise.reject(error)
+    },
+  )
+
   const initialPath: string = (config as any).context?.route || (config as any).path || '/'
 
   const app = createApp(App)
