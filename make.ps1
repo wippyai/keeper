@@ -97,13 +97,42 @@ function Invoke-BuildKeeperBundle {
     Invoke-Build -Dir 'keeper/frontend/web-components/wippy-monaco' -Out '../../../static/wippy-monaco'
 }
 
+function Invoke-BuildAll {
+    # Aggregator — every FE app + the monaco WC. Mirrors Makefile `build`.
+    foreach ($i in $builds) {
+        Invoke-Build -Dir $i.dir -Out $i.out
+    }
+}
+
+function Invoke-Smoke {
+    # Headless-browser smoke against the keeper-test harness on $env:BASE_URL
+    # (defaults to http://localhost:8085 inside smoke.mjs). Phase 1 verifies
+    # dist/app.html exists for each app; phase 2 logs into keeper-test and
+    # boots keeper-main + keeper-git in dark + light themes, asserting no
+    # console errors. See test/smoke/README.md.
+    Push-Location 'test/smoke'
+    try {
+        Write-Host '==> smoke (test/smoke)' -ForegroundColor Cyan
+        npm install --no-audit --no-fund --prefer-offline
+        if ($LASTEXITCODE -ne 0) { throw "npm install failed in test/smoke (exit $LASTEXITCODE)" }
+        npm run smoke
+        if ($LASTEXITCODE -ne 0) { throw "npm run smoke failed (exit $LASTEXITCODE)" }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
 function Show-Help {
     Write-Host "make - Windows mirror of the Makefile (via make.bat -> make.ps1)`n"
     Write-Host "Build targets:"
+    Write-Host "  build                          Build everything (every FE app + monaco WC)"
     Write-Host "  build-keeper-frontend          Build keeper main FE -> keeper/static/keeper"
     Write-Host "  build-keeper-git-frontend      Build keeper-git plugin FE -> keeper/static/keeper-git"
     Write-Host "  build-wippy-monaco-frontend    Build wippy-monaco WC -> keeper/static/wippy-monaco"
     Write-Host "  build-usage-frontend           Build usage FE -> usage/static/keeper-usage`n"
+    Write-Host "Smoke target:"
+    Write-Host "  smoke                          Headless-browser smoke against keeper-test (test/smoke/README.md)`n"
     Write-Host "Lint targets:"
     Write-Host "  lint                           lint-keeper + lint-usage"
     Write-Host "  lint-keeper                    wippy lint --ns 'keeper,keeper.*' in keeper/"
@@ -124,6 +153,9 @@ function Show-Help {
 try {
     switch -Regex ($Target) {
         '^help$|^-h$|^--help$' { Show-Help; break }
+
+        '^build$'  { Invoke-BuildAll; break }
+        '^smoke$'  { Invoke-Smoke;    break }
 
         '^build-(.+)$' {
             $name = $Matches[1]

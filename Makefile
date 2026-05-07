@@ -1,4 +1,4 @@
-.PHONY: lint lint-keeper lint-usage build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend build-usage-frontend publish-dry-run publish-keeper-dry-run publish-usage-dry-run publish publish-keeper publish-usage
+.PHONY: lint lint-keeper lint-usage build build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend build-usage-frontend smoke publish-dry-run publish-keeper-dry-run publish-usage-dry-run publish publish-keeper publish-usage
 
 WIPPY ?= wippy
 
@@ -24,6 +24,16 @@ build-wippy-monaco-frontend:
 
 build-usage-frontend:
 	cd usage/frontend/applications/usage && npm install --no-audit --no-fund --prefer-offline && npm run build -- --outDir ../../../static/keeper-usage --emptyOutDir
+
+# Aggregator — builds every FE app + the monaco WC. `make smoke` depends on this.
+build: build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend build-usage-frontend
+
+# Headless-browser smoke against the keeper-test harness on $(BASE_URL).
+# Phase 1 verifies dist/app.html exists for each app; phase 2 logs into
+# keeper-test and boots keeper-main + keeper-git in dark + light themes,
+# asserting no console errors. See test/smoke/README.md.
+smoke:
+	cd test/smoke && npm install --no-audit --no-fund --prefer-offline && npm run smoke
 
 publish-dry-run: publish-keeper-dry-run publish-usage-dry-run
 

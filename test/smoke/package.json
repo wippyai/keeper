@@ -1,0 +1,14 @@
+{
+  "name": "@keeper/smoke",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Headless-browser smoke test for keeper-v5: verifies all 3 FE apps build + keeper + keeper-git boot under the keeper-test harness in dark + light themes.",
+  "type": "module",
+  "scripts": {
+    "smoke": "node smoke.mjs",
+    "smoke:headed": "HEADLESS=false node smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}
