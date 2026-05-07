@@ -17,3 +17,4 @@ exclude_meta:
 embed:
   - "ui_static_fs"
   - "git_static_fs"
+  - "wippy_monaco_static_fs"

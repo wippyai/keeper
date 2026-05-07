@@ -35,7 +35,6 @@ function inlineCssPlugin(): Plugin {
 export default defineConfig({
   plugins: [vue(), wippyPackagePlugin(), inlineCssPlugin()],
   base: '',
-  define: { 'process.env.NODE_ENV': JSON.stringify('production') },
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
@@ -46,7 +45,6 @@ export default defineConfig({
     cssCodeSplit: false,
     cssMinify: true,
     sourcemap: true,
-    assetsInlineLimit: 1000000,
     rollupOptions: {
       input: { app: resolve(__dirname, 'app.html') },
       external: [

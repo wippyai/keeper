@@ -69,7 +69,7 @@ function update(index: number, value: string) {
   outline: none;
 }
 .ed-input:focus {
-  border-color: var(--p-primary);
+  border-color: var(--p-primary-color);
 }
 .ed-icon-btn {
   padding: 3px;

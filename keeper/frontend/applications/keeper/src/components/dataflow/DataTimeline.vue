@@ -471,17 +471,17 @@ function turnTitle(e: TimelineEntry): string {
 .node-badge {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 2px 8px; border-radius: 4px;
-  background: color-mix(in srgb, var(--p-primary) 10%, transparent);
-  color: var(--p-primary);
+  background: color-mix(in srgb, var(--p-primary-color) 10%, transparent);
+  color: var(--p-primary-color);
   font-size: 10px; font-weight: 500;
-  border: 1px solid color-mix(in srgb, var(--p-primary) 25%, transparent);
+  border: 1px solid color-mix(in srgb, var(--p-primary-color) 25%, transparent);
   cursor: pointer;
   flex-shrink: 0;
   transition: all 0.12s;
 }
 .node-badge:hover {
-  background: color-mix(in srgb, var(--p-primary) 20%, transparent);
-  border-color: color-mix(in srgb, var(--p-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--p-primary-color) 20%, transparent);
+  border-color: color-mix(in srgb, var(--p-primary-color) 40%, transparent);
 }
 .node-title { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-short { font-family: ui-monospace, monospace; opacity: 0.55; font-size: 9px; }
@@ -531,7 +531,7 @@ function turnTitle(e: TimelineEntry): string {
 }
 
 .sub-block {
-  border-left: 3px solid color-mix(in srgb, var(--p-primary) 30%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--p-primary-color) 30%, transparent);
   padding: 6px 0 6px 12px;
 }
 .sub-block.obs {

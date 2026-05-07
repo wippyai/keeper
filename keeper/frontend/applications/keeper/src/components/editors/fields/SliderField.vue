@@ -28,14 +28,14 @@ function display(): string {
 }
 .sl-range::-webkit-slider-thumb {
   -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%;
-  background: var(--p-primary); cursor: pointer;
+  background: var(--p-primary-color); cursor: pointer;
 }
 .sl-range::-moz-range-thumb {
   width: 10px; height: 10px; border-radius: 50%;
-  background: var(--p-primary); cursor: pointer; border: none;
+  background: var(--p-primary-color); cursor: pointer; border: none;
 }
 .sl-val {
-  font-size: 10px; font-family: monospace; color: var(--p-primary);
+  font-size: 10px; font-family: monospace; color: var(--p-primary-color);
   min-width: 32px; text-align: right; padding: 1px 4px; border-radius: 3px;
   background: rgba(245,158,11,0.1);
 }

@@ -24,7 +24,7 @@ const hasLongContent = (props.msg.data?.length || 0) > 400 || JSON.stringify(res
         <pre>{{ expanded ? prettyJson(result) : truncate(JSON.stringify(result), 400) }}</pre>
       </div>
     </div>
-    <button v-if="hasLongContent" class="text-[11px] mt-1.5 flex items-center gap-1" style="color: var(--p-primary)" @click="expanded = !expanded">
+    <button v-if="hasLongContent" class="text-[11px] mt-1.5 flex items-center gap-1" style="color: var(--p-primary-color)" @click="expanded = !expanded">
       <Icon :icon="expanded ? 'tabler:chevron-up' : 'tabler:chevron-down'" class="w-3 h-3" />
       {{ expanded ? 'Collapse' : 'Expand' }}
     </button>

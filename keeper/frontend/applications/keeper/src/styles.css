@@ -257,29 +257,6 @@ html, body, #app {
 .p-select-option:hover, .p-select-option.p-focus { background: var(--kp-hover-bg) !important; }
 
 /* ----------------------------------------------------------------
-   Markdown
-   ---------------------------------------------------------------- */
-.markdown-body { color: var(--kp-text); font-size: 13px; line-height: 1.7; }
-.markdown-body h1 { font-size: 1.5em; font-weight: 600; margin: 1em 0 0.5em; color: var(--kp-text-heading); border-bottom: 1px solid var(--kp-border); padding-bottom: 0.3em; }
-.markdown-body h2 { font-size: 1.3em; font-weight: 600; margin: 1em 0 0.5em; color: var(--kp-text-heading); border-bottom: 1px solid var(--kp-border); padding-bottom: 0.3em; }
-.markdown-body h3 { font-size: 1.1em; font-weight: 600; margin: 1em 0 0.5em; color: var(--kp-text-heading); }
-.markdown-body h4, .markdown-body h5, .markdown-body h6 { font-size: 1em; font-weight: 600; margin: 0.8em 0 0.4em; color: var(--kp-text-heading); }
-.markdown-body p { margin: 0.5em 0; }
-.markdown-body a { color: var(--p-primary-color); text-decoration: none; }
-.markdown-body a:hover { text-decoration: underline; }
-.markdown-body code { font-family: 'JetBrains Mono', monospace; font-size: 0.9em; background: var(--kp-code-bg); padding: 0.15em 0.4em; border-radius: 4px; color: var(--kp-text-heading); }
-.markdown-body pre { background: var(--kp-bg); border: 1px solid var(--kp-border); border-radius: 6px; padding: 12px 16px; overflow-x: auto; margin: 0.8em 0; }
-.markdown-body pre code { background: none; padding: 0; font-size: 12px; line-height: 1.5; }
-.markdown-body blockquote { border-left: 3px solid var(--p-primary-color); padding: 0.3em 1em; margin: 0.8em 0; color: var(--kp-text-secondary); }
-.markdown-body ul, .markdown-body ol { padding-left: 1.5em; margin: 0.5em 0; }
-.markdown-body li { margin: 0.2em 0; }
-.markdown-body hr { border: none; border-top: 1px solid var(--kp-border); margin: 1.5em 0; }
-.markdown-body table { border-collapse: collapse; width: 100%; margin: 0.8em 0; }
-.markdown-body th, .markdown-body td { border: 1px solid var(--kp-border); padding: 6px 12px; text-align: left; }
-.markdown-body th { background: var(--kp-bg-elevated); font-weight: 600; color: var(--kp-text-heading); }
-.markdown-body img { max-width: 100%; border-radius: 6px; }
-
-/* ----------------------------------------------------------------
    Keeper utilities
    ---------------------------------------------------------------- */
 .keeper-accent {

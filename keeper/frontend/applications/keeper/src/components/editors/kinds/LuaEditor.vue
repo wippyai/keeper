@@ -57,7 +57,7 @@ function emitData(key: string, value: any) {
         class="px-3 py-1.5 text-[11px] font-medium"
         :style="{
           color: activeTab === tab ? 'var(--p-text-color)' : 'var(--p-text-muted-color)',
-          borderBottom: activeTab === tab ? '2px solid var(--p-primary)' : '2px solid transparent',
+          borderBottom: activeTab === tab ? '2px solid var(--p-primary-color)' : '2px solid transparent',
         }"
         @click="activeTab = tab"
       >
@@ -157,6 +157,6 @@ function emitData(key: string, value: any) {
   line-height: 1.5;
 }
 .ed-textarea:focus {
-  border-color: var(--p-primary);
+  border-color: var(--p-primary-color);
 }
 </style>

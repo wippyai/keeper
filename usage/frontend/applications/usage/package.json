@@ -24,7 +24,7 @@
           "themeConfig": true,
           "iframe": true,
           "primevue": true,
-          "markdown": true,
+          "markdown": false,
           "customCss": true,
           "customVariables": true
         },

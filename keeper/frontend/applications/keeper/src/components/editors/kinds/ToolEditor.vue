@@ -225,7 +225,7 @@ const availableTabs = computed(() => {
   padding: 6px 8px; font-size: 10px; font-weight: 500;
   color: var(--p-text-muted-color); border-bottom: 2px solid transparent;
 }
-.tab-btn--active { color: var(--p-text-color); border-bottom-color: var(--p-primary); }
+.tab-btn--active { color: var(--p-text-color); border-bottom-color: var(--p-primary-color); }
 .id-grid { display: grid; grid-template-columns: 64px 1fr; gap: 6px 8px; align-items: center; }
 .lbl { font-size: 10px; font-weight: 500; color: var(--p-text-muted-color); }
 .ed-ta {
@@ -234,7 +234,7 @@ const availableTabs = computed(() => {
   border: 1px solid var(--p-content-border-color); outline: none; resize: vertical;
   min-height: 40px; line-height: 1.5;
 }
-.ed-ta:focus { border-color: var(--p-primary); }
+.ed-ta:focus { border-color: var(--p-primary-color); }
 .schema-tab {
   display: flex; align-items: center; gap: 4px;
   padding: 4px 10px; font-size: 10px; font-weight: 500;

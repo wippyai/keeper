@@ -658,6 +658,7 @@ entries:
         iframe: true
         prime_vue: true
         theme_config: true
+        markdown: false
       enabled: true
       iconify_icons: true
       tailwind_config: true
@@ -677,6 +678,24 @@ entries:
       secure: false
       auto_register: true
       url: /app/wc/wippy-monaco
+      description: |
+        Lazy-loaded VS Code Monaco editor as a custom element. Two modes:
+        `mode="editor"` renders a single editable buffer driven by `value` (read
+        the latest text via the `change` event's `value` payload, and force-set
+        a new buffer by re-rendering with a different `value`). `mode="diff"`
+        renders a side-by-side read-only diff with `baseline` (original) and
+        `current` (modified). Both modes accept a Monaco `language` id (lua,
+        javascript, typescript, json, markdown, plaintext, etc.) — pass an
+        unknown language and Monaco silently falls back to plain text. The
+        `theme` prop defaults to `auto`, which derives a Monaco palette from
+        the host's CSS variables (`--p-content-background`, `--p-text-color`,
+        `--p-primary-color`, etc.) and re-themes live on `prefers-color-scheme`
+        / `[data-theme]` flips; pin a fixed look with `theme="keeper-dark"` or
+        `keeper-light`. Set `min-height` to a number of pixels (default 0
+        means "fill the container"). Don't pass content as text children — use
+        the `value` / `baseline` / `current` props. The Monaco bundle is
+        loaded once on first instantiation (~1.5 MB gzipped) and cached for
+        the page lifetime; subsequent instances mount immediately.
       props:
         type: object
         properties:

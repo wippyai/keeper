@@ -40,6 +40,6 @@ function optionLabel(o: string | { label: string; value: string }): string {
   cursor: pointer;
 }
 .ed-select:focus {
-  border-color: var(--p-primary);
+  border-color: var(--p-primary-color);
 }
 </style>

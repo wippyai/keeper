@@ -93,7 +93,7 @@ function emitMeta(key: string, value: any) {
   border: 1px solid var(--p-content-border-color); outline: none; resize: vertical;
   min-height: 40px; line-height: 1.5;
 }
-.ed-ta:focus { border-color: var(--p-primary); }
+.ed-ta:focus { border-color: var(--p-primary-color); }
 .bind-card {
   padding: 8px 10px; border-radius: 4px;
   background: var(--p-surface-0); border: 1px solid var(--p-content-border-color);

@@ -288,7 +288,7 @@ const tabs = [
   padding: 6px 8px; font-size: 10px; font-weight: 500;
   color: var(--p-text-muted-color); border-bottom: 2px solid transparent;
 }
-.tab-btn--active { color: var(--p-text-color); border-bottom-color: var(--p-primary); }
+.tab-btn--active { color: var(--p-text-color); border-bottom-color: var(--p-primary-color); }
 .tab-cnt { font-size: 8px; padding: 0 4px; border-radius: 6px; background: var(--p-surface-200); }
 
 .item-card { border-radius: 4px; border: 1px solid var(--p-content-border-color); overflow: hidden; }
@@ -314,13 +314,13 @@ const tabs = [
   border: 1px solid var(--p-content-border-color); outline: none; resize: vertical;
   min-height: 32px; line-height: 1.5;
 }
-.ed-ta:focus { border-color: var(--p-primary); }
+.ed-ta:focus { border-color: var(--p-primary-color); }
 .ed-in {
   width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 11px;
   background: var(--p-surface-0); color: var(--p-text-color);
   border: 1px solid var(--p-content-border-color); outline: none;
 }
-.ed-in:focus { border-color: var(--p-primary); }
+.ed-in:focus { border-color: var(--p-primary-color); }
 
 .rm-btn { padding: 2px; border-radius: 3px; color: var(--p-text-muted-color); background: none; border: none; cursor: pointer; }
 .rm-btn:hover { color: var(--p-danger-500); background: var(--p-surface-200); }
@@ -330,5 +330,5 @@ const tabs = [
   background: var(--p-surface-0); color: var(--p-text-color);
   border: 1px dashed var(--p-surface-300); cursor: pointer;
 }
-.add-btn:hover { border-color: var(--p-primary); }
+.add-btn:hover { border-color: var(--p-primary-color); }
 </style>
