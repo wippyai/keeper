@@ -322,8 +322,9 @@
                 try {
                     this.wippyApi = await window.getWippyApi();
 
-                    if (this.wippyApi?.config?.path) {
-                        this.userId = this.wippyApi.config.path.split('/').pop();
+                    const _path = this.wippyApi?.config?.context?.route ?? this.wippyApi?.config?.path;
+                    if (_path) {
+                        this.userId = _path.split('/').pop();
                     } else {
                         const pathSegments = window.location.pathname.split('/');
                         this.userId = pathSegments[pathSegments.length - 1];

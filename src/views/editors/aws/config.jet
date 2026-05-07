@@ -297,7 +297,7 @@
                     }
 
                     // Get the entry ID
-                    const entryId = this.wippyApi?.config?.path;
+                    const entryId = this.wippyApi?.config?.context?.route ?? this.wippyApi?.config?.path;
                     if (!entryId) {
                         throw new Error('No AWS configuration ID provided');
                     }

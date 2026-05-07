@@ -1060,8 +1060,9 @@
                         this.navigateApi = this.wippyApi;
                     }
 
-                    if (this.apiConfig?.path) {
-                        this.sessionId = this.apiConfig.path;
+                    const _path = this.apiConfig?.context?.route ?? this.apiConfig?.path;
+                    if (_path) {
+                        this.sessionId = _path;
                         await this.loadSessionData();
                         // Defer WebSocket setup to prevent race condition
                         setTimeout(() => this.setupWebSocketListener(), 100);

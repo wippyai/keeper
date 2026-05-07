@@ -900,8 +900,9 @@
                     this.apiConfig = wippyInit.config;
                     this.navigateApi = wippyInit;
 
-                    if (this.apiConfig?.path) {
-                        this.dataflowId = this.apiConfig.path.split('/').pop();
+                    const _path = this.apiConfig?.context?.route ?? this.apiConfig?.path;
+                    if (_path) {
+                        this.dataflowId = _path.split('/').pop();
                     } else {
                         const pathSegments = window.location.pathname.split('/');
                         this.dataflowId = pathSegments[pathSegments.length-1] || urlParams.get('dataflow_id');

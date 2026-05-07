@@ -463,7 +463,7 @@
 
             async init() {
                 this.api = await window.initWippyApi();
-                const parts = this.api.config.path.split('/');
+                const parts = (this.api?.config?.context?.route ?? this.api.config.path).split('/');
                 this.wsId = parts[parts.length - 1];
                 await this.load();
             },

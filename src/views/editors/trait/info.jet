@@ -779,7 +779,7 @@
                     this.wippyApi = await window.initWippyApi();
 
                     await this.loadAllToolsOnce();
-                    const entryId = this.wippyApi?.config?.path;
+                    const entryId = this.wippyApi?.config?.context?.route ?? this.wippyApi?.config?.path;
                     if (!entryId) throw new Error('No trait ID provided in Wippy configuration.');
 
                     await this.loadTrait(entryId);

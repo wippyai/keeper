@@ -358,7 +358,7 @@
                         ? await window.initWippyApi()
                         : this.createFallbackWippyApi();
 
-                    const entryId = this.wippyApi?.config?.path;
+                    const entryId = this.wippyApi?.config?.context?.route ?? this.wippyApi?.config?.path;
                     if (!entryId) throw new Error('No Security Policy Config ID provided');
                     await this.loadEntry(entryId);
                 } catch (err) {

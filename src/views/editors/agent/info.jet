@@ -1859,7 +1859,7 @@
 
                 try {
                     this.wippyApi = await window.initWippyApi();
-                    const agentId = this.wippyApi.config.path;
+                    const agentId = this.wippyApi?.config?.context?.route ?? this.wippyApi.config.path;
                     if (!agentId) throw new Error("Agent ID not found in Wippy configuration.");
 
                     await Promise.all([

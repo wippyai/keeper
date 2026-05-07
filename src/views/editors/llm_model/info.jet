@@ -426,7 +426,7 @@
                     }
 
                     // Get the entry ID from the config
-                    const entryId = this.wippyApi?.config?.path;
+                    const entryId = this.wippyApi?.config?.context?.route ?? this.wippyApi?.config?.path;
                     if (!entryId) {
                         throw new Error('No model ID provided in configuration.');
                     }

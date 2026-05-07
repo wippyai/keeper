@@ -287,7 +287,7 @@
                     }
 
                     // Get the entry ID
-                    const entryId = this.wippyApi?.config?.path;
+                    const entryId = this.wippyApi?.config?.context?.route ?? this.wippyApi?.config?.path;
                     if (!entryId) {
                         throw new Error('No executor ID provided in configuration');
                     }
