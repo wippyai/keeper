@@ -29,10 +29,22 @@ local function define_tests()
             test.eq(route, "/right")
         end)
 
-        test.it("can verify local-module frontend files from project root", function()
-            test.is_true(subject.__test.file_exists(
-                "plugins/git/frontend/applications/git/package.json"
-            ))
+        test.it("does not require filesystem path metadata for legacy template.jet pages", function()
+            local path, route = subject.__test.view_fields({
+                kind = "template.jet",
+                meta = { type = "view.page", name = "approval" },
+                data = {
+                    source = "file://approval.jet",
+                    set = "keeper.gov.hil.views:templates",
+                    data_func = "keeper.gov.hil.views:approval.data",
+                },
+            })
+            test.is_nil(path)
+            test.is_nil(route)
+        end)
+
+        test.it("can verify files from the project root volume", function()
+            test.is_true(subject.__test.file_exists("wippy.yaml"))
         end)
 
         test.it("errors when a referenced view entry does not exist", function()

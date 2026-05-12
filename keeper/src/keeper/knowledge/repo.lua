@@ -476,7 +476,7 @@ function M.search_by_embedding(query_vec, params)
         ]], { json.encode(query_vec), limit })
     end
 
-    if err or is_postgres(db) then
+    if err or is_postgres(db) or #(rows or {}) == 0 then
         local scan = sql.builder.select("e.node_id", "e.embedding")
             :from("keeper_kb_embeddings e")
             :join("keeper_kb_nodes n ON n.id = e.node_id")

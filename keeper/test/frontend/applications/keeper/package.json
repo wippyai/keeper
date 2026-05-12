@@ -1,0 +1,13 @@
+{
+  "name": "@wippy/app-keeper-test",
+  "version": "0.0.0",
+  "specification": "wippy-component-1.0",
+  "description": "Keeper frontend fixture for component filesystem tests",
+  "wippy": {
+    "title": "Keeper Test App",
+    "toolchain": "fe_node",
+    "scripts": {
+      "build": "npm run build"
+    }
+  }
+}

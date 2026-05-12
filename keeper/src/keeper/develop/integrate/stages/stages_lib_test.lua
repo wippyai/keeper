@@ -6,6 +6,8 @@
 
 local test = require("test")
 local sql  = require("sql")
+local funcs = require("funcs")
+local security = require("security")
 local stages_lib = require("stages_lib")
 local task_writer = require("task_writer")
 local nodes_writer = require("nodes_writer")
@@ -55,6 +57,18 @@ local function cleanup_task(task_id)
     db:release()
 end
 
+local function call_as_admin(func_id, args)
+    local scope, scope_err = security.named_scope("app.security:admin")
+    test.is_nil(scope_err, "admin scope must be available: " .. tostring(scope_err))
+    test.not_nil(scope)
+
+    local actor = security.new_actor("keeper-test-admin")
+    return funcs.new()
+        :with_actor(actor)
+        :with_scope(scope)
+        :call(func_id, args)
+end
+
 local function define_tests()
     test.describe("keeper.develop.integrate.stages:stages_lib", function()
         test.it("snapshot returns baseline_version + emits trail row", function()
@@ -63,7 +77,7 @@ local function define_tests()
             local root = make_root(task_id)
             test.not_nil(root)
 
-            local out, err = stages_lib.snapshot({
+            local out, err = call_as_admin("keeper.develop.integrate.stages:snapshot", {
                 task_id  = task_id,
                 run_root = root,
                 branch   = "ws/probe",

@@ -16,6 +16,12 @@ local function string_list(value: unknown): {string}
 end
 
 local function source_path(entry: unknown): string?
+    -- template.jet pages are rendered by wippy/views from template.set +
+    -- template resources. Their file:// source belongs to registry
+    -- materialization, not to a Vue/Vite frontend component, so the build
+    -- handler must not try to resolve or rebuild a component for them.
+    if type(entry) == "table" and entry.kind == "template.jet" then return nil end
+
     local data = (entry and entry.data) or {}
     local src = data.source or ""
     if type(src) ~= "string" then return nil end

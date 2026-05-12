@@ -92,7 +92,6 @@ entries:
     source: file://reasoning_flag_test.lua
     imports:
       models: wippy.llm.discovery:models
-      openai_mapper: wippy.llm.openai:mapper
       test: wippy.test:test
     method: define_tests
     pool:

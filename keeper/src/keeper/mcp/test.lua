@@ -236,6 +236,21 @@ local function define_tests()
                 test.not_nil(gerr)
             end)
 
+            it("revoke returns not found instead of success for non-stored raw token", function()
+                local tok = create_token({
+                    label = "revoke-raw-" .. uuid.v4(),
+                    scopes = { "registry.read" },
+                })
+
+                local ok, rerr = mcp_tokens.revoke(tok.token)
+                test.is_false(ok)
+                test.eq(rerr, "token not found")
+
+                local session, gerr = mcp_tokens.get(tok.token)
+                test.not_nil(session)
+                test.is_nil(gerr)
+            end)
+
             it("revoke stores revocation actor and timestamp", function()
                 local revoker = "admin@wippy.local"
                 local tok = create_token({

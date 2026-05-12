@@ -63,6 +63,20 @@ local function define_tests()
             test.is_nil(raw, "raw source content must not be treated as a filesystem path")
         end)
 
+        test.it("does not send legacy template.jet sources to component builds", function()
+            local path = subject.__test.source_path({
+                kind = "template.jet",
+                meta = { type = "view.page", name = "approval" },
+                data = {
+                    source = "file://approval.jet",
+                    set = "keeper.gov.hil.views:templates",
+                    data_func = "keeper.gov.hil.views:approval.data",
+                },
+            })
+            test.is_nil(path,
+                "Jet page source is rendered by wippy/views and must not trigger a Vue component build")
+        end)
+
         test.it("prefers full build error_output over the truncated build error", function()
             local msg = subject.__test.build_error({
                 error = "exit 1: stack tail only",

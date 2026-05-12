@@ -1,20 +1,13 @@
 local test = require("test")
 local json = require("json")
 local http_client = require("http_client")
-local env = require("env")
-
-local function endpoint(path)
-    local base = env.get("PUBLIC_API_URL")
-    test.not_nil(base)
-    test.is_true(tostring(base) ~= "")
-    return tostring(base):gsub("/+$", "") .. path
-end
+local api_test = require("api_test")
 
 local function define_tests()
     describe("PM API", function()
         describe("GET /keeper/pm/stats", function()
             it("returns JSON with Accept header", function()
-                local res, err = http_client.get(endpoint("/api/v1/keeper/pm/stats"), {
+                local res, err = http_client.get(api_test.endpoint("/api/keeper/pm/stats"), {
                     headers = { Accept = "application/json" },
                 })
                 test.is_nil(err)
@@ -30,7 +23,7 @@ local function define_tests()
 
         describe("POST /keeper/pm/terminate", function()
             it("returns 401 without auth", function()
-                local res, err = http_client.post(endpoint("/api/v1/keeper/pm/terminate"), {
+                local res, err = http_client.post(api_test.endpoint("/api/keeper/pm/terminate"), {
                     headers = {
                         Accept = "application/json",
                         ["Content-Type"] = "application/json",

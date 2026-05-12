@@ -1,0 +1,56 @@
+version: "1.0"
+namespace: app.llm
+
+entries:
+  - name: context_generate
+    kind: function.lua
+    meta:
+      comment: Deterministic LLM generator for Keeper context-chain tests
+      test_only: true
+    source: file://context_generate.lua
+    method: handler
+    pool:
+      size: 1
+
+  - name: context_driver
+    kind: contract.binding
+    meta:
+      comment: Test-only LLM driver for Keeper context-chain tests
+      test_only: true
+    contracts:
+      - contract: wippy.llm:generator
+        methods:
+          generate: app.llm:context_generate
+
+  - name: context_provider
+    kind: registry.entry
+    meta:
+      name: keeper-test-context
+      type: llm.provider
+      title: Keeper Test Context Provider
+      comment: Test-only deterministic provider used by Keeper's local test app
+      test_only: true
+    driver:
+      id: app.llm:context_driver
+
+  - name: gpt-5.4-nano
+    kind: registry.entry
+    meta:
+      name: gpt-5.4-nano
+      type: llm.model
+      title: Keeper Test Nano
+      comment: Deterministic nano/fast model fixture for Keeper tests
+      test_only: true
+      class:
+        - default
+        - fast
+        - nano
+        - reasoning
+      priority: 1000
+    max_tokens: 128000
+    output_tokens: 16000
+    providers:
+      - id: app.llm:context_provider
+        provider_model: gpt-5.4-nano
+        options:
+          reasoning_model_request: true

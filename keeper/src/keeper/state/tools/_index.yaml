@@ -399,8 +399,10 @@ entries:
       explore: keeper.state.tools:explore
       function_config: keeper.state.tools:function_config
       get_entries: keeper.state.tools:get_entries
+      gov_consts: keeper.gov:consts
       push: keeper.state.tools:push
       reset: keeper.state.tools:reset
+      state_reader: keeper.state.persist:reader
       test: wippy.test:test
     method: define_tests
     pool:

@@ -1,20 +1,13 @@
 local test = require("test")
 local json = require("json")
 local http_client = require("http_client")
-local env = require("env")
-
-local function endpoint(path)
-    local base = env.get("PUBLIC_API_URL")
-    test.not_nil(base)
-    test.is_true(tostring(base) ~= "")
-    return tostring(base):gsub("/+$", "") .. path
-end
+local api_test = require("api_test")
 
 local function define_tests()
     describe("Changelog API", function()
         describe("GET /keeper/changelog/list", function()
             it("returns 401 without auth", function()
-                local res, err = http_client.get(endpoint("/api/v1/keeper/changelog/list"), {
+                local res, err = http_client.get(api_test.endpoint("/api/keeper/changelog/list"), {
                     headers = { Accept = "application/json" },
                 })
                 test.is_nil(err)
@@ -25,7 +18,7 @@ local function define_tests()
 
         describe("GET /keeper/changelog/versions", function()
             it("returns 401 without auth", function()
-                local res, err = http_client.get(endpoint("/api/v1/keeper/changelog/versions"), {
+                local res, err = http_client.get(api_test.endpoint("/api/keeper/changelog/versions"), {
                     headers = { Accept = "application/json" },
                 })
                 test.is_nil(err)

@@ -1,4 +1,9 @@
 version: "1.0"
 namespace: keeper.tests
 
-entries: []
+entries:
+  - name: api_test
+    kind: library.lua
+    meta:
+      comment: Shared helpers for Keeper HTTP API tests
+    source: file://api_test.lua

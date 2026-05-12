@@ -11,6 +11,8 @@ local apply = require("apply")
 local push = require("push")
 local entry_lib = require("entry_lib")
 local function_config = require("function_config")
+local gov_consts = require("gov_consts")
+local state_reader = require("state_reader")
 local changeset_repo = require("changeset_repo")
 local changeset_consts = require("changeset_consts")
 
@@ -657,6 +659,91 @@ entries:
                 test.eq(#result.applied, 1)
 
                 changeset_repo.drop_changeset(result.changeset_id, branch_name)
+            end)
+
+            it("creates legacy template.set and template.jet view pages through the generic state path", function()
+                local suffix = uuid.v4():sub(1, 8)
+                local branch_name = "test-legacy-jet-" .. suffix
+                local before = gov_consts.get_managed_namespaces()
+                local _, set_err = gov_consts.set_managed_namespaces({ "app" })
+                test.is_nil(set_err)
+
+                local result
+                local ok, failure = pcall(function()
+                    result = select(1, apply.handler({
+                        branch = branch_name,
+                        title = "legacy Jet state create regression",
+                        patches = {
+                            {
+                                target = "entry",
+                                op = "create",
+                                id = "app.legacy.views:templates_" .. suffix,
+                                file_text = "<definition>\n" ..
+                                    "name: templates_" .. suffix .. "\n" ..
+                                    "kind: template.set\n" ..
+                                    "meta:\n" ..
+                                    "  description: Legacy Jet template set\n" ..
+                                    "engine:\n" ..
+                                    "  development_mode: true\n" ..
+                                    "</definition>\n",
+                            },
+                            {
+                                target = "entry",
+                                op = "create",
+                                id = "app.legacy.views:approval_" .. suffix,
+                                file_text = "<definition>\n" ..
+                                    "name: approval_" .. suffix .. "\n" ..
+                                    "kind: template.jet\n" ..
+                                    "meta:\n" ..
+                                    "  type: view.page\n" ..
+                                    "  name: approval_" .. suffix .. "\n" ..
+                                    "  title: Approval\n" ..
+                                    "  secure: true\n" ..
+                                    "source: file://approval_" .. suffix .. ".jet\n" ..
+                                    "set: app.legacy.views:templates_" .. suffix .. "\n" ..
+                                    "data_func: app.legacy.views:approval.data\n" ..
+                                    "</definition>\n" ..
+                                    "<source>\n" ..
+                                    "<main>{{ title }}</main>\n" ..
+                                    "</source>\n",
+                            },
+                        },
+                    }))
+
+                    test.not_nil(result)
+                    if result.ok ~= true then
+                        local first_error = result.errors and result.errors[1]
+                        error("legacy Jet apply failed: " ..
+                            tostring(first_error and first_error.message or "unknown"))
+                    end
+                    test.eq(result.ok, true)
+                    test.eq(#result.applied, 2)
+
+                    local reader = state_reader.for_branch(branch_name, "main")
+                    local entries, read_err = reader
+                        :with_entries("app.legacy.views:approval_" .. suffix)
+                        :include_chunks()
+                        :all()
+                    test.is_nil(read_err)
+                    test.eq(#entries, 1)
+                    test.eq(entries[1].kind, "template.jet")
+
+                    local definition, content = nil, nil
+                    for _, chunk in ipairs(entries[1].chunks or {}) do
+                        if chunk.type == "definition" then definition = chunk.content end
+                        if chunk.type == "content" then content = chunk.content end
+                    end
+                    test.not_nil(definition)
+                    test.eq(content, "<main>{{ title }}</main>")
+                    test.is_true(definition:find("kind: template.jet", 1, true) ~= nil)
+                    test.is_true(definition:find("set: app.legacy.views:templates_" .. suffix, 1, true) ~= nil)
+                end)
+
+                gov_consts.set_managed_namespaces(before)
+                if result and result.changeset_id then
+                    changeset_repo.drop_changeset(result.changeset_id, branch_name)
+                end
+                if not ok then error(failure) end
             end)
         end)
 

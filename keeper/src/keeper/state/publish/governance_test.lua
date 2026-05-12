@@ -1,13 +1,29 @@
 local governance = require("governance")
 local test = require("test")
+local funcs = require("funcs")
+local security = require("security")
+
+local function call_as_admin(func_id, args)
+    local scope, scope_err = security.named_scope("app.security:admin")
+    test.is_nil(scope_err, "admin scope must be available: " .. tostring(scope_err))
+    test.not_nil(scope)
+
+    local actor = security.new_actor("keeper-test-admin")
+    return funcs.new()
+        :with_actor(actor)
+        :with_scope(scope)
+        :call(func_id, args or {})
+end
 
 local function define_tests()
     describe("keeper.state.publish:governance", function()
 
         describe("current_version", function()
             it("returns a non-negative integer version", function()
-                local version, err = governance.current_version()
+                local result, err = call_as_admin("keeper.state.publish:current_version_probe")
                 test.is_nil(err, "current_version error: " .. tostring(err))
+                test.not_nil(result)
+                local version = result.version
                 test.not_nil(version)
                 test.eq(type(version), "number")
                 test.is_true(version >= 0, "registry version should be >= 0")

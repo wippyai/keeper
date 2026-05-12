@@ -1,6 +1,7 @@
 local test = require("test")
 local uuid = require("uuid")
 local sql = require("sql")
+local json = require("json")
 local kb_repo = require("kb_repo")
 local kb_consts = require("kb_consts")
 
@@ -271,7 +272,11 @@ local function define_tests()
                 test.eq(models[1], "app.models:custom-embed")
             end)
 
-            it("finds embedded nodes using the portable fallback path", function()
+            it("finds embedded nodes using the configured vector backend", function()
+                local vector = {}
+                for i = 1, 512 do vector[i] = 0 end
+                vector[1] = 1
+
                 local node, err = kb_repo.create({
                     title = "Embedding fallback target",
                     content = "portable semantic search target",
@@ -283,27 +288,30 @@ local function define_tests()
 
                 local db = sql.get(kb_consts.db_id())
                 test.not_nil(db)
-                sql.builder.delete("keeper_kb_embeddings")
+                local _, delete_err = sql.builder.delete("keeper_kb_embeddings")
                     :where("node_id = ?", node.id)
                     :run_with(db)
                     :exec()
-                sql.builder.insert("keeper_kb_embeddings")
+                test.is_nil(delete_err)
+                local _, insert_err = sql.builder.insert("keeper_kb_embeddings")
                     :set_map({
                         node_id = node.id,
-                        embedding = "[1,0,0]",
+                        embedding = json.encode(vector),
                         title = node.title,
                         content_preview = node.content,
                     })
                     :run_with(db)
                     :exec()
-                sql.builder.update("keeper_kb_nodes")
+                test.is_nil(insert_err)
+                local _, update_err = sql.builder.update("keeper_kb_nodes")
                     :set("embedded", 1)
                     :where("id = ?", node.id)
                     :run_with(db)
                     :exec()
+                test.is_nil(update_err)
                 db:release()
 
-                local results, search_err = kb_repo.search_by_embedding({ 1, 0, 0 }, { limit = 3 })
+                local results, search_err = kb_repo.search_by_embedding(vector, { limit = 3 })
                 test.is_nil(search_err)
                 test.not_nil(results)
                 local found = false

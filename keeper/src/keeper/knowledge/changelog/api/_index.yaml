@@ -41,10 +41,10 @@ entries:
     modules:
       - json
       - http_client
-      - env
       - security
     imports:
       test: wippy.test:test
+      api_test: keeper.tests:api_test
     method: define_tests
     pool:
       size: 1
@@ -74,4 +74,3 @@ entries:
     method: GET
     func: versions
     path: /keeper/changelog/versions
-
