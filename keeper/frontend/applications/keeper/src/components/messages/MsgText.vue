@@ -36,7 +36,7 @@ const thinking = computed(() => getThinking(props.msg))
       (empty response - continued with tool calls)
     </div>
 
-    <button v-if="isLong" class="text-[11px] mt-1.5 flex items-center gap-1" style="color: var(--p-primary)" @click="expanded = !expanded">
+    <button v-if="isLong" class="text-[11px] mt-1.5 flex items-center gap-1" style="color: var(--p-primary-color)" @click="expanded = !expanded">
       <Icon :icon="expanded ? 'tabler:chevron-up' : 'tabler:chevron-down'" class="w-3 h-3" />
       {{ expanded ? 'Collapse' : `Show all (${(msg.data!.length / 1000).toFixed(1)}K)` }}
     </button>

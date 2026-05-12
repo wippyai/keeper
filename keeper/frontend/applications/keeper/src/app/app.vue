@@ -12,21 +12,11 @@ const api = useApi()
 const host = useHost()
 const instance = useWippy()
 
-instance.on('action:navigate', (data: any) => {
-  const path = data?.data?.path || data?.path
-  if (path) router.push(path)
-})
-
 const errorCount = ref(0)
 const warnCount = ref(0)
 
-instance.on('keeper.logs', (evt: any) => {
-  const counters = evt?.data?.counters || evt?.counters
-  if (counters) {
-    errorCount.value = counters.error || 0
-    warnCount.value = counters.warn || 0
-  }
-})
+let unsubNavigate: (() => void) | null = null
+let unsubLogs: (() => void) | null = null
 
 // Log counters update via relay subscription (keeper.logs) — no polling needed
 async function fetchLogCounters() {
@@ -354,6 +344,17 @@ function onClickOutside(e: MouseEvent) {
 }
 
 onMounted(() => {
+  unsubNavigate = instance.on('action:navigate', (data: any) => {
+    const path = data?.data?.path || data?.path
+    if (path) router.push(path)
+  })
+  unsubLogs = instance.on('keeper.logs', (evt: any) => {
+    const counters = evt?.data?.counters || evt?.counters
+    if (counters) {
+      errorCount.value = counters.error || 0
+      warnCount.value = counters.warn || 0
+    }
+  })
   fetchMe()
   fetchLogCounters()
   fetchAgents()
@@ -363,6 +364,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  unsubNavigate?.()
+  unsubLogs?.()
   document.removeEventListener('click', onClickOutside)
   document.removeEventListener('keydown', onGlobalKeydown)
 })

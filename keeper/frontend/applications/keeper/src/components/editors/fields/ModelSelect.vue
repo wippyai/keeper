@@ -94,7 +94,7 @@ onBeforeUnmount(() => {
   <div class="model-select">
     <button ref="triggerEl" class="ms-trigger" @click="toggle">
       <Icon v-if="loading" icon="tabler:loader-2" class="w-3 h-3 animate-spin shrink-0" />
-      <Icon v-else icon="tabler:brain" class="w-3 h-3 shrink-0" style="color: var(--p-primary)" />
+      <Icon v-else icon="tabler:brain" class="w-3 h-3 shrink-0" style="color: var(--p-primary-color)" />
       <span class="flex-1 text-left truncate">{{ displayName }}</span>
       <Icon icon="tabler:chevron-down" class="w-3 h-3 shrink-0" style="color: var(--p-text-muted-color)" />
     </button>
@@ -121,7 +121,7 @@ onBeforeUnmount(() => {
             <Icon v-if="entry.meta.capabilities.includes('vision')" icon="tabler:eye" class="w-2.5 h-2.5" style="color: var(--p-text-muted-color)" />
             <Icon v-if="entry.meta.capabilities.includes('thinking')" icon="tabler:brain" class="w-2.5 h-2.5" style="color: var(--p-text-muted-color)" />
           </div>
-          <Icon v-if="(entry.meta?.name || entryName(entry.id)) === model" icon="tabler:check" class="w-3 h-3 shrink-0" style="color: var(--p-primary)" />
+          <Icon v-if="(entry.meta?.name || entryName(entry.id)) === model" icon="tabler:check" class="w-3 h-3 shrink-0" style="color: var(--p-primary-color)" />
         </div>
         <div v-if="filtered.length === 0" class="px-3 py-2 text-[10px]" style="color: var(--p-text-muted-color)">
           {{ loading ? 'Loading...' : 'No models found' }}

@@ -1,8 +1,8 @@
-.PHONY: lint lint-keeper lint-usage build-keeper-frontend build-keeper-git-frontend publish-dry-run publish-keeper-dry-run publish-usage-dry-run publish publish-keeper publish-usage
+.PHONY: lint lint-keeper lint-usage build build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend build-usage-frontend smoke publish-dry-run publish-keeper-dry-run publish-usage-dry-run publish publish-keeper publish-usage
 
 WIPPY ?= wippy
 
-KEEPER_VERSION ?= 0.5.18
+KEEPER_VERSION ?= 0.5.19
 USAGE_VERSION ?= 0.1.1
 
 lint: lint-keeper lint-usage
@@ -14,29 +14,39 @@ lint-usage:
 	cd usage && $(WIPPY) lint --summary --limit 200 --no-color
 
 build-keeper-frontend:
-	cd keeper/frontend/applications/keeper && npm install --no-audit --no-fund --prefer-offline && npm run build
-	rm -rf keeper/static/keeper
-	mkdir -p keeper/static/keeper
-	cp -a keeper/frontend/applications/keeper/dist/. keeper/static/keeper/
+	cd keeper/frontend/applications/keeper && npm install --no-audit --no-fund --prefer-offline && npm run build -- --outDir ../../../static/keeper --emptyOutDir
 
 build-keeper-git-frontend:
-	cd keeper/plugins/git/frontend/applications/git && npm install --no-audit --no-fund --prefer-offline && npm run build
-	rm -rf keeper/static/keeper-git
-	mkdir -p keeper/static/keeper-git
-	cp -a keeper/plugins/git/frontend/applications/git/dist/. keeper/static/keeper-git/
+	cd keeper/plugins/git/frontend/applications/git && npm install --no-audit --no-fund --prefer-offline && npm run build -- --outDir ../../../../../static/keeper-git --emptyOutDir
+
+build-wippy-monaco-frontend:
+	cd keeper/frontend/web-components/wippy-monaco && npm install --no-audit --no-fund --prefer-offline && npm run build -- --outDir ../../../static/wippy-monaco --emptyOutDir
+
+build-usage-frontend:
+	cd usage/frontend/applications/usage && npm install --no-audit --no-fund --prefer-offline && npm run build -- --outDir ../../../static/keeper-usage --emptyOutDir
+
+# Aggregator — builds every FE app + the monaco WC. `make smoke` depends on this.
+build: build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend build-usage-frontend
+
+# Headless-browser smoke against the keeper-test harness on $(BASE_URL).
+# Phase 1 verifies dist/app.html exists for each app; phase 2 logs into
+# keeper-test and boots keeper-main + keeper-git in dark + light themes,
+# asserting no console errors. See test/smoke/README.md.
+smoke:
+	cd test/smoke && npm install --no-audit --no-fund --prefer-offline && npm run smoke
 
 publish-dry-run: publish-keeper-dry-run publish-usage-dry-run
 
-publish-keeper-dry-run: build-keeper-frontend build-keeper-git-frontend
+publish-keeper-dry-run: build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend
 	cd keeper && $(WIPPY) publish --dry-run --version $(KEEPER_VERSION)
 
-publish-usage-dry-run:
+publish-usage-dry-run: build-usage-frontend
 	cd usage && $(WIPPY) publish --dry-run --version $(USAGE_VERSION)
 
 publish: publish-keeper publish-usage
 
-publish-keeper: build-keeper-frontend build-keeper-git-frontend
+publish-keeper: build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend
 	cd keeper && $(WIPPY) publish --version $(KEEPER_VERSION)
 
-publish-usage:
+publish-usage: build-usage-frontend
 	cd usage && $(WIPPY) publish --version $(USAGE_VERSION)

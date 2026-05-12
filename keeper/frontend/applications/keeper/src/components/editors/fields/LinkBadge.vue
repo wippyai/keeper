@@ -38,6 +38,6 @@ const emit = defineEmits<{
 }
 .link-badge:hover {
   background: var(--p-surface-300);
-  color: var(--p-primary);
+  color: var(--p-primary-color);
 }
 </style>

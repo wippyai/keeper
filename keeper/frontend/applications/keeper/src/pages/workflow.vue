@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import { useApi, useWippy } from '../composables/useWippy'
@@ -108,15 +108,24 @@ function submitImport() {
 
 // Subscribe to relay events for each running dataflow to get real-time status updates.
 // When any dataflow status changes, refresh the list.
+let unsubs: Array<() => void> = []
+
 function subscribeToRunning() {
+  unsubs.forEach(u => u())
+  unsubs = []
   for (const df of dataflows.value) {
     if (df.status === 'running' || df.status === 'pending') {
-      instance.on(`dataflow:${df.dataflow_id}`, () => { load() })
+      unsubs.push(instance.on(`dataflow:${df.dataflow_id}`, () => { load() }))
     }
   }
 }
 
 onMounted(() => { load().then(subscribeToRunning) })
+
+onUnmounted(() => {
+  unsubs.forEach(u => u())
+  unsubs = []
+})
 </script>
 
 <template>

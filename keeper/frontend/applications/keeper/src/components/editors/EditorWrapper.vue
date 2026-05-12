@@ -116,7 +116,7 @@ defineExpose({ onSaveResult })
   cursor: not-allowed;
 }
 .ed-save-btn--active {
-  background: var(--p-primary);
+  background: var(--p-primary-color);
   color: var(--p-primary-contrast-color);
   cursor: pointer;
   font-weight: 600;

@@ -29,7 +29,7 @@ defineProps<{
   transition: background 0.15s;
 }
 .ed-toggle--on {
-  background: var(--p-primary);
+  background: var(--p-primary-color);
 }
 .ed-toggle__knob {
   position: absolute;

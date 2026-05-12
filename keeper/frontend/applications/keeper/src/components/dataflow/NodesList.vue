@@ -335,9 +335,9 @@ function dataTypeColor(type: string): string {
   transition: all 0.12s;
 }
 .timeline-btn:hover {
-  background: color-mix(in srgb, var(--p-primary) 10%, transparent);
-  color: var(--p-primary);
-  border-color: color-mix(in srgb, var(--p-primary) 25%, transparent);
+  background: color-mix(in srgb, var(--p-primary-color) 10%, transparent);
+  color: var(--p-primary-color);
+  border-color: color-mix(in srgb, var(--p-primary-color) 25%, transparent);
 }
 .chev {
   width: 16px; height: 16px;
@@ -380,8 +380,8 @@ function dataTypeColor(type: string): string {
   color: var(--p-text-color);
   font-style: italic;
   padding: 6px 10px;
-  background: color-mix(in srgb, var(--p-primary) 6%, transparent);
-  border-left: 3px solid color-mix(in srgb, var(--p-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--p-primary-color) 6%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--p-primary-color) 40%, transparent);
   border-radius: 3px;
 }
 

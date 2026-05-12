@@ -310,7 +310,7 @@ onUnmounted(() => {
   <div class="h-full flex flex-col">
     <!-- Header -->
     <div class="shrink-0 px-4 py-3 flex items-center gap-3" style="border-bottom: 1px solid var(--p-content-border-color)">
-      <Icon icon="tabler:brain" class="w-5 h-5" style="color: var(--p-primary)" />
+      <Icon icon="tabler:brain" class="w-5 h-5" style="color: var(--p-primary-color)" />
       <h1 class="text-sm font-semibold" style="color: var(--p-text-color)">Knowledge Base</h1>
 
       <!-- KB selector -->
@@ -351,7 +351,7 @@ onUnmounted(() => {
       <Icon v-else icon="tabler:alert-circle" class="w-4 h-4 text-danger-500" />
       <span class="text-xs" style="color: var(--p-text-color)">
         <span class="font-medium">Research{{ activeResearch.status === 'running' ? ' in progress' : activeResearch.status === 'completed_success' ? ' complete' : ' ' + activeResearch.status }}</span>
-        <span v-if="activeResearch.target_kb" class="ml-1.5" style="color: var(--p-primary)">→ {{ activeResearch.target_kb }}</span>
+        <span v-if="activeResearch.target_kb" class="ml-1.5" style="color: var(--p-primary-color)">→ {{ activeResearch.target_kb }}</span>
         <span class="ml-1.5" style="color: var(--p-text-muted-color)">{{ activeResearch.prompt.slice(0, 80) }}{{ activeResearch.prompt.length > 80 ? '...' : '' }}</span>
       </span>
       <button class="text-[10px] px-2 py-0.5 rounded cursor-pointer ml-auto bg-accent-500/15 text-accent-500"
@@ -564,7 +564,7 @@ onUnmounted(() => {
       <div v-if="showResearch" class="modal-overlay" @click.self="showResearch = false">
         <div class="modal-panel" style="width: 560px; max-height: 80vh; display: flex; flex-direction: column;">
           <div class="flex items-center gap-2 mb-2">
-            <Icon icon="tabler:brain" class="w-4 h-4" style="color: var(--p-primary)" />
+            <Icon icon="tabler:brain" class="w-4 h-4" style="color: var(--p-primary-color)" />
             <span class="text-sm font-semibold" style="color: var(--p-text-color)">Research Knowledge</span>
             <span class="text-[9px] ml-auto" style="color: var(--p-text-muted-color)">Topics run in parallel</span>
           </div>
@@ -612,7 +612,7 @@ onUnmounted(() => {
       <div v-if="showCreate" class="modal-overlay" @click.self="showCreate = false">
         <div class="modal-panel">
           <div class="flex items-center gap-2 mb-3">
-            <Icon icon="tabler:plus" class="w-4 h-4" style="color: var(--p-primary)" />
+            <Icon icon="tabler:plus" class="w-4 h-4" style="color: var(--p-primary-color)" />
             <span class="text-sm font-semibold" style="color: var(--p-text-color)">Add Knowledge</span>
           </div>
 
@@ -671,14 +671,14 @@ onUnmounted(() => {
       <div v-if="showKBManager" class="modal-overlay" @click.self="showKBManager = false">
         <div class="modal-panel">
           <div class="flex items-center gap-2 mb-3">
-            <Icon icon="tabler:database" class="w-4 h-4" style="color: var(--p-primary)" />
+            <Icon icon="tabler:database" class="w-4 h-4" style="color: var(--p-primary-color)" />
             <span class="text-sm font-semibold" style="color: var(--p-text-color)">Knowledge Bases</span>
           </div>
 
           <div class="flex flex-col gap-3">
             <div v-if="kbs.length > 0" class="flex flex-col gap-1.5">
               <div v-for="kb in kbs" :key="kb.id" class="kb-card">
-                <Icon icon="tabler:database" class="w-3.5 h-3.5" style="color: var(--p-primary)" />
+                <Icon icon="tabler:database" class="w-3.5 h-3.5" style="color: var(--p-primary-color)" />
                 <div class="flex-1 min-w-0">
                   <div class="text-xs font-medium" style="color: var(--p-text-color)">{{ kb.name }}</div>
                   <div v-if="kb.description" class="text-[10px]" style="color: var(--p-text-muted-color)">{{ kb.description }}</div>
@@ -727,7 +727,7 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--p-content-border-color);
 }
 .node-item:hover { background: var(--p-content-hover-background); }
-.node-item.active { background: color-mix(in srgb, var(--p-primary) 12%, transparent); }
+.node-item.active { background: color-mix(in srgb, var(--p-primary-color) 12%, transparent); }
 
 .badge {
   display: inline-flex; align-items: center;
@@ -741,9 +741,9 @@ onUnmounted(() => {
   display: inline-flex; align-items: center; gap: 3px;
   font-size: 9px; font-weight: 500;
   padding: 1px 5px; border-radius: 3px;
-  color: var(--p-primary);
-  background: color-mix(in srgb, var(--p-primary) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--p-primary) 25%, transparent);
+  color: var(--p-primary-color);
+  background: color-mix(in srgb, var(--p-primary-color) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--p-primary-color) 25%, transparent);
 }
 
 .scope-tag {
@@ -768,8 +768,8 @@ onUnmounted(() => {
 .ref-badge {
   padding: 2px 6px; border-radius: 3px;
   font-size: 9px; font-family: monospace;
-  background: color-mix(in srgb, var(--p-primary) 10%, transparent);
-  color: var(--p-primary);
+  background: color-mix(in srgb, var(--p-primary-color) 10%, transparent);
+  color: var(--p-primary-color);
 }
 
 .content-display {
@@ -796,8 +796,8 @@ onUnmounted(() => {
   color: var(--p-text-muted-color);
 }
 .meta-badge.primary {
-  color: var(--p-primary);
-  background: color-mix(in srgb, var(--p-primary) 12%, transparent);
+  color: var(--p-primary-color);
+  background: color-mix(in srgb, var(--p-primary-color) 12%, transparent);
 }
 
 .action-btn {
@@ -815,9 +815,9 @@ onUnmounted(() => {
 }
 .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .action-btn.primary {
-  background: var(--p-primary);
+  background: var(--p-primary-color);
   color: var(--p-primary-contrast-color);
-  border-color: var(--p-primary);
+  border-color: var(--p-primary-color);
 }
 .action-btn.primary:hover:not(:disabled) { opacity: 0.9; }
 .action-btn.danger { color: var(--p-danger-500); }
@@ -844,7 +844,7 @@ onUnmounted(() => {
   transition: background 0.12s;
 }
 .kb-select:hover { background: color-mix(in srgb, var(--p-text-color) 14%, var(--p-content-background)); }
-.kb-select:focus { border-color: var(--p-primary); }
+.kb-select:focus { border-color: var(--p-primary-color); }
 
 .field-label {
   display: block; font-size: 10px; font-weight: 600;
@@ -860,7 +860,7 @@ onUnmounted(() => {
   outline: none;
   transition: border-color 0.12s;
 }
-.field-input:focus { border-color: var(--p-primary); }
+.field-input:focus { border-color: var(--p-primary-color); }
 .field-input::placeholder { color: var(--p-text-muted-color); }
 
 .field-select {
@@ -886,9 +886,9 @@ onUnmounted(() => {
   color: var(--p-text-color);
 }
 .type-icon-btn.active {
-  color: var(--p-primary);
-  background: color-mix(in srgb, var(--p-primary) 12%, transparent);
-  border-color: color-mix(in srgb, var(--p-primary) 28%, transparent);
+  color: var(--p-primary-color);
+  background: color-mix(in srgb, var(--p-primary-color) 12%, transparent);
+  border-color: color-mix(in srgb, var(--p-primary-color) 28%, transparent);
 }
 
 .type-chip {
@@ -903,9 +903,9 @@ onUnmounted(() => {
 }
 .type-chip:hover { background: color-mix(in srgb, var(--p-text-color) 14%, var(--p-content-background)); }
 .type-chip.active {
-  color: var(--p-primary);
-  background: color-mix(in srgb, var(--p-primary) 12%, transparent);
-  border-color: var(--p-primary);
+  color: var(--p-primary-color);
+  background: color-mix(in srgb, var(--p-primary-color) 12%, transparent);
+  border-color: var(--p-primary-color);
 }
 
 .topic-grid {
@@ -925,10 +925,10 @@ onUnmounted(() => {
 }
 .topic-item:hover { background: color-mix(in srgb, var(--p-text-color) 10%, var(--p-content-background)); }
 .topic-item.checked {
-  border-color: var(--p-primary);
-  background: color-mix(in srgb, var(--p-primary) 10%, transparent);
+  border-color: var(--p-primary-color);
+  background: color-mix(in srgb, var(--p-primary-color) 10%, transparent);
 }
-.topic-item input { width: 13px; height: 13px; accent-color: var(--p-primary); }
+.topic-item input { width: 13px; height: 13px; accent-color: var(--p-primary-color); }
 
 .research-preset {
   padding: 3px 8px; border-radius: 10px;

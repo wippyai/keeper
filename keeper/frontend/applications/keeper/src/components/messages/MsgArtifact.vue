@@ -14,7 +14,7 @@ const artifactId = (props.msg.metadata as any)?.artifact_id
     <Icon icon="tabler:file-code" class="w-3.5 h-3.5 shrink-0 text-info-500" />
     <span style="color: var(--p-text-muted-color)">Artifact</span>
     <span v-if="artifactId" class="font-mono text-info-500">{{ artifactId.slice(0, 20) }}...</span>
-    <button v-if="artifactId" class="ml-auto flex items-center gap-1" style="color: var(--p-primary)" @click="router.push('/dataflow/' + artifactId)">
+    <button v-if="artifactId" class="ml-auto flex items-center gap-1" style="color: var(--p-primary-color)" @click="router.push('/dataflow/' + artifactId)">
       <Icon icon="tabler:external-link" class="w-3 h-3" /> View
     </button>
     <span class="text-[10px] shrink-0" style="color: var(--p-text-muted-color)">{{ formatDate(msg.date) }}</span>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useApi, useHost } from '../composables/useWippy'
 
 const props = defineProps<{
@@ -56,6 +56,10 @@ function onMessage(event: MessageEvent) {
 
 onMounted(() => {
   window.addEventListener('message', onMessage)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('message', onMessage)
 })
 
 watch(fullUrl, () => { loaded.value = false })

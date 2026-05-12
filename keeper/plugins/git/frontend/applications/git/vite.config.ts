@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import vue from '@vitejs/plugin-vue'
+import { wippyPackagePlugin } from '@wippy-fe/vite-plugin'
 import { defineConfig, type Plugin } from 'vite'
 
 function inlineCssPlugin(): Plugin {
@@ -32,9 +33,8 @@ function inlineCssPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [vue(), inlineCssPlugin()],
-  base: '/app/keeper-git/',
-  define: { 'process.env.NODE_ENV': JSON.stringify('production') },
+  plugins: [vue(), wippyPackagePlugin(), inlineCssPlugin()],
+  base: '',
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
@@ -45,7 +45,6 @@ export default defineConfig({
     cssCodeSplit: false,
     cssMinify: true,
     sourcemap: true,
-    assetsInlineLimit: 1000000,
     rollupOptions: {
       input: { app: resolve(__dirname, 'app.html') },
       external: [

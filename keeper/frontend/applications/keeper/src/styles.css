@@ -14,37 +14,12 @@ html, body, #app {
 }
 
 /* ----------------------------------------------------------------
-   PrimeVue design tokens
-   PrimeVue's dt('x.y.z') resolves to var(--p-x-y-z).
-   Surface/content/text variables come from the facade config.
-   Only primary aliases, component tokens, and --kp-* aliases here.
+   PrimeVue component design tokens
+   The warm-grey identity (surface remap, --kp-* aliases, dark/light
+   overrides) lives in package.json `wippy.configOverrides.customization.cssVariables`.
+   This block holds component-specific token overrides only.
    ---------------------------------------------------------------- */
 :root {
-  --p-primary-color: var(--p-primary-500);
-  --p-primary-contrast-color: #000;
-  --p-primary-hover-color: var(--p-primary-600);
-  --p-primary-active-color: var(--p-primary-700);
-
-  /* Light-mode defaults (these are also overridden in the dark block below). */
-  --kp-bg: var(--p-content-background);
-  --kp-bg-elevated: color-mix(in srgb, var(--p-content-background) 92%, var(--p-text-color) 8%);
-  --kp-bg-overlay: var(--p-content-background);
-  --kp-border: var(--p-content-border-color);
-  --kp-text: var(--p-text-color);
-  --kp-text-secondary: var(--p-text-muted-color);
-  --kp-text-heading: var(--p-text-color);
-  --kp-hover-bg: color-mix(in srgb, var(--p-text-color) 6%, transparent);
-  --kp-code-bg: color-mix(in srgb, var(--p-content-background) 92%, var(--p-text-color) 8%);
-  --kp-btn-secondary-bg: var(--p-surface-100);
-  --kp-btn-secondary-border: var(--p-surface-200);
-  --kp-btn-secondary-text: var(--p-surface-700);
-
-  /* Note: surface-600..950 stay at PrimeVue defaults (deep grays) — they're
-     used by PrimeVue itself to derive --p-text-color etc. Pages that need
-     "elevated bg / page bg" use --p-content-background, --p-surface-{50,100},
-     and --p-content-border-color directly. Don't remap the deep end of the
-     scale here or text-color breaks in light mode. */
-
   --p-disabled-opacity: 0.5;
   --p-icon-size: 1rem;
   --p-mask-background: rgba(0, 0, 0, 0.4);
@@ -192,178 +167,6 @@ html, body, #app {
 }
 
 /* ----------------------------------------------------------------
-   Dark mode tokens (factored into a class).
-   Applied when [data-theme="dark"] OR (OS dark AND not explicitly light).
-   The class-list selector below + the @media-gated one share one body via
-   a tiny postcss-style trick: the second selector below has the same body
-   as the first, copied so we don't depend on a build plugin.
-   ---------------------------------------------------------------- */
-:root[data-theme="dark"] {
-    /* PrimeVue's theme-config.css keeps the WHOLE light end of the surface
-       scale (surface-0..300) at fixed light values in dark mode, so any
-       component using bg: var(--p-surface-0/50/100) renders white on top
-       of the dark page chrome. Remap them to the dark warm tones the
-       theme already exposes at surface-700..900.
-
-       Because PrimeVue resolves --p-text-color as var(--p-surface-0) in
-       dark mode, we then re-anchor every text token to the actual light
-       palette so body text stays readable on the dark cards.
-
-       This single override fixes dark mode app-wide for any keeper page
-       that uses the lower surface scale (dropdowns, cards, panels,
-       editor backgrounds, table highlights, etc.). */
-    --p-surface-0:   #1c1a19;  /* page bg tone (was #fff) */
-    --p-surface-50:  #1c1a19;  /* dropdowns, code blocks (was #fafafa) */
-    --p-surface-100: #2b2927;  /* cards, panels (was #f4f4f5) */
-    --p-surface-200: #403e3c;  /* borders, dividers (was #e4e4e7) */
-    --p-surface-300: #545250;  /* stronger borders (was #d4d4d8) */
-
-    /* Restore PrimeVue defaults for surface-600..950 (we rewrote them in
-       the light :root block above, but in dark mode they should stay as
-       the original deeper-dark values keeper expects for elevated bgs). */
-    --p-surface-600: #52525b;
-    --p-surface-700: #3f3f46;
-    --p-surface-800: #27272a;
-    --p-surface-900: #18181b;
-    --p-surface-950: #09090b;
-
-    /* Page bg + border for the dark theme — host theme-config.css may have
-       set these to light values when OS prefers light, so we override. */
-    --p-content-background: #1c1a19;
-    --p-content-border-color: #403e3c;
-
-    /* Re-anchor text tokens to literal light values so they survive the
-       surface-0 remap above. */
-    --p-text-color:             #fafafa;
-    --p-text-hover-color:       #ffffff;
-    --p-text-muted-color:       #a1a1aa;
-    --p-text-hover-muted-color: #d4d4d8;
-
-    /* Component contrast for primary-on-dark buttons */
-    --p-primary-contrast-color: #ffffff;
-
-    --p-primary-color: var(--p-primary-500);
-    --p-primary-hover-color: var(--p-primary-400);
-    --p-primary-active-color: var(--p-primary-300);
-
-    --kp-bg-elevated: var(--p-surface-800);
-    --kp-bg-overlay: var(--p-surface-800);
-    --kp-text-heading: var(--p-text-color);
-    --kp-hover-bg: rgba(255, 255, 255, 0.05);
-    --kp-code-bg: var(--p-surface-800);
-    --kp-btn-secondary-bg: var(--p-surface-200);
-    --kp-btn-secondary-border: var(--p-surface-200);
-    --kp-btn-secondary-text: var(--p-text-color);
-
-    --p-mask-background: rgba(0, 0, 0, 0.6);
-    --p-dialog-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-
-    --p-button-secondary-hover-background: var(--p-surface-400);
-    --p-button-secondary-hover-border-color: var(--p-surface-400);
-    --p-button-secondary-hover-color: var(--p-surface-900);
-    --p-button-secondary-active-background: var(--p-surface-100);
-    --p-button-secondary-active-border-color: var(--p-surface-100);
-
-    --p-button-text-secondary-hover-background: rgba(255, 255, 255, 0.05);
-    --p-button-text-secondary-active-background: rgba(255, 255, 255, 0.08);
-    --p-button-text-plain-hover-background: rgba(255, 255, 255, 0.05);
-    --p-button-text-plain-active-background: rgba(255, 255, 255, 0.08);
-    --p-button-text-contrast-color: var(--p-surface-900);
-    --p-button-text-contrast-hover-background: rgba(255, 255, 255, 0.05);
-    --p-button-text-contrast-active-background: rgba(255, 255, 255, 0.08);
-
-    --p-button-outlined-secondary-border-color: var(--p-surface-400);
-    --p-button-outlined-secondary-hover-background: rgba(255, 255, 255, 0.05);
-    --p-button-outlined-secondary-active-background: rgba(255, 255, 255, 0.08);
-}
-
-/* Explicit light override — used when [data-theme="light"] is set OR when the
-   user wants a guaranteed light shell regardless of host injection. The host's
-   @wippy-fe/theme-config.css can inject dark surface values when the OS prefers
-   dark; these declarations are ordered AFTER the @media block below to win. */
-:root[data-theme="light"] {
-  --p-surface-0:   #ffffff;
-  --p-surface-50:  #fafafa;
-  --p-surface-100: #f4f4f5;
-  --p-surface-200: #e4e4e7;
-  --p-surface-300: #d4d4d8;
-  --p-surface-400: #a1a1aa;
-  --p-surface-500: #71717a;
-  --p-surface-600: #52525b;
-  --p-surface-700: #3f3f46;
-  --p-surface-800: #27272a;
-  --p-surface-900: #18181b;
-  --p-surface-950: #09090b;
-  --p-content-background: #ffffff;
-  --p-content-border-color: #e4e4e7;
-  --p-text-color: #18181b;
-  --p-text-hover-color: #09090b;
-  --p-text-muted-color: #71717a;
-  --p-text-hover-muted-color: #52525b;
-  --p-primary-contrast-color: #ffffff;
-  --kp-bg: #ffffff;
-  --kp-bg-elevated: #f4f4f5;
-  --kp-bg-overlay: #ffffff;
-  --kp-border: #e4e4e7;
-  --kp-text: #18181b;
-  --kp-text-secondary: #71717a;
-  --kp-text-heading: #18181b;
-  --kp-hover-bg: rgba(0, 0, 0, 0.04);
-  --kp-code-bg: #f4f4f5;
-}
-
-@media (prefers-color-scheme: dark) {
-  /* OS-default-dark: apply the same vars unless user explicitly forces light. */
-  :root:not([data-theme="light"]) {
-    --p-surface-0:   #1c1a19;
-    --p-surface-50:  #1c1a19;
-    --p-surface-100: #2b2927;
-    --p-surface-200: #403e3c;
-    --p-surface-300: #545250;
-    --p-surface-600: #52525b;
-    --p-surface-700: #3f3f46;
-    --p-surface-800: #27272a;
-    --p-surface-900: #18181b;
-    --p-surface-950: #09090b;
-    --p-content-background: #1c1a19;
-    --p-content-border-color: #403e3c;
-    --p-text-color: #fafafa;
-    --p-text-hover-color: #ffffff;
-    --p-text-muted-color: #a1a1aa;
-    --p-text-hover-muted-color: #d4d4d8;
-    --p-primary-contrast-color: #ffffff;
-    --p-primary-color: var(--p-primary-500);
-    --p-primary-hover-color: var(--p-primary-400);
-    --p-primary-active-color: var(--p-primary-300);
-    --kp-bg-elevated: var(--p-surface-800);
-    --kp-bg-overlay: var(--p-surface-800);
-    --kp-text-heading: var(--p-text-color);
-    --kp-hover-bg: rgba(255, 255, 255, 0.05);
-    --kp-code-bg: var(--p-surface-800);
-    --kp-btn-secondary-bg: var(--p-surface-200);
-    --kp-btn-secondary-border: var(--p-surface-200);
-    --kp-btn-secondary-text: var(--p-text-color);
-    --p-mask-background: rgba(0, 0, 0, 0.6);
-    --p-dialog-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-    --p-button-secondary-hover-background: var(--p-surface-400);
-    --p-button-secondary-hover-border-color: var(--p-surface-400);
-    --p-button-secondary-hover-color: var(--p-surface-900);
-    --p-button-secondary-active-background: var(--p-surface-100);
-    --p-button-secondary-active-border-color: var(--p-surface-100);
-    --p-button-text-secondary-hover-background: rgba(255, 255, 255, 0.05);
-    --p-button-text-secondary-active-background: rgba(255, 255, 255, 0.08);
-    --p-button-text-plain-hover-background: rgba(255, 255, 255, 0.05);
-    --p-button-text-plain-active-background: rgba(255, 255, 255, 0.08);
-    --p-button-text-contrast-color: var(--p-surface-900);
-    --p-button-text-contrast-hover-background: rgba(255, 255, 255, 0.05);
-    --p-button-text-contrast-active-background: rgba(255, 255, 255, 0.08);
-    --p-button-outlined-secondary-border-color: var(--p-surface-400);
-    --p-button-outlined-secondary-hover-background: rgba(255, 255, 255, 0.05);
-    --p-button-outlined-secondary-active-background: rgba(255, 255, 255, 0.08);
-  }
-}
-
-/* ----------------------------------------------------------------
    Component overrides (semantic variables, not hardcoded hex)
    ---------------------------------------------------------------- */
 
@@ -454,29 +257,6 @@ html, body, #app {
 .p-select-option:hover, .p-select-option.p-focus { background: var(--kp-hover-bg) !important; }
 
 /* ----------------------------------------------------------------
-   Markdown
-   ---------------------------------------------------------------- */
-.markdown-body { color: var(--kp-text); font-size: 13px; line-height: 1.7; }
-.markdown-body h1 { font-size: 1.5em; font-weight: 600; margin: 1em 0 0.5em; color: var(--kp-text-heading); border-bottom: 1px solid var(--kp-border); padding-bottom: 0.3em; }
-.markdown-body h2 { font-size: 1.3em; font-weight: 600; margin: 1em 0 0.5em; color: var(--kp-text-heading); border-bottom: 1px solid var(--kp-border); padding-bottom: 0.3em; }
-.markdown-body h3 { font-size: 1.1em; font-weight: 600; margin: 1em 0 0.5em; color: var(--kp-text-heading); }
-.markdown-body h4, .markdown-body h5, .markdown-body h6 { font-size: 1em; font-weight: 600; margin: 0.8em 0 0.4em; color: var(--kp-text-heading); }
-.markdown-body p { margin: 0.5em 0; }
-.markdown-body a { color: var(--p-primary-color); text-decoration: none; }
-.markdown-body a:hover { text-decoration: underline; }
-.markdown-body code { font-family: 'JetBrains Mono', monospace; font-size: 0.9em; background: var(--kp-code-bg); padding: 0.15em 0.4em; border-radius: 4px; color: var(--kp-text-heading); }
-.markdown-body pre { background: var(--kp-bg); border: 1px solid var(--kp-border); border-radius: 6px; padding: 12px 16px; overflow-x: auto; margin: 0.8em 0; }
-.markdown-body pre code { background: none; padding: 0; font-size: 12px; line-height: 1.5; }
-.markdown-body blockquote { border-left: 3px solid var(--p-primary-color); padding: 0.3em 1em; margin: 0.8em 0; color: var(--kp-text-secondary); }
-.markdown-body ul, .markdown-body ol { padding-left: 1.5em; margin: 0.5em 0; }
-.markdown-body li { margin: 0.2em 0; }
-.markdown-body hr { border: none; border-top: 1px solid var(--kp-border); margin: 1.5em 0; }
-.markdown-body table { border-collapse: collapse; width: 100%; margin: 0.8em 0; }
-.markdown-body th, .markdown-body td { border: 1px solid var(--kp-border); padding: 6px 12px; text-align: left; }
-.markdown-body th { background: var(--kp-bg-elevated); font-weight: 600; color: var(--kp-text-heading); }
-.markdown-body img { max-width: 100%; border-radius: 6px; }
-
-/* ----------------------------------------------------------------
    Keeper utilities
    ---------------------------------------------------------------- */
 .keeper-accent {
@@ -524,7 +304,7 @@ html, body, #app {
    `.sort-select` rules also use these dimensions. */
 .kp-select {
   height: 26px;
-  padding: 0 22px 0 10px;
+  padding: 0 6px 0 10px;
   font-size: 11px;
   line-height: 1.4;
   border-radius: 4px;
@@ -533,12 +313,6 @@ html, body, #app {
   border: 1px solid var(--p-content-border-color);
   outline: none;
   cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='4,6 8,10 12,6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 6px center;
-  background-size: 12px 12px;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .kp-select:focus {
@@ -546,29 +320,7 @@ html, body, #app {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--p-primary-color) 30%, transparent);
 }
 /* Pages use a local `.sort-select` class — share the canonical sizing */
-.sort-select { height: 26px; padding: 0 22px 0 10px; font-size: 11px; line-height: 1.4; }
-
-/* Theme-specific chevron color for select elements.
-   Data URL SVGs don't reliably resolve `currentColor` in
-   `background-image`, so we set the stroke explicitly per theme.
-   `select.<class>` beats Vue scoped rules thanks to the element
-   selector adding specificity. */
-:root,
-:root[data-theme="light"] {
-  --kp-select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='4,6 8,10 12,6'/%3E%3C/svg%3E");
-}
-:root[data-theme="dark"] {
-  --kp-select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='4,6 8,10 12,6'/%3E%3C/svg%3E");
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --kp-select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='4,6 8,10 12,6'/%3E%3C/svg%3E");
-  }
-}
-select.kp-select,
-select.sort-select {
-  background-image: var(--kp-select-arrow) !important;
-}
+.sort-select { height: 26px; padding: 0 6px 0 10px; font-size: 11px; line-height: 1.4; }
 
 .keeper-nav-btn {
   color: var(--p-text-muted-color);

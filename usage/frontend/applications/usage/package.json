@@ -24,6 +24,7 @@
           "themeConfig": true,
           "iframe": true,
           "primevue": true,
+          "markdown": false,
           "customCss": true,
           "customVariables": true
         },
@@ -53,6 +54,7 @@
     "@types/node": "^25.6.0",
     "@vitejs/plugin-vue": "^5.0.0",
     "@wippy-fe/types-global-proxy": "^0.0.12",
+    "@wippy-fe/vite-plugin": "^0.0.27",
     "autoprefixer": "^10.4.0",
     "postcss": "^8.4.0",
     "primevue": "^4.3.3",

@@ -3,7 +3,6 @@ import { createApp } from 'vue'
 import App from './app/App.vue'
 import { AXIOS_INSTANCE, HOST_API, WIPPY_INSTANCE, WIPPY_CONFIG } from './constants'
 import { createAppRouter } from './router'
-import '@wippy-fe/theme/theme-config.css'
 import './styles.css'
 import './tailwind.css'
 
@@ -34,6 +33,21 @@ export async function createGitApp() {
   const axios = await window.$W.api()
   const instance = await window.$W.instance()
 
+  // 401 → auth-expired. See keeper-main src/app.ts for rationale.
+  axios.interceptors.response.use(
+    (response) => response,
+    (error: any) => {
+      if (error?.response?.status === 401) {
+        hostApi.handleError('auth-expired', {
+          url: error?.config?.url,
+          method: error?.config?.method,
+          message: error?.message,
+        })
+      }
+      return Promise.reject(error)
+    },
+  )
+
   const routeConfig = config as GitAppConfig
   const initialPath: string = routeConfig.context?.route || routeConfig.path || '/'
 
@@ -43,7 +57,7 @@ export async function createGitApp() {
   app.provide(WIPPY_INSTANCE, instance)
   app.provide(WIPPY_CONFIG, config)
 
-  app.use(createAppRouter(initialPath))
+  app.use(createAppRouter(hostApi, instance, initialPath))
   return app
 }
 

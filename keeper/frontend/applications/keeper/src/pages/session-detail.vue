@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import { useApi, useWippy } from '../composables/useWippy'
@@ -144,13 +144,21 @@ async function load() {
   finally { loading.value = false }
 }
 
+let unsubMessage: (() => void) | null = null
+let unsubStatus: (() => void) | null = null
+
 onMounted(() => {
   load()
   // Don't subscribe to live events for imported (offline) sessions.
   if (!isImported.value) {
-    instance.on('session:message', (d: any) => { if (d?.session_id === sessionId.value && d?.message) messages.value.push(d.message) })
-    instance.on('session:status', (d: any) => { if (d?.session_id === sessionId.value && session.value) session.value.status = d.status })
+    unsubMessage = instance.on('session:message', (d: any) => { if (d?.session_id === sessionId.value && d?.message) messages.value.push(d.message) })
+    unsubStatus = instance.on('session:status', (d: any) => { if (d?.session_id === sessionId.value && session.value) session.value.status = d.status })
   }
+})
+
+onUnmounted(() => {
+  unsubMessage?.()
+  unsubStatus?.()
 })
 </script>
 

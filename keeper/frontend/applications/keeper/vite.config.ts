@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import vue from '@vitejs/plugin-vue'
+import { wippyPackagePlugin } from '@wippy-fe/vite-plugin'
 import { defineConfig, type Plugin } from 'vite'
 
 const withSourceMaps = process.env.KEEPER_SOURCEMAP === 'true'
@@ -38,14 +39,14 @@ export default defineConfig({
     vue({
       template: {
         compilerOptions: {
-          isCustomElement: (tag) => tag.startsWith('keeper-') || tag.startsWith('wc-'),
+          isCustomElement: (tag) => tag.startsWith('keeper-') || tag.startsWith('wc-') || tag.startsWith('wippy-'),
         },
       },
     }),
+    wippyPackagePlugin(),
     inlineCssPlugin(),
   ],
-  base: '/app/keeper/',
-  define: { 'process.env.NODE_ENV': JSON.stringify('production') },
+  base: '',
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
@@ -56,7 +57,6 @@ export default defineConfig({
     cssCodeSplit: false,
     cssMinify: true,
     sourcemap: withSourceMaps,
-    assetsInlineLimit: 1000000,
     rollupOptions: {
       input: { app: resolve(__dirname, 'app.html') },
       external: [

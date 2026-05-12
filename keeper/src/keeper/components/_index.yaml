@@ -80,7 +80,38 @@ entries:
         .html: text/html
         .js: application/javascript
     path: /app/keeper-git
-    
+
+  # keeper.components:wippy_monaco_static_fs
+  - name: wippy_monaco_static_fs
+    kind: fs.directory
+    meta:
+      comment: Compiled wippy-monaco web component bundle (Monaco editor + workers)
+      description: Runtime-only static files for /app/wc/wippy-monaco. The WC is loaded on demand by the host the first time a `<wippy-monaco>` element appears in the DOM. Will move to a separate npm package later; lives bundled in keeper for now.
+    auto_init: false
+    base: module
+    directory: ./static/wippy-monaco
+    mode: "0755"
+
+  # keeper.components:wippy_monaco_static
+  - name: wippy_monaco_static
+    kind: http.static
+    meta:
+      comment: Serves the compiled wippy-monaco WC bundle
+      server: app:gateway
+    fs: wippy_monaco_static_fs
+    middleware:
+      - cors
+    options:
+      allow_headers: Authorization,Content-Type
+      allow_methods: '*'
+      allow_origins: '*'
+      mime_types:
+        .css: text/css
+        .html: text/html
+        .js: application/javascript
+    path: /app/wc/wippy-monaco
+
+
   # keeper.components:filenames
   - name: filenames
     kind: library.lua

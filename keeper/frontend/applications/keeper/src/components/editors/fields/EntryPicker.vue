@@ -92,7 +92,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="entry-picker">
     <button class="ep-trigger" @click="open = !open">
-      <Icon :icon="icon || 'tabler:plus'" class="w-3 h-3 shrink-0" style="color: var(--p-primary)" />
+      <Icon :icon="icon || 'tabler:plus'" class="w-3 h-3 shrink-0" style="color: var(--p-primary-color)" />
       <span class="flex-1 text-left text-[10px]" style="color: var(--p-text-muted-color)">{{ placeholder || 'Add ' + metaType + '...' }}</span>
       <span class="text-[9px]" style="color: var(--p-text-muted-color)">{{ available.length }}</span>
       <Icon icon="tabler:chevron-down" class="w-3 h-3 shrink-0" style="color: var(--p-text-muted-color)" />
@@ -119,7 +119,7 @@ onBeforeUnmount(() => {
             :class="{ 'ep-item--selected': selectedIds.has(entry.id) }"
             @click="toggle(entry.id)"
           >
-            <Icon v-if="selectedIds.has(entry.id)" icon="tabler:check" class="w-3 h-3 shrink-0" style="color: var(--p-primary)" />
+            <Icon v-if="selectedIds.has(entry.id)" icon="tabler:check" class="w-3 h-3 shrink-0" style="color: var(--p-primary-color)" />
             <Icon v-else :icon="kindIcon(entry.kind, entry.meta?.type)" class="w-3 h-3 shrink-0" style="color: var(--p-text-muted-color)" />
             <div class="flex-1 min-w-0">
               <div class="text-[11px] truncate" style="color: var(--p-text-color)">{{ entry.meta?.title || entryName(entry.id) }}</div>
@@ -139,7 +139,7 @@ onBeforeUnmount(() => {
   background: var(--p-surface-0); color: var(--p-text-color);
   border: 1px dashed var(--p-surface-300); cursor: pointer;
 }
-.ep-trigger:hover { border-color: var(--p-primary); }
+.ep-trigger:hover { border-color: var(--p-primary-color); }
 .ep-dropdown {
   width: 360px; max-height: 400px; border-radius: 6px;
   background: var(--p-surface-50); border: 1px solid var(--p-content-border-color);

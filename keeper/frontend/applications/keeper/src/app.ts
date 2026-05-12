@@ -6,7 +6,6 @@ import App from './app/app.vue'
 import { AXIOS_INSTANCE, HOST_API, WIPPY_INSTANCE, WIPPY_CONFIG, ON_SUBSCRIPTION } from './constants'
 import type { OnSubscription } from './constants'
 import { createAppRouter } from './router'
-import '@wippy-fe/theme/theme-config.css'
 import './styles.css'
 import './tailwind.css'
 
@@ -40,6 +39,25 @@ export async function createKeeperApp() {
   const hostApi = await window.$W.host()
   const axios = await window.$W.api()
   const instance = await window.$W.instance()
+
+  // 401 → auth-expired. The proxy api swallows non-2xx into rejections
+  // without logging the user out. Without this interceptor, an expired
+  // session shows stale UI silently. host.handleError('auth-expired', ...)
+  // is the canonical signal for the host to clear the token and bounce
+  // to /app/login.html.
+  axios.interceptors.response.use(
+    (response) => response,
+    (error: any) => {
+      if (error?.response?.status === 401) {
+        hostApi.handleError('auth-expired', {
+          url: error?.config?.url,
+          method: error?.config?.method,
+          message: error?.message,
+        })
+      }
+      return Promise.reject(error)
+    },
+  )
 
   let on: OnSubscription | null = null
   try { on = await window.$W.on() } catch {}

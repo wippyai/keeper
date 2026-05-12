@@ -56,7 +56,7 @@ function onInput(e: Event) {
   line-height: 1.5;
 }
 .ed-textarea:focus {
-  border-color: var(--p-primary);
+  border-color: var(--p-primary-color);
 }
 .ed-textarea--error {
   border-color: var(--p-danger-500);

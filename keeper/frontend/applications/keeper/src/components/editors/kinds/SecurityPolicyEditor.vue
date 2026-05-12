@@ -208,20 +208,20 @@ const operators = [
   border: 1px solid var(--p-content-border-color); outline: none; resize: vertical;
   min-height: 50px; line-height: 1.5;
 }
-.ed-textarea:focus { border-color: var(--p-primary); }
+.ed-textarea:focus { border-color: var(--p-primary-color); }
 .ed-input {
   width: 100%; padding: 4px 8px; border-radius: 4px; font-size: 11px;
   background: var(--p-surface-0); color: var(--p-text-color);
   border: 1px solid var(--p-content-border-color); outline: none;
 }
-.ed-input:focus { border-color: var(--p-primary); }
+.ed-input:focus { border-color: var(--p-primary-color); }
 .ed-input:disabled { opacity: 0.4; cursor: not-allowed; }
 .ed-select {
   width: 100%; padding: 4px 8px; border-radius: 4px; font-size: 11px;
   background: var(--p-surface-0); color: var(--p-text-color);
   border: 1px solid var(--p-content-border-color); outline: none; cursor: pointer;
 }
-.ed-select:focus { border-color: var(--p-primary); }
+.ed-select:focus { border-color: var(--p-primary-color); }
 .ed-icon-btn {
   padding: 3px; border-radius: 3px; color: var(--p-text-muted-color);
   background: none; border: none; cursor: pointer;

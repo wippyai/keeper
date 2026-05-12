@@ -32,6 +32,6 @@ defineProps<{
   outline: none;
 }
 .ed-input:focus {
-  border-color: var(--p-primary);
+  border-color: var(--p-primary-color);
 }
 </style>

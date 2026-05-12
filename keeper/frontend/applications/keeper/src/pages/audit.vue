@@ -48,20 +48,34 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { useApi } from '../composables/useWippy'
+import { useApi, useWippy } from '../composables/useWippy'
+
+interface AuditEntry {
+  entry_id: string
+  created_at: string
+  actor_id: string
+  event_type: string
+  resource?: string
+  payload?: string
+}
 
 const api = useApi()
+const instance = useWippy()
 
-const entries = ref([])
+const entries = ref<AuditEntry[]>([])
 const eventTypeFilter = ref('')
 const sinceFilter = ref('')
-const eventTypes = ref([])
-let eventSource = null
+const eventTypes = ref<string[]>([])
+let unsubAudit: (() => void) | null = null
 
-const formatTime = (ts) => {
-  return new Date(ts).toLocaleString()
+const formatTime = (ts: string): string => new Date(ts).toLocaleString()
+
+const extractEventTypes = (rows: AuditEntry[]) => {
+  const types = new Set<string>()
+  rows.forEach(r => types.add(r.event_type))
+  eventTypes.value = Array.from(types).sort()
 }
 
 const loadEntries = async () => {
@@ -70,37 +84,26 @@ const loadEntries = async () => {
   if (sinceFilter.value) params.set('since_ts', new Date(sinceFilter.value).toISOString())
   params.set('limit', '100')
 
-  const { data } = await api.get(`/api/v1/keeper/audit?${params}`)
+  const { data } = await api.get<{ success: boolean; entries?: AuditEntry[] }>(
+    `/api/v1/keeper/audit?${params}`,
+  )
   if (data.success && data.entries) {
     entries.value = data.entries
     extractEventTypes(data.entries)
   }
 }
 
-const extractEventTypes = (rows) => {
-  const types = new Set()
-  rows.forEach(r => types.add(r.event_type))
-  eventTypes.value = Array.from(types).sort()
-}
-
-const connectSSE = () => {
-  eventSource = new EventSource('/api/v1/keeper/audit/stream')
-  eventSource.addEventListener('audit.created', (e) => {
-    const newEntry = JSON.parse(e.data)
-    entries.value.unshift(newEntry)
-  })
-  eventSource.onerror = () => {
-    setTimeout(connectSSE, 2000)
-  }
-}
-
 onMounted(() => {
   loadEntries()
-  connectSSE()
+  unsubAudit = instance.on('keeper.audit', (evt: unknown) => {
+    const data = (evt as { data?: unknown })?.data ?? evt
+    const entry = ((data as { entry?: AuditEntry })?.entry ?? data) as AuditEntry | undefined
+    if (entry && entry.entry_id) entries.value.unshift(entry)
+  })
 })
 
 onUnmounted(() => {
-  if (eventSource) eventSource.close()
+  unsubAudit?.()
 })
 </script>
 

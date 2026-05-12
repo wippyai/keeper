@@ -10,6 +10,7 @@
 .logs/
 .research/
 .screenshots-archive/
+.local/
 *.log
 
 # Frontend dependencies and build scratch
@@ -24,3 +25,7 @@ node_modules/
 .DS_Store
 .idea/
 .vscode/
+
+.claude/
+
+wippy.exe

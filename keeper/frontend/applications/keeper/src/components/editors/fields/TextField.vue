@@ -36,7 +36,7 @@ defineProps<{
   line-height: 1.5;
 }
 .ed-textarea:focus {
-  border-color: var(--p-primary);
+  border-color: var(--p-primary-color);
 }
 .ed-pre {
   font-size: 11px;

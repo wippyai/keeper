@@ -74,6 +74,7 @@ entries:
         iframe: true
         prime_vue: true
         theme_config: true
+        markdown: false
       enabled: true
       iconify_icons: true
       tailwind_config: true

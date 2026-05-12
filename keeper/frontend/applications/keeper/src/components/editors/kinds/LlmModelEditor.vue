@@ -173,5 +173,5 @@ function formatHandlerType(type: string): string {
   min-height: 50px;
   line-height: 1.5;
 }
-.ed-textarea:focus { border-color: var(--p-primary); }
+.ed-textarea:focus { border-color: var(--p-primary-color); }
 </style>

@@ -132,7 +132,7 @@ interface ApiClient {
 }
 
 interface RelaySource {
-  on(topic: string, cb: (evt: unknown) => void): void
+  on(topic: string, cb: (evt: unknown) => void): () => void
 }
 
 type ApiFailure = { success: false; error?: string }
@@ -232,8 +232,10 @@ export function useGit(api: ApiClient, relay?: RelaySource) {
     if (ok) p.resolve(payload); else p.reject(new Error(payloadError(payload)))
   }
 
+  let unsubRelay: (() => void) | null = null
+
   if (relay) {
-    relay.on('keeper.git', (raw: unknown) => {
+    unsubRelay = relay.on('keeper.git', (raw: unknown) => {
       const data = relayPayload(raw)
       const ev = data.event
       if (typeof ev !== 'string') return
@@ -254,6 +256,10 @@ export function useGit(api: ApiClient, relay?: RelaySource) {
       }
     })
   }
+
+  onUnmounted(() => {
+    unsubRelay?.()
+  })
 
   async function refresh() {
     loading.value = true
