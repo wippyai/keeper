@@ -12,26 +12,130 @@
  */
 import type * as Monaco from 'monaco-editor'
 
+// Monaco ships its main stylesheet as `editor.main.css` (~300 KB). When
+// monaco-editor evaluates inside a normal page it injects these rules into
+// `document.head` via Vite's CSS-in-JS — but a web component lives in a
+// shadow root, where those styles do NOT reach. Without the CSS,
+// `.monaco-editor` falls back to `position: static`, and the inner
+// `.monaco-scrollable-element` / `.overflow-guard` (all `position: absolute`)
+// end up positioned relative to the viewport instead of the editor, so the
+// textarea and the rendered editor view end up in completely different
+// places.
+//
+// Vite plugin `wippy-monaco-strip-css-imports` (see vite.config.ts) replaces
+// every monaco-editor CSS side-effect import with an empty module, so Vite
+// no longer auto-injects monaco's static CSS into `document.head`. We then
+// fetch the pre-built `editor.main.css` lazily (via dynamic import + Vite
+// `?inline`) inside `loadMonaco()` so it lives in the lazy monaco chunk,
+// not the eager WC entry chunk, and inject it into the shadow root once
+// per shadow tree (see monaco-host.vue's `injectMonacoCssIntoShadow`).
+
+let monacoCssText: string | null = null
+export function getMonacoMainCss(): string | null {
+  return monacoCssText
+}
+
+// --- Shadow-DOM stylesheet container binding ---
+// Monaco's runtime CSS that lands via `createStyleSheet(mainWindow.document.head, ...)`
+// in `monaco-editor/esm/vs/base/browser/domStylesheets.js`. We apply a
+// patch-package patch (see `patches/monaco-editor+0.55.1.patch`) that adds a
+// `setDefaultStylesheetContainer` setter. Each `<wippy-monaco>` instance
+// binds the default to its own shadow root on mount and releases on unmount,
+// so monaco's runtime styles land where they actually apply.
+//
+// Single-default limitation: with two editors in two different shadow roots
+// mounted at once, only the most recently bound shadow root receives further
+// runtime style additions from this entry point. Theme CSS — by far the
+// biggest source of runtime styles — is per-host via the separate
+// `setHostTheme` patch (see `bindHostTheme` below), so the practical impact
+// of this single-default is limited to widget styles (suggest, hover, find,
+// sash); accepting that limitation for now.
+let setDefaultStylesheetContainer: ((c: Node | null) => void) | null = null
+let activeShadowRefs = 0
+
+export function bindShadowStylesheetContainer(shadow: ShadowRoot): () => void {
+  if (!setDefaultStylesheetContainer) {
+    // loadMonaco() resolves before any consumer calls this, so the setter is
+    // always populated. If we get here, monaco-host.vue's lifecycle changed
+    // and called us out of order — fail loud in dev.
+    // eslint-disable-next-line no-console
+    console.warn('[wippy-monaco] bindShadowStylesheetContainer called before loadMonaco resolved — runtime CSS will leak to document.head')
+    return () => {}
+  }
+  setDefaultStylesheetContainer(shadow)
+  activeShadowRefs++
+  let released = false
+  return () => {
+    if (released)
+      return
+    released = true
+    activeShadowRefs--
+    if (activeShadowRefs === 0)
+      setDefaultStylesheetContainer?.(null)
+    // else leave the most recent binding in place — last-mount wins
+  }
+}
+
+// --- Per-host theme binding ---
+// Patch adds `setHostTheme(host, themeName)` to monaco's
+// `StandaloneThemeService` (see `patches/monaco-editor+0.55.1.patch`). It
+// stores the theme override in a `WeakMap<Element, StandaloneTheme>` keyed
+// by the WC host element. `_updateCSS` then renders each style element
+// against its host's override (falling back to the global theme set via
+// `monaco.editor.setTheme`).
+//
+// With this, two `<wippy-monaco>` elements with different `theme=` props in
+// the same page each render with their own theme — no more last-create-wins
+// monaco singleton-theme footgun.
+let setHostThemeFn: ((host: Element, themeName: string | null) => void) | null = null
+
+export function bindHostTheme(host: Element, themeName: string): void {
+  if (!setHostThemeFn) {
+    // loadMonaco() resolves before any consumer calls this.
+    // eslint-disable-next-line no-console
+    console.warn('[wippy-monaco] bindHostTheme called before loadMonaco resolved — theme will fall back to global setTheme')
+    return
+  }
+  setHostThemeFn(host, themeName)
+}
+
+export function unbindHostTheme(host: Element): void {
+  setHostThemeFn?.(host, null)
+}
+
 let monacoPromise: Promise<typeof Monaco> | null = null
 
 export function loadMonaco(): Promise<typeof Monaco> {
   if (!monacoPromise) {
     monacoPromise = (async () => {
       // Workers must be wired BEFORE the first model creation so monaco
-      // doesn't fall back to its main-thread tokenizer.
+      // doesn't fall back to its main-thread tokenizer. CSS is fetched in
+      // parallel so it lands in the lazy monaco chunk, not the eager WC
+      // entry chunk.
       const [
+        cssModule,
+        domStylesheets,
+        themeService,
         EditorWorker,
         JsonWorker,
         CssWorker,
         HtmlWorker,
         TsWorker,
       ] = await Promise.all([
+        import('monaco-editor/min/vs/editor/editor.main.css?inline').then(m => m.default),
+        // Patches add exports to these monaco internals — type augmentations
+        // live in `src/types/monaco-stylesheets-patch.d.ts`.
+        import('monaco-editor/esm/vs/base/browser/domStylesheets.js'),
+        import('monaco-editor/esm/vs/editor/standalone/browser/standaloneThemeService.js'),
         import('monaco-editor/esm/vs/editor/editor.worker?worker').then(m => m.default),
         import('monaco-editor/esm/vs/language/json/json.worker?worker').then(m => m.default),
         import('monaco-editor/esm/vs/language/css/css.worker?worker').then(m => m.default),
         import('monaco-editor/esm/vs/language/html/html.worker?worker').then(m => m.default),
         import('monaco-editor/esm/vs/language/typescript/ts.worker?worker').then(m => m.default),
       ])
+      monacoCssText = cssModule
+      setDefaultStylesheetContainer = domStylesheets.setDefaultStylesheetContainer
+      setHostThemeFn = themeService.setHostTheme
 
       ;(self as unknown as { MonacoEnvironment: { getWorker: (id: string, label: string) => Worker } }).MonacoEnvironment = {
         getWorker(_id, label) {
@@ -65,28 +169,67 @@ export function loadMonaco(): Promise<typeof Monaco> {
 
 const KEEPER_DARK = 'keeper-dark'
 const KEEPER_LIGHT = 'keeper-light'
-const KEEPER_AUTO = 'keeper-auto'
+// The auto theme is per-host: each `<wippy-monaco>` reads its own CSS
+// variables and registers a uniquely-named theme via `defineTheme`, so two
+// instances in different host contexts (e.g. one in a dark panel, one in
+// a light panel) don't overwrite each other's auto theme definition.
+const KEEPER_AUTO_PREFIX = 'keeper-auto-'
+const autoThemeNames = new WeakMap<Element, string>()
+let autoThemeCounter = 0
+function autoThemeNameFor(hostElement: Element): string {
+  let name = autoThemeNames.get(hostElement)
+  if (!name) {
+    name = `${KEEPER_AUTO_PREFIX}${++autoThemeCounter}`
+    autoThemeNames.set(hostElement, name)
+  }
+  return name
+}
+
+// Shared keeper token palettes — referenced by both the fixed
+// keeper-dark/keeper-light presets AND by the auto theme, so the syntax
+// identity is consistent across all three modes.
+const KEEPER_DARK_TOKEN_RULES = [
+  { token: 'comment', foreground: '6a737d', fontStyle: 'italic' },
+  { token: 'keyword', foreground: 'f59e0b' },
+  { token: 'string', foreground: '4ade80' },
+  { token: 'number', foreground: 'c084fc' },
+  { token: 'type', foreground: '60a5fa' },
+  { token: 'function', foreground: '2dd4bf' },
+  { token: 'variable', foreground: 'e2e8f0' },
+  { token: 'operator', foreground: 'f87171' },
+] as const
+
+const KEEPER_LIGHT_TOKEN_RULES = [
+  { token: 'comment', foreground: '6a737d', fontStyle: 'italic' },
+  { token: 'keyword', foreground: 'b45309' },
+  { token: 'string', foreground: '15803d' },
+  { token: 'number', foreground: '7e22ce' },
+  { token: 'type', foreground: '1d4ed8' },
+  { token: 'function', foreground: '0d9488' },
+  { token: 'variable', foreground: '1e293b' },
+  { token: 'operator', foreground: 'b91c1c' },
+] as const
 
 let themesRegistered = false
 
 function registerThemes(monaco: typeof Monaco) {
   if (themesRegistered)
     return
-  // keeper-dark — preserved verbatim from the original keeper MonacoEditor.vue
-  // / DiffViewer.vue palette so the visual identity carries forward.
+  // keeper-dark — preserved palette from the original keeper MonacoEditor.vue
+  // / DiffViewer.vue so the visual identity carries forward.
+  //
+  // Both keeper-dark and keeper-light intentionally inherit from the same
+  // base (`vs`) with identical rule lists. This produces matching
+  // `tokenTheme.getColorMap()` orderings across all keeper themes, so
+  // multiple `<wippy-monaco>` elements with different themes share the
+  // same `mtkN`→token-kind mapping — required for the per-host theme
+  // patch (see `patches/monaco-editor+0.55.1.patch`) to render correctly
+  // when monaco's tokenization registry (which is global) tags tokens
+  // against whatever theme was set last.
   monaco.editor.defineTheme(KEEPER_DARK, {
-    base: 'vs-dark',
+    base: 'vs',
     inherit: true,
-    rules: [
-      { token: 'comment', foreground: '6a737d', fontStyle: 'italic' },
-      { token: 'keyword', foreground: 'f59e0b' },
-      { token: 'string', foreground: '4ade80' },
-      { token: 'number', foreground: 'c084fc' },
-      { token: 'type', foreground: '60a5fa' },
-      { token: 'function', foreground: '2dd4bf' },
-      { token: 'variable', foreground: 'e2e8f0' },
-      { token: 'operator', foreground: 'f87171' },
-    ],
+    rules: [...KEEPER_DARK_TOKEN_RULES],
     colors: {
       'editor.background': '#0c0e12',
       'editor.foreground': '#e2e8f0',
@@ -114,16 +257,7 @@ function registerThemes(monaco: typeof Monaco) {
   monaco.editor.defineTheme(KEEPER_LIGHT, {
     base: 'vs',
     inherit: true,
-    rules: [
-      { token: 'comment', foreground: '6a737d', fontStyle: 'italic' },
-      { token: 'keyword', foreground: 'b45309' },
-      { token: 'string', foreground: '15803d' },
-      { token: 'number', foreground: '7e22ce' },
-      { token: 'type', foreground: '1d4ed8' },
-      { token: 'function', foreground: '0d9488' },
-      { token: 'variable', foreground: '1e293b' },
-      { token: 'operator', foreground: 'b91c1c' },
-    ],
+    rules: [...KEEPER_LIGHT_TOKEN_RULES],
     colors: {
       'editor.background': '#ffffff',
       'editor.foreground': '#1e293b',
@@ -151,12 +285,23 @@ function registerThemes(monaco: typeof Monaco) {
 }
 
 /**
- * Read app theme tokens off `host` (the WC element) and update the dynamic
- * `keeper-auto` theme. CSS custom properties cross the shadow-DOM
- * boundary, so we get the same `--p-*` values the outer page declared at
- * `:root`.
+ * Read app theme tokens off `host` (the WC element) and update a per-host
+ * auto theme. CSS custom properties cross the shadow-DOM boundary, so we
+ * get the same `--p-*` values the outer page declared at `:root`. Both
+ * chrome colors (background/foreground/widget borders) AND syntax-token
+ * colors (keyword/string/number/etc.) follow the host's light-vs-dark
+ * state — chrome comes from the host's `--p-*` palette, tokens reuse the
+ * same keeper-dark / keeper-light palettes the explicit presets use.
+ * Re-themes live on `data-theme` / `class` mutations and
+ * `prefers-color-scheme` flips (see `watchThemeReactivity` in
+ * monaco-host.vue).
+ *
+ * The theme is named uniquely per host (`keeper-auto-N`) so multiple
+ * `<wippy-monaco>` elements in auto mode each maintain their own palette
+ * without overwriting one another via `monaco.editor.defineTheme`.
  */
 export function applyAutoTheme(monaco: typeof Monaco, host: HTMLElement): string {
+  const themeName = autoThemeNameFor(host)
   const cs = getComputedStyle(host)
   const v = (name: string, fallback: string): string => {
     const raw = cs.getPropertyValue(name).trim()
@@ -166,10 +311,13 @@ export function applyAutoTheme(monaco: typeof Monaco, host: HTMLElement): string
   const bg = v('--p-content-background', '#1c1a19')
   const isDark = isDarkColor(bg)
 
-  monaco.editor.defineTheme(KEEPER_AUTO, {
-    base: isDark ? 'vs-dark' : 'vs',
+  monaco.editor.defineTheme(themeName, {
+    // Match the base of keeper-dark / keeper-light so all keeper themes
+    // produce identical mtkN→kind orderings in their colorMaps — required
+    // by the per-host theme patch.
+    base: 'vs',
     inherit: true,
-    rules: [],
+    rules: [...(isDark ? KEEPER_DARK_TOKEN_RULES : KEEPER_LIGHT_TOKEN_RULES)],
     colors: {
       'editor.background': bg,
       'editor.foreground': v('--p-text-color', isDark ? '#fafafa' : '#18181b'),
@@ -192,7 +340,7 @@ export function applyAutoTheme(monaco: typeof Monaco, host: HTMLElement): string
       'diffEditor.removedLineBackground': isDark ? '#f8717110' : '#dc262610',
     },
   })
-  return KEEPER_AUTO
+  return themeName
 }
 
 function isDarkColor(input: string): boolean {

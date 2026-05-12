@@ -666,6 +666,15 @@ entries:
   # keeper:wippy_monaco — auto-registered web component for Monaco editor
   # + diff editor. Lives bundled in keeper for now; will move to a
   # standalone @wippy-fe/* package later.
+  #
+  # `announced: true` is the spec default and is required to be returned by
+  # `/api/public/components/list` — the host's autoload only injects
+  # `<script type="module" src=".../index.js?declare-tag=wippy-monaco">` for
+  # components in that list (see wippy/views list_components.lua and
+  # app-template/frontend/docs/web-component-loading.md). The small
+  # ~80 KB index.js loads eagerly to register the custom-element tag; the
+  # heavy ~1.5 MB monaco-editor bundle stays lazy via
+  # `src/app/monaco-loader.ts`'s dynamic `import('monaco-editor')`.
   - name: wippy_monaco
     kind: registry.entry
     meta:
@@ -674,7 +683,7 @@ entries:
       title: Monaco Editor
       tag_name: wippy-monaco
       entry_point: index.js
-      announced: false
+      announced: true
       secure: false
       auto_register: true
       url: /app/wc/wippy-monaco

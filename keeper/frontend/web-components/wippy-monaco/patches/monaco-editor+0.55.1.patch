@@ -1,0 +1,342 @@
+diff --git a/node_modules/monaco-editor/esm/vs/base/browser/domStylesheets.js b/node_modules/monaco-editor/esm/vs/base/browser/domStylesheets.js
+index 7153d12..a426518 100644
+--- a/node_modules/monaco-editor/esm/vs/base/browser/domStylesheets.js
++++ b/node_modules/monaco-editor/esm/vs/base/browser/domStylesheets.js
+@@ -10,6 +10,29 @@ import { autorun } from '../common/observableInternal/reactions/autorun.js';
+  *  Licensed under the MIT License. See License.txt in the project root for license information.
+  *--------------------------------------------------------------------------------------------*/
+ const globalStylesheets = new Map();
++// --- BEGIN wippy-monaco shadow-DOM patch ---
++// Monaco's runtime CSS (theme rules, suggest widget, hover, find, sash, etc.)
++// is added via createStyleSheet(mainWindow.document.head, ...). Style rules
++// in document.head do NOT pierce shadow boundaries, so a monaco editor mounted
++// inside a web component's shadow root receives no runtime styles and renders
++// without syntax colors, unstyled widgets, etc.
++//
++// We expose a setter that lets the host (e.g. <wippy-monaco>) override the
++// default container before monaco.editor.create runs. While set, all of
++// monaco's default-container createStyleSheet calls land in the host's shadow
++// root. Clearing back to null restores the document.head default.
++//
++// Note: this is a global single-default, so two concurrent editors in
++// different shadow roots can't both have correct styling. For multi-editor
++// scenarios use createStyleSheet's explicit-container path (out of scope here).
++let _wippyDefaultContainer = null;
++function setDefaultStylesheetContainer(container) {
++    _wippyDefaultContainer = container || null;
++}
++function _wippyResolveDefaultContainer() {
++    return _wippyDefaultContainer || mainWindow.document.head;
++}
++// --- END wippy-monaco shadow-DOM patch ---
+ /**
+  * A version of createStyleSheet which has a unified API to initialize/set the style content.
+  */
+@@ -27,7 +50,7 @@ class WrappedStyleElement {
+         }
+         this._currentCssStyle = cssStyle;
+         if (!this._styleSheet) {
+-            this._styleSheet = createStyleSheet(mainWindow.document.head, (s) => s.textContent = cssStyle);
++            this._styleSheet = createStyleSheet(_wippyResolveDefaultContainer(), (s) => s.textContent = cssStyle);
+         }
+         else {
+             this._styleSheet.textContent = cssStyle;
+@@ -40,7 +63,7 @@ class WrappedStyleElement {
+         }
+     }
+ }
+-function createStyleSheet(container = mainWindow.document.head, beforeAppend, disposableStore) {
++function createStyleSheet(container = _wippyResolveDefaultContainer(), beforeAppend, disposableStore) {
+     const style = document.createElement('style');
+     style.type = 'text/css';
+     style.media = 'screen';
+@@ -50,7 +73,9 @@ function createStyleSheet(container = mainWindow.document.head, beforeAppend, di
+         disposableStore.add(toDisposable(() => style.remove()));
+     }
+     // With <head> as container, the stylesheet becomes global and is tracked
+-    // to support auxiliary windows to clone the stylesheet.
++    // to support auxiliary windows to clone the stylesheet. (Only fires when
++    // the caller explicitly passes document.head — shadow-root redirections
++    // intentionally skip the multi-window cloning logic.)
+     if (container === mainWindow.document.head) {
+         const globalStylesheetClones = new Set();
+         globalStylesheets.set(style, globalStylesheetClones);
+@@ -142,4 +167,4 @@ function createStyleSheetFromObservable(css) {
+     return store;
+ }
+ 
+-export { createCSSRule, createStyleSheet, createStyleSheet2, createStyleSheetFromObservable, removeCSSRulesContainingSelector };
++export { createCSSRule, createStyleSheet, createStyleSheet2, createStyleSheetFromObservable, removeCSSRulesContainingSelector, setDefaultStylesheetContainer };
+diff --git a/node_modules/monaco-editor/esm/vs/editor/standalone/browser/standaloneThemeService.js b/node_modules/monaco-editor/esm/vs/editor/standalone/browser/standaloneThemeService.js
+index 83768fd..6312c76 100644
+--- a/node_modules/monaco-editor/esm/vs/editor/standalone/browser/standaloneThemeService.js
++++ b/node_modules/monaco-editor/esm/vs/editor/standalone/browser/standaloneThemeService.js
+@@ -186,9 +186,44 @@ function newBuiltInTheme(builtinTheme) {
+     const themeData = getBuiltinRules(builtinTheme);
+     return new StandaloneTheme(builtinTheme, themeData);
+ }
++// --- BEGIN wippy-monaco multi-theme patch ---
++// Module-level reference to the singleton StandaloneThemeService instance,
++// captured in the constructor. Used by the exported `setHostTheme` helper
++// so external code (e.g. `@wippy/wc-monaco`) can apply a per-host theme
++// without reaching through monaco's DI container.
++let _wippyActiveThemeService = null;
++
++/**
++ * Apply a per-host theme override. `host` is the element whose shadow root
++ * contains a monaco editor (typically a custom-element host like
++ * `<wippy-monaco>`); `themeName` is a theme registered via `defineTheme`.
++ * Passing `null`/`undefined` for `themeName` clears the override and the
++ * host falls back to the global theme.
++ *
++ * Works alongside `monaco.editor.setTheme(name)` which still sets the
++ * global default applied to every editor without a per-host override.
++ */
++function setHostTheme(host, themeName) {
++    _wippyActiveThemeService?.setHostTheme(host, themeName);
++}
++// --- END wippy-monaco multi-theme patch ---
++
+ class StandaloneThemeService extends Disposable {
+     constructor() {
+         super();
++        // --- BEGIN wippy-monaco multi-theme patch ---
++        // Track the singleton so the exported `setHostTheme` helper can find
++        // it without going through monaco's DI container.
++        _wippyActiveThemeService = this;
++        // Map from a host element (shadow-DOM owner) to a per-host theme.
++        // Entries fall back to `_globalTheme` when missing.
++        this._themeByHost = new WeakMap();
++        // Implicit context used during `_updateCSS`'s render loop. Set to
++        // the current entry's host before each `_buildAllCss()` call so
++        // `_resolveThemeForHost` picks up the right theme. Reset to null
++        // after the loop iteration.
++        this._currentRenderHost = null;
++        // --- END wippy-monaco multi-theme patch ---
+         this._onColorThemeChange = this._register(new Emitter());
+         this.onDidColorThemeChange = this._onColorThemeChange.event;
+         this._onProductIconThemeChange = this._register(new Emitter());
+@@ -206,6 +241,9 @@ class StandaloneThemeService extends Disposable {
+         this._themeCSS = '';
+         this._allCSS = `${this._codiconCSS}\n${this._themeCSS}`;
+         this._globalStyleElement = null;
++        // Entries: `{ element: HTMLStyleElement, host: Element | null }`.
++        // `host` is non-null for shadow-DOM registrations; `null` for the
++        // single global `_globalStyleElement`.
+         this._styleElements = [];
+         this._colorMapOverride = null;
+         this.setTheme(VS_LIGHT_THEME_NAME);
+@@ -231,20 +269,37 @@ class StandaloneThemeService extends Disposable {
+                 style.className = 'monaco-colors';
+                 style.textContent = this._allCSS;
+             });
+-            this._styleElements.push(this._globalStyleElement);
++            // wippy-monaco multi-theme patch: wrap entries with `host` so the
++            // per-host render path can target this element. host=null means
++            // "global / not in a shadow root" — picks up `_globalTheme`.
++            this._styleElements.push({ element: this._globalStyleElement, host: null });
+         }
+         return Disposable.None;
+     }
+     _registerShadowDomContainer(domNode) {
++        // wippy-monaco multi-theme patch: walk to the shadow host so the
++        // per-host theme override (set via `setHostTheme`) can be resolved.
++        const root = domNode.getRootNode();
++        const host = (root && root instanceof ShadowRoot) ? root.host : null;
+         const styleElement = createStyleSheet(domNode, style => {
+             style.className = 'monaco-colors';
+-            style.textContent = this._allCSS;
++            // Render with this host's effective theme — `_resolveThemeForHost`
++            // returns the per-host override if present, else `_globalTheme`.
++            this._currentRenderHost = host;
++            try {
++                style.textContent = this._buildAllCss();
++            }
++            finally {
++                this._currentRenderHost = null;
++            }
+         });
+-        this._styleElements.push(styleElement);
++        this._styleElements.push({ element: styleElement, host });
+         return {
+             dispose: () => {
+                 for (let i = 0; i < this._styleElements.length; i++) {
+-                    if (this._styleElements[i] === styleElement) {
++                    const entry = this._styleElements[i];
++                    const el = (entry && entry.element) ? entry.element : entry;
++                    if (el === styleElement) {
+                         this._styleElements.splice(i, 1);
+                         return;
+                     }
+@@ -268,12 +323,12 @@ class StandaloneThemeService extends Disposable {
+                 }
+             });
+         }
+-        if (this._theme.themeName === themeName) {
++        if (this._globalTheme && this._globalTheme.themeName === themeName) {
+             this.setTheme(themeName); // refresh theme
+         }
+     }
+     getColorTheme() {
+-        return this._theme;
++        return this._globalTheme;
+     }
+     setColorMapOverride(colorMapOverride) {
+         this._colorMapOverride = colorMapOverride;
+@@ -290,20 +345,20 @@ class StandaloneThemeService extends Disposable {
+         this._updateActualTheme(theme);
+     }
+     _updateActualTheme(desiredTheme) {
+-        if (!desiredTheme || this._theme === desiredTheme) {
++        if (!desiredTheme || this._globalTheme === desiredTheme) {
+             // Nothing to do
+             return;
+         }
+-        this._theme = desiredTheme;
++        this._globalTheme = desiredTheme;
+         this._updateThemeOrColorMap();
+     }
+     _onOSSchemeChanged() {
+         if (this._autoDetectHighContrast) {
+             const wantsHighContrast = mainWindow.matchMedia(`(forced-colors: active)`).matches;
+-            if (wantsHighContrast !== isHighContrast(this._theme.type)) {
++            if (wantsHighContrast !== isHighContrast(this._globalTheme.type)) {
+                 // switch to high contrast or non-high contrast but stick to dark or light
+                 let newThemeName;
+-                if (isDark(this._theme.type)) {
++                if (isDark(this._globalTheme.type)) {
+                     newThemeName = wantsHighContrast ? HC_BLACK_THEME_NAME : VS_DARK_THEME_NAME;
+                 }
+                 else {
+@@ -318,6 +373,36 @@ class StandaloneThemeService extends Disposable {
+         this._onOSSchemeChanged();
+     }
+     _updateThemeOrColorMap() {
++        // wippy-monaco multi-theme patch: the per-element CSS is built inside
++        // `_updateCSS` (which iterates and resolves the per-host theme for
++        // each entry). Here we only need to update the tokenization color
++        // map (still global — monaco maps token IDs to `mtkN` indexes via
++        // a single registry) and fire the change event.
++        this._updateCSS();
++        const colorMap = this._colorMapOverride || this._globalTheme.tokenTheme.getColorMap();
++        TokenizationRegistry.setColorMap(colorMap);
++        this._onColorThemeChange.fire(this._globalTheme);
++    }
++    /**
++     * wippy-monaco multi-theme patch — resolve the effective theme for a host.
++     * Returns the per-host override from `_themeByHost` if present, else falls
++     * back to the global theme (the one set via `monaco.editor.setTheme`).
++     */
++    _resolveThemeForHost(host) {
++        if (host && this._themeByHost.has(host)) {
++            return this._themeByHost.get(host);
++        }
++        return this._globalTheme;
++    }
++    /**
++     * wippy-monaco multi-theme patch — build the full editor CSS string for
++     * the currently-bound `_currentRenderHost`'s theme. The theming-registry
++     * participants and color variables read `_theme`, which the constructor's
++     * getter resolves via `_currentRenderHost`. Caller is responsible for
++     * setting/clearing `_currentRenderHost` around the call.
++     */
++    _buildAllCss() {
++        const theme = this._resolveThemeForHost(this._currentRenderHost);
+         const cssRules = [];
+         const hasRule = {};
+         const ruleCollector = {
+@@ -328,29 +413,79 @@ class StandaloneThemeService extends Disposable {
+                 }
+             }
+         };
+-        themingRegistry.getThemingParticipants().forEach(p => p(this._theme, ruleCollector, this._environment));
++        themingRegistry.getThemingParticipants().forEach(p => p(theme, ruleCollector, this._environment));
+         const colorVariables = [];
+         for (const item of colorRegistry.getColors()) {
+-            const color = this._theme.getColor(item.id, true);
++            const color = theme.getColor(item.id, true);
+             if (color) {
+                 colorVariables.push(`${asCssVariableName(item.id)}: ${color.toString()};`);
+             }
+         }
+         ruleCollector.addRule(`.monaco-editor, .monaco-diff-editor, .monaco-component { ${colorVariables.join('\n')} }`);
+-        const colorMap = this._colorMapOverride || this._theme.tokenTheme.getColorMap();
++        const colorMap = this._colorMapOverride || theme.tokenTheme.getColorMap();
+         ruleCollector.addRule(generateTokensCSSForColorMap(colorMap));
+         // If the OS has forced-colors active, disable forced color adjustment for
+         // Monaco editor elements so that VS Code's built-in high contrast themes
+         // (hc-black / hc-light) are used instead of the OS forcing system colors.
+         ruleCollector.addRule(`.monaco-editor, .monaco-diff-editor, .monaco-component { forced-color-adjust: none; }`);
+-        this._themeCSS = cssRules.join('\n');
+-        this._updateCSS();
+-        TokenizationRegistry.setColorMap(colorMap);
+-        this._onColorThemeChange.fire(this._theme);
++        return `${this._codiconCSS}\n${cssRules.join('\n')}`;
++    }
++    /**
++     * wippy-monaco multi-theme patch — write a single host's theme override.
++     * `host` is the shadow-DOM host element; `themeName` must be a theme
++     * registered via `defineTheme` (or null to clear the override and fall
++     * back to the global theme). Only the style element belonging to that
++     * host is rewritten — other editors are untouched.
++     */
++    setHostTheme(host, themeName) {
++        if (!host) {
++            return;
++        }
++        if (themeName) {
++            const theme = this._knownThemes.get(themeName);
++            if (theme) {
++                this._themeByHost.set(host, theme);
++            }
++        }
++        else {
++            this._themeByHost.delete(host);
++        }
++        for (const entry of this._styleElements) {
++            if (entry && entry.host === host) {
++                this._currentRenderHost = host;
++                try {
++                    entry.element.textContent = this._buildAllCss();
++                }
++                finally {
++                    this._currentRenderHost = null;
++                }
++            }
++        }
+     }
+     _updateCSS() {
+-        this._allCSS = `${this._codiconCSS}\n${this._themeCSS}`;
+-        this._styleElements.forEach(styleElement => styleElement.textContent = this._allCSS);
++        // wippy-monaco multi-theme patch — per-element render. Each entry in
++        // `_styleElements` is `{ element, host }`; render with that host's
++        // effective theme. `_currentRenderHost` is the implicit context the
++        // `_buildAllCss` reads to look up the theme for THIS iteration.
++        for (const entry of this._styleElements) {
++            // Legacy entries (raw HTMLStyleElement) treated as host=null for
++            // defensive forward-compat with future monaco internals that may
++            // push directly. Normal path is `{ element, host }`.
++            const isWrapped = entry && entry.element !== undefined;
++            const element = isWrapped ? entry.element : entry;
++            const host = isWrapped ? entry.host : null;
++            this._currentRenderHost = host;
++            try {
++                element.textContent = this._buildAllCss();
++            }
++            finally {
++                this._currentRenderHost = null;
++            }
++        }
++        // Keep `_allCSS` in sync with the global-theme render for any callers
++        // that read it before the next per-host update fires.
++        this._currentRenderHost = null;
++        this._allCSS = this._buildAllCss();
+     }
+     getFileIconTheme() {
+         return {
+@@ -364,4 +499,4 @@ class StandaloneThemeService extends Disposable {
+     }
+ }
+ 
+-export { HC_BLACK_THEME_NAME, HC_LIGHT_THEME_NAME, StandaloneThemeService, VS_DARK_THEME_NAME, VS_LIGHT_THEME_NAME };
++export { HC_BLACK_THEME_NAME, HC_LIGHT_THEME_NAME, StandaloneThemeService, VS_DARK_THEME_NAME, VS_LIGHT_THEME_NAME, setHostTheme };
