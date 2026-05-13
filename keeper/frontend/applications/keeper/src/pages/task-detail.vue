@@ -689,8 +689,8 @@ const dataflowId = computed(() => {
     </aside>
 
     <!-- RESIZE HANDLE -->
-    <div @mousedown="startResize" class="w-1 cursor-col-resize hover:bg-sky-400/40"
-      :class="{ 'bg-sky-400/40': isResizing }" />
+    <div @mousedown="startResize" class="w-1 cursor-col-resize hover:bg-primary-500/40"
+      :class="{ 'bg-primary-500/40': isResizing }" />
 
     <!-- MAIN -->
     <main class="flex-1 overflow-y-auto">

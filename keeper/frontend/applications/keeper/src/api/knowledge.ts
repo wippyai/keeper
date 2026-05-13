@@ -38,18 +38,24 @@ export interface KBStats {
 }
 
 /**
- * Node type metadata. `tone` maps to Tailwind color classes backed by
- * PrimeVue surface variables via @wippy-fe/theme — no hardcoded hex values.
+ * Node type metadata. Severity tokens are deliberately mapped to each
+ * category's semantic intent (see theming.md §"Semantic vs decorative" —
+ * use severity ONLY when the category carries the severity's meaning):
  *
- *   text:   text-indigo-400 / text-sky-400 / text-emerald-400 / text-rose-400
- *   bg:     bg-indigo-500/10 / bg-sky-500/10 / bg-emerald-500/10 / bg-rose-500/10
- *   border: border-indigo-500/20 / ...
+ *   anti_pattern → danger  — genuinely cautionary "avoid this"
+ *   learning     → success — positive insight / completed lesson
+ *   convention   → info    — factual reference / how-things-are-done
+ *   pattern      → help    — lore / pedagogical "consider this approach"
+ *
+ * If the category set grows to include purely-decorative types (a kind
+ * picker with no semantic meaning), switch the decorative entries to a
+ * `--k-knowledge-N` palette per theming.md §"Decorative palette options".
  */
 export const NODE_TYPES = [
-  { value: 'pattern',      label: 'Pattern',      icon: 'tabler:template',        text: 'text-indigo-400',  bg: 'bg-indigo-500/10',  border: 'border-indigo-500/20' },
-  { value: 'convention',   label: 'Convention',   icon: 'tabler:ruler-2',         text: 'text-sky-400',     bg: 'bg-sky-500/10',     border: 'border-sky-500/20' },
-  { value: 'learning',     label: 'Learning',     icon: 'tabler:bulb',            text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
-  { value: 'anti_pattern', label: 'Anti-pattern', icon: 'tabler:alert-triangle',  text: 'text-rose-400',    bg: 'bg-rose-500/10',    border: 'border-rose-500/20' },
+  { value: 'pattern',      label: 'Pattern',      icon: 'tabler:template',        text: 'text-help-400',    bg: 'bg-help-500/10',    border: 'border-help-500/20' },
+  { value: 'convention',   label: 'Convention',   icon: 'tabler:ruler-2',         text: 'text-info-400',    bg: 'bg-info-500/10',    border: 'border-info-500/20' },
+  { value: 'learning',     label: 'Learning',     icon: 'tabler:bulb',            text: 'text-success-400', bg: 'bg-success-500/10', border: 'border-success-500/20' },
+  { value: 'anti_pattern', label: 'Anti-pattern', icon: 'tabler:alert-triangle',  text: 'text-danger-400',  bg: 'bg-danger-500/10',  border: 'border-danger-500/20' },
 ] as const
 
 export type NodeTypeMeta = typeof NODE_TYPES[number]

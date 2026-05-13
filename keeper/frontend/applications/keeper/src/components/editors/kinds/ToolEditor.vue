@@ -128,7 +128,7 @@ const availableTabs = computed(() => {
               <div class="flex items-center gap-2">
                 <span class="text-[11px] font-mono font-medium" style="color: var(--p-text-color)">{{ prop.name }}</span>
                 <span class="text-[8px] px-1 rounded font-mono" :style="{ background: typeColor(prop.type) + '20', color: typeColor(prop.type) }">{{ prop.type }}</span>
-                <span v-if="prop.required" class="text-[8px] px-1 rounded" style="background: rgba(248,113,113,0.15); color: var(--p-danger-500)">required</span>
+                <span v-if="prop.required" class="text-[8px] px-1 rounded" :style="{ background: 'color-mix(in srgb, var(--p-danger-500) 15%, transparent)', color: 'var(--p-danger-500)' }">required</span>
               </div>
               <div v-if="prop.description" class="text-[9px] mt-0.5" style="color: var(--p-text-muted-color)">{{ prop.description }}</div>
               <div class="flex gap-3 mt-0.5 text-[9px]">

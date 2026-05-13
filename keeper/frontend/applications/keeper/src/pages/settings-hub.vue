@@ -98,8 +98,14 @@ function timeAgo(s: string | undefined): string {
 
 function looksSecret() { return false }
 
+// Decorative palette — purely categorical, no semantic meaning. Hash-based
+// stable hue so cards in the same module family share a tint. Per
+// theming.md §"Semantic vs decorative — the inverse rule", random-hash →
+// color is exactly the decorative pattern; severity tokens would be a
+// category lie ("danger" doesn't mean module X). 70% sat / 56% lightness
+// stays mid-luminance enough to be visible on both `#ffffff` and `#1c1a19`
+// page backgrounds.
 function moduleAccent(m: HubModule): string {
-  // Pick a stable hue per org+name so cards in the same family share a tint.
   const s = (m.full_name || m.name || m.id) as string
   let hash = 0
   for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) | 0

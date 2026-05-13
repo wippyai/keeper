@@ -51,5 +51,5 @@
 }
 
 .monaco-status.error {
-  color: var(--p-red-500, #ef4444);
+  color: var(--p-danger-color);
 }

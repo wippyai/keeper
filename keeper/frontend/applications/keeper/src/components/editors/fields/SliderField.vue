@@ -37,6 +37,6 @@ function display(): string {
 .sl-val {
   font-size: 10px; font-family: monospace; color: var(--p-primary-color);
   min-width: 32px; text-align: right; padding: 1px 4px; border-radius: 3px;
-  background: rgba(245,158,11,0.1);
+  background: color-mix(in srgb, var(--p-primary-color) 10%, transparent);
 }
 </style>

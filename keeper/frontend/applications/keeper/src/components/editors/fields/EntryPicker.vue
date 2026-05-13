@@ -168,6 +168,6 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--p-content-border-color);
 }
 .ep-item:hover { background: var(--p-surface-100); }
-.ep-item--selected { background: rgba(245,158,11,0.05); }
+.ep-item--selected { background: color-mix(in srgb, var(--p-primary-color) 8%, transparent); }
 .ep-empty { padding: 16px; text-align: center; font-size: 11px; color: var(--p-text-muted-color); display: flex; align-items: center; justify-content: center; gap: 6px; }
 </style>

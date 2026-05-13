@@ -247,19 +247,23 @@ async function saveManagedNamespaces() {
 const maxNsCount = computed(() => Math.max(1, ...topNamespaces.value.map(n => n.count)))
 const maxKindCount = computed(() => Math.max(1, ...kindCounts.value.map(k => k.count)))
 
+// Decorative palette — purely categorical, no semantic meaning. Visually
+// distinguishes registry kinds (function.lua / library.lua / http.endpoint /
+// ns.requirement / …). Raw hex on purpose so chart colors stay stable when
+// the brand re-tints `--p-primary` or any severity token. Per theming.md
+// §"Semantic vs decorative — the inverse rule": don't force severity tokens
+// into purely decorative contexts.
 const KIND_COLORS = [
-  'var(--p-primary-500)',
-  'var(--p-success-500)',
-  'var(--p-warn-500)',
-  'var(--p-info-500)',
-  'var(--p-danger-500)',
-  'var(--p-accent-500)',
-  '#a855f7',
-  '#06b6d4',
-  '#f97316',
-  '#84cc16',
-  '#ec4899',
-  '#14b8a6',
+  '#f59e0b', // amber
+  '#10b981', // emerald
+  '#f97316', // orange
+  '#0ea5e9', // sky
+  '#ef4444', // red
+  '#14b8a6', // teal
+  '#a855f7', // purple
+  '#06b6d4', // cyan
+  '#84cc16', // lime
+  '#ec4899', // pink
 ]
 function kindColor(idx: number): string { return KIND_COLORS[idx % KIND_COLORS.length] }
 

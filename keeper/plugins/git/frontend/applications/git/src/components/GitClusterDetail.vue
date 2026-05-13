@@ -46,8 +46,8 @@ const emit = defineEmits<{
 
       <!-- verdict band -->
       <div class="rounded-lg p-3 mb-4 flex items-center gap-3"
-        :style="{ background: verdictTone[cluster.verdict as Verdict].color + '12',
-                  border: '1px solid ' + verdictTone[cluster.verdict as Verdict].color + '33' }">
+        :style="{ background: verdictTone[cluster.verdict as Verdict].bg,
+                  border: '1px solid ' + verdictTone[cluster.verdict as Verdict].border }">
         <Icon :icon="verdictTone[cluster.verdict as Verdict].icon" class="w-5 h-5"
           :style="{ color: verdictTone[cluster.verdict as Verdict].color }" />
         <div>
@@ -103,7 +103,7 @@ const emit = defineEmits<{
               </div>
             </div>
             <span class="text-[9px] font-semibold uppercase px-1 py-0.5 rounded shrink-0"
-              :style="{ background: recStateTone[r.state as RecState].color + '22',
+              :style="{ background: recStateTone[r.state as RecState].bg,
                         color: recStateTone[r.state as RecState].color }">
               {{ recStateTone[r.state as RecState].label }}
             </span>
