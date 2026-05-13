@@ -119,8 +119,9 @@ src/
 ### Git plugin FE map
 
 `keeper/plugins/git/frontend/applications/git/`
-- Same shape as keeper but tiny: `src/{app,app.ts,composables,constants.ts,pages/git.vue,router,styles.css,tailwind.css,types.ts}`
-- 2 .vue files total. No `api/` directory (uses inline calls), no `components/` directory.
+- Same shape as keeper but tiny: `src/{app,app.ts,components,composables,constants.ts,pages/git.vue,router,styles.css,tailwind.css,tones.ts,types.ts}`
+- `components/`: 6 split components (`GitHeader`, `GitClusterList`, `GitClusterDetail`, `GitPushConfirmModal`, `GitSplitModal`, `GitDiffModal`) extracted from `pages/git.vue` (702 → 279 LOC). `tones.ts` holds shared importance/verdict/sev/recState lookup tables consumed by list + detail.
+- No `api/` directory (uses inline calls via composables/useGit).
 - `vite.config.ts` `base: '/app/keeper-git/'`, externals: `vue`, `vue-router`, `@iconify/vue`, `@wippy-fe/proxy`, `axios` (note: **no `pinia`** in externals)
 - `package.json` peerDependencies includes `vue-router` but not `pinia` — confirm the app doesn't use pinia
 - `wippy.proxy.injections.css` is **missing `markdown: true`** vs keeper main (intentional or oversight — flag in Phase 1)
