@@ -91,17 +91,16 @@ html, body, #app {
 .sort-select { height: 26px; padding: 0 6px 0 10px; font-size: 11px; line-height: 1.4; }
 
 .keeper-nav-btn {
-  color: var(--p-text-muted-color);
-  background: none;
-  border: none;
+  color: var(--p-text-color);
+  font-weight: 500;
+  background: transparent;
+  border: 1px solid transparent;
   cursor: pointer;
 }
 .keeper-nav-btn:hover {
-  color: var(--p-text-color);
-  background: var(--kp-hover-bg);
+  background: var(--p-surface-100);
 }
 .keeper-nav-btn.active {
-  color: var(--p-primary-color) !important;
-  background: color-mix(in srgb, var(--p-primary-color) 10%, transparent);
-  font-weight: 500;
+  background: var(--p-surface-100);
+  color: var(--p-primary-color);
 }
