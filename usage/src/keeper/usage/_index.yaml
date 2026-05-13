@@ -34,6 +34,46 @@ entries:
       - entry: keeper.usage.api:get_usage_by_user.endpoint
         path: .meta.router
 
+  # keeper.usage:ui_static_fs
+  - name: ui_static_fs
+    kind: fs.directory
+    meta:
+      comment: Compiled Keeper Usage UI bundle published with the module
+      description: Runtime-only static files for /app/keeper-usage. Source remains in ./frontend and is not embedded in published packages.
+    auto_init: false
+    base: module
+    directory: ./static/keeper-usage
+    mode: "0755"
+
+  # keeper.usage:ui_static
+  - name: ui_static
+    kind: http.static
+    meta:
+      comment: Serves the compiled Keeper Usage UI bundle
+      server: app:gateway
+    fs: ui_static_fs
+    middleware:
+      - cors
+    options:
+      allow_headers: Authorization,Content-Type
+      allow_methods: '*'
+      allow_origins: '*'
+      mime_types:
+        .css: text/css
+        .html: text/html
+        .js: application/javascript
+    path: /app/keeper-usage
+
+  # keeper.usage:ui_server
+  - name: ui_server
+    kind: ns.requirement
+    meta:
+      description: HTTP service used to serve the compiled Keeper Usage UI assets
+    default: app:gateway
+    targets:
+      - entry: keeper.usage:ui_static
+        path: .meta.server
+
   # keeper.usage:dep.wippy.usage
   - name: dep.wippy.usage
     kind: ns.dependency

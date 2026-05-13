@@ -13,3 +13,5 @@ keywords:
 exclude_meta:
   type:
     - test
+embed:
+  - "ui_static_fs"

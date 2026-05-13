@@ -65,6 +65,7 @@ const BUILD_APPS = [
 const LIVE_APPS = [
   { id: 'keeper-main', path: '/c/keeper:main' },
   { id: 'keeper-git',  path: '/c/keeper.git:main' },
+  { id: 'usage',       path: '/c/keeper.usage:main' },
 ]
 
 const COLOR = {
