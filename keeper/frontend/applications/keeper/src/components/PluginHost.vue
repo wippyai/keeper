@@ -19,7 +19,7 @@ function resolveOrigin(): string {
   try {
     const parentOrigin = window.parent?.location?.origin
     if (parentOrigin && parentOrigin !== 'null') return parentOrigin
-  } catch {}
+  } catch { /* cross-origin parent — fall through to empty origin */ }
   return ''
 }
 
@@ -51,7 +51,7 @@ function onMessage(event: MessageEvent) {
         }), '*')
       })
     }
-  } catch {}
+  } catch { /* malformed postMessage from plugin iframe — drop silently */ }
 }
 
 onMounted(() => {

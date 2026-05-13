@@ -26,7 +26,7 @@ async function fetchLogCounters() {
       errorCount.value = data.stats.counters.error || 0
       warnCount.value = data.stats.counters.warn || 0
     }
-  } catch {}
+  } catch { /* counter badge is best-effort; leave the last-known value */ }
 }
 
 interface NavItem { path: string; name: string; label: string; icon: string }
@@ -87,7 +87,7 @@ async function discoverPlugins() {
         icon: p.icon || 'tabler:puzzle',
         group: p.group || 'develop',
       } as NavItem & { group: string }))
-  } catch {}
+  } catch { /* plugin discovery is opportunistic — empty nav on failure is acceptable */ }
 }
 
 const observeItems = computed<NavItem[]>(() => [
@@ -137,7 +137,7 @@ async function fetchMe() {
     if (data.success && data.user) {
       currentUser.value = { email: data.user.email, full_name: data.user.full_name }
     }
-  } catch {}
+  } catch { /* user header is cosmetic — anonymous fallback is fine */ }
 }
 
 interface AgentInfo {
@@ -156,7 +156,7 @@ async function fetchAgents() {
   try {
     const { data } = await api.get('/api/v1/keeper/agents/list', { params: { public_only: true } })
     publicAgents.value = data.agents || []
-  } catch {}
+  } catch { /* public-agents quick-launch is optional — empty menu on failure */ }
 }
 
 function startAgent(token: string) {
@@ -330,7 +330,7 @@ watch(() => route.fullPath, () => {
     if (route.query.entry) ctx.selected_entry = route.query.entry
     if (route.query.ns) ctx.namespace = route.query.ns
     host.setContext(ctx)
-  } catch {}
+  } catch { /* host.setContext is a best-effort hint to the parent shell */ }
 })
 
 function onClickOutside(e: MouseEvent) {

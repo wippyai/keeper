@@ -141,7 +141,7 @@ async function fetchMe() {
     if (data?.success && data.user) {
       currentUser.value = { email: data.user.email, full_name: data.user.full_name }
     }
-  } catch {}
+  } catch { /* greeting falls back to anonymous on failure */ }
 }
 
 const systemHealth = computed<'good' | 'warn' | 'bad'>(() => {

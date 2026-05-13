@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
-import { useApi, useWippy } from '../composables/useWippy'
+import { useApi, useHost, useWippy } from '../composables/useWippy'
 import DiffViewer from '../components/DiffViewer.vue'
 import {
   listChangesets, getChangeset, createChangeset,
@@ -20,6 +20,7 @@ import {
 import PluginHost from '../components/PluginHost.vue'
 
 const api = useApi()
+const host = useHost()
 const instance = useWippy()
 const route = useRoute()
 const router = useRouter()
@@ -182,7 +183,14 @@ async function selectById(id: string) {
   try {
     const res = await getChangeset(api, id)
     if (res.changeset) { await selectChangeset(res.changeset) }
-  } catch {}
+  } catch (e: unknown) {
+    host.toast({
+      severity: 'error',
+      summary: 'Changeset not found',
+      detail: e instanceof Error ? e.message : `Could not load changeset ${id}`,
+      life: 4000,
+    })
+  }
 }
 
 watch(() => route.query.id, (id) => {

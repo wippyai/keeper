@@ -211,7 +211,7 @@ onMounted(async () => {
   try {
     const { data } = await api.get('/api/v1/keeper/tasks/stats')
     if (data && data.success !== false) stats.value = data
-  } catch {}
+  } catch { /* stats overview is cosmetic — leave at last-known value */ }
 })
 
 onUnmounted(() => {
