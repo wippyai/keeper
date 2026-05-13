@@ -263,7 +263,7 @@ onMounted(() => {
           <div v-for="m in models" :key="m.model_id" class="breakdown-row">
             <div class="flex items-center gap-2 min-w-0 flex-1">
               <span class="font-mono text-[11px] truncate" style="color: var(--p-text-color)">{{ shortModel(m.model_id) }}</span>
-              <span class="text-[9px] px-1.5 py-0.5 rounded" style="background: var(--p-surface-200); color: var(--p-text-muted-color)">{{ m.percentage }}%</span>
+              <span class="text-[9px] px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--p-text-color) 10%, transparent); color: var(--p-text-muted-color)">{{ m.percentage }}%</span>
             </div>
             <div class="breakdown-bar-container">
               <div class="breakdown-bar" style="background: var(--p-primary-color)" :style="{ width: m.percentage + '%' }" />
@@ -287,7 +287,7 @@ onMounted(() => {
             <div class="flex items-center gap-2 min-w-0 flex-1">
               <Icon icon="tabler:user" class="w-3.5 h-3.5 shrink-0" style="color: var(--p-text-muted-color)" />
               <span class="text-[11px] truncate" style="color: var(--p-text-color)">{{ userDisplay(u.user_id) }}</span>
-              <span class="text-[9px] px-1.5 py-0.5 rounded" style="background: var(--p-surface-200); color: var(--p-text-muted-color)">{{ u.percentage }}%</span>
+              <span class="text-[9px] px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--p-text-color) 10%, transparent); color: var(--p-text-muted-color)">{{ u.percentage }}%</span>
             </div>
             <div class="breakdown-bar-container">
               <div class="breakdown-bar bg-accent-500" :style="{ width: u.percentage + '%' }" />
@@ -310,32 +310,41 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* Local aliases — usage doesn't ship configOverrides, so we derive elevation
+   and chip backgrounds from the semantic vars the proxy injects via theme-
+   config.css. This keeps the cards usable in both dark and light without
+   inheriting the proxy's surface-100/200 (which stay light-grey in dark mode). */
+:where(.breakdown-list, .stat-card, .stat-card-sm, .period-btn, .date-input, .breakdown-bar-container) {
+  --usage-elevated: color-mix(in srgb, var(--p-content-background) 92%, var(--p-text-color) 8%);
+  --usage-chip: color-mix(in srgb, var(--p-text-color) 10%, transparent);
+}
+
 .period-btn {
   padding: 4px 12px; border-radius: 4px; font-size: 11px;
-  background: var(--p-surface-100); color: var(--p-text-muted-color);
+  background: var(--usage-elevated); color: var(--p-text-muted-color);
   border: 1px solid transparent;
 }
-.period-btn:hover { background: var(--p-surface-200); }
+.period-btn:hover { background: var(--p-content-hover-background); }
 .period-btn.active {
   background: var(--p-primary-color); color: var(--p-primary-contrast-color); font-weight: 600;
 }
 
 .date-input {
   padding: 3px 8px; border-radius: 4px; font-size: 11px;
-  background: var(--p-surface-100); color: var(--p-text-color);
+  background: var(--usage-elevated); color: var(--p-text-color);
   border: 1px solid var(--p-content-border-color); outline: none;
 }
 .date-input:focus { border-color: var(--p-primary-color); }
 
 .stat-card {
-  background: var(--p-surface-100); border-radius: 8px; padding: 12px 14px;
+  background: var(--usage-elevated); border-radius: 8px; padding: 12px 14px;
 }
 .stat-label { font-size: 10px; color: var(--p-text-muted-color); margin-bottom: 4px; }
 .stat-value { font-size: 18px; font-weight: 700; color: var(--p-text-color); font-variant-numeric: tabular-nums; }
 .stat-sub { font-size: 10px; color: var(--p-text-muted-color); margin-top: 2px; }
 
 .stat-card-sm {
-  background: var(--p-surface-100); border-radius: 6px; padding: 8px 12px;
+  background: var(--usage-elevated); border-radius: 6px; padding: 8px 12px;
 }
 .stat-value-sm { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
@@ -345,14 +354,14 @@ onMounted(() => {
 }
 
 .breakdown-list {
-  background: var(--p-surface-100); border-radius: 8px; padding: 4px 0;
+  background: var(--usage-elevated); border-radius: 8px; padding: 4px 0;
 }
 .breakdown-row {
   display: flex; align-items: center; gap: 10px; padding: 6px 12px;
 }
-.breakdown-row:hover { background: var(--p-surface-200); }
+.breakdown-row:hover { background: var(--p-content-hover-background); }
 .breakdown-bar-container {
-  width: 80px; height: 6px; background: var(--p-surface-200);
+  width: 80px; height: 6px; background: var(--usage-chip);
   border-radius: 3px; overflow: hidden; flex-shrink: 0;
 }
 .breakdown-bar { height: 100%; border-radius: 3px; min-width: 2px; }
