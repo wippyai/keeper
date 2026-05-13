@@ -53,6 +53,8 @@ export default defineConfig({
         '@iconify/vue',
         '@wippy-fe/proxy',
         'axios',
+        // NOTE: @wippy-fe/router is intentionally NOT external — see the
+        // matching comment in keeper-main's vite.config.ts.
       ],
       output: {
         entryFileNames: '[name].js',

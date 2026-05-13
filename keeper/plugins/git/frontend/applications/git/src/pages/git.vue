@@ -127,7 +127,9 @@ async function bulkPush() {
   try {
     const res = await git.pushApproved(ids)
     confirmPushOpen.value = false
-    showToast(`Pushed ${res.pushed} of ${res.pushed + res.failed} clusters`, 'success')
+    const total = res.pushed + res.failed
+    const severity = res.failed > 0 ? 'error' : 'success'
+    showToast(`Pushed ${res.pushed} of ${total} clusters`, severity)
   } catch (e: unknown) {
     showToast(errorMessage(e) || 'push failed', 'error')
   }

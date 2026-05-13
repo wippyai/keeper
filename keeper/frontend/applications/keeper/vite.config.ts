@@ -68,6 +68,11 @@ export default defineConfig({
         'luxon',
         '@wippy-fe/proxy',
         'axios',
+        // NOTE: @wippy-fe/router is intentionally NOT external — the host's
+        // importmap doesn't ship a mapping for it (only @wippy-fe/proxy +
+        // standard libs). Externalizing it makes the bundle throw
+        // `Failed to resolve module specifier "@wippy-fe/router"` at runtime.
+        // The factory is small (~3 kB) so inlining is acceptable.
       ],
       output: {
         entryFileNames: '[name].js',
