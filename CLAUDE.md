@@ -94,7 +94,7 @@ src/
 ├── app/app.vue       # root: header w/ dropdown nav, search overlay, <router-view />
 ├── constants.ts      # InjectionKey symbols: HOST_API, AXIOS_INSTANCE, WIPPY_INSTANCE, WIPPY_CONFIG, ON_SUBSCRIPTION
 ├── types.ts          # HostApi / ProxyApiInstance / WippyConfig from `Awaited<ReturnType<...>>`
-├── router/index.ts   # createMemoryHistory + history.replace(initialPath), afterEach calls host.onRouteChanged + persists @keeper/last-route, on('@history') listener, also a window 'message' listener for cmd-navigate
+├── router/index.ts   # @wippy-fe/router createAppRouter factory (handles createMemoryHistory + initial-path replace + host.onRouteChanged + @history listener with navId echo suppression) + a bespoke window 'message' cmd-navigate listener
 ├── composables/
 │   ├── useWippy.ts   # useHost / useApi / useWippy / useOn / useConfig
 │   └── useUserProvider.ts
@@ -154,12 +154,11 @@ src/
 - Keeper main app uses **dropdown-style nav in `app.vue`**, not a sidebar — diverges visually from the app-template main app, but that is by design (compact operator console). Don't "fix" this in compliance review.
 - Keeper main app **does NOT** use:
   - PrimeVue (`PrimeVuePlugin` is not registered in `app.ts`) — it uses raw HTML buttons, custom CSS dropdowns, custom icons via `@iconify/vue`
-  - `@wippy-fe/router`
-  - `@wippy-fe/pinia-persist` (it does use pinia + custom localStorage for `@keeper/last-route` and `@keeper/theme`)
+  - `@wippy-fe/pinia-persist` (it does use pinia + custom localStorage for `@keeper/theme`)
   - TanStack Query
 - Keeper FE **inlines all CSS into the built HTML** via a custom `inlineCssPlugin` in `vite.config.ts` (so the published static folder is a single self-contained app). The git plugin does the same trick.
 - `vite.config.ts` `base` is `/app/keeper/` and `/app/keeper-git/` — these are served by the host's UI server requirement (`keeper:ui_server`). Empty-string base from app-guide does **not** apply here because keeper apps live at known fixed mount points.
-- `app.ts` reads route from THREE places in priority: `config.context.route` → parent window URL → `localStorage('@keeper/last-route')`. The app-template version only reads `config.context.route || config.path`. Keeper's extra logic is intentional (works for full-page reloads when host hasn't sent route yet).
+- `app.ts` reads route from `config.context.route` only (gen-2-chat's `loadWebPageByPackageJson` reliably populates it from the URL sub-path including query string — verified live). No localStorage / parent-URL fallbacks.
 - Theme override: keeper supports `?theme=light|dark` URL param + `@keeper/theme` localStorage. Custom and not in app-template.
 - Hub flow: see `README.md` "Hub Flow". Install planning is required before install — UI must surface the requirement list.
 - `keeper:*` namespace requirements (api_router, app_db, admin_scope, env_storage, public_gateway, mcp_route, ui_server, process_host) — read from `wippy.yaml`, not hardcoded.

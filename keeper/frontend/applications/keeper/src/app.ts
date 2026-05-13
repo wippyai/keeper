@@ -62,39 +62,10 @@ export async function createKeeperApp() {
   let on: OnSubscription | null = null
   try { on = await window.$W.on() } catch {}
 
-  // Resolve the initial route in priority order so reloads land on the
-  // page the user was on, not the dashboard.
-  //
-  //  1. config.context.route — the host's hint, when present
-  //  2. parent window URL — wippy iframes are same-origin, we can read
-  //     the outer /c/<entry>/<inner> path off it
-  //  3. localStorage — last route the SPA persisted via afterEach
-  //  4. /
-  const KEEPER_LAST_ROUTE = '@keeper/last-route'
-  let resolvedRoute: string | undefined = config.context?.route
-
-  let parentSearch = ''
-  try { parentSearch = window.parent.location.search || '' } catch {}
-
-  if (!resolvedRoute || resolvedRoute === '/') {
-    try {
-      const parentPath = window.parent.location.pathname
-      const m = parentPath.match(/^\/c\/[^/]+\/(.*)$/)
-      if (m && m[1]) resolvedRoute = '/' + m[1]
-    } catch {}
-  }
-  if (resolvedRoute && !resolvedRoute.includes('?') && parentSearch) {
-    resolvedRoute = resolvedRoute + parentSearch
-  }
-  if (!resolvedRoute || resolvedRoute === '/') {
-    try {
-      const stored = localStorage.getItem(KEEPER_LAST_ROUTE)
-      if (stored) resolvedRoute = stored
-    } catch {}
-  }
-  const initialPath = resolvedRoute
-    ? (resolvedRoute.startsWith('/') ? resolvedRoute : '/' + resolvedRoute)
-    : '/'
+  // gen-2-chat's loadWebPageByPackageJson passes the URL sub-path (including
+  // query string) as config.context.route — verified live across deep links
+  // and bare-entry cases. No localStorage / parent-URL fallback needed.
+  const initialPath = config.context?.route || '/'
 
   // 0.0.28 moved iframe-level customization off `config.customization` onto
   // `config.theming.global` (the host's theming snapshot). Read both `icons`
