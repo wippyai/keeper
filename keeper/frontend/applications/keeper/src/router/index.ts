@@ -177,7 +177,23 @@ export function createAppRouter(host: HostApi, on: OnSubscription | null, initia
   // Bespoke afterEach — persists the last route to localStorage so a full
   // page reload (when the host hasn't sent a route hint yet) can resume
   // where the user was. Coexists with the factory's afterEach.
+  // TODO(investigate): the triple-source initial-path resolution
+  // (config.context.route → parent URL → localStorage) predates the host
+  // reliably echoing config.context.route on reload. If the host now
+  // always sends it, this localStorage shim can be dropped entirely.
+  // ID-bearing routes are filtered out so that a reload after viewing a
+  // since-deleted entity (session/dataflow/task/changeset/hub module)
+  // doesn't 404 — we resume the parent list page instead.
+  const idBearingRoutes = new Set([
+    'session-detail',
+    'dataflow-detail',
+    'plugin',
+    'settings-hub-module',
+    'task-detail',
+    'changes-detail',
+  ])
   router.afterEach((to) => {
+    if (typeof to.name === 'string' && idBearingRoutes.has(to.name)) return
     try { localStorage.setItem('@keeper/last-route', to.fullPath) } catch {}
   })
 

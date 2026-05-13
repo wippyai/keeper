@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { Icon } from '@iconify/vue'
-import { useApi, useWippy } from '../composables/useWippy'
+import { useApi, useHost, useWippy } from '../composables/useWippy'
 import { useGit, type ClusterSummary, type ClusterFull, type ClusterChange, type Decision, type Importance, type Verdict, type Severity, type RecState, type FileDiff, type SplitGroup } from '../composables/useGit'
 
 const api = useApi()
+const host = useHost()
 const instance = useWippy()
 const git = useGit(api, instance)
 
@@ -13,7 +14,6 @@ const filter = ref<Filter>('all')
 const selectedId = ref<string | null>(null)
 const expandedRecs = ref(true)
 const confirmPushOpen = ref(false)
-const toast = ref<string | null>(null)
 
 type SelectedCluster = ClusterSummary & Partial<Pick<ClusterFull, 'change_ids' | 'changes' | 'changeset_ids' | 'primary_changeset_id' | 'is_suspect' | 'recommendations'>>
 
@@ -40,7 +40,7 @@ watch(() => git.snapshot.value?.clusters?.length, () => {
 
 watch(selectedId, async (id) => {
   if (!id) { git.detail.value = null; return }
-  try { await git.loadCluster(id) } catch (e: unknown) { showToast(errorMessage(e) || 'failed to load cluster') }
+  try { await git.loadCluster(id) } catch (e: unknown) { showToast(errorMessage(e) || 'failed to load cluster', 'error') }
 })
 
 const visibleClusters = computed<ClusterSummary[]>(() => {
@@ -96,29 +96,28 @@ const recStateTone: Record<RecState, { color: string; label: string; icon: strin
   split:        { color: 'var(--p-text-muted-color)', label: 'split off',    icon: 'tabler:arrow-split' },
 }
 
-function showToast(msg: string) {
-  toast.value = msg
-  setTimeout(() => { if (toast.value === msg) toast.value = null }, 4000)
+function showToast(msg: string, severity: 'info' | 'success' | 'error' = 'info') {
+  host.toast({ severity, summary: msg, life: 4000 })
 }
 
 function fmtChanges(n: number) { return n + ' change' + (n === 1 ? '' : 's') }
 
 async function decide(id: string, decision: Decision) {
   try { await git.setDecision(id, decision) }
-  catch (e: unknown) { showToast(errorMessage(e) || 'failed') }
+  catch (e: unknown) { showToast(errorMessage(e) || 'failed', 'error') }
 }
 
 async function ackRec(rid: string, state: RecState) {
   if (!selectedCluster.value) return
   try { await git.updateRecommendation(selectedCluster.value.id, rid, state) }
-  catch (e: unknown) { showToast(errorMessage(e) || 'failed') }
+  catch (e: unknown) { showToast(errorMessage(e) || 'failed', 'error') }
 }
 
 const syncFirst = ref(false)
 
 async function rebuild(mode: 'manual' | 'ai' = 'ai') {
   try { await git.rebuild({ mode, sync_first: syncFirst.value }) }
-  catch (e: unknown) { showToast(errorMessage(e) || 'rebuild failed') }
+  catch (e: unknown) { showToast(errorMessage(e) || 'rebuild failed', 'error') }
 }
 
 async function bulkPush() {
@@ -128,9 +127,9 @@ async function bulkPush() {
   try {
     const res = await git.pushApproved(ids)
     confirmPushOpen.value = false
-    showToast(`Pushed ${res.pushed} of ${res.pushed + res.failed} clusters`)
+    showToast(`Pushed ${res.pushed} of ${res.pushed + res.failed} clusters`, 'success')
   } catch (e: unknown) {
-    showToast(errorMessage(e) || 'push failed')
+    showToast(errorMessage(e) || 'push failed', 'error')
   }
 }
 
@@ -149,7 +148,7 @@ async function openDiff(path: string) {
   diffData.value = null
   diffLoading.value = true
   try { diffData.value = await git.fetchDiff(path) }
-  catch (e: unknown) { showToast(errorMessage(e) || 'diff failed') }
+  catch (e: unknown) { showToast(errorMessage(e) || 'diff failed', 'error') }
   finally { diffLoading.value = false }
 }
 function closeDiff() { diffPath.value = null; diffData.value = null }
@@ -175,7 +174,7 @@ async function loadSplitProposal() {
     const r = await git.suggestSplit(selectedCluster.value.id, { mode: splitMode.value })
     splitGroups.value = r.groups || []
   } catch (e: unknown) {
-    showToast(errorMessage(e) || 'split suggestion failed')
+    showToast(errorMessage(e) || 'split suggestion failed', 'error')
   } finally {
     splitLoading.value = false
   }
@@ -188,9 +187,9 @@ async function applySplit() {
     if (groups.length < 2) throw new Error('need at least 2 non-empty groups to split')
     await git.splitCluster(selectedCluster.value.id, groups)
     splitOpen.value = false
-    showToast(`Split into ${groups.length} clusters`)
+    showToast(`Split into ${groups.length} clusters`, 'success')
   } catch (e: unknown) {
-    showToast(errorMessage(e) || 'split apply failed')
+    showToast(errorMessage(e) || 'split apply failed', 'error')
   } finally {
     splitApplying.value = false
   }
@@ -215,7 +214,7 @@ async function explainRec(recId: string) {
     const r = await git.explainRecommendation(selectedCluster.value.id, recId)
     if (r.text) explanations.value[recId] = r.text
   } catch (e: unknown) {
-    showToast(errorMessage(e) || 'explain failed')
+    showToast(errorMessage(e) || 'explain failed', 'error')
   } finally {
     explaining.value = null
   }
@@ -697,10 +696,5 @@ async function explainRec(recId: string) {
       </aside>
     </div>
 
-    <div v-if="toast"
-      class="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg shadow-lg text-[12px]"
-      style="background: var(--p-surface-0); border: 1px solid var(--p-content-border-color)">
-      {{ toast }}
-    </div>
   </div>
 </template>

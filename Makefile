@@ -1,4 +1,4 @@
-.PHONY: lint lint-keeper lint-usage build build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend build-usage-frontend smoke publish-dry-run publish-keeper-dry-run publish-usage-dry-run publish publish-keeper publish-usage
+.PHONY: lint lint-keeper lint-usage build build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend build-usage-frontend clean-static dev dev-keeper dev-keeper-git dev-wippy-monaco dev-usage smoke publish-dry-run publish-keeper-dry-run publish-usage-dry-run publish publish-keeper publish-usage
 
 WIPPY ?= wippy
 
@@ -27,6 +27,29 @@ build-usage-frontend:
 
 # Aggregator — builds every FE app + the monaco WC. `make smoke` depends on this.
 build: build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend build-usage-frontend
+
+# Nuke all built FE artifacts. Forces the next `make build` to rebuild from
+# scratch — useful when a stale chunk hash or hoisted asset stops a fix from
+# landing in the live bundle.
+clean-static:
+	rm -rf keeper/static/keeper keeper/static/keeper-git keeper/static/wippy-monaco usage/static/keeper-usage
+
+# Watch-mode dev builds. Vite writes into the same static/ outDir as `build`,
+# so the running wippy server picks up the freshly emitted files on every
+# save. `make dev` aliases the most common entry — the main keeper FE.
+dev: dev-keeper
+
+dev-keeper:
+	cd keeper/frontend/applications/keeper && npm install --no-audit --no-fund --prefer-offline && npm run dev -- --outDir ../../../static/keeper
+
+dev-keeper-git:
+	cd keeper/plugins/git/frontend/applications/git && npm install --no-audit --no-fund --prefer-offline && npm run dev -- --outDir ../../../../../static/keeper-git
+
+dev-wippy-monaco:
+	cd keeper/frontend/web-components/wippy-monaco && npm install --no-audit --no-fund --prefer-offline && npm run dev -- --outDir ../../../static/wippy-monaco
+
+dev-usage:
+	cd usage/frontend/applications/usage && npm install --no-audit --no-fund --prefer-offline && npm run dev -- --outDir ../../../static/keeper-usage
 
 # Headless-browser smoke against the keeper-test harness on $(BASE_URL).
 # Phase 1 verifies dist/app.html exists for each app; phase 2 logs into

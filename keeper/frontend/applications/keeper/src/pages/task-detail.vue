@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
-import { useApi, useWippy } from '../composables/useWippy'
+import { useApi, useHost, useWippy } from '../composables/useWippy'
 import {
   getTask, listTaskNodes, startCycle, syncResearch,
   type Task, type TaskStats, type TaskNode,
@@ -12,6 +12,7 @@ import MarkdownContent from '../components/shared/MarkdownContent.vue'
 const route = useRoute()
 const router = useRouter()
 const api = useApi()
+const host = useHost()
 const instance = useWippy()
 
 const taskId = computed(() => route.params.id as string)
@@ -94,7 +95,12 @@ async function handleStartCycle(autoApprove = false) {
 
 async function handleCancel() {
   if (!task.value) return
-  if (!confirm('Cancel this task? Active dataflows will be terminated and the changeset dropped.')) return
+  if (!await host.confirm({
+    header: 'Cancel task',
+    message: 'Active dataflows will be terminated and the changeset dropped.',
+    icon: 'pi pi-exclamation-triangle',
+    acceptClass: 'p-button-danger',
+  })) return
   cancelling.value = true; error.value = null
   try {
     await api.put(`/api/v1/keeper/tasks/${task.value.task_id}`, { status: 'abandoned' })

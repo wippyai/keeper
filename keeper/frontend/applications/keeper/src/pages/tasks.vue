@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
-import { useApi, useWippy } from '../composables/useWippy'
+import { useApi, useHost, useWippy } from '../composables/useWippy'
 import {
   listTasks, createTask, startCycle, archiveTask,
   type Task,
@@ -10,6 +10,7 @@ import {
 
 const router = useRouter()
 const api = useApi()
+const host = useHost()
 const instance = useWippy()
 
 const designs = ref<Task[]>([])
@@ -100,7 +101,12 @@ async function handleStart(d: Task) {
 }
 
 async function handleAbandon(d: Task) {
-  if (!confirm(`Cancel "${d.title}"? This abandons the task, drops its changeset, and stops all running phases.`)) return
+  if (!await host.confirm({
+    header: 'Cancel task',
+    message: `Cancel "${d.title}"? This abandons the task, drops its changeset, and stops all running phases.`,
+    icon: 'pi pi-exclamation-triangle',
+    acceptClass: 'p-button-danger',
+  })) return
   abandoning.value = d.task_id; error.value = null
   try {
     await api.put(`/api/v1/keeper/tasks/${d.task_id}`, { status: 'abandoned' })

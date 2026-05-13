@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
-import { useApi, useWippy } from '../composables/useWippy'
+import { useApi, useHost, useWippy } from '../composables/useWippy'
 import {
   listKBs, createKB, deleteKB,
   listNodes, createNode, updateNode, deleteNode,
@@ -16,6 +16,7 @@ import MarkdownContent from '../components/shared/MarkdownContent.vue'
 
 const router = useRouter()
 const api = useApi()
+const host = useHost()
 const instance = useWippy()
 
 const kbs = ref<KB[]>([])
@@ -128,7 +129,12 @@ async function doCreateKB() {
 }
 
 async function doDeleteKB(kb: KB) {
-  if (!confirm(`Delete knowledge base "${kb.name}" and ALL its ${kb.node_count} nodes?`)) return
+  if (!await host.confirm({
+    header: 'Delete knowledge base',
+    message: `Delete "${kb.name}" and ALL its ${kb.node_count} nodes?`,
+    icon: 'pi pi-exclamation-triangle',
+    acceptClass: 'p-button-danger',
+  })) return
   try {
     await deleteKB(api, kb.id)
     if (selectedKB.value === kb.name) selectedKB.value = ''
@@ -268,7 +274,12 @@ async function doSave() {
 
 async function doDelete() {
   if (!selectedNode.value) return
-  if (!confirm('Delete "' + selectedNode.value.title + '"?')) return
+  if (!await host.confirm({
+    header: 'Delete node',
+    message: `Delete "${selectedNode.value.title}"?`,
+    icon: 'pi pi-exclamation-triangle',
+    acceptClass: 'p-button-danger',
+  })) return
   try {
     await deleteNode(api, selectedNode.value.id)
     selectedNode.value = null

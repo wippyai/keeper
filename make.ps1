@@ -104,6 +104,42 @@ function Invoke-BuildAll {
     }
 }
 
+function Invoke-CleanStatic {
+    # Nuke all built FE artifacts. Forces the next `make build` to rebuild
+    # from scratch when a stale chunk hash or hoisted asset blocks a fix.
+    $paths = @(
+        'keeper/static/keeper',
+        'keeper/static/keeper-git',
+        'keeper/static/wippy-monaco',
+        'usage/static/keeper-usage'
+    )
+    foreach ($p in $paths) {
+        $full = Join-Path $PSScriptRoot $p
+        if (Test-Path $full) {
+            Write-Host "==> rm -rf $p" -ForegroundColor Cyan
+            Remove-Item -Recurse -Force $full
+        }
+    }
+}
+
+function Invoke-Dev {
+    param(
+        [Parameter(Mandatory)][string]$Dir,
+        [Parameter(Mandatory)][string]$Out
+    )
+    Push-Location $Dir
+    try {
+        Write-Host "==> dev $Dir" -ForegroundColor Cyan
+        npm install --no-audit --no-fund --prefer-offline
+        if ($LASTEXITCODE -ne 0) { throw "npm install failed in $Dir (exit $LASTEXITCODE)" }
+        npm run dev -- --outDir $Out
+        if ($LASTEXITCODE -ne 0) { throw "npm run dev failed in $Dir (exit $LASTEXITCODE)" }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
 function Invoke-Smoke {
     # Headless-browser smoke against the keeper-test harness on $env:BASE_URL
     # (defaults to http://localhost:8085 inside smoke.mjs). Phase 1 verifies
@@ -130,7 +166,14 @@ function Show-Help {
     Write-Host "  build-keeper-frontend          Build keeper main FE -> keeper/static/keeper"
     Write-Host "  build-keeper-git-frontend      Build keeper-git plugin FE -> keeper/static/keeper-git"
     Write-Host "  build-wippy-monaco-frontend    Build wippy-monaco WC -> keeper/static/wippy-monaco"
-    Write-Host "  build-usage-frontend           Build usage FE -> usage/static/keeper-usage`n"
+    Write-Host "  build-usage-frontend           Build usage FE -> usage/static/keeper-usage"
+    Write-Host "  clean-static                   Remove all built FE artifacts under static/`n"
+    Write-Host "Dev (watch) targets:"
+    Write-Host "  dev                            Alias for dev-keeper (most common entry)"
+    Write-Host "  dev-keeper                     Watch-rebuild keeper main FE into keeper/static/keeper"
+    Write-Host "  dev-keeper-git                 Watch-rebuild keeper-git FE into keeper/static/keeper-git"
+    Write-Host "  dev-wippy-monaco               Watch-rebuild wippy-monaco WC into keeper/static/wippy-monaco"
+    Write-Host "  dev-usage                      Watch-rebuild usage FE into usage/static/keeper-usage`n"
     Write-Host "Smoke target:"
     Write-Host "  smoke                          Headless-browser smoke against keeper-test (test/smoke/README.md)`n"
     Write-Host "Lint targets:"
@@ -154,14 +197,29 @@ try {
     switch -Regex ($Target) {
         '^help$|^-h$|^--help$' { Show-Help; break }
 
-        '^build$'  { Invoke-BuildAll; break }
-        '^smoke$'  { Invoke-Smoke;    break }
+        '^build$'        { Invoke-BuildAll;     break }
+        '^smoke$'        { Invoke-Smoke;        break }
+        '^clean-static$' { Invoke-CleanStatic;  break }
 
         '^build-(.+)$' {
             $name = $Matches[1]
             $item = $builds | Where-Object { $_.name -eq $name }
             if (-not $item) { throw "Unknown build target: $name. Run 'make help' for the list." }
             Invoke-Build -Dir $item.dir -Out $item.out
+            break
+        }
+
+        '^dev$' {
+            # Alias — most common entry is the main keeper FE.
+            $item = $builds | Where-Object { $_.name -eq 'keeper-frontend' }
+            Invoke-Dev -Dir $item.dir -Out $item.out
+            break
+        }
+        '^dev-(.+)$' {
+            $name = "$($Matches[1])-frontend"
+            $item = $builds | Where-Object { $_.name -eq $name }
+            if (-not $item) { throw "Unknown dev target: $($Matches[1]). Run 'make help' for the list." }
+            Invoke-Dev -Dir $item.dir -Out $item.out
             break
         }
 
