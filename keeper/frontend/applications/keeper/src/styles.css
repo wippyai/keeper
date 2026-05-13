@@ -17,8 +17,11 @@ html, body, #app {
    Keeper utilities
    PrimeVue v4 component overrides used to live here, but keeper-main
    doesn't register PrimeVue and renders zero `.p-*` elements (verified
-   live across every page). When the migration happens, reintroduce
-   per-component overrides next to the components that need them.
+   live across every page). When the migration happens, the overrides
+   belong in `wippy.configOverrides.customization.customCSS` in
+   package.json (the proxy's `customCss` injection) — NOT in this
+   file. styles.css is bundled into the app and lacks the host's
+   light/dark scoping (`@light` / `@dark`) that customCSS gets.
    The proxy already injects: theme-config.css (palette + light/dark),
    iframe.css (scrollbars), tailwind.css (PrimeVue Tailwind preset);
    keeper's `--kp-*` aliases + warm-grey surface remap come from

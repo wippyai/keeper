@@ -17,11 +17,14 @@ html, body, #app {
    Keeper utilities
    PrimeVue v4 component overrides + a .markdown-body block used to live
    here, but keeper-git doesn't register PrimeVue, renders zero `.p-*`
-   elements, and renders no `.markdown-body` content (verified live).
-   When we migrate to PrimeVue or render markdown, reintroduce the
-   relevant overrides at that time. The proxy already injects:
-   theme-config.css (palette + light/dark), iframe.css (scrollbars),
-   tailwind.css (PrimeVue Tailwind preset).
+   elements, and references `.markdown-body` from nothing in the repo.
+   When we migrate to PrimeVue or render markdown, the overrides belong
+   in `wippy.configOverrides.customization.customCSS` in package.json
+   (the proxy's `customCss` injection) — NOT here. styles.css is bundled
+   into the app and lacks the host's light/dark scoping that customCSS
+   gets. The proxy already injects: theme-config.css (palette + light/
+   dark), iframe.css (scrollbars), tailwind.css (PrimeVue Tailwind
+   preset).
    ---------------------------------------------------------------- */
 .keeper-accent {
   color: var(--p-primary-color);
