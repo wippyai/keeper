@@ -145,13 +145,13 @@
     "type-check": "vue-tsc --build --force"
   },
   "dependencies": {
-    "@wippy-fe/theme": "^0.0.12"
+    "@wippy-fe/theme": "^0.0.29"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
     "@vitejs/plugin-vue": "^5.0.0",
-    "@wippy-fe/types-global-proxy": "^0.0.12",
-    "@wippy-fe/vite-plugin": "^0.0.27",
+    "@wippy-fe/types-global-proxy": "^0.0.29",
+    "@wippy-fe/vite-plugin": "^0.0.29",
     "autoprefixer": "^10.4.0",
     "postcss": "^8.4.0",
     "primevue": "^4.3.3",
@@ -164,7 +164,8 @@
   },
   "peerDependencies": {
     "@iconify/vue": "^5.0.0",
-    "@wippy-fe/proxy": "^0.0.12",
+    "@wippy-fe/proxy": "^0.0.29",
+    "@wippy-fe/router": "^0.0.29",
     "axios": "^1.0.0",
     "vue": "^3.5.0",
     "vue-router": "^4.0.0"

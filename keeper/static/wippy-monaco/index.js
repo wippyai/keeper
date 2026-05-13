@@ -295,11 +295,11 @@ function Fe() {
       // live in `src/types/monaco-stylesheets-patch.d.ts`.
       import("./domStylesheets-yftOQEzv.js").then((l) => l.es),
       import("./standaloneThemeService-DlKGT-Pu.js").then((l) => l.dk),
-      import("./editor.worker-6fjUqSQw.js").then((l) => l.default),
-      import("./json.worker-QrKabbIj.js").then((l) => l.default),
-      import("./css.worker-B_353apr.js").then((l) => l.default),
-      import("./html.worker-vLFr0FfR.js").then((l) => l.default),
-      import("./ts.worker-DE0dpLt9.js").then((l) => l.default)
+      import("./editor.worker-5i4BoUdL.js").then((l) => l.default),
+      import("./json.worker-rMDXTKJP.js").then((l) => l.default),
+      import("./css.worker-DL22xU_S.js").then((l) => l.default),
+      import("./html.worker-BTgg5INT.js").then((l) => l.default),
+      import("./ts.worker-Dj3vtSc8.js").then((l) => l.default)
     ]);
     Y = r, k = e.setDefaultStylesheetContainer, _ = t.setHostTheme, self.MonacoEnvironment = {
       getWorker(l, m) {
@@ -322,7 +322,7 @@ function Fe() {
         }
       }
     };
-    const u = await import("./editor.main-IabBdevM.js").then((l) => l.b);
+    const u = await import("./editor.main-C02GhC8A.js").then((l) => l.b);
     return Ye(u), u;
   })()), B;
 }

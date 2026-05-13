@@ -85,7 +85,7 @@ const stats = computed(() => {
 
 function startChat(token: string, e: Event) {
   e.stopPropagation()
-  ;(host as any).startChat(token, { sidebar: true })
+  host.startChat(token, { sidebar: true })
 }
 
 function selectAgent(id: string) {

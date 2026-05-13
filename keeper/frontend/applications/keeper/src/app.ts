@@ -71,7 +71,7 @@ export async function createKeeperApp() {
   //  3. localStorage — last route the SPA persisted via afterEach
   //  4. /
   const KEEPER_LAST_ROUTE = '@keeper/last-route'
-  let resolvedRoute: string | undefined = (config as any).context?.route || config.path
+  let resolvedRoute: string | undefined = config.context?.route
 
   let parentSearch = ''
   try { parentSearch = window.parent.location.search || '' } catch {}
@@ -96,10 +96,15 @@ export async function createKeeperApp() {
     ? (resolvedRoute.startsWith('/') ? resolvedRoute : '/' + resolvedRoute)
     : '/'
 
-  if (config.customization?.icons) {
+  // 0.0.28 moved iframe-level customization off `config.customization` onto
+  // `config.theming.global` (the host's theming snapshot). Read both `icons`
+  // and `iconSets.custom` to cover the legacy and current shapes.
+  const customIcons = config.theming?.global?.icons
+    ?? config.theming?.global?.iconSets?.custom
+  if (customIcons) {
     addCollection({
       prefix: 'custom',
-      icons: config.customization?.icons,
+      icons: customIcons,
     })
   }
 

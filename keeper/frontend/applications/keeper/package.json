@@ -146,7 +146,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@wippy-fe/theme": "^0.0.12",
+    "@wippy-fe/theme": "^0.0.29",
     "chart.js": "^4.5.1",
     "d3-force": "^3.0.0"
   },
@@ -154,8 +154,8 @@
     "@testing-library/vue": "^8.1.0",
     "@vitejs/plugin-vue": "^5.0.0",
     "@vue/test-utils": "^2.4.6",
-    "@wippy-fe/types-global-proxy": "^0.0.12",
-    "@wippy-fe/vite-plugin": "^0.0.27",
+    "@wippy-fe/types-global-proxy": "^0.0.29",
+    "@wippy-fe/vite-plugin": "^0.0.29",
     "autoprefixer": "^10.4.0",
     "happy-dom": "^20.8.4",
     "jsdom": "^29.0.0",
@@ -171,7 +171,8 @@
   },
   "peerDependencies": {
     "@iconify/vue": "^5.0.0",
-    "@wippy-fe/proxy": "^0.0.12",
+    "@wippy-fe/proxy": "^0.0.29",
+    "@wippy-fe/router": "^0.0.29",
     "axios": "^1.0.0",
     "luxon": "^3.5.0",
     "pinia": "^2.1.0",

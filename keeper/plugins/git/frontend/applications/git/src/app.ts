@@ -22,11 +22,6 @@ function applyThemeOverride() {
 }
 applyThemeOverride()
 
-type GitAppConfig = {
-  context?: { route?: string }
-  path?: string
-}
-
 export async function createGitApp() {
   const config = await window.$W.config()
   const hostApi = await window.$W.host()
@@ -48,8 +43,7 @@ export async function createGitApp() {
     },
   )
 
-  const routeConfig = config as GitAppConfig
-  const initialPath: string = routeConfig.context?.route || routeConfig.path || '/'
+  const initialPath: string = config.context?.route || '/'
 
   const app = createApp(App)
   app.provide(HOST_API, hostApi)

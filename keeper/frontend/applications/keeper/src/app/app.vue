@@ -160,7 +160,7 @@ async function fetchAgents() {
 }
 
 function startAgent(token: string) {
-  (host as any).startChat(token, { sidebar: true })
+  host.startChat(token, { sidebar: true })
 }
 
 interface SearchResult {
@@ -329,7 +329,7 @@ watch(() => route.fullPath, () => {
     }
     if (route.query.entry) ctx.selected_entry = route.query.entry
     if (route.query.ns) ctx.namespace = route.query.ns
-    ;(host as any).setContext(ctx)
+    host.setContext(ctx)
   } catch {}
 })
 

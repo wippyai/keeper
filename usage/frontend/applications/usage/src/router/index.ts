@@ -1,5 +1,5 @@
+import { createAppRouter as createAppRouterFactory } from '@wippy-fe/router'
 import type { Router, RouteRecordRaw } from 'vue-router'
-import { createMemoryHistory, createRouter } from 'vue-router'
 import type { HostApi, ProxyApiInstance } from '../types'
 
 const routes: RouteRecordRaw[] = [
@@ -8,24 +8,14 @@ const routes: RouteRecordRaw[] = [
 ]
 
 export function createAppRouter(host: HostApi, instance: ProxyApiInstance | null, initialPath: string = '/'): Router {
-  const history = createMemoryHistory()
-  if (initialPath && initialPath !== '/') history.replace(initialPath)
-  const router = createRouter({ history, routes })
-
-  router.afterEach((to) => {
-    host.onRouteChanged(to.fullPath)
+  // Canonical @wippy-fe/router factory: memory history + initial-path replace
+  // + `host.onRouteChanged` afterEach + `@history` listener with built-in
+  // navId echo-loop suppression + setLocalRouter for the link classifier.
+  return createAppRouterFactory(routes, {
+    initialPath: initialPath && initialPath !== '/' ? initialPath : undefined,
+    host,
+    on: instance
+      ? (instance.on as Parameters<typeof createAppRouterFactory>[1] extends { on?: infer T } ? T : never)
+      : null,
   })
-
-  if (instance) {
-    instance.on('@history', (raw: unknown) => {
-      const evt = raw as { path?: string }
-      const path = evt?.path
-      if (!path) return
-      const normalized = path.startsWith('/') ? path : '/' + path
-      if (router.currentRoute.value.fullPath !== normalized) {
-        router.push(normalized).catch(() => {})
-      }
-    })
-  }
-  return router
 }

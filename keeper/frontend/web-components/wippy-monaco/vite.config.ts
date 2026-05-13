@@ -72,6 +72,16 @@ export default defineConfig({
     vue(),
     stripMonacoCssImports(),
   ],
+  // Emit relative URLs for asset and worker references. Default `base: '/'`
+  // bakes a root-absolute `/assets/<worker>.js` into the worker-shim's
+  // `new Worker(...)` URL — that resolves to the consumer's origin root, not
+  // the WC's mount path. The WC is served at `/app/wc/wippy-monaco/` but
+  // gets loaded inside iframes whose origin root has no `/assets/` dir, so
+  // monaco's worker spawn 404s with "Unexpected token '<'" (the 404 HTML
+  // returned in place of the missing JS). With `base: './'` the worker URL
+  // becomes `./assets/<worker>.js` which resolves relative to the shim file
+  // itself (= `/app/wc/wippy-monaco/assets/<worker>.js`).
+  base: './',
   build: {
     target: 'esnext',
     lib: {

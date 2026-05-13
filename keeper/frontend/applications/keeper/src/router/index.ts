@@ -1,4 +1,4 @@
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { createAppRouter as createAppRouterFactory } from '@wippy-fe/router'
 import type { Router } from 'vue-router'
 import type { HostApi } from '../types'
 
@@ -161,27 +161,31 @@ const routes = [
 ]
 
 export function createAppRouter(host: HostApi, on: OnSubscription | null, initialPath: string): Router {
-  const history = createMemoryHistory()
-  history.replace(initialPath)
-  const router = createRouter({ history, routes })
+  // Canonical @wippy-fe/router factory: handles createMemoryHistory +
+  // initial-path replace + `host.onRouteChanged` afterEach + `@history`
+  // listener with built-in navId echo-loop suppression + setLocalRouter
+  // registration for fast-path link classification.
+  const router = createAppRouterFactory(routes, {
+    initialPath,
+    host,
+    // Caller passes `instance.on` (same source as the factory's default
+    // — `@wippy-fe/proxy`'s `on` export — but the factory's type binds
+    // to its imported reference, not ours). Structurally identical.
+    on: on as Parameters<typeof createAppRouterFactory>[1] extends { on?: infer T } ? T : never,
+  })
 
+  // Bespoke afterEach — persists the last route to localStorage so a full
+  // page reload (when the host hasn't sent a route hint yet) can resume
+  // where the user was. Coexists with the factory's afterEach.
   router.afterEach((to) => {
-    host.onRouteChanged(to.fullPath)
     try { localStorage.setItem('@keeper/last-route', to.fullPath) } catch {}
   })
 
-  if (on) {
-    on('@history', (data) => {
-      const path = (data as { path?: string })?.path
-      if (!path) return
-      const normalized = path.startsWith('/') ? path : '/' + path
-      if (router.currentRoute.value.fullPath !== normalized) {
-        router.push(normalized)
-      }
-    })
-  }
-
+  // Bespoke cmd-navigate listener — keeper's parent shell can post a
+  // programmatic navigation command. Module-scope (app-lifetime) — no
+  // cleanup needed.
   window.addEventListener('message', (event) => {
+    if (event.source !== window.parent) return
     if (typeof event.data !== 'string') return
     try {
       const msg = JSON.parse(event.data)
@@ -191,7 +195,7 @@ export function createAppRouter(host: HostApi, on: OnSubscription | null, initia
           router.push(msg.url)
         }
       }
-    } catch {}
+    } catch { /* malformed message — ignore */ }
   })
 
   return router

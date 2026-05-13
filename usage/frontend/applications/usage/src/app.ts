@@ -50,7 +50,7 @@ export async function createUsageApp() {
     },
   )
 
-  const initialPath: string = (config as any).context?.route || (config as any).path || '/'
+  const initialPath: string = config.context?.route || '/'
 
   const app = createApp(App)
   app.provide(HOST_API, hostApi)
