@@ -40,6 +40,33 @@ This is **NOT a §5.1 facade-first violation** — rev-3 §2.3 explicitly endors
 
 The Phase 3B rev-3 audit recommendation to migrate to a single `wippy/facade` `ns.dependency` was reviewed and rejected: keeper-main and keeper-git are sub-apps that need to carry their own identity, not just inherit. Treat the duplication as load-bearing.
 
+### `--p-surface-0..300` inversion in `@dark` (deliberate, dev-approved)
+
+Each of the four `configOverrides.cssVariables` blocks (the warm-grey identity duplication above) **inverts the bottom of the surface scale** in `@dark`:
+
+| Token | `@light` value | `@dark` value | Note |
+|---|---|---|---|
+| `--p-surface-0` | `#ffffff` | `#1c1a19` | Inverted (spec says: must always be `#ffffff`, monotonically increasing) |
+| `--p-surface-50` | `#fafafa` | `#1c1a19` | Inverted |
+| `--p-surface-100` | `#f4f4f5` | `#2b2927` | Inverted |
+| `--p-surface-200` | `#e4e4e7` | `#403e3c` | Inverted |
+| `--p-surface-300` | `#d4d4d8` | `#545250` | Inverted |
+| `--p-surface-400..950` | (light scale) | (dark scale) | Monotonic — spec-compliant |
+
+`app-template/frontend/docs/theming.md` §"Surface palette" calls this an anti-pattern: "0 must always be `#ffffff`, the scale must increase monotonically in darkness — no inversions." It also notes the canonical Wippy approach: keep `--p-surface-N` as a FIXED absolute scale and let semantic vars (`--p-content-background`, `--p-content-hover-background`, `--p-content-border-color`) carry the per-theme flip.
+
+**Why keeper-v5 keeps the inversion anyway** (2026-05-13 audit decision):
+
+1. ~486 callers across 74 keeper-main files use `var(--p-surface-100|200|300)` as a semantic "1 step elevated above page bg / 1 step inset for hover / border" shortcut. Migrating each one to the right semantic alias (`--kp-bg-elevated`, `--kp-hover-bg`, `--kp-border`, `--p-content-hover-background`, etc.) is 1–2 dev-days of focused work plus a per-page visual regression sweep (28 routes × dark+light).
+2. The inversion actually matches Material Design 3's elevation convention (in dark UI, elevation = lighter shades). The visual semantic "elevated above current page bg" works correctly in BOTH modes today.
+3. keeper-main is an operator console with a stable identity that is NEVER embedded under a different facade. The risk that the surface-scale inversion fights an external host's semantic vars is theoretical for this codebase.
+
+**Maintenance contract:** if keeper-v5 is ever embedded under a non-warm-grey host facade, or if a third-party WC is loaded inside keeper that consumes the spec-canonical `--p-surface-N` scale, this inversion will produce wrong results. Revisit when either condition arises (track as Phase 4B in `.local/2026-05-13-theming-audit/PLAN.md`).
+
+**Do NOT propose migrating callers off `--p-surface-N` until the decision is revisited.** The 4-way duplication maintenance rule applies here too: the `@dark` surface inversion must stay identical across all four configOverrides blocks.
+
+The `--kp-bg`, `--kp-bg-elevated`, `--kp-hover-bg`, `--kp-border`, `--kp-btn-secondary-bg` aliases declared in the same blocks are **currently dead** (no callers). They are kept as the eventual migration target if Phase 4B is greenlit.
+
 ## Mission of this CLAUDE.md
 
 This repo's top-level Claude job is **FE compliance auditing**: validate that the Vue applications under `keeper/`, `usage/`, and the `git` plugin match the patterns documented in:
