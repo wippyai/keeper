@@ -5,6 +5,10 @@ import { Icon } from '@iconify/vue'
 import { useApi, useHost, useWippy } from '../composables/useWippy'
 import { kindColor, kindIcon } from '../api/registry'
 import { timeAgo } from '../api/sessions'
+import AppNavDropdown, { type NavItem } from './AppNavDropdown.vue'
+import AppAgentLauncher, { type AgentInfo } from './AppAgentLauncher.vue'
+import AppUserChip from './AppUserChip.vue'
+import AppGlobalSearch, { type SearchResult, type SearchHint } from './AppGlobalSearch.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -28,8 +32,6 @@ async function fetchLogCounters() {
     }
   } catch { /* counter badge is best-effort; leave the last-known value */ }
 }
-
-interface NavItem { path: string; name: string; label: string; icon: string }
 
 const navItems: NavItem[] = [
   { path: '/', name: 'dashboard', label: 'Home', icon: 'tabler:layout-dashboard' },
@@ -71,7 +73,7 @@ const developItemsStatic: NavItem[] = [
 
 interface PageInfo { id: string; name: string; title: string; icon: string; order: number; group: string; announced: boolean }
 
-const pluginItems = ref<NavItem[]>([])
+const pluginItems = ref<Array<NavItem & { group: string }>>([])
 
 async function discoverPlugins() {
   try {
@@ -86,25 +88,25 @@ async function discoverPlugins() {
         label: p.title || p.name,
         icon: p.icon || 'tabler:puzzle',
         group: p.group || 'develop',
-      } as NavItem & { group: string }))
+      }))
   } catch { /* plugin discovery is opportunistic — empty nav on failure is acceptable */ }
 }
 
 const observeItems = computed<NavItem[]>(() => [
   ...observeItemsStatic,
-  ...pluginItems.value.filter((p: any) => p.group === 'observe'),
+  ...pluginItems.value.filter(p => p.group === 'observe'),
 ])
 const structureItems = computed<NavItem[]>(() => [
   ...structureItemsStatic,
-  ...pluginItems.value.filter((p: any) => p.group === 'structure'),
+  ...pluginItems.value.filter(p => p.group === 'structure'),
 ])
 const developItems = computed<NavItem[]>(() => [
   ...developItemsStatic,
-  ...pluginItems.value.filter((p: any) => p.group === 'develop' || !(p as any).group),
+  ...pluginItems.value.filter(p => p.group === 'develop' || !p.group),
 ])
 const statusItems = computed<NavItem[]>(() => [
   ...statusItemsStatic,
-  ...pluginItems.value.filter((p: any) => p.group === 'status'),
+  ...pluginItems.value.filter(p => p.group === 'status'),
 ])
 
 const statusOpen = ref(false)
@@ -131,6 +133,20 @@ function navigate(path: string) {
   router.push(path)
 }
 
+function closeAllDropdowns() {
+  statusOpen.value = false
+  structureOpen.value = false
+  developOpen.value = false
+  observeOpen.value = false
+  settingsOpen.value = false
+  agentDropOpen.value = false
+}
+
+function navigateAndClose(path: string) {
+  navigate(path)
+  closeAllDropdowns()
+}
+
 async function fetchMe() {
   try {
     const { data } = await api.get('/api/v1/user/me')
@@ -140,16 +156,6 @@ async function fetchMe() {
   } catch { /* user header is cosmetic — anonymous fallback is fine */ }
 }
 
-interface AgentInfo {
-  id: string
-  title: string
-  icon: string
-  comment: string
-  model: string
-  class: string[]
-  public?: boolean
-  start_token: string
-}
 const publicAgents = ref<AgentInfo[]>([])
 
 async function fetchAgents() {
@@ -161,15 +167,7 @@ async function fetchAgents() {
 
 function startAgent(token: string) {
   host.startChat(token, { sidebar: true })
-}
-
-interface SearchResult {
-  id: string
-  kind: string
-  snippet?: string
-  icon?: string
-  color?: string
-  route?: string
+  agentDropOpen.value = false
 }
 
 const showSearch = ref(false)
@@ -178,7 +176,7 @@ const searchResults = ref<SearchResult[]>([])
 const searchLoading = ref(false)
 let searchDebounce: number | null = null
 
-const searchHints = [
+const searchHints: SearchHint[] = [
   { prefix: 'session:', desc: 'Search sessions by title or ID', icon: 'tabler:list' },
   { prefix: 'dataflow:', desc: 'Search dataflows', icon: 'tabler:git-merge' },
   { prefix: 'agent:', desc: 'Search agents', icon: 'tabler:robot' },
@@ -191,7 +189,6 @@ const searchHints = [
 async function doSearch() {
   const raw = searchQuery.value.trim()
   if (!raw) { searchResults.value = []; return }
-  // Allow prefix-only queries like "session:" to show recent items
 
   searchLoading.value = true
   try {
@@ -391,164 +388,55 @@ onUnmounted(() => {
           {{ item.label }}
         </button>
 
-        <!-- Observe dropdown -->
-        <div class="relative observe-dropdown-wrap">
-          <button
-            class="keeper-nav-btn flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors relative"
-            :class="{ active: isObserveActive }"
-            @click="observeOpen = !observeOpen"
-          >
-            <Icon icon="tabler:eye" class="w-3.5 h-3.5" />
-            Observe
-            <Icon icon="tabler:chevron-down" class="w-2.5 h-2.5" style="opacity: 0.5" />
-          </button>
-          <div v-if="observeOpen" class="status-dropdown">
-            <button
-              v-for="item in observeItems" :key="item.name"
-              class="status-item"
-              :class="{ 'status-item--active': currentName === item.name }"
-              @click="navigate(item.path); observeOpen = false"
-            >
-              <Icon :icon="item.icon" class="w-3.5 h-3.5" />
-              {{ item.label }}
-              <span v-if="item.name.startsWith('plugin:')" class="plugin-tag" title="Provided by a registered plugin">plugin</span>
-            </button>
-          </div>
-        </div>
+        <AppNavDropdown
+          icon="tabler:eye" label="Observe" wrap-class="observe-dropdown-wrap"
+          :items="observeItems" :open="observeOpen" :active="isObserveActive"
+          :current-name="currentName as string | null | undefined"
+          @toggle="observeOpen = !observeOpen"
+          @navigate="navigateAndClose"
+        />
 
-        <!-- Structure dropdown -->
-        <div class="relative structure-dropdown-wrap">
-          <button
-            class="keeper-nav-btn flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors relative"
-            :class="{ active: isStructureActive }"
-            @click="structureOpen = !structureOpen"
-          >
-            <Icon icon="tabler:binary-tree" class="w-3.5 h-3.5" />
-            Structure
-            <Icon icon="tabler:chevron-down" class="w-2.5 h-2.5" style="opacity: 0.5" />
-          </button>
-          <div v-if="structureOpen" class="status-dropdown">
-            <button
-              v-for="item in structureItems" :key="item.name"
-              class="status-item"
-              :class="{ 'status-item--active': currentName === item.name }"
-              @click="navigate(item.path); structureOpen = false"
-            >
-              <Icon :icon="item.icon" class="w-3.5 h-3.5" />
-              {{ item.label }}
-              <span v-if="item.name.startsWith('plugin:')" class="plugin-tag" title="Provided by a registered plugin">plugin</span>
-            </button>
-          </div>
-        </div>
+        <AppNavDropdown
+          icon="tabler:binary-tree" label="Structure" wrap-class="structure-dropdown-wrap"
+          :items="structureItems" :open="structureOpen" :active="isStructureActive"
+          :current-name="currentName as string | null | undefined"
+          @toggle="structureOpen = !structureOpen"
+          @navigate="navigateAndClose"
+        />
 
-        <!-- Develop dropdown -->
-        <div class="relative develop-dropdown-wrap">
-          <button
-            class="keeper-nav-btn flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors relative"
-            :class="{ active: isDevelopActive }"
-            @click="developOpen = !developOpen"
-          >
-            <Icon icon="tabler:code" class="w-3.5 h-3.5" />
-            Develop
-            <Icon icon="tabler:chevron-down" class="w-2.5 h-2.5" style="opacity: 0.5" />
-          </button>
-          <div v-if="developOpen" class="status-dropdown">
-            <button
-              v-for="item in developItems" :key="item.name"
-              class="status-item"
-              :class="{ 'status-item--active': currentName === item.name }"
-              @click="navigate(item.path); developOpen = false"
-            >
-              <Icon :icon="item.icon" class="w-3.5 h-3.5" />
-              {{ item.label }}
-              <span v-if="item.name.startsWith('plugin:')" class="plugin-tag" title="Provided by a registered plugin">plugin</span>
-            </button>
-          </div>
-        </div>
+        <AppNavDropdown
+          icon="tabler:code" label="Develop" wrap-class="develop-dropdown-wrap"
+          :items="developItems" :open="developOpen" :active="isDevelopActive"
+          :current-name="currentName as string | null | undefined"
+          @toggle="developOpen = !developOpen"
+          @navigate="navigateAndClose"
+        />
 
-        <!-- Status dropdown — only render when there's items in it -->
-        <div v-if="statusItems.length" class="relative status-dropdown-wrap">
-          <button
-            class="keeper-nav-btn flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors relative"
-            :class="{ active: isStatusActive }"
-            @click="statusOpen = !statusOpen"
-          >
-            <Icon icon="tabler:heart-rate-monitor" class="w-3.5 h-3.5" />
-            Status
-            <Icon icon="tabler:chevron-down" class="w-2.5 h-2.5" style="opacity: 0.5" />
-          </button>
-          <div v-if="statusOpen" class="status-dropdown">
-            <button
-              v-for="item in statusItems" :key="item.name"
-              class="status-item"
-              :class="{ 'status-item--active': currentName === item.name }"
-              @click="navigate(item.path); statusOpen = false"
-            >
-              <Icon :icon="item.icon" class="w-3.5 h-3.5" />
-              {{ item.label }}
-              <span v-if="item.name.startsWith('plugin:')" class="plugin-tag" title="Provided by a registered plugin">plugin</span>
-            </button>
-          </div>
-        </div>
+        <AppNavDropdown v-if="statusItems.length"
+          icon="tabler:heart-rate-monitor" label="Status" wrap-class="status-dropdown-wrap"
+          :items="statusItems" :open="statusOpen" :active="isStatusActive"
+          :current-name="currentName as string | null | undefined"
+          @toggle="statusOpen = !statusOpen"
+          @navigate="navigateAndClose"
+        />
 
-        <div class="relative settings-dropdown-wrap">
-          <button
-            class="keeper-nav-btn flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors relative"
-            :class="{ active: isSettingsActive }"
-            @click="settingsOpen = !settingsOpen"
-          >
-            <Icon icon="tabler:settings" class="w-3.5 h-3.5" />
-            Settings
-            <Icon icon="tabler:chevron-down" class="w-2.5 h-2.5" style="opacity: 0.5" />
-          </button>
-          <div v-if="settingsOpen" class="status-dropdown">
-            <button
-              v-for="item in settingsItems" :key="item.name"
-              class="status-item"
-              :class="{ 'status-item--active': currentName === item.name }"
-              @click="navigate(item.path); settingsOpen = false"
-            >
-              <Icon :icon="item.icon" class="w-3.5 h-3.5" />
-              {{ item.label }}
-            </button>
-          </div>
-        </div>
+        <AppNavDropdown
+          icon="tabler:settings" label="Settings" wrap-class="settings-dropdown-wrap"
+          :items="settingsItems" :open="settingsOpen" :active="isSettingsActive"
+          :current-name="currentName as string | null | undefined"
+          @toggle="settingsOpen = !settingsOpen"
+          @navigate="navigateAndClose"
+        />
       </nav>
 
       <div class="flex items-center gap-1.5 shrink-0">
-        <template v-if="publicAgents.length === 1">
-          <button class="ask-btn" @click="startAgent(publicAgents[0].start_token)">
-            <Icon :icon="publicAgents[0].icon || 'tabler:message-bolt'" class="w-3.5 h-3.5" />
-            <span class="truncate" style="max-width: 80px">{{ publicAgents[0].title || 'Ask' }}</span>
-          </button>
-        </template>
-        <div v-else-if="publicAgents.length > 1" class="relative agent-dropdown-wrap">
-          <button class="ask-btn" @click="agentDropOpen = !agentDropOpen">
-            <Icon icon="tabler:message-bolt" class="w-3.5 h-3.5" />
-            Ask
-            <Icon icon="tabler:chevron-down" class="w-2.5 h-2.5" style="opacity: 0.6" />
-          </button>
-          <div v-if="agentDropOpen" class="agent-dropdown">
-            <button v-for="a in publicAgents" :key="a.id" class="agent-item" @click="startAgent(a.start_token); agentDropOpen = false">
-              <Icon :icon="a.icon || 'tabler:robot'" class="agent-item-icon" />
-              <span class="agent-item-copy">
-                <span class="agent-item-title">{{ a.title || a.id }}</span>
-                <span v-if="a.comment" class="agent-item-comment">{{ a.comment }}</span>
-              </span>
-            </button>
-          </div>
-        </div>
-        <div v-if="currentUser" class="flex items-center gap-1.5 text-xs pl-2" style="color: var(--p-text-muted-color); border-left: 1px solid var(--p-content-border-color)">
-          <span class="truncate max-w-[100px]">{{ currentUser.full_name || currentUser.email }}</span>
-          <button
-            class="w-6 h-6 inline-flex items-center justify-center rounded-full border-none bg-transparent cursor-pointer transition-colors hover:bg-surface-100 dark:hover:bg-surface-700"
-            style="color: var(--p-text-muted-color)"
-            title="Logout"
-            @click="logout"
-          >
-            <Icon icon="tabler:logout" class="w-3 h-3" />
-          </button>
-        </div>
+        <AppAgentLauncher
+          :agents="publicAgents"
+          :open="agentDropOpen"
+          @toggle="agentDropOpen = !agentDropOpen"
+          @start="startAgent"
+        />
+        <AppUserChip :user="currentUser" @logout="logout" />
       </div>
     </header>
 
@@ -556,198 +444,17 @@ onUnmounted(() => {
       <router-view />
     </main>
 
-    <!-- Global Search -->
-    <Teleport to="body">
-      <div v-if="showSearch" class="search-overlay" @click.self="showSearch = false">
-        <div class="search-modal">
-          <div class="search-header">
-            <Icon icon="tabler:search" class="w-4 h-4 shrink-0" style="color: var(--p-text-muted-color)" />
-            <input v-model="searchQuery" @input="onSearchInput" @keydown.escape="showSearch = false"
-              @keydown.enter="searchResults.length > 0 && selectResult(searchResults[0])"
-              class="global-search-input" placeholder="Search entries, functions, configs..." autofocus />
-            <Icon v-if="searchLoading" icon="tabler:loader-2" class="w-3.5 h-3.5 animate-spin" style="color: var(--p-primary-color)" />
-            <kbd class="search-kbd">Esc</kbd>
-          </div>
-          <div v-if="searchResults.length > 0" class="search-results">
-            <div v-for="r in searchResults" :key="r.id" class="search-item" @click="selectResult(r)">
-              <Icon :icon="r.icon || kindIcon(r.kind)" class="w-3 h-3 shrink-0" :style="{ color: r.color || kindColor(r.kind) }" />
-              <div class="flex-1 min-w-0">
-                <div class="text-[11px] font-mono truncate" style="color: var(--p-text-color)">{{ r.id }}</div>
-                <div v-if="r.snippet" class="text-[9px] truncate" style="color: var(--p-text-muted-color)">{{ r.snippet }}</div>
-              </div>
-              <span class="text-[8px] px-1 rounded" :style="{ color: r.color || kindColor(r.kind), background: `color-mix(in srgb, ${r.color || kindColor(r.kind)} 12%, transparent)` }">{{ r.kind }}</span>
-            </div>
-          </div>
-          <div v-else-if="searchQuery && !searchLoading" class="search-empty">No results</div>
-          <div v-else-if="!searchQuery" class="search-hints">
-            <div v-for="h in searchHints" :key="h.prefix" class="search-hint" @click="applyHint(h.prefix)">
-              <Icon :icon="h.icon" class="w-3 h-3 shrink-0" style="color: var(--p-text-muted-color)" />
-              <span class="text-[10px] font-mono" style="color: var(--p-primary-color)">{{ h.prefix || '*' }}</span>
-              <span class="text-[10px]" style="color: var(--p-text-muted-color)">{{ h.desc }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <AppGlobalSearch
+      :open="showSearch"
+      :query="searchQuery"
+      :results="searchResults"
+      :loading="searchLoading"
+      :hints="searchHints"
+      @update:query="searchQuery = $event"
+      @close="showSearch = false"
+      @search-input="onSearchInput"
+      @select="selectResult"
+      @apply-hint="applyHint"
+    />
   </div>
 </template>
-
-<style scoped>
-.keeper-nav-btn {
-  color: var(--p-text-color);
-  font-weight: 500;
-  background: transparent;
-  border: 1px solid transparent;
-}
-.keeper-nav-btn:hover {
-  background: var(--p-surface-100);
-}
-.keeper-nav-btn.active {
-  background: var(--p-surface-100);
-  color: var(--p-primary-color);
-}
-
-.ask-btn {
-  height: 28px;
-  min-width: 0;
-  max-width: 160px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 10px;
-  border: 1px solid var(--p-content-border-color);
-  border-radius: 6px;
-  background: var(--p-surface-100);
-  color: var(--p-text-color);
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.ask-btn:hover {
-  background: var(--p-surface-200);
-  color: var(--p-primary-color);
-}
-
-/* shared dropdown panel + items used by Observe / Structure / Develop / Status */
-.status-dropdown,
-.agent-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 200px;
-  max-width: 320px;
-  background: var(--p-content-background);
-  border: 1px solid var(--p-content-border-color);
-  border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  padding: 4px;
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.agent-dropdown {
-  left: auto;
-  right: 0;
-  width: min(360px, calc(100vw - 24px));
-  max-height: min(420px, calc(100vh - 80px));
-  overflow-y: auto;
-}
-.status-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 6px 10px;
-  font-size: 12px;
-  text-align: left;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--p-text-color);
-  border: none;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.status-item:hover {
-  background: var(--p-surface-100);
-}
-.status-item--active {
-  background: var(--p-surface-100);
-  color: var(--p-primary-color);
-  font-weight: 500;
-}
-.plugin-tag {
-  margin-left: auto;
-  padding: 0 5px;
-  font-size: 8px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  border-radius: 2px;
-  color: var(--p-text-muted-color);
-  opacity: 0.55;
-}
-.status-item .iconify {
-  flex-shrink: 0;
-  opacity: 0.75;
-}
-.agent-item {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  align-items: start;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 10px;
-  text-align: left;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--p-text-color);
-  cursor: pointer;
-}
-.agent-item:hover {
-  background: var(--p-surface-100);
-}
-.agent-item-icon {
-  width: 15px;
-  height: 15px;
-  margin-top: 1px;
-  color: var(--p-text-muted-color);
-}
-.agent-item-copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.agent-item-title {
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.agent-item-comment {
-  font-size: 10px;
-  line-height: 1.25;
-  color: var(--p-text-muted-color);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* status badge inside the Status nav button (e.g. "99+") */
-.status-badge {
-  background: var(--p-danger-500);
-  color: var(--p-primary-contrast-color);
-  font-size: 9px;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 8px;
-  line-height: 1.2;
-  margin-left: 2px;
-}
-</style>
