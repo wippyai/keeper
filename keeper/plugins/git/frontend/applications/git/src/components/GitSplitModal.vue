@@ -38,7 +38,7 @@ const MODES: ReadonlyArray<{ key: Mode; icon: string; label: string }> = [
 
 <template>
   <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center"
-    style="background: rgba(0,0,0,0.55)" @click.self="emit('close')">
+    style="background: var(--p-mask-background)" @click.self="emit('close')">
     <div class="rounded-lg w-full max-w-2xl mx-4 overflow-hidden flex flex-col"
       style="background: var(--p-surface-0); border: 1px solid var(--p-content-border-color); max-height: 80vh">
       <header class="px-5 py-3 border-b flex items-center gap-2"
@@ -61,7 +61,7 @@ const MODES: ReadonlyArray<{ key: Mode; icon: string; label: string }> = [
           class="px-2 py-1 rounded font-medium flex items-center gap-1"
           :style="{
             background: mode === m.key ? 'var(--p-primary-color)' : 'var(--p-surface-100)',
-            color: mode === m.key ? 'white' : 'inherit',
+            color: mode === m.key ? 'var(--p-primary-contrast-color)' : 'inherit',
           }">
           <Icon :icon="m.icon" class="w-3 h-3" />
           {{ m.label }}

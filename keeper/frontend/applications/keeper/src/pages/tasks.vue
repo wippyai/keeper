@@ -387,7 +387,7 @@ onUnmounted(() => {
                   @click.stop="handleStart(d)"
                   :disabled="starting === d.task_id"
                   class="flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-medium"
-                  style="background: var(--p-primary-color); color: white">
+                  style="background: var(--p-primary-color); color: var(--p-primary-contrast-color)">
                   <Icon :icon="starting === d.task_id ? 'tabler:loader-2' : 'tabler:player-play'" class="w-3.5 h-3.5"
                     :class="{ 'animate-spin': starting === d.task_id }" />
                   Start

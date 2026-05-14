@@ -64,6 +64,9 @@ let themeCache: ThemeColors | null = null
 let themeObs: MutationObserver | null = null
 function themeColors(): ThemeColors {
   if (themeCache) return themeCache
+  // Per-var fallbacks below are host-less dev safety nets — fire only when the
+  // proxy hasn't injected the theme bundle. ForceGraph paints directly to SVG
+  // and needs concrete strings. See theming.md §"Defensive fallbacks".
   const cs = getComputedStyle(document.documentElement)
   const v = (name: string, fallback: string) => (cs.getPropertyValue(name).trim() || fallback)
   themeCache = {

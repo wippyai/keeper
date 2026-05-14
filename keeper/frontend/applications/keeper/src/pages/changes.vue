@@ -510,7 +510,7 @@ function onSelect(cs: Changeset) {
         <div class="px-3 pt-2 pb-2 space-y-1.5 flex-shrink-0" style="background: var(--p-surface-50); position: sticky; top: 0; z-index: 1; border-bottom: 1px solid var(--p-surface-100)">
           <button @click="showCreate = !showCreate"
             class="w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[11px] font-medium"
-            style="background: var(--p-primary-color); color: white">
+            style="background: var(--p-primary-color); color: var(--p-primary-contrast-color)">
             <Icon icon="tabler:plus" class="w-3 h-3" /> New Changeset
           </button>
           <div class="search-wrap w-full">
@@ -750,7 +750,7 @@ function onSelect(cs: Changeset) {
     <div v-if="mainTab === 'git'" class="flex flex-1 min-h-0 overflow-hidden">
       <div class="w-[380px] flex-shrink-0 overflow-y-auto" style="border-right: 1px solid var(--p-content-border-color)">
         <div class="sticky top-0 z-10 px-3 py-2 flex items-center gap-2" style="background: var(--p-content-background); border-bottom: 1px solid var(--p-surface-100)">
-          <button @click="rebuildGitClusters" :disabled="gitLoading" class="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium" style="background: var(--p-primary-color); color: white">
+          <button @click="rebuildGitClusters" :disabled="gitLoading" class="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium" style="background: var(--p-primary-color); color: var(--p-primary-contrast-color)">
             <Icon :icon="gitLoading ? 'tabler:loader-2' : 'tabler:refresh'" class="w-3 h-3" :class="{ 'animate-spin': gitLoading }" />
             Rebuild
           </button>
@@ -832,7 +832,7 @@ function onSelect(cs: Changeset) {
               <textarea v-model="prForm.paths_text" rows="4" placeholder="src/app/file.lua" class="mt-1 w-full px-2 py-1.5 rounded text-[11px] font-mono" style="background: var(--p-surface-100); border: 1px solid var(--p-content-border-color); color: var(--p-text-color)" />
             </label>
             <div class="flex items-center gap-2">
-              <button @click="planPr" :disabled="prRunning || !prForm.title.trim()" class="px-3 py-1.5 rounded text-[11px] font-medium" style="background: var(--p-primary-color); color: white">Dry-run PR</button>
+              <button @click="planPr" :disabled="prRunning || !prForm.title.trim()" class="px-3 py-1.5 rounded text-[11px] font-medium" style="background: var(--p-primary-color); color: var(--p-primary-contrast-color)">Dry-run PR</button>
               <button @click="createPr" :disabled="prRunning || !prForm.title.trim()" class="px-3 py-1.5 rounded text-[11px] font-medium bg-danger-500/10 text-danger-500">Execute PR</button>
             </div>
           </div>

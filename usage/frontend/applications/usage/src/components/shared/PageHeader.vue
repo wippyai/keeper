@@ -15,7 +15,7 @@ const emit = defineEmits<{ refresh: [] }>()
     <div class="flex items-center gap-2">
       <span class="text-xs font-medium" style="color: var(--p-text-color)">{{ title }}</span>
       <span v-if="count !== undefined" class="text-[10px]" style="color: var(--p-text-muted-color)">{{ count }}</span>
-      <Icon v-if="loading" icon="tabler:loader-2" class="w-3.5 h-3.5 animate-spin keeper-accent" />
+      <Icon v-if="loading" icon="tabler:loader-2" class="w-3.5 h-3.5 animate-spin text-accent-500" />
     </div>
     <div class="flex items-center gap-2">
       <slot />

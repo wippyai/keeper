@@ -1579,7 +1579,7 @@ onMounted(() => {
 .cta-version {
   font-size: 10px; opacity: 0.85;
   font-family: 'JetBrains Mono', monospace;
-  background: rgba(255,255,255,0.15);
+  background: color-mix(in srgb, var(--p-primary-contrast-color) 15%, transparent);
   padding: 1px 6px; border-radius: 4px;
 }
 .ghost-btn {

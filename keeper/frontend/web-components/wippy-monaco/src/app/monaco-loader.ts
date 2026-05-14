@@ -215,8 +215,15 @@ let themesRegistered = false
 function registerThemes(monaco: typeof Monaco) {
   if (themesRegistered)
     return
-  // keeper-dark — preserved palette from the original keeper MonacoEditor.vue
-  // / DiffViewer.vue so the visual identity carries forward.
+  // keeper-dark / keeper-light — preserved palette from the original keeper
+  // MonacoEditor.vue / DiffViewer.vue so the visual identity carries forward.
+  //
+  // The hex literals below are DELIBERATE FIXED IDENTITY, not theme drift:
+  // monaco's `defineTheme` requires concrete colors at registration time and
+  // these are the keeper sub-app's branded editor look. They match the same
+  // intentional-divergence rationale as the 4-way warm-grey configOverrides
+  // in CLAUDE.md §"Intentional patterns". Do not migrate to var(--p-*) reads
+  // unless you also re-derive the patch's `_themeByHost` mapping.
   //
   // Both keeper-dark and keeper-light intentionally inherit from the same
   // base (`vs`) with identical rule lists. This produces matching
@@ -303,6 +310,10 @@ function registerThemes(monaco: typeof Monaco) {
 export function applyAutoTheme(monaco: typeof Monaco, host: HTMLElement): string {
   const themeName = autoThemeNameFor(host)
   const cs = getComputedStyle(host)
+  // Per-var fallbacks below are host-less dev safety nets — fire only when the
+  // host hasn't injected the keeper theme bundle (standalone preview / unit
+  // tests). Monaco needs concrete hex at registration. See theming.md
+  // §"Defensive fallbacks".
   const v = (name: string, fallback: string): string => {
     const raw = cs.getPropertyValue(name).trim()
     return raw || fallback

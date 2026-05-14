@@ -39,7 +39,7 @@ const FILTER_CHIPS: Array<{ key: Filter; label: string }> = [
         class="px-1.5 py-0.5 rounded font-medium flex items-center gap-1 transition"
         :style="{
           background: filter === chip.key ? 'var(--p-primary-color)' : 'var(--p-surface-100)',
-          color: filter === chip.key ? 'white' : 'inherit',
+          color: filter === chip.key ? 'var(--p-primary-contrast-color)' : 'inherit',
         }">
         {{ chip.label }}
         <span class="opacity-80">{{ counts[chip.key] }}</span>

@@ -676,7 +676,7 @@ const dataflowId = computed(() => {
       <div v-if="task" class="px-4 py-3 border-t flex flex-col gap-2" style="border-color: var(--p-content-border-color)">
         <button v-if="task.status === 'open'" @click="handleStartCycle()" :disabled="startingCycle"
           class="w-full text-[11px] py-1.5 rounded font-medium"
-          style="background: var(--p-primary-color); color: white">
+          style="background: var(--p-primary-color); color: var(--p-primary-contrast-color)">
           {{ startingCycle ? 'Starting…' : 'Start cycle' }}
         </button>
         <button v-if="task.status !== 'completed' && task.status !== 'abandoned' && task.status !== 'open'"
@@ -713,7 +713,7 @@ const dataflowId = computed(() => {
               style="border: 1px solid var(--p-content-border-color)"></textarea>
             <button @click="handleRespond" :disabled="responding || !userResponse.trim()"
               class="px-3 text-[11px] rounded font-medium"
-              style="background: var(--p-primary-color); color: white">
+              style="background: var(--p-primary-color); color: var(--p-primary-contrast-color)">
               {{ responding ? '…' : 'Send' }}
             </button>
           </div>

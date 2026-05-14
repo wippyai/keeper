@@ -18,7 +18,7 @@ const emit = defineEmits<{
 
 <template>
   <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center"
-    style="background: rgba(0,0,0,0.55)" @click.self="emit('close')">
+    style="background: var(--p-mask-background)" @click.self="emit('close')">
     <div class="rounded-lg w-full max-w-md mx-4 overflow-hidden"
       style="background: var(--p-surface-0); border: 1px solid var(--p-content-border-color)">
       <div class="px-5 py-3 border-b flex items-center gap-2"

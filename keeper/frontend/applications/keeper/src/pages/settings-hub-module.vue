@@ -1046,7 +1046,7 @@ onMounted(load)
 .cta:hover { opacity: 0.92; }
 .cta-version {
   font-size: 11px;
-  background: rgba(255,255,255,0.18);
+  background: color-mix(in srgb, var(--p-primary-contrast-color) 18%, transparent);
   padding: 1px 8px;
   border-radius: 6px;
 }

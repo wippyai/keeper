@@ -39,6 +39,10 @@ function fmtLabel(l: string): string {
 function resolveColor(c: string): string {
   // Chart.js needs concrete color strings for canvas. If we got a `var(--x)`
   // reference, resolve it via getComputedStyle on the document root.
+  // The #71717a fallback below is a host-less dev safety net — fires only when
+  // the CSS var is undefined (no facade injected). Per theming.md §"Defensive
+  // fallbacks": JS canvas reads keep numeric fallbacks; CSS-level var fallbacks
+  // are stripped.
   if (typeof c === 'string' && c.startsWith('var(')) {
     const m = c.match(/var\(\s*([^,)]+)/)
     if (m && m[1]) {
@@ -77,6 +81,9 @@ function makeDatasets() {
 
 function themeColors() {
   // Resolve theme-aware colors at draw time so the chart flips with the theme.
+  // Per-var fallbacks below are host-less dev safety nets for Chart.js canvas
+  // reads — fire only when the proxy hasn't injected the theme bundle. See
+  // theming.md §"Defensive fallbacks".
   const cs = getComputedStyle(document.documentElement)
   const get = (name: string, fallback: string) => (cs.getPropertyValue(name).trim() || fallback)
   const text = get('--p-text-color', '#a1a1aa')

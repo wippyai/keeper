@@ -228,7 +228,7 @@ onUnmounted(() => {
 .chart-container {
   position: relative;
   width: 100%;
-  background: color-mix(in srgb, var(--p-content-background) 92%, var(--p-text-color) 8%);
+  background: var(--usage-elevated);
   border-radius: 8px;
   padding: 8px;
 }

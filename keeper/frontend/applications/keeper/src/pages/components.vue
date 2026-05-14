@@ -665,7 +665,7 @@ onMounted(load)
   display: inline-flex; align-items: center; gap: 4px;
   padding: 4px 10px;
   font-size: 10px; font-weight: 600;
-  background: var(--p-primary-color); color: white;
+  background: var(--p-primary-color); color: var(--p-primary-contrast-color);
   border: 0; border-radius: 3px; cursor: pointer;
 }
 .head-btn:hover { opacity: 0.9; }

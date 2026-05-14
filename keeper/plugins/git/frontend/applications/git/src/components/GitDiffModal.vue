@@ -15,7 +15,7 @@ const emit = defineEmits<{
 
 <template>
   <div v-if="path" class="fixed inset-0 z-50 flex"
-    style="background: rgba(0,0,0,0.6)" @click.self="emit('close')">
+    style="background: var(--p-mask-background)" @click.self="emit('close')">
     <aside class="ml-auto w-[820px] h-full overflow-hidden flex flex-col"
       style="background: var(--p-surface-0); border-left: 1px solid var(--p-content-border-color)">
       <header class="px-4 py-2.5 border-b flex items-center gap-2"

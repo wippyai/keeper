@@ -12,3 +12,13 @@ html, body {
 #app {
   height: 100%;
 }
+
+/* Usage app local aliases — no configOverrides, so derive elevation/chip
+   tints from the semantic vars the proxy injects. Keeps cards usable in
+   both light and dark without picking up the proxy's surface-100/200
+   (which stay light-grey in dark mode). Referenced from usage.vue and
+   shared/LineChart.vue — keep names consistent. */
+:root {
+  --usage-elevated: color-mix(in srgb, var(--p-content-background) 92%, var(--p-text-color) 8%);
+  --usage-chip: color-mix(in srgb, var(--p-text-color) 10%, transparent);
+}

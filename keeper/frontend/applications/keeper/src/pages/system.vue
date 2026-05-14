@@ -572,11 +572,11 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
   color: var(--p-text-muted-color); border-bottom: 2px solid transparent;
 }
 .tab-btn:hover { color: var(--p-text-color); }
-.tab-btn.active { color: var(--p-primary, var(--p-warn-500)); border-color: var(--p-primary, var(--p-warn-500)); }
+.tab-btn.active { color: var(--p-primary-color); border-color: var(--p-primary-color); }
 .tab-btn .count { font-size: 10px; opacity: 0.6; }
 
 .proc-row { border-bottom: 1px solid var(--p-surface-100); }
-.proc-row:hover { background: var(--p-surface-50, var(--p-surface-100)); }
+.proc-row:hover { background: var(--p-surface-50); }
 
 .state-badge {
   display: inline-block; padding: 1px 6px; border-radius: 3px;

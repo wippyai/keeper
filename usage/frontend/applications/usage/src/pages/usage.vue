@@ -226,7 +226,7 @@ onMounted(() => {
       <!-- Line chart: usage over time -->
       <section v-if="timePeriods.length > 0">
         <div class="section-header">
-          <Icon icon="tabler:chart-line" class="w-3.5 h-3.5 keeper-accent" />
+          <Icon icon="tabler:chart-line" class="w-3.5 h-3.5 text-accent-500" />
           <span>Over Time</span>
           <div class="flex items-center gap-3 ml-auto">
             <span v-for="s in chartSeries" :key="s.label" class="flex items-center gap-1 text-[9px]" style="color: var(--p-text-muted-color)">
@@ -256,7 +256,7 @@ onMounted(() => {
       <!-- By Model -->
       <section v-if="models.length > 0">
         <div class="section-header">
-          <Icon icon="tabler:cpu" class="w-3.5 h-3.5 keeper-accent" />
+          <Icon icon="tabler:cpu" class="w-3.5 h-3.5 text-accent-500" />
           <span>By Model</span>
         </div>
         <div class="breakdown-list">
@@ -279,7 +279,7 @@ onMounted(() => {
       <!-- By User -->
       <section v-if="users.length > 0">
         <div class="section-header">
-          <Icon icon="tabler:users" class="w-3.5 h-3.5 keeper-accent" />
+          <Icon icon="tabler:users" class="w-3.5 h-3.5 text-accent-500" />
           <span>By User</span>
         </div>
         <div class="breakdown-list">
@@ -310,14 +310,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* Local aliases — usage doesn't ship configOverrides, so we derive elevation
-   and chip backgrounds from the semantic vars the proxy injects via theme-
-   config.css. This keeps the cards usable in both dark and light without
-   inheriting the proxy's surface-100/200 (which stay light-grey in dark mode). */
-:where(.breakdown-list, .stat-card, .stat-card-sm, .period-btn, .date-input, .breakdown-bar-container) {
-  --usage-elevated: color-mix(in srgb, var(--p-content-background) 92%, var(--p-text-color) 8%);
-  --usage-chip: color-mix(in srgb, var(--p-text-color) 10%, transparent);
-}
+/* --usage-elevated / --usage-chip defined in src/styles.css :root */
 
 .period-btn {
   padding: 4px 12px; border-radius: 4px; font-size: 11px;

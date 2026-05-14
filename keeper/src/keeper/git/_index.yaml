@@ -50,7 +50,6 @@ entries:
             "--p-primary-color": "var(--p-primary-500)"
             "--p-primary-hover-color": "var(--p-primary-600)"
             "--p-primary-active-color": "var(--p-primary-700)"
-            "--p-primary-contrast-color": "#000"
             "--kp-bg": "var(--p-content-background)"
             "--kp-bg-elevated": "color-mix(in srgb, var(--p-content-background) 92%, var(--p-text-color) 8%)"
             "--kp-bg-overlay": "var(--p-content-background)"

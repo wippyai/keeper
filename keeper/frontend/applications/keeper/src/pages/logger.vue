@@ -225,7 +225,7 @@ function fmt(n: number): string {
         class="filter-input"
         @keydown.enter="applyFilter"
       />
-      <button v-if="filter && filter !== activeFilter" class="text-[10px] px-2 py-0.5 rounded text-white" style="background: var(--p-primary-color)" @click="applyFilter">Apply</button>
+      <button v-if="filter && filter !== activeFilter" class="text-[10px] px-2 py-0.5 rounded" style="background: var(--p-primary-color); color: var(--p-primary-contrast-color)" @click="applyFilter">Apply</button>
       <button v-if="activeFilter" class="text-[10px] px-1" style="color: var(--p-text-muted-color)" @click="clearFilter">
         <Icon icon="tabler:x" class="w-3 h-3" />
       </button>
@@ -305,7 +305,7 @@ function fmt(n: number): string {
 .log-row {
   border-bottom: 1px solid var(--p-surface-100); cursor: pointer;
 }
-.log-row:hover { background: var(--p-surface-50, var(--p-surface-100)); }
+.log-row:hover { background: var(--p-surface-50); }
 .log-error { background: color-mix(in srgb, var(--p-danger-500) 4%, transparent); }
 .log-error:hover { background: color-mix(in srgb, var(--p-danger-500) 8%, transparent); }
 .log-warn { background: color-mix(in srgb, var(--p-warn-500) 3%, transparent); }
