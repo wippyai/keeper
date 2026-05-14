@@ -649,6 +649,7 @@ entries:
               "--p-button-outlined-secondary-border-color": "var(--p-surface-400)"
               "--p-button-outlined-secondary-hover-background": "rgba(255, 255, 255, 0.05)"
               "--p-button-outlined-secondary-active-background": "rgba(255, 255, 255, 0.08)"
+          customCSS: "@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');"
     proxy:
       css:
         custom_css: true

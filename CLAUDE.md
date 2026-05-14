@@ -36,7 +36,7 @@ The keeper warm-grey identity palette (`--kp-*` aliases + `--p-surface-N` ramps 
 
 This is **NOT a §5.1 facade-first violation** — rev-3 §2.3 explicitly endorses `config_overrides` for the "artifact viewer with a brand identity that should not change with the host theme" use case. Both keeper-main and keeper-git are sub-apps that MUST look like keeper regardless of which host facade is loading them; the YAML pair is the canonical runtime path (host reads it and merges into AppConfig before CSS injection); the package.json pair is the host-less mirror so the apps theme correctly under dev-proxy / standalone preview.
 
-**Maintenance rule:** when one of the four blocks changes, update the other three. The 45 `@dark` keys + 28 `@light` keys + 16 top-level keys MUST stay identical across all four. The keeper-v5 `usage` analytics app deliberately omits `configOverrides` (it inherits from the host facade, per rev-3 §5.1) — do not add a fifth copy there.
+**Maintenance rule:** when one of the four blocks changes, update the other three. The 45 `@dark` keys + 28 `@light` keys + 16 top-level keys (under `cssVariables`) plus the `customCSS` string (peer of `cssVariables`, currently the JetBrains Mono `@import`) MUST stay identical across all four. The keeper-v5 `usage` analytics app deliberately omits `configOverrides` (it inherits from the host facade, per rev-3 §5.1) — do not add a fifth copy there.
 
 The Phase 3B rev-3 audit recommendation to migrate to a single `wippy/facade` `ns.dependency` was reviewed and rejected: keeper-main and keeper-git are sub-apps that need to carry their own identity, not just inherit. Treat the duplication as load-bearing.
 
