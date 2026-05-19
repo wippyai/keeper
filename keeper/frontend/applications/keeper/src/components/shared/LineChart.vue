@@ -167,7 +167,7 @@ let themeObserver: MutationObserver | null = null
 let mediaListener: ((e: MediaQueryListEvent) => void) | null = null
 function watchThemeChanges() {
   themeObserver = new MutationObserver(() => createChart())
-  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] })
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
   const mq = window.matchMedia('(prefers-color-scheme: dark)')
   mediaListener = () => createChart()
   mq.addEventListener?.('change', mediaListener)

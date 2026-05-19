@@ -9,31 +9,6 @@ import { createAppRouter } from './router'
 import './styles.css'
 import './tailwind.css'
 
-// Honor a `?theme=light|dark` URL parameter (or `KEEPER_THEME` localStorage)
-// so QA / users can force a specific theme regardless of OS preference.
-// The styles.css applies dark via `[data-theme="dark"]` OR media query when
-// `[data-theme="light"]` is NOT set.
-function applyThemeOverride() {
-  let theme: string | null = null
-  // Iframe URL first (where the route + query lives), then parent, then storage.
-  try {
-    theme = new URL(window.location.href).searchParams.get('theme')
-  } catch {}
-  if (!theme) {
-    try {
-      theme = new URL(window.parent.location.href).searchParams.get('theme')
-    } catch {}
-  }
-  if (!theme) {
-    try { theme = localStorage.getItem('@keeper/theme') } catch {}
-  }
-  if (theme === 'light' || theme === 'dark') {
-    document.documentElement.setAttribute('data-theme', theme)
-    try { localStorage.setItem('@keeper/theme', theme) } catch {}
-  }
-}
-applyThemeOverride()
-
 export async function createKeeperApp() {
   const config = await window.$W.config()
   const hostApi = await window.$W.host()

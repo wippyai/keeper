@@ -341,7 +341,7 @@ onMounted(() => {
   resizeObs.observe(container.value!)
   themeColors()
   themeObs = new MutationObserver(() => { themeCache = null; kindColorCache.clear() })
-  themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] })
+  themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
   if (props.nodes.length > 0) buildSim()
 })
 
