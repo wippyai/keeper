@@ -38,7 +38,7 @@ const FILTER_CHIPS: Array<{ key: Filter; label: string }> = [
         @click="emit('update:filter', chip.key)"
         class="px-1.5 py-0.5 rounded font-medium flex items-center gap-1 transition"
         :style="{
-          background: filter === chip.key ? 'var(--p-primary-color)' : 'var(--p-surface-100)',
+          background: filter === chip.key ? 'var(--p-primary-color)' : 'var(--p-content-hover-background)',
           color: filter === chip.key ? 'var(--p-primary-contrast-color)' : 'inherit',
         }">
         {{ chip.label }}
@@ -64,8 +64,8 @@ const FILTER_CHIPS: Array<{ key: Filter; label: string }> = [
         @click="emit('select', c.id)"
         class="px-4 py-3 border-b cursor-pointer transition"
         :style="{
-          borderColor: 'var(--p-surface-200)',
-          background: selectedId === c.id ? 'var(--p-surface-100)' : 'transparent',
+          borderColor: 'var(--p-content-border-color)',
+          background: selectedId === c.id ? 'var(--p-content-hover-background)' : 'transparent',
           opacity: c.decision !== 'pending' ? 0.65 : 1,
         }">
         <div class="flex items-center gap-2 mb-1.5">

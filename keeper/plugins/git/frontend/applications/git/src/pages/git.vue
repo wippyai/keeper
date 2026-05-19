@@ -223,7 +223,7 @@ async function explainRec(recId: string) {
         @select="(id) => selectedId = id"
       />
 
-      <div v-if="!selectedCluster" class="overflow-y-auto" style="background: var(--p-surface-0)">
+      <div v-if="!selectedCluster" class="overflow-y-auto" style="background: var(--p-content-background)">
         <div class="p-12 text-center text-[12px] opacity-60">
           Pick a cluster on the left.
         </div>

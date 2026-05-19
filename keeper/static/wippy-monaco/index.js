@@ -1,7 +1,7 @@
-import { inject as F, ref as x, createApp as ie, defineComponent as ae, computed as se, useTemplateRef as ce, shallowRef as y, onMounted as le, watchEffect as T, watch as z, onBeforeUnmount as pe, openBlock as M, createElementBlock as P, normalizeStyle as de, toDisplayString as ue, createCommentVNode as fe, withDirectives as me, createElementVNode as ge, vShow as he } from "vue";
+import { inject as F, ref as w, createApp as ie, defineComponent as ae, computed as se, useTemplateRef as ce, shallowRef as y, onMounted as le, watchEffect as T, watch as z, onBeforeUnmount as pe, openBlock as M, createElementBlock as P, normalizeStyle as de, toDisplayString as ue, createCommentVNode as fe, withDirectives as me, createElementVNode as ge, vShow as he } from "vue";
 import { addCollection as ve } from "@iconify/vue";
-import { hostCss as be, loadCss as ye, addIcons as we, define as xe } from "@wippy-fe/proxy";
-import { getActivePinia as ke, createPinia as _e, setActivePinia as Ee } from "pinia";
+import { hostCss as be, loadCss as ye, addIcons as ke, define as we } from "@wippy-fe/proxy";
+import { getActivePinia as xe, createPinia as _e, setActivePinia as Ee } from "pinia";
 const G = Symbol("wippy:emit"), q = Symbol("wippy:props"), Ce = Symbol("wippy:props_error"), Se = Symbol("wippy:content"), Re = Symbol("wippy:panel-id"), Te = Symbol("wippy:layout-bus"), Me = Symbol("wippy:host");
 function Pe() {
   const r = F(q);
@@ -151,7 +151,7 @@ class He extends HTMLElement {
       else {
         this.onInit(a), e.inlineCss && Ie(a, e.inlineCss), (e.hostCssKeys === void 0 || e.hostCssKeys.length > 0) && Be(a, e.hostCssKeys), n = document.createElement("div");
         const l = e.containerClasses ?? [];
-        l.length > 0 && n.classList.add(...l), a.appendChild(n), this._container = n, we(ve);
+        l.length > 0 && n.classList.add(...l), a.appendChild(n), this._container = n, ke(ve);
       }
       const { props: s, errors: i } = K(this, e.propsSchema);
       e.validateProps && i.push(...e.validateProps(s));
@@ -214,7 +214,7 @@ function We(r) {
 }
 class Ve extends He {
   constructor() {
-    super(...arguments), this._vueApp = null, this._propsRef = x({}), this._errorsRef = x([]), this._contentRef = x(null);
+    super(...arguments), this._vueApp = null, this._propsRef = w({}), this._errorsRef = w([]), this._contentRef = w(null);
   }
   /**
    * Override to provide Vue-specific configuration.
@@ -227,7 +227,7 @@ class Ve extends He {
     this._propsRef.value = a, this._errorsRef.value = n, this._contentRef.value = s ?? null;
     for (const m of n)
       this.emitEvent("invalid", { message: m });
-    const u = ke();
+    const u = xe();
     this._vueApp = ie(p.rootComponent);
     const l = _e();
     if (p.piniaPlugins)
@@ -255,15 +255,15 @@ let Y = null;
 function Ue() {
   return Y;
 }
-let k = null, O = 0;
+let x = null, O = 0;
 function je(r) {
-  if (!k)
+  if (!x)
     return console.warn("[wippy-monaco] bindShadowStylesheetContainer called before loadMonaco resolved — runtime CSS will leak to document.head"), () => {
     };
-  k(r), O++;
+  x(r), O++;
   let e = !1;
   return () => {
-    e || (e = !0, O--, O === 0 && k?.(null));
+    e || (e = !0, O--, O === 0 && x?.(null));
   };
 }
 let _ = null;
@@ -301,7 +301,7 @@ function Fe() {
       import("./html.worker-BTgg5INT.js").then((l) => l.default),
       import("./ts.worker-Dj3vtSc8.js").then((l) => l.default)
     ]);
-    Y = r, k = e.setDefaultStylesheetContainer, _ = t.setHostTheme, self.MonacoEnvironment = {
+    Y = r, x = e.setDefaultStylesheetContainer, _ = t.setHostTheme, self.MonacoEnvironment = {
       getWorker(l, m) {
         switch (m) {
           case "json":
@@ -417,14 +417,14 @@ function Xe(r, e) {
     colors: {
       "editor.background": s,
       "editor.foreground": n("--p-text-color", i ? "#fafafa" : "#18181b"),
-      "editor.lineHighlightBackground": n("--p-surface-100", i ? "#2b2927" : "#f4f4f5"),
+      "editor.lineHighlightBackground": n("--p-content-hover-background", i ? "#2b2927" : "#f4f4f5"),
       "editor.selectionBackground": i ? "#1e222c80" : "#bfdbfe",
       "editorCursor.foreground": n("--p-primary-500", "#f59e0b"),
       "editorLineNumber.foreground": n("--p-text-muted-color", "#a1a1aa"),
       "editorLineNumber.activeForeground": n("--p-text-color", i ? "#fafafa" : "#18181b"),
-      "editor.inactiveSelectionBackground": n("--p-surface-100", i ? "#2b2927" : "#e4e4e7"),
-      "editorIndentGuide.background": n("--p-surface-200", i ? "#403e3c" : "#e4e4e7"),
-      "editorWidget.background": n("--p-surface-100", i ? "#2b2927" : "#ffffff"),
+      "editor.inactiveSelectionBackground": n("--p-content-hover-background", i ? "#2b2927" : "#f4f4f5"),
+      "editorIndentGuide.background": n("--p-content-border-color", i ? "#403e3c" : "#e4e4e7"),
+      "editorWidget.background": n("--p-content-hover-background", i ? "#2b2927" : "#f4f4f5"),
       "editorWidget.border": n("--p-content-border-color", i ? "#403e3c" : "#e4e4e7"),
       "input.background": n("--p-content-background", s),
       "input.border": n("--p-content-border-color", i ? "#403e3c" : "#e4e4e7"),
@@ -479,8 +479,8 @@ const Ze = {
     const e = ze(), t = Ke(), a = se(() => {
       const o = e.value?.["min-height"];
       return o && o > 0 ? { minHeight: `${o}px` } : void 0;
-    }), n = ce("container"), s = x({ kind: "loading" }), i = y(null), p = y(null), u = y(null), l = y(null), m = y(null);
-    let w = null, v = null, b = null, E = !1, C = null, h = null;
+    }), n = ce("container"), s = w({ kind: "loading" }), i = y(null), p = y(null), u = y(null), l = y(null), m = y(null);
+    let k = null, v = null, b = null, E = !1, C = null, h = null;
     function S(o) {
       const c = o.getRootNode();
       return c instanceof ShadowRoot ? c.host : o;
@@ -502,10 +502,10 @@ const Ze = {
       if (e.value.theme && e.value.theme !== "auto")
         return;
       const o = document.documentElement;
-      w = new MutationObserver(() => R()), w.observe(o, { attributes: !0, attributeFilter: ["data-theme", "class"] }), v = window.matchMedia("(prefers-color-scheme: dark)"), b = () => R(), v.addEventListener("change", b);
+      k = new MutationObserver(() => R()), k.observe(o, { attributes: !0, attributeFilter: ["data-theme", "class"] }), v = window.matchMedia("(prefers-color-scheme: dark)"), b = () => R(), v.addEventListener("change", b);
     }
     function H() {
-      w?.disconnect(), w = null, v && b && v.removeEventListener("change", b), v = null, b = null;
+      k?.disconnect(), k = null, v && b && v.removeEventListener("change", b), v = null, b = null;
     }
     function re() {
       H(), p.value?.dispose(), p.value = null;
@@ -654,5 +654,5 @@ class ar extends Ve {
     };
   }
 }
-xe(import.meta.url, ar);
+we(import.meta.url, ar);
 //# sourceMappingURL=index.js.map

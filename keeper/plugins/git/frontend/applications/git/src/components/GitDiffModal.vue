@@ -17,7 +17,7 @@ const emit = defineEmits<{
   <div v-if="path" class="fixed inset-0 z-50 flex"
     style="background: var(--p-mask-background)" @click.self="emit('close')">
     <aside class="ml-auto w-[820px] h-full overflow-hidden flex flex-col"
-      style="background: var(--p-surface-0); border-left: 1px solid var(--p-content-border-color)">
+      style="background: var(--p-content-background); border-left: 1px solid var(--p-content-border-color)">
       <header class="px-4 py-2.5 border-b flex items-center gap-2"
         style="border-color: var(--p-content-border-color)">
         <Icon icon="tabler:diff" class="w-4 h-4" />
@@ -40,7 +40,7 @@ const emit = defineEmits<{
       <div v-else class="flex-1 overflow-y-auto font-mono text-[11px] leading-snug">
         <div v-for="(h, hi) in data.hunks" :key="hi">
           <div class="px-3 py-1 sticky top-0 z-10 text-[10px] opacity-60"
-            style="background: var(--p-surface-100); border-bottom: 1px solid var(--p-content-border-color)">
+            style="background: var(--p-content-hover-background); border-bottom: 1px solid var(--p-content-border-color)">
             {{ h.header }}
           </div>
           <pre v-for="(ln, li) in h.lines" :key="li"

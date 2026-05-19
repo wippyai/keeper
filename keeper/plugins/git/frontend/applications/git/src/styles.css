@@ -54,7 +54,7 @@ html, body, #app {
   font-size: 11px;
   line-height: 1.4;
   border-radius: 4px;
-  background: var(--p-surface-100);
+  background: var(--p-content-hover-background);
   color: var(--p-text-color);
   border: 1px solid var(--p-content-border-color);
   outline: none;
@@ -75,7 +75,7 @@ html, body, #app {
   font-size: 11px;
   line-height: 1.4;
   border-radius: 4px;
-  background: var(--p-surface-100);
+  background: var(--p-content-hover-background);
   color: var(--p-text-color);
   border: 1px solid var(--p-content-border-color);
   outline: none;

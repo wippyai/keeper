@@ -27,7 +27,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <section class="overflow-y-auto" style="background: var(--p-surface-0)">
+  <section class="overflow-y-auto" style="background: var(--p-content-background)">
     <article class="p-6">
       <div class="flex items-center gap-2 mb-2">
         <span class="w-2 h-2 rounded-full"
@@ -73,7 +73,7 @@ const emit = defineEmits<{
           <li v-for="r in cluster.recommendations" :key="r.id"
             class="rounded p-2.5 flex items-start gap-2"
             :style="{ background: sevTone[r.severity as Severity].bg,
-                      border: '1px solid var(--p-surface-200)' }">
+                      border: '1px solid var(--p-content-border-color)' }">
             <Icon :icon="sevTone[r.severity as Severity].icon" class="w-3.5 h-3.5 shrink-0 mt-0.5"
               :style="{ color: sevTone[r.severity as Severity].color }" />
             <div class="flex-1 min-w-0">
@@ -96,7 +96,7 @@ const emit = defineEmits<{
                 </button>
               </div>
               <div v-if="r.detail || explanations[r.id]" class="mt-2 p-2.5 rounded text-[11px] leading-relaxed whitespace-pre-wrap border-l-[3px] border-accent-500"
-                style="background: var(--p-surface-100)">
+                style="background: var(--p-content-hover-background)">
                 <div class="text-[9px] uppercase tracking-wide opacity-60 mb-1 flex items-center gap-1">
                   <Icon icon="tabler:sparkles" class="w-3 h-3" /> AI explanation
                 </div>{{ r.detail || explanations[r.id] }}
@@ -121,7 +121,7 @@ const emit = defineEmits<{
         <div class="rounded border" style="border-color: var(--p-content-border-color)">
           <div v-for="c in changes.slice(0, 100)" :key="c.change_id"
             @click="emit('open-diff', c.path)"
-            class="px-3 py-1.5 border-b last:border-0 flex items-center gap-2 cursor-pointer hover:bg-[var(--p-surface-100)]"
+            class="px-3 py-1.5 border-b last:border-0 flex items-center gap-2 cursor-pointer hover:bg-[var(--p-content-hover-background)]"
             style="border-color: var(--p-content-border-color)">
             <span class="text-[9px] font-semibold uppercase px-1 py-0.5 rounded shrink-0"
               :class="{
@@ -146,7 +146,7 @@ const emit = defineEmits<{
 
       <!-- action bar -->
       <div class="sticky bottom-0 -mx-6 px-6 py-3 border-t flex items-center gap-2"
-        style="border-color: var(--p-content-border-color); background: var(--p-surface-0)">
+        style="border-color: var(--p-content-border-color); background: var(--p-content-background)">
         <template v-if="cluster.decision === 'pending'">
           <button @click="emit('decide', cluster.id, 'approved')" :disabled="blocking"
             class="px-4 py-2 rounded-lg text-[12px] font-medium flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed bg-success-500 text-white">
@@ -154,12 +154,12 @@ const emit = defineEmits<{
           </button>
           <button @click="emit('open-split')"
             class="px-4 py-2 rounded-lg text-[12px] font-medium flex items-center gap-1.5"
-            style="background: var(--p-surface-200)">
+            style="background: var(--kp-btn-secondary-bg)">
             <Icon icon="tabler:arrow-split" class="w-3.5 h-3.5" /> Split…
           </button>
           <button @click="emit('decide', cluster.id, 'skipped')"
             class="px-4 py-2 rounded-lg text-[12px] flex items-center gap-1.5"
-            style="background: var(--p-surface-200)">
+            style="background: var(--kp-btn-secondary-bg)">
             <Icon icon="tabler:archive" class="w-3.5 h-3.5" /> Hide
           </button>
           <span v-if="blocking" class="text-[11px] ml-2 text-danger-500">
@@ -179,13 +179,13 @@ const emit = defineEmits<{
             {{ cluster.push_blockers?.[0] || 'Review-only cluster' }}
           </span>
           <button @click="emit('decide', cluster.id, 'pending')"
-            class="px-4 py-2 rounded-lg text-[12px]" style="background: var(--p-surface-200)">
+            class="px-4 py-2 rounded-lg text-[12px]" style="background: var(--kp-btn-secondary-bg)">
             Unmark
           </button>
         </template>
         <template v-else>
           <button @click="emit('decide', cluster.id, 'pending')"
-            class="px-4 py-2 rounded-lg text-[12px]" style="background: var(--p-surface-200)">
+            class="px-4 py-2 rounded-lg text-[12px]" style="background: var(--kp-btn-secondary-bg)">
             Move back to pending
           </button>
         </template>

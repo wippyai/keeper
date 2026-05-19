@@ -53,7 +53,7 @@
           "--kp-text-heading": "var(--p-text-color)",
           "--kp-hover-bg": "color-mix(in srgb, var(--p-text-color) 6%, transparent)",
           "--kp-code-bg": "color-mix(in srgb, var(--p-content-background) 92%, var(--p-text-color) 8%)",
-          "--kp-btn-secondary-bg": "var(--p-surface-100)",
+          "--kp-btn-secondary-bg": "var(--p-surface-200)",
           "--kp-btn-secondary-border": "var(--p-surface-200)",
           "--kp-btn-secondary-text": "var(--p-surface-700)",
           "@light": {
@@ -71,6 +71,7 @@
             "--p-surface-950": "#09090b",
             "--p-content-background": "#ffffff",
             "--p-content-border-color": "#e4e4e7",
+            "--p-content-hover-background": "#f4f4f5",
             "--p-text-color": "#18181b",
             "--p-text-hover-color": "#09090b",
             "--p-text-muted-color": "#71717a",
@@ -99,6 +100,7 @@
             "--p-surface-950": "#09090b",
             "--p-content-background": "#1c1a19",
             "--p-content-border-color": "#403e3c",
+            "--p-content-hover-background": "#2b2927",
             "--p-text-color": "#fafafa",
             "--p-text-hover-color": "#ffffff",
             "--p-text-muted-color": "#a1a1aa",
@@ -145,13 +147,13 @@
     "type-check": "vue-tsc --build --force"
   },
   "dependencies": {
-    "@wippy-fe/theme": "^0.0.29"
+    "@wippy-fe/theme": "^0.0.30"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
     "@vitejs/plugin-vue": "^5.0.0",
-    "@wippy-fe/types-global-proxy": "^0.0.29",
-    "@wippy-fe/vite-plugin": "^0.0.29",
+    "@wippy-fe/types-global-proxy": "^0.0.30",
+    "@wippy-fe/vite-plugin": "^0.0.30",
     "autoprefixer": "^10.4.0",
     "postcss": "^8.4.0",
     "primevue": "^4.3.3",
@@ -164,8 +166,8 @@
   },
   "peerDependencies": {
     "@iconify/vue": "^5.0.0",
-    "@wippy-fe/proxy": "^0.0.29",
-    "@wippy-fe/router": "^0.0.29",
+    "@wippy-fe/proxy": "^0.0.30",
+    "@wippy-fe/router": "^0.0.30",
     "axios": "^1.0.0",
     "vue": "^3.5.0",
     "vue-router": "^4.0.0"

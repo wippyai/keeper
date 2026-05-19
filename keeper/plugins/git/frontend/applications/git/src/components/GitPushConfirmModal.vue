@@ -20,7 +20,7 @@ const emit = defineEmits<{
   <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center"
     style="background: var(--p-mask-background)" @click.self="emit('close')">
     <div class="rounded-lg w-full max-w-md mx-4 overflow-hidden"
-      style="background: var(--p-surface-0); border: 1px solid var(--p-content-border-color)">
+      style="background: var(--p-content-background); border: 1px solid var(--p-content-border-color)">
       <div class="px-5 py-3 border-b flex items-center gap-2"
         style="border-color: var(--p-content-border-color)">
         <Icon icon="tabler:upload" class="w-4 h-4" />
@@ -54,7 +54,7 @@ const emit = defineEmits<{
           {{ pushing ? 'Pushing…' : 'Push all' }}
         </button>
         <button @click="emit('close')" :disabled="pushing"
-          class="px-4 py-1.5 rounded text-[12px]" style="background: var(--p-surface-200)">
+          class="px-4 py-1.5 rounded text-[12px]" style="background: var(--kp-btn-secondary-bg)">
           Cancel
         </button>
       </div>

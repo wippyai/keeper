@@ -40,7 +40,7 @@ const MODES: ReadonlyArray<{ key: Mode; icon: string; label: string }> = [
   <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center"
     style="background: var(--p-mask-background)" @click.self="emit('close')">
     <div class="rounded-lg w-full max-w-2xl mx-4 overflow-hidden flex flex-col"
-      style="background: var(--p-surface-0); border: 1px solid var(--p-content-border-color); max-height: 80vh">
+      style="background: var(--p-content-background); border: 1px solid var(--p-content-border-color); max-height: 80vh">
       <header class="px-5 py-3 border-b flex items-center gap-2"
         style="border-color: var(--p-content-border-color)">
         <Icon icon="tabler:arrow-split" class="w-4 h-4" />
@@ -60,7 +60,7 @@ const MODES: ReadonlyArray<{ key: Mode; icon: string; label: string }> = [
           :disabled="loading"
           class="px-2 py-1 rounded font-medium flex items-center gap-1"
           :style="{
-            background: mode === m.key ? 'var(--p-primary-color)' : 'var(--p-surface-100)',
+            background: mode === m.key ? 'var(--p-primary-color)' : 'var(--p-content-hover-background)',
             color: mode === m.key ? 'var(--p-primary-contrast-color)' : 'inherit',
           }">
           <Icon :icon="m.icon" class="w-3 h-3" />
@@ -88,7 +88,7 @@ const MODES: ReadonlyArray<{ key: Mode; icon: string; label: string }> = [
           <ul class="space-y-2">
             <li v-for="(g, i) in groups" :key="i"
               class="rounded p-3"
-              style="background: var(--p-surface-100); border: 1px solid var(--p-content-border-color)">
+              style="background: var(--p-content-hover-background); border: 1px solid var(--p-content-border-color)">
               <div class="flex items-baseline gap-2 mb-1">
                 <span class="text-[12px] font-semibold flex-1 truncate">{{ g.title }}</span>
                 <span class="text-[10px] opacity-70">{{ g.change_ids.length }} files</span>
@@ -113,7 +113,7 @@ const MODES: ReadonlyArray<{ key: Mode; icon: string; label: string }> = [
           {{ applying ? 'Splitting…' : `Apply (creates ${groups.length} clusters)` }}
         </button>
         <button @click="emit('close')" class="px-4 py-1.5 rounded text-[12px] ml-auto"
-          style="background: var(--p-surface-200)">Cancel</button>
+          style="background: var(--kp-btn-secondary-bg)">Cancel</button>
       </div>
     </div>
   </div>

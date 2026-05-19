@@ -28,7 +28,7 @@ const emit = defineEmits<{
 
     <div class="flex items-center gap-2 px-2 py-1 rounded"
       :class="{ 'bg-warn-500/10': stale }"
-      :style="!stale ? { background: 'var(--p-surface-100)' } : {}">
+      :style="!stale ? { background: 'var(--p-content-hover-background)' } : {}">
       <Icon :icon="stale ? 'tabler:alert-triangle' : 'tabler:database'"
         class="w-3.5 h-3.5"
         :class="{ 'text-warn-500': stale }" />
@@ -49,7 +49,7 @@ const emit = defineEmits<{
       </button>
       <button @click="emit('rebuild', 'manual')" :disabled="rebuilding"
         class="text-[11px] px-2 py-0.5 rounded font-medium flex items-center gap-1"
-        style="background: var(--p-surface-200)"
+        style="background: var(--kp-btn-secondary-bg)"
         title="Manual rebuild — group by directory prefix (no LLM, instant)">
         <Icon icon="tabler:list" class="w-3 h-3" />
         Manual
