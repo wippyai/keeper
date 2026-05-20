@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi, useHost, useWippy } from '../composables/useWippy'
 import {
   listKBs, createKB, deleteKB,
@@ -339,18 +340,18 @@ onUnmounted(() => {
       <div class="flex items-center gap-2 ml-auto">
         <span v-if="stats" class="stat-chip">{{ stats.total }} nodes</span>
 
-        <button class="action-btn" @click="doLearn" :disabled="learning"
+        <Button severity="secondary" @click="doLearn" :disabled="learning"
           :title="stats && stats.total > 0 ? 'Re-scan project for new patterns' : 'Analyze registry and generate knowledge'">
           <Icon :icon="learning ? 'tabler:loader-2' : 'tabler:school'" class="w-3.5 h-3.5" :class="{ 'animate-spin': learning }" />
           {{ !stats || stats.total === 0 ? 'Learn Project' : 'Re-scan' }}
-        </button>
-        <button class="action-btn" @click="showResearch = true">
+        </Button>
+        <Button severity="secondary" @click="showResearch = true">
           <Icon icon="tabler:brain" class="w-3.5 h-3.5" />
           Research
-        </button>
-        <button class="action-btn primary" @click="showCreate = true">
+        </Button>
+        <Button @click="showCreate = true">
           <Icon icon="tabler:plus" class="w-3.5 h-3.5" />
-        </button>
+        </Button>
       </div>
     </div>
 
@@ -454,20 +455,20 @@ onUnmounted(() => {
             </template>
             <div class="ml-auto flex items-center gap-1.5">
               <template v-if="editMode">
-                <button class="action-btn primary" @click="doSave" :disabled="saving">
+                <Button @click="doSave" :disabled="saving">
                   <Icon :icon="saving ? 'tabler:loader-2' : 'tabler:check'" class="w-3.5 h-3.5" :class="{ 'animate-spin': saving }" />
                   Save
-                </button>
-                <button class="action-btn" @click="editMode = false">Cancel</button>
+                </Button>
+                <Button severity="secondary" @click="editMode = false">Cancel</Button>
               </template>
               <template v-else>
-                <button class="action-btn" @click="refreshNode" :disabled="researching" title="Re-research this topic">
+                <Button severity="secondary" @click="refreshNode" :disabled="researching" title="Re-research this topic">
                   <Icon :icon="researching ? 'tabler:loader-2' : 'tabler:refresh'" class="w-3.5 h-3.5" :class="{ 'animate-spin': researching }" />
-                </button>
-                <button class="action-btn" @click="editMode = true">
+                </Button>
+                <Button severity="secondary" @click="editMode = true">
                   <Icon icon="tabler:pencil" class="w-3.5 h-3.5" />
                   Edit
-                </button>
+                </Button>
                 <button class="action-btn danger" @click="doDelete">
                   <Icon icon="tabler:trash" class="w-3.5 h-3.5" />
                 </button>
@@ -556,10 +557,10 @@ onUnmounted(() => {
             <Icon icon="tabler:brain" class="w-12 h-12 mx-auto mb-3" style="color: var(--p-text-muted-color); opacity: 0.4" />
             <template v-if="!stats || stats.total === 0">
               <div class="text-sm mb-2" style="color: var(--p-text-muted-color)">Knowledge base is empty</div>
-              <button class="action-btn primary mx-auto" @click="doLearn" :disabled="learning">
+              <Button class="mx-auto" @click="doLearn" :disabled="learning">
                 <Icon :icon="learning ? 'tabler:loader-2' : 'tabler:school'" class="w-3.5 h-3.5" :class="{ 'animate-spin': learning }" />
                 Learn Project
-              </button>
+              </Button>
               <div class="text-[10px] mt-2" style="color: var(--p-text-muted-color)">Analyzes registry structure and generates knowledge automatically</div>
             </template>
             <template v-else>
@@ -606,12 +607,11 @@ onUnmounted(() => {
           <div class="flex items-center justify-between mt-3 pt-2" style="border-top: 1px solid var(--p-content-border-color)">
             <span class="text-[10px]" style="color: var(--p-text-muted-color)">{{ totalResearchTopics }} topic(s) selected</span>
             <div class="flex gap-2">
-              <button class="action-btn" @click="showResearch = false">Cancel</button>
-              <button class="action-btn primary" @click="doResearch"
-                :disabled="totalResearchTopics === 0 || researching">
+              <Button severity="secondary" @click="showResearch = false">Cancel</Button>
+              <Button @click="doResearch" :disabled="totalResearchTopics === 0 || researching">
                 <Icon :icon="researching ? 'tabler:loader-2' : 'tabler:player-play'" class="w-3.5 h-3.5" :class="{ 'animate-spin': researching }" />
                 {{ researching ? 'Starting...' : 'Start' }}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -669,8 +669,8 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="flex justify-end gap-2 mt-1">
-              <button class="action-btn" @click="showCreate = false">Cancel</button>
-              <button class="action-btn primary" @click="doCreate" :disabled="!newNode.title.trim()">Create</button>
+              <Button severity="secondary" @click="showCreate = false">Cancel</Button>
+              <Button @click="doCreate" :disabled="!newNode.title.trim()">Create</Button>
             </div>
           </div>
         </div>
@@ -707,8 +707,8 @@ onUnmounted(() => {
               <input v-model="newKBName" class="field-input" placeholder="Name (e.g. 'Wippy Patterns')" />
               <input v-model="newKBDescription" class="field-input mt-2" placeholder="Description (optional)" />
               <div class="flex justify-end gap-2 mt-2">
-                <button class="action-btn" @click="showKBManager = false">Close</button>
-                <button class="action-btn primary" @click="doCreateKB" :disabled="!newKBName.trim()">Create KB</button>
+                <Button severity="secondary" @click="showKBManager = false">Close</Button>
+                <Button @click="doCreateKB" :disabled="!newKBName.trim()">Create KB</Button>
               </div>
             </div>
           </div>
