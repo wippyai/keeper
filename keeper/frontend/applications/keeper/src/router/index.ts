@@ -153,11 +153,16 @@ const routes = [
     name: 'audit',
     component: () => import('../pages/audit.vue'),
   },
-  // TEMP D2 — remove in B5
+  // TEMP D2 — remove in B5 / badge-family cleanup
   {
     path: '/button-gallery',
     name: 'button-gallery',
     component: () => import('../pages/_dev-button-gallery.vue'),
+  },
+  {
+    path: '/badge-gallery',
+    name: 'badge-gallery',
+    component: () => import('../pages/_dev-badge-gallery.vue'),
   },
   {
     path: '/:pathMatch(.*)*',
