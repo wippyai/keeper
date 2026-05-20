@@ -23,6 +23,25 @@ When a `<wippy-monaco>` or other Wippy web component silently renders as an unkn
 
 `wippy-monaco` patches monaco-editor via `patch-package` (see `keeper/frontend/web-components/wippy-monaco/patches/monaco-editor+0.55.1.patch`) for two things vanilla monaco doesn't handle in shadow DOM: (a) `createStyleSheet`'s default container is overridable, so runtime monaco styles land in the shadow root via `bindShadowStylesheetContainer`; (b) `StandaloneThemeService` supports per-host themes via `setHostTheme(host, name)` and a `_themeByHost` `WeakMap`, so two `<wippy-monaco>` elements with different `theme=` attrs render with their own palettes (vanilla monaco's theme is a singleton). The patch is auto-applied via `"postinstall": "patch-package"` in the WC's `package.json`. If a monaco upgrade lands, re-run `npx patch-package monaco-editor` after fixing any conflicts to re-capture the patch.
 
+## FE theming placement — hard rule
+
+**🚫 PrimeVue / host-owned selectors NEVER go in `src/styles.css`. Always in `customization.customCSS` of the configOverrides 4-way pair.**
+
+| Override target | Where | Where it MUST NOT go |
+|---|---|---|
+| HOST-owned selector (`.p-button`, `.p-dialog`, `.p-inputtext`, ...) | `customization.customCSS` (4-way: keeper-main YAML + keeper-git YAML + both `package.json` mirrors) | NEVER in any child app's `src/styles.css` |
+| Project-internal class (`.keeper-nav-btn`, `.search-input`, ...) | `src/styles.css` (or `customCSS` if it must reach the host shell) | n/a |
+
+**Why** (`app-template/frontend/docs/theming.md` §"Where each override lives", §"What the Wippy host provides", REJECT 43a):
+- `customCSS` propagates through the host pipeline to every nested iframe — keeper-main, keeper-git, and any future child iframes get the same override.
+- Tokens (`--p-*` custom properties) further cross the Shadow DOM boundary into web components (so a WC's PrimeVue button picks up keeper's token tweaks).
+- `customCSS` stylesheet rules do NOT cross Shadow DOM — WCs that render PrimeVue inside must replay relevant rules in their own `:host { … }` block, or lift the override to `--p-*` token form.
+- `src/styles.css` is per-iframe-bundle and reaches none of the above; using it for `.p-*` rules creates per-iframe drift and is flagged REJECT 43a.
+
+**Iteration escape (debug only):** during active development of a family migration chunk (e.g. D2's button chunk B3), a temporary `src/temp-primevue-overrides.css` file imported in `app.ts` with a prominent TODO is allowed. It MUST be transcribed into the 4-way `customCSS` and removed in the chunk's cleanup step. Never ship.
+
+`usage` deliberately omits `configOverrides` (inherits the facade per §5.1) — do NOT add a fifth `customCSS` copy there. usage's PrimeVue components will render with facade defaults unless we lift the override into the facade itself.
+
 ## Intentional patterns (do NOT "fix" these)
 
 ### Warm-grey theme duplicated 4 ways

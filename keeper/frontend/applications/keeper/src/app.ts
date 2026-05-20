@@ -1,6 +1,7 @@
 import { addCollection } from '@iconify/vue'
 import { createPinia } from 'pinia'
 import { createApp } from 'vue'
+import { PrimeVuePlugin } from '@wippy-fe/theme/primevue-plugin'
 
 import App from './app/app.vue'
 import { AXIOS_INSTANCE, HOST_API, WIPPY_INSTANCE, WIPPY_CONFIG, ON_SUBSCRIPTION } from './constants'
@@ -8,6 +9,9 @@ import type { OnSubscription } from './constants'
 import { createAppRouter } from './router'
 import './styles.css'
 import './tailwind.css'
+// TEMP D2 chunk B3 — DEBUG ONLY. Transcribe into customCSS in the 4 configOverrides
+// blocks and delete this import + the .css file as part of chunk B5 cleanup.
+import './temp-primevue-overrides.css'
 
 export async function createKeeperApp() {
   const config = await window.$W.config()
@@ -57,6 +61,7 @@ export async function createKeeperApp() {
   const app = createApp(App)
 
   app.use(createPinia())
+  app.use(PrimeVuePlugin)
 
   app.provide(HOST_API, hostApi)
   app.provide(AXIOS_INSTANCE, axios)
