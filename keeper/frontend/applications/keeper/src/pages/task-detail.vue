@@ -675,15 +675,14 @@ const dataflowId = computed(() => {
 
       <!-- Actions -->
       <div v-if="task" class="px-4 py-3 border-t flex flex-col gap-2" style="border-color: var(--p-content-border-color)">
-        <button v-if="task.status === 'open'" @click="handleStartCycle()" :disabled="startingCycle"
-          class="w-full text-[11px] py-1.5 rounded font-medium"
-          style="background: var(--p-primary-color); color: var(--p-primary-contrast-color)">
+        <Button v-if="task.status === 'open'" @click="handleStartCycle()" :disabled="startingCycle"
+          class="!w-full !text-[11px] !py-1.5 !font-medium">
           {{ startingCycle ? 'Starting…' : 'Start cycle' }}
-        </button>
+        </Button>
         <Button v-if="task.status !== 'completed' && task.status !== 'abandoned' && task.status !== 'open'"
           severity="danger"
           @click="handleCancel" :disabled="cancelling"
-          class="!w-full !text-[11px] !py-1.5 !font-medium !justify-center !gap-1">
+          class="!w-full !text-[11px] !py-1.5 !font-medium !justify-center">
           <Icon icon="tabler:ban" class="w-3.5 h-3.5" />
           {{ cancelling ? 'Cancelling…' : 'Cancel task' }}
         </Button>

@@ -41,6 +41,13 @@
   padding: 4px 12px;
   font-size: 11px;
   font-weight: 500;
+  /* PrimeVue's default gap is 0.5rem (8px); keeper's hand-rolled buttons used
+     4-5px between icon and label. Setting 4px here is the new default — call
+     sites that need different gap should use !gap-1.5 / !gap-2 explicitly.
+     Source-order: this file loads AFTER tailwind.css, so a plain `gap-N`
+     Tailwind class WILL lose the specificity tie against this `.p-button`
+     rule — use the `!`-modifier (e.g. `!gap-1.5`) to override. */
+  gap: 4px;
   transition: none; /* keeper has no hover transition; PrimeVue's 0.2s shimmer feels off vs current */
 }
 

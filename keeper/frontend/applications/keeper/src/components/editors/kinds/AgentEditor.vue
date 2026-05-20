@@ -185,7 +185,7 @@ const tabs = [
                 </div>
               </div>
             </div>
-            <Button class="k-btn-dashed !gap-1" @click="addDelegate"><Icon icon="tabler:plus" class="w-3 h-3" /> Add Delegate</Button>
+            <Button class="k-btn-dashed" @click="addDelegate"><Icon icon="tabler:plus" class="w-3 h-3" /> Add Delegate</Button>
           </div>
         </EditorSection>
       </div>
@@ -275,7 +275,7 @@ const tabs = [
               <textarea :value="p" @input="updateStartPrompt(i, ($event.target as HTMLTextAreaElement).value)" class="ed-ta flex-1" rows="2" placeholder="Ask me about..."></textarea>
               <Button class="k-btn-icon k-btn-icon-danger !p-0.5 mt-1" @click="removeStartPrompt(i)"><Icon icon="tabler:trash" class="w-3 h-3" /></Button>
             </div>
-            <Button class="k-btn-dashed !gap-1" @click="addStartPrompt"><Icon icon="tabler:plus" class="w-3 h-3" /> Add Prompt</Button>
+            <Button class="k-btn-dashed" @click="addStartPrompt"><Icon icon="tabler:plus" class="w-3 h-3" /> Add Prompt</Button>
           </div>
         </EditorSection>
       </div>

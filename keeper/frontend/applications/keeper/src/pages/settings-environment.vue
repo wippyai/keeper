@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi } from '../composables/useWippy'
 import { listEnvVariables, setEnvVariable, type EnvVariable } from '../api/registry'
 import PageHeader from '../components/shared/PageHeader.vue'
@@ -151,10 +152,10 @@ onMounted(load)
         <Icon :icon="showValues ? 'tabler:eye-off' : 'tabler:eye'" class="w-3.5 h-3.5" />
         {{ showValues ? 'Hide' : 'Reveal' }}
       </button>
-      <button class="header-btn" @click="copyAsEnv" title="Copy filtered as .env">
+      <Button severity="secondary" @click="copyAsEnv" title="Copy filtered as .env">
         <Icon icon="tabler:download" class="w-3.5 h-3.5" />
         .env
-      </button>
+      </Button>
     </PageHeader>
 
     <!-- Stats strip -->
@@ -224,17 +225,17 @@ onMounted(load)
                     @keydown.escape="cancelEdit"
                   />
                   <button class="row-btn ok" @click="saveVar(v)" title="Save (Enter)"><Icon icon="tabler:check" class="w-3.5 h-3.5" /></button>
-                  <button class="row-btn" @click="cancelEdit" title="Cancel (Esc)"><Icon icon="tabler:x" class="w-3.5 h-3.5" /></button>
+                  <Button class="k-btn-icon !w-[22px] !h-[22px] !p-0" @click="cancelEdit" title="Cancel (Esc)"><Icon icon="tabler:x" class="w-3.5 h-3.5" /></Button>
                 </template>
                 <template v-else>
                   <span v-if="v.has_value" class="env-value-text font-mono">{{ maskedValue(v) }}</span>
                   <span v-else class="env-value-empty italic">not set</span>
-                  <button v-if="v.has_value" class="row-btn" @click="copyValue(v)" :title="copiedVar === v.id ? 'Copied!' : 'Copy value'">
+                  <Button v-if="v.has_value" class="k-btn-icon !w-[22px] !h-[22px] !p-0" @click="copyValue(v)" :title="copiedVar === v.id ? 'Copied!' : 'Copy value'">
                     <Icon :icon="copiedVar === v.id ? 'tabler:check' : 'tabler:copy'" class="w-3 h-3" :class="copiedVar === v.id ? 'text-success-500' : ''" />
-                  </button>
-                  <button v-if="!v.readonly" class="row-btn" @click="startEdit(v)" title="Edit">
+                  </Button>
+                  <Button v-if="!v.readonly" class="k-btn-icon !w-[22px] !h-[22px] !p-0" @click="startEdit(v)" title="Edit">
                     <Icon icon="tabler:pencil" class="w-3 h-3" />
-                  </button>
+                  </Button>
                 </template>
               </div>
             </div>

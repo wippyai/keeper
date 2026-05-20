@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi } from '../../composables/useWippy'
 import { getEntry, type RegistryEntry } from '../../api/registry'
 import DetailPanel from './DetailPanel.vue'
@@ -86,16 +87,16 @@ const hasData = computed(() => Object.keys(data.value).length > 0)
       </template>
       <template #footer>
         <div class="shrink-0 px-4 py-2 flex items-center gap-2" style="border-top: 1px solid var(--p-content-border-color)">
-          <button class="footer-btn" @click="copy(entryId!, 'ID')" title="Copy ID">
+          <Button severity="secondary" class="!px-2 !py-[3px] !text-[10px] !font-medium !rounded" @click="copy(entryId!, 'ID')" title="Copy ID">
             <Icon icon="tabler:copy" class="w-3 h-3" /> Copy ID
-          </button>
-          <button class="footer-btn" @click="copy(JSON.stringify(current, null, 2), 'Entry JSON')" :disabled="!current">
+          </Button>
+          <Button severity="secondary" class="!px-2 !py-[3px] !text-[10px] !font-medium !rounded" @click="copy(JSON.stringify(current, null, 2), 'Entry JSON')" :disabled="!current">
             <Icon icon="tabler:braces" class="w-3 h-3" /> Copy JSON
-          </button>
+          </Button>
           <span class="flex-1"></span>
-          <button class="footer-btn primary" @click="openInRegistry">
+          <Button class="!px-2 !py-[3px] !text-[10px] !font-medium !rounded" @click="openInRegistry">
             <Icon icon="tabler:arrow-up-right" class="w-3 h-3" /> Open in Registry
-          </button>
+          </Button>
         </div>
       </template>
 

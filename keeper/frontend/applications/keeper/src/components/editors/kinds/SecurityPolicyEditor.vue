@@ -113,7 +113,7 @@ const operators = [
             <Icon icon="tabler:trash" class="w-3 h-3" />
           </Button>
         </div>
-        <Button class="k-btn-dashed !gap-1" @click="addGroup">
+        <Button class="k-btn-dashed" @click="addGroup">
           <Icon icon="tabler:plus" class="w-3 h-3" /> Add Group
         </Button>
       </div>
@@ -193,7 +193,7 @@ const operators = [
               </template>
             </div>
           </div>
-          <Button class="k-btn-dashed !gap-1 mt-2" @click="addCondition">
+          <Button class="k-btn-dashed mt-2" @click="addCondition">
             <Icon icon="tabler:plus" class="w-3 h-3" /> Add Condition
           </Button>
         </div>

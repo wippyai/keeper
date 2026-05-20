@@ -338,10 +338,10 @@ onMounted(load)
             <div class="snippet-head">
               <Icon icon="tabler:brand-vscode" class="w-3 h-3" />
               <span>Claude Code · <code>.mcp.json</code></span>
-              <button class="mini-btn" @click="copy(claudeCodeSnippet, 'cc')">
+              <Button severity="secondary" class="!px-2.5 !py-1 !text-[10px] !font-semibold" @click="copy(claudeCodeSnippet, 'cc')">
                 <Icon :icon="copiedSnippet === 'cc' ? 'tabler:check' : 'tabler:copy'" class="w-3 h-3" />
                 {{ copiedSnippet === 'cc' ? 'Copied' : 'Copy' }}
-              </button>
+              </Button>
             </div>
             <pre class="snippet-code">{{ claudeCodeSnippet }}</pre>
           </div>
@@ -350,10 +350,10 @@ onMounted(load)
             <div class="snippet-head">
               <Icon icon="tabler:device-desktop" class="w-3 h-3" />
               <span>Claude Desktop · <code>claude_desktop_config.json</code></span>
-              <button class="mini-btn" @click="copy(claudeDesktopSnippet, 'cd')">
+              <Button severity="secondary" class="!px-2.5 !py-1 !text-[10px] !font-semibold" @click="copy(claudeDesktopSnippet, 'cd')">
                 <Icon :icon="copiedSnippet === 'cd' ? 'tabler:check' : 'tabler:copy'" class="w-3 h-3" />
                 {{ copiedSnippet === 'cd' ? 'Copied' : 'Copy' }}
-              </button>
+              </Button>
             </div>
             <pre class="snippet-code">{{ claudeDesktopSnippet }}</pre>
           </div>
@@ -362,10 +362,10 @@ onMounted(load)
             <div class="snippet-head">
               <Icon icon="tabler:terminal-2" class="w-3 h-3" />
               <span>Test with curl</span>
-              <button class="mini-btn" @click="copy(curlSnippet, 'curl')">
+              <Button severity="secondary" class="!px-2.5 !py-1 !text-[10px] !font-semibold" @click="copy(curlSnippet, 'curl')">
                 <Icon :icon="copiedSnippet === 'curl' ? 'tabler:check' : 'tabler:copy'" class="w-3 h-3" />
                 {{ copiedSnippet === 'curl' ? 'Copied' : 'Copy' }}
-              </button>
+              </Button>
             </div>
             <pre class="snippet-code">{{ curlSnippet }}</pre>
           </div>
@@ -378,9 +378,9 @@ onMounted(load)
             <span>Scoped Tokens</span>
             <span class="count">{{ activeTokens.length }}</span>
             <div class="flex-1"></div>
-            <button class="mini-btn primary" @click="openCreate">
+            <Button class="!px-2.5 !py-1 !text-[10px] !font-semibold" @click="openCreate">
               <Icon icon="tabler:plus" class="w-3 h-3" /> New Token
-            </button>
+            </Button>
           </div>
 
           <div v-if="activeTokens.length === 0 && !loading" class="empty">
@@ -445,12 +445,13 @@ onMounted(load)
 
             <label class="field-label">Preset</label>
             <div class="chip-row">
-              <button v-for="p in presets" :key="p.id" class="mini-btn"
-                :class="{ primary: selectedPreset?.id === p.id }"
+              <Button v-for="p in presets" :key="p.id"
+                :severity="selectedPreset?.id === p.id ? undefined : 'secondary'"
+                class="!px-2.5 !py-1 !text-[10px] !font-semibold"
                 @click="applyPreset(p)" :title="p.description">
                 <Icon :icon="p.icon" class="w-3 h-3" />
                 {{ p.label }}
-              </button>
+              </Button>
             </div>
 
             <label class="field-label">Scopes ({{ selectedScopes.size }}/{{ scopes.length }})</label>
@@ -465,11 +466,11 @@ onMounted(load)
             </div>
 
             <div class="dlg-actions">
-              <button class="mini-btn" @click="showCreate = false">Cancel</button>
-              <button class="mini-btn primary" :disabled="creating || !currentIdentity" @click="doCreate">
+              <Button severity="secondary" class="!px-2.5 !py-1 !text-[10px] !font-semibold" @click="showCreate = false">Cancel</Button>
+              <Button class="!px-2.5 !py-1 !text-[10px] !font-semibold" :disabled="creating || !currentIdentity" @click="doCreate">
                 <Icon v-if="creating" icon="tabler:loader-2" class="w-3 h-3 animate-spin" />
                 Create
-              </button>
+              </Button>
             </div>
           </template>
 
@@ -486,7 +487,7 @@ onMounted(load)
               </Button>
             </div>
             <div class="dlg-actions">
-              <button class="mini-btn primary" @click="showCreate = false">Done</button>
+              <Button class="!px-2.5 !py-1 !text-[10px] !font-semibold" @click="showCreate = false">Done</Button>
             </div>
           </template>
         </div>
@@ -502,7 +503,7 @@ onMounted(load)
           </div>
           <div class="card-help">This token will stop working immediately. Cannot be undone.</div>
           <div class="dlg-actions">
-            <button class="mini-btn" @click="revoking = null">Cancel</button>
+            <Button severity="secondary" class="!px-2.5 !py-1 !text-[10px] !font-semibold" @click="revoking = null">Cancel</Button>
             <button class="mini-btn danger" @click="doRevoke(revoking!)">Revoke</button>
           </div>
         </div>

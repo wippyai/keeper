@@ -833,7 +833,7 @@ function onSelect(cs: Changeset) {
               <textarea v-model="prForm.paths_text" rows="4" placeholder="src/app/file.lua" class="mt-1 w-full px-2 py-1.5 rounded text-[11px] font-mono" style="background: var(--p-surface-100); border: 1px solid var(--p-content-border-color); color: var(--p-text-color)" />
             </label>
             <div class="flex items-center gap-2">
-              <button @click="planPr" :disabled="prRunning || !prForm.title.trim()" class="px-3 py-1.5 rounded text-[11px] font-medium" style="background: var(--p-primary-color); color: var(--p-primary-contrast-color)">Dry-run PR</button>
+              <Button @click="planPr" :disabled="prRunning || !prForm.title.trim()" class="!px-3 !py-1.5 !text-[11px] !font-medium">Dry-run PR</Button>
               <Button @click="createPr" :disabled="prRunning || !prForm.title.trim()" class="!px-3 !py-1.5 !text-[11px] !font-medium k-btn-tinted k-btn-tinted-danger">Execute PR</Button>
             </div>
           </div>

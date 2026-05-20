@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi } from '../composables/useWippy'
 import PageHeader from '../components/shared/PageHeader.vue'
 import {
@@ -115,10 +116,10 @@ onMounted(loadSessions)
         <Icon icon="tabler:search" class="search-icon" />
         <input v-model="searchTerm" @input="currentPage = 0" type="text" placeholder="Search sessions..." class="search-input" />
       </div>
-      <button class="header-btn" @click="openImport" title="Import a session JSON dump">
+      <Button severity="secondary" @click="openImport" title="Import a session JSON dump">
         <Icon icon="tabler:upload" class="w-3.5 h-3.5" />
         Import
-      </button>
+      </Button>
     </PageHeader>
 
     <div v-if="error" class="mx-3 mt-2 px-2 py-1.5 rounded text-[11px] flex items-center gap-2 bg-danger-500/15 text-danger-500">
@@ -194,18 +195,18 @@ onMounted(loadSessions)
           </div>
 
           <div class="flex items-center gap-2 mt-3">
-            <button class="header-btn" @click="pasteFromClipboard">
+            <Button severity="secondary" @click="pasteFromClipboard">
               <Icon icon="tabler:clipboard" class="w-3.5 h-3.5" /> Paste
-            </button>
+            </Button>
             <label class="p-button p-button-secondary cursor-pointer">
               <Icon icon="tabler:file-upload" class="w-3.5 h-3.5" /> Open file…
               <input type="file" accept=".json,application/json" class="hidden" @change="importFromFile" />
             </label>
             <span class="flex-1"></span>
-            <button class="header-btn" @click="importOpen = false">Cancel</button>
-            <button class="primary-btn" :disabled="!importJson.trim()" @click="submitImport">
+            <Button severity="secondary" @click="importOpen = false">Cancel</Button>
+            <Button :disabled="!importJson.trim()" @click="submitImport">
               Render
-            </button>
+            </Button>
           </div>
         </div>
       </div>

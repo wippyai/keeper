@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi } from '../composables/useWippy'
 import {
   listHubDependencies, installHubDependency, uninstallHubDependency,
@@ -739,9 +740,9 @@ onMounted(() => {
                 </div>
                 <div class="mod-org" style="margin-top: 1px">{{ d.id }}</div>
               </div>
-              <button class="row-btn" @click.stop="uninstallTarget = d; uninstallPolicy = 'down'" title="Uninstall">
+              <Button class="k-btn-icon !w-[26px] !h-[26px] !p-0 !rounded-md" @click.stop="uninstallTarget = d; uninstallPolicy = 'down'" title="Uninstall">
                 <Icon icon="tabler:trash" class="w-3.5 h-3.5 text-danger-500" />
-              </button>
+              </Button>
               <Icon :icon="expandedDep === d.id ? 'tabler:chevron-up' : 'tabler:chevron-down'" class="w-3.5 h-3.5" style="color: var(--p-text-muted-color)" />
             </div>
             <div v-if="expandedDep === d.id" class="inst-body">
@@ -790,12 +791,12 @@ onMounted(() => {
               {{ isInstalled(detail) ? 'Reinstall / update' : 'Install' }}
               <span class="cta-version">{{ detail.latest_version || '' }}</span>
             </button>
-            <button v-if="detail.repository" class="ghost-btn" @click="openLink(detail.repository)" title="Repository">
+            <Button v-if="detail.repository" severity="secondary" class="!px-3 !py-1.5" @click="openLink(detail.repository)" title="Repository">
               <Icon icon="tabler:brand-github" class="w-3.5 h-3.5" /> repo
-            </button>
-            <button v-if="detail.homepage" class="ghost-btn" @click="openLink(detail.homepage)" title="Homepage">
+            </Button>
+            <Button v-if="detail.homepage" severity="secondary" class="!px-3 !py-1.5" @click="openLink(detail.homepage)" title="Homepage">
               <Icon icon="tabler:home" class="w-3.5 h-3.5" /> homepage
-            </button>
+            </Button>
           </div>
 
           <div class="drawer-tabs">
@@ -933,9 +934,9 @@ onMounted(() => {
                         <span v-if="v.size_bytes" class="ml-2">· {{ fmtBytes(v.size_bytes) }}</span>
                       </div>
                     </div>
-                    <button class="ghost-btn" @click.stop="installModule(detail!, v.version)">
+                    <Button severity="secondary" class="!px-3 !py-1.5" @click.stop="installModule(detail!, v.version)">
                       <Icon icon="tabler:download" class="w-3 h-3" /> Install
-                    </button>
+                    </Button>
                     <Icon :icon="expandedVersion === v.id ? 'tabler:chevron-up' : 'tabler:chevron-down'" class="w-3 h-3 ml-1" style="color: var(--p-text-muted-color)" />
                   </div>
 
@@ -1023,7 +1024,7 @@ onMounted(() => {
             <span v-if="installPlanLoading">Resolving install plan…</span>
             <span v-else-if="installPlan">{{ installPlan.module_count }} module{{ installPlan.module_count === 1 ? '' : 's' }} · {{ installPlan.requirement_count }} setting{{ installPlan.requirement_count === 1 ? '' : 's' }}</span>
             <span v-else>Plan resolves transitive requirements before install.</span>
-            <button class="ghost-btn" type="button" @click="loadInstallPlan" :disabled="installPlanLoading">Refresh</button>
+            <Button severity="secondary" type="button" class="!px-3 !py-1.5" @click="loadInstallPlan" :disabled="installPlanLoading">Refresh</Button>
           </div>
           <div v-if="installPlan?.graph?.length" class="mt-2 mb-2 max-h-24 overflow-auto rounded border p-2" style="border-color: var(--p-content-border-color)">
             <div v-for="node in installPlan.graph" :key="`${node.module}@${node.version}`" class="flex items-center justify-between gap-2 text-[10px]">

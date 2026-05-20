@@ -82,17 +82,17 @@ const emit = defineEmits<{
               <div v-if="r.fix_hint" class="text-[11px] opacity-70 mt-0.5">↳ {{ r.fix_hint }}</div>
               <div v-if="r.state === 'open'" class="flex gap-1 mt-2 flex-wrap">
                 <Button @click="emit('explain-rec', r.id)" :disabled="explaining === r.id"
-                  class="!gap-1 k-btn-tinted k-btn-tinted-accent">
+                  class="k-btn-tinted k-btn-tinted-accent">
                   <Icon :icon="explaining === r.id ? 'tabler:loader-2' : 'tabler:sparkles'"
                     :class="explaining === r.id ? 'w-3 h-3 animate-spin' : 'w-3 h-3'" />
                   {{ explaining === r.id ? 'Asking AI…' : 'Explain' }}
                 </Button>
                 <Button @click="emit('ack-rec', r.id, 'acknowledged')"
-                  class="!gap-1 k-btn-tinted k-btn-tinted-info">
+                  class="k-btn-tinted k-btn-tinted-info">
                   <Icon icon="tabler:eye-check" class="w-3 h-3" /> Acknowledge
                 </Button>
                 <Button @click="emit('ack-rec', r.id, 'fixed')"
-                  class="!gap-1 k-btn-tinted k-btn-tinted-success">
+                  class="k-btn-tinted k-btn-tinted-success">
                   <Icon icon="tabler:check" class="w-3 h-3" /> Mark fixed
                 </Button>
               </div>

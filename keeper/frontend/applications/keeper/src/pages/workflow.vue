@@ -153,10 +153,10 @@ onUnmounted(() => {
           <option value="cancelled">Cancelled</option>
           <option value="terminated">Terminated</option>
         </select>
-        <button class="header-btn" @click="openImport" title="Import a dataflow JSON dump">
+        <Button severity="secondary" @click="openImport" title="Import a dataflow JSON dump">
           <Icon icon="tabler:upload" class="w-3.5 h-3.5" />
           Import
-        </button>
+        </Button>
         <Button class="k-btn-icon !rounded" @click="load"><Icon icon="tabler:refresh" class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" /></Button>
       </div>
     </div>
@@ -259,18 +259,18 @@ onUnmounted(() => {
           </div>
 
           <div class="flex items-center gap-2 mt-3">
-            <button class="header-btn" @click="pasteFromClipboard">
+            <Button severity="secondary" @click="pasteFromClipboard">
               <Icon icon="tabler:clipboard" class="w-3.5 h-3.5" /> Paste
-            </button>
+            </Button>
             <label class="p-button p-button-secondary cursor-pointer">
               <Icon icon="tabler:file-upload" class="w-3.5 h-3.5" /> Open file…
               <input type="file" accept=".json,application/json" class="hidden" @change="importFromFile" />
             </label>
             <span class="flex-1"></span>
-            <button class="header-btn" @click="importOpen = false">Cancel</button>
-            <button class="primary-btn" :disabled="!importJson.trim()" @click="submitImport">
+            <Button severity="secondary" @click="importOpen = false">Cancel</Button>
+            <Button :disabled="!importJson.trim()" @click="submitImport">
               Render
-            </button>
+            </Button>
           </div>
         </div>
       </div>
