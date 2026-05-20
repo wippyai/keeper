@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, shallowRef } from 'vue'
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, type SimulationNodeDatum, type SimulationLinkDatum } from 'd3-force'
+import Button from 'primevue/button'
 
 interface GNode extends SimulationNodeDatum {
   id: string
@@ -359,10 +360,10 @@ onBeforeUnmount(() => {
       @mousedown="onDown" @mousemove="onMove" @mouseup="onUp" @mouseleave="onUp($event)" @wheel="onWheel"
     ></canvas>
     <div class="g-ctrl">
-      <button @click="transform.k = Math.min(5, transform.k * 1.2)">+</button>
+      <Button class="k-btn-graph-ctrl" @click="transform.k = Math.min(5, transform.k * 1.2)">+</Button>
       <span class="g-zpct">{{ Math.round(transform.k * 100) }}%</span>
-      <button @click="transform.k = Math.max(0.05, transform.k / 1.2)">-</button>
-      <button @click="fitToView()">FIT</button>
+      <Button class="k-btn-graph-ctrl" @click="transform.k = Math.max(0.05, transform.k / 1.2)">-</Button>
+      <Button class="k-btn-graph-ctrl" @click="fitToView()">FIT</Button>
     </div>
     <div class="g-stats">{{ simNodes.length }} nodes / {{ simEdges.length }} edges</div>
   </div>

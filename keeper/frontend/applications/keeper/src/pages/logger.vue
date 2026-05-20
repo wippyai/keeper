@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi, useWippy } from '../composables/useWippy'
 import { getLogs, getLogStats, clearLogs, LEVEL_NAMES, LEVEL_COLORS, type LogEntry, type LogStats, type LogCounters } from '../api/logger'
 import PageHeader from '../components/shared/PageHeader.vue'
@@ -210,9 +211,9 @@ function fmt(n: number): string {
 
       <div class="ml-auto flex items-center gap-2">
         <span class="text-[9px]" style="color: var(--p-text-muted-color)">buf: {{ fmt(stats.stored_count) }}/{{ fmt(stats.buffer_size) }}</span>
-        <button class="clear-btn" @click="doClear" title="Clear buffer">
+        <Button class="k-btn-icon k-btn-icon-danger !p-[3px]" @click="doClear" title="Clear buffer">
           <Icon icon="tabler:trash" class="w-3 h-3" />
-        </button>
+        </Button>
       </div>
     </div>
 

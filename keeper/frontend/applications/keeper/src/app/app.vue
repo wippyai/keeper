@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi, useHost, useWippy } from '../composables/useWippy'
 import { kindColor, kindIcon } from '../api/registry'
 import { timeAgo } from '../api/sessions'
@@ -371,22 +372,23 @@ onUnmounted(() => {
 <template>
   <div class="h-full flex flex-col">
     <header class="shrink-0 h-10 flex items-center px-3 gap-3" style="background: var(--p-content-background); border-bottom: 1px solid var(--p-content-border-color)">
-      <button class="flex items-center gap-1.5 shrink-0 cursor-pointer" style="color: var(--p-primary-color); background: none; border: none;" @click="navigate('/')">
+      <Button variant="text" class="shrink-0 !gap-1.5" @click="navigate('/')">
         <Icon icon="tabler:shield-code" class="w-4 h-4" />
         <span class="text-xs font-bold tracking-wider font-mono">KEEPER</span>
-      </button>
+      </Button>
 
       <nav class="flex items-center gap-0.5 flex-1">
-        <button
+        <Button
           v-for="item in navItems"
           :key="item.name"
-          class="keeper-nav-btn flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors relative"
-          :class="{ active: currentName === item.name }"
+          variant="text"
+          class="k-btn-nav relative !gap-1.5"
+          :class="{ 'k-btn-active': currentName === item.name }"
           @click="navigate(item.path)"
         >
           <Icon :icon="item.icon" class="w-3.5 h-3.5" />
           {{ item.label }}
-        </button>
+        </Button>
 
         <AppNavDropdown
           icon="tabler:eye" label="Observe" wrap-class="observe-dropdown-wrap"

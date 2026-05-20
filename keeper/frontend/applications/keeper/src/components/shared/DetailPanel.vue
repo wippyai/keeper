@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 
 defineProps<{
   icon: string
@@ -31,9 +32,9 @@ const emit = defineEmits<{ close: [] }>()
           @click="activeTab = t"
         >{{ t }}</button>
       </div>
-      <button class="p-0.5 rounded" style="color: var(--p-text-muted-color)" @click="emit('close')">
+      <Button class="k-btn-icon !p-0.5 !rounded" @click="emit('close')">
         <Icon icon="tabler:x" class="w-3.5 h-3.5" />
-      </button>
+      </Button>
     </div>
     <slot name="subheader" />
     <div class="flex-1 overflow-y-auto p-4">

@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi } from '../composables/useWippy'
 import { listNamespaces, listEntries, getSyncState, type RegistryEntry, type Namespace } from '../api/registry'
 import { fetchPmStats, type HostStats, type ServiceState } from '../api/pm'
@@ -259,9 +260,9 @@ function fmt(n: number): string {
         <span class="text-[10px] uppercase tracking-wide" :class="`health-text-${systemHealth}`">
           {{ systemHealth === 'good' ? 'healthy' : systemHealth === 'warn' ? 'attention' : 'critical' }}
         </span>
-        <button class="p-1 rounded text-[var(--p-text-muted-color)] hover:bg-[var(--kp-hover-bg)]" @click="load" aria-label="Refresh">
+        <Button class="k-btn-icon !rounded" @click="load" aria-label="Refresh">
           <Icon icon="tabler:refresh" class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
-        </button>
+        </Button>
       </div>
     </div>
 

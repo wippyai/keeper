@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi, useHost, useWippy } from '../composables/useWippy'
 import {
   getTask, listTaskNodes, startCycle, syncResearch,
@@ -679,12 +680,13 @@ const dataflowId = computed(() => {
           style="background: var(--p-primary-color); color: var(--p-primary-contrast-color)">
           {{ startingCycle ? 'Starting…' : 'Start cycle' }}
         </button>
-        <button v-if="task.status !== 'completed' && task.status !== 'abandoned' && task.status !== 'open'"
+        <Button v-if="task.status !== 'completed' && task.status !== 'abandoned' && task.status !== 'open'"
+          severity="danger"
           @click="handleCancel" :disabled="cancelling"
-          class="w-full text-[11px] py-1.5 rounded font-medium flex items-center justify-center gap-1 bg-danger-500 text-white">
+          class="!w-full !text-[11px] !py-1.5 !font-medium !justify-center !gap-1">
           <Icon icon="tabler:ban" class="w-3.5 h-3.5" />
           {{ cancelling ? 'Cancelling…' : 'Cancel task' }}
-        </button>
+        </Button>
       </div>
     </aside>
 

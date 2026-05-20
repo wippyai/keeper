@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi, useWippy } from '../composables/useWippy'
 import { getDataflow, cancelDataflow, terminateDataflow, statusColor, statusIcon, nodeTypeShort, type Dataflow, type DataflowNode, type DataflowData } from '../api/dataflows'
 import { formatDate, timeAgo } from '../api/sessions'
@@ -246,9 +247,9 @@ async function handleTerminate() { if (!dataflowId.value) return; await terminat
 <template>
   <div class="h-full flex flex-col">
     <div class="shrink-0 px-4 py-2 flex items-center gap-3" style="border-bottom: 1px solid var(--p-content-border-color)">
-      <button class="p-1 rounded" style="color: var(--p-text-muted-color)" @click="goBack" title="Back">
+      <Button class="k-btn-icon !rounded" @click="goBack" title="Back">
         <Icon icon="tabler:arrow-left" class="w-4 h-4" />
-      </button>
+      </Button>
       <Icon :icon="statusIcon(dataflow?.status || 'pending')" class="w-4 h-4"
         :class="{ 'animate-pulse': dataflow?.status === 'running' }"
         :style="{ color: statusColor(dataflow?.status || 'pending') }" />
@@ -270,15 +271,15 @@ async function handleTerminate() { if (!dataflowId.value) return; await terminat
         <Icon icon="tabler:download" class="w-3 h-3" />Imported
       </span>
       <template v-if="!isImported && dataflow?.status === 'running'">
-        <button class="text-[10px] px-2 py-1 rounded bg-warn-500/15 text-warn-500" @click="handleCancel">Cancel</button>
-        <button class="text-[10px] px-2 py-1 rounded bg-danger-500/15 text-danger-500" @click="handleTerminate">Kill</button>
+        <Button class="!py-1 k-btn-tinted k-btn-tinted-warn" @click="handleCancel">Cancel</Button>
+        <Button class="!py-1 k-btn-tinted k-btn-tinted-danger" @click="handleTerminate">Kill</Button>
       </template>
-      <button v-if="dataflow" class="p-1 rounded" style="color: var(--p-text-muted-color)" @click="exportDataflow" title="Export JSON (download + clipboard)">
+      <Button v-if="dataflow" class="k-btn-icon !rounded" @click="exportDataflow" title="Export JSON (download + clipboard)">
         <Icon icon="tabler:download" class="w-4 h-4" />
-      </button>
-      <button v-if="!isImported" class="p-1 rounded" style="color: var(--p-text-muted-color)" @click="load">
+      </Button>
+      <Button v-if="!isImported" class="k-btn-icon !rounded" @click="load">
         <Icon icon="tabler:refresh" class="w-4 h-4" :class="{ 'animate-spin': loading }" />
-      </button>
+      </Button>
     </div>
     <div v-if="exportToast" class="export-toast">{{ exportToast }}</div>
 

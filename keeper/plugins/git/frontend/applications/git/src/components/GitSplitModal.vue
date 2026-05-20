@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import type { ClusterChange, SplitGroup } from '../composables/useGit'
 
 type Mode = 'ai' | 'by_prefix' | 'by_kind'
@@ -105,13 +106,14 @@ const MODES: ReadonlyArray<{ key: Mode; icon: string; label: string }> = [
 
       <div class="px-5 py-3 border-t flex items-center gap-2"
         style="border-color: var(--p-content-border-color)">
-        <button @click="emit('apply')"
+        <Button @click="emit('apply')"
           :disabled="loading || applying || groups.length < 2"
-          class="px-4 py-1.5 rounded text-[12px] font-semibold flex items-center gap-1.5 disabled:opacity-50 bg-success-500 text-white">
+          severity="success"
+          class="!px-4 !py-1.5 !text-[12px] !font-semibold !gap-1.5">
           <Icon :icon="applying ? 'tabler:loader-2' : 'tabler:arrow-split'"
             :class="applying ? 'w-3.5 h-3.5 animate-spin' : 'w-3.5 h-3.5'" />
           {{ applying ? 'Splitting…' : `Apply (creates ${groups.length} clusters)` }}
-        </button>
+        </Button>
         <button @click="emit('close')" class="px-4 py-1.5 rounded text-[12px] ml-auto"
           style="background: var(--kp-btn-secondary-bg)">Cancel</button>
       </div>

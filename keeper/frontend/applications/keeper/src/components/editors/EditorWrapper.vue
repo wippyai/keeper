@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import type { RegistryEntry } from '../../api/registry'
 import { resolveEditor } from './EditorRegistry'
 
@@ -88,16 +89,15 @@ defineExpose({ onSaveResult })
         Saved
       </div>
       <div v-else class="flex-1"></div>
-      <button
-        class="ed-save-btn"
-        :class="{ 'ed-save-btn--active': dirty }"
+      <Button
+        class="k-btn-save"
         :disabled="!dirty || saving"
         @click="save"
       >
         <Icon v-if="saving" icon="tabler:loader-2" class="w-3 h-3 animate-spin" />
         <Icon v-else icon="tabler:device-floppy" class="w-3 h-3" />
         Save
-      </button>
+      </Button>
     </div>
   </div>
 </template>

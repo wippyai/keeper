@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 
 defineProps<{
   title: string
@@ -21,9 +22,9 @@ const emit = defineEmits<{ refresh: [] }>()
     </div>
     <div class="flex items-center gap-2">
       <slot />
-      <button class="p-1 rounded" style="color: var(--p-text-muted-color)" @click="emit('refresh')">
+      <Button class="k-btn-icon !rounded" @click="emit('refresh')">
         <Icon icon="tabler:refresh" class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" />
-      </button>
+      </Button>
     </div>
   </div>
 </template>

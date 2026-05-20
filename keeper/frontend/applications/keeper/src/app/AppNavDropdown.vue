@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 
 export interface NavItem { path: string; name: string; label: string; icon: string }
 
@@ -27,15 +28,16 @@ function pick(path: string) {
 
 <template>
   <div :class="['relative', wrapClass]">
-    <button
-      class="keeper-nav-btn flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors relative"
-      :class="{ active }"
+    <Button
+      variant="text"
+      class="k-btn-nav relative !gap-1.5"
+      :class="{ 'k-btn-active': active }"
       @click="emit('toggle')"
     >
       <Icon :icon="icon" class="w-3.5 h-3.5" />
       {{ label }}
       <Icon icon="tabler:chevron-down" class="w-2.5 h-2.5" style="opacity: 0.5" />
-    </button>
+    </Button>
     <div v-if="open" class="status-dropdown">
       <button
         v-for="item in items" :key="item.name"

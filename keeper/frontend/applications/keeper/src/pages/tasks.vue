@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi, useHost, useWippy } from '../composables/useWippy'
 import {
   listTasks, createTask, startCycle, archiveTask,
@@ -469,11 +470,11 @@ onUnmounted(() => {
           <span class="text-[11px] truncate flex-1" style="color: var(--p-text-color); opacity: 0.85">{{ d.title }}</span>
           <span class="text-[9px] font-medium px-1.5 py-0.5 rounded"
             :style="{ background: tintFor(d.status).border, color: tintFor(d.status).fg }">{{ d.status }}</span>
-          <button @click.stop="handleArchive(d, true)" :disabled="archiving === d.task_id"
-            class="p-1 rounded hover:bg-[var(--kp-hover-bg)]" style="color: var(--p-text-muted-color)" title="Archive">
+          <Button @click.stop="handleArchive(d, true)" :disabled="archiving === d.task_id"
+            class="k-btn-icon !rounded" title="Archive">
             <Icon :icon="archiving === d.task_id ? 'tabler:loader-2' : 'tabler:archive'" class="w-3 h-3"
               :class="{ 'animate-spin': archiving === d.task_id }" />
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -487,11 +488,11 @@ onUnmounted(() => {
           <Icon icon="tabler:archive" class="w-3 h-3" style="color: var(--p-text-muted-color)" />
           <span class="text-[11px] truncate flex-1" style="color: var(--p-text-muted-color)">{{ d.title }}</span>
           <span class="text-[9px]" style="color: var(--p-text-muted-color)">{{ d.phase }}</span>
-          <button @click.stop="handleArchive(d, false)" :disabled="archiving === d.task_id"
-            class="p-1 rounded hover:bg-[var(--kp-hover-bg)]" style="color: var(--p-text-muted-color)" title="Restore">
+          <Button @click.stop="handleArchive(d, false)" :disabled="archiving === d.task_id"
+            class="k-btn-icon !rounded" title="Restore">
             <Icon :icon="archiving === d.task_id ? 'tabler:loader-2' : 'tabler:archive-off'" class="w-3 h-3"
               :class="{ 'animate-spin': archiving === d.task_id }" />
-          </button>
+          </Button>
         </div>
       </div>
     </div>

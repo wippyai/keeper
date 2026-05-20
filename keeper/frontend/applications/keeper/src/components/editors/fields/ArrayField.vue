@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { ref } from 'vue'
 
 const model = defineModel<string[]>({ default: () => [] })
@@ -40,9 +41,9 @@ function update(index: number, value: string) {
         class="ed-input flex-1"
       />
       <span v-else class="text-[11px] font-mono" style="color: var(--p-text-color)">{{ item }}</span>
-      <button v-if="!readonly" class="ed-icon-btn" @click="remove(i)">
+      <Button v-if="!readonly" class="k-btn-icon" @click="remove(i)">
         <Icon icon="tabler:x" class="w-3 h-3" />
-      </button>
+      </Button>
     </div>
     <div v-if="!readonly" class="flex items-center gap-1">
       <input
@@ -51,9 +52,9 @@ function update(index: number, value: string) {
         class="ed-input flex-1"
         @keydown.enter="add"
       />
-      <button class="ed-icon-btn" @click="add">
+      <Button class="k-btn-icon" @click="add">
         <Icon icon="tabler:plus" class="w-3 h-3" />
-      </button>
+      </Button>
     </div>
   </div>
 </template>

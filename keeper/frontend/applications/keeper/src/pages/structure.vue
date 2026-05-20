@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi } from '../composables/useWippy'
 import { listNamespaces, listEntries, getEntry, updateEntry, fetchGraph, kindColor, kindIcon, type Namespace, type RegistryEntry } from '../api/registry'
 import { entryName, prettyJson } from '../utils'
@@ -301,7 +302,7 @@ onUnmounted(() => {
         >
           <Icon :icon="viewMode === 'graph' ? 'tabler:list-tree' : 'tabler:chart-dots-3'" class="w-3.5 h-3.5" />
         </button>
-        <button class="p-1 rounded" style="color: var(--p-text-muted-color)" @click="loadAll"><Icon icon="tabler:refresh" class="w-3.5 h-3.5" /></button>
+        <Button class="k-btn-icon !rounded" @click="loadAll"><Icon icon="tabler:refresh" class="w-3.5 h-3.5" /></Button>
       </div>
     </div>
 

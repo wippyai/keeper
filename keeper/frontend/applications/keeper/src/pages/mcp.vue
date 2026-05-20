@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi } from '../composables/useWippy'
 import { listTokens, createToken, revokeToken, listScopes, type MCPToken, type MCPScope, type MCPPreset, type MCPServerConfig } from '../api/mcp'
 
@@ -399,12 +400,12 @@ onMounted(load)
               <span v-else class="t-chip">{{ t.scopes.length }} scopes</span>
               <code class="t-val">{{ t.token }}</code>
               <span class="t-date">{{ formatDate(t.created_at) }}</span>
-              <button class="icon-btn" title="Copy" @click="copy(t.token, t.token_id)">
+              <Button class="k-btn-icon" title="Copy" @click="copy(t.token, t.token_id)">
                 <Icon :icon="copiedSnippet === t.token_id ? 'tabler:check' : 'tabler:copy'" class="w-3 h-3" />
-              </button>
-              <button class="icon-btn danger" title="Revoke" @click="revoking = t.token_id">
+              </Button>
+              <Button class="k-btn-icon k-btn-icon-danger" title="Revoke" @click="revoking = t.token_id">
                 <Icon icon="tabler:trash" class="w-3 h-3" />
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -480,9 +481,9 @@ onMounted(load)
             <div class="card-help">Copy now — this value will not be shown again.</div>
             <div class="token-row" style="margin: 8px 0">
               <code class="token-val">{{ createdToken }}</code>
-              <button class="icon-btn" @click="copy(createdToken!, 'new')">
+              <Button class="k-btn-icon" @click="copy(createdToken!, 'new')">
                 <Icon :icon="copiedSnippet === 'new' ? 'tabler:check' : 'tabler:copy'" class="w-3.5 h-3.5" />
-              </button>
+              </Button>
             </div>
             <div class="dlg-actions">
               <button class="mini-btn primary" @click="showCreate = false">Done</button>

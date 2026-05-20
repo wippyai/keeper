@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import type { RegistryEntry } from '../../../api/registry'
 import EditorSection from '../fields/EditorSection.vue'
 import FieldRow from '../fields/FieldRow.vue'
@@ -162,7 +163,7 @@ const tabs = [
                 <Icon icon="tabler:robot" class="w-3 h-3 shrink-0" style="color: var(--p-warn-500)" />
                 <span class="flex-1 text-[11px] font-mono truncate" style="color: var(--p-text-color)">{{ d.name || d.id || 'New delegate' }}</span>
                 <Icon :icon="expandedDelegates.has(i) ? 'tabler:chevron-up' : 'tabler:chevron-down'" class="w-3 h-3" style="color: var(--p-text-muted-color)" />
-                <button class="rm-btn" @click.stop="removeDelegate(i)"><Icon icon="tabler:x" class="w-3 h-3" /></button>
+                <Button class="k-btn-icon k-btn-icon-danger !p-0.5" @click.stop="removeDelegate(i)"><Icon icon="tabler:x" class="w-3 h-3" /></Button>
               </div>
               <div v-if="expandedDelegates.has(i)" class="item-body">
                 <div class="mb-2">
@@ -184,7 +185,7 @@ const tabs = [
                 </div>
               </div>
             </div>
-            <button class="add-btn" @click="addDelegate"><Icon icon="tabler:plus" class="w-3 h-3" /> Add Delegate</button>
+            <Button class="k-btn-dashed !gap-1" @click="addDelegate"><Icon icon="tabler:plus" class="w-3 h-3" /> Add Delegate</Button>
           </div>
         </EditorSection>
       </div>
@@ -198,7 +199,7 @@ const tabs = [
                 <Icon icon="tabler:sparkles" class="w-3 h-3 shrink-0" style="color: var(--p-accent-400)" />
                 <span class="flex-1 text-[11px] font-mono truncate" style="color: var(--p-text-color)">{{ traitId(t) }}</span>
                 <Icon :icon="expandedTraits.has(i) ? 'tabler:chevron-up' : 'tabler:chevron-down'" class="w-3 h-3" style="color: var(--p-text-muted-color)" />
-                <button class="rm-btn" @click.stop="removeTrait(traitId(t))"><Icon icon="tabler:x" class="w-3 h-3" /></button>
+                <Button class="k-btn-icon k-btn-icon-danger !p-0.5" @click.stop="removeTrait(traitId(t))"><Icon icon="tabler:x" class="w-3 h-3" /></Button>
               </div>
               <div v-if="expandedTraits.has(i)" class="item-body">
                 <div class="mb-2">
@@ -224,7 +225,7 @@ const tabs = [
                 <Icon icon="tabler:tool" class="w-3 h-3 shrink-0" style="color: var(--p-info-500)" />
                 <span class="flex-1 text-[11px] font-mono truncate" style="color: var(--p-text-color)">{{ toolId(t) }}</span>
                 <Icon :icon="expandedTools.has(i) ? 'tabler:chevron-up' : 'tabler:chevron-down'" class="w-3 h-3" style="color: var(--p-text-muted-color)" />
-                <button class="rm-btn" @click.stop="removeTool(toolId(t))"><Icon icon="tabler:x" class="w-3 h-3" /></button>
+                <Button class="k-btn-icon k-btn-icon-danger !p-0.5" @click.stop="removeTool(toolId(t))"><Icon icon="tabler:x" class="w-3 h-3" /></Button>
               </div>
               <div v-if="expandedTools.has(i)" class="item-body">
                 <div class="mb-2">
@@ -272,9 +273,9 @@ const tabs = [
           <div class="space-y-2">
             <div v-for="(p, i) in data.start_prompts" :key="i" class="flex items-start gap-1.5">
               <textarea :value="p" @input="updateStartPrompt(i, ($event.target as HTMLTextAreaElement).value)" class="ed-ta flex-1" rows="2" placeholder="Ask me about..."></textarea>
-              <button class="rm-btn mt-1" @click="removeStartPrompt(i)"><Icon icon="tabler:trash" class="w-3 h-3" /></button>
+              <Button class="k-btn-icon k-btn-icon-danger !p-0.5 mt-1" @click="removeStartPrompt(i)"><Icon icon="tabler:trash" class="w-3 h-3" /></Button>
             </div>
-            <button class="add-btn" @click="addStartPrompt"><Icon icon="tabler:plus" class="w-3 h-3" /> Add Prompt</button>
+            <Button class="k-btn-dashed !gap-1" @click="addStartPrompt"><Icon icon="tabler:plus" class="w-3 h-3" /> Add Prompt</Button>
           </div>
         </EditorSection>
       </div>

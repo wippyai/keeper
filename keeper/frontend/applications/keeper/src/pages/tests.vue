@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi } from '../composables/useWippy'
 import { entryName } from '../utils'
 
@@ -243,9 +244,9 @@ onMounted(discover)
           <Icon icon="tabler:player-play" class="w-3.5 h-3.5" />
           Run All
         </button>
-        <button class="p-1 rounded" style="color: var(--p-text-muted-color)" @click="discover">
+        <Button class="k-btn-icon !rounded" @click="discover">
           <Icon icon="tabler:refresh" class="w-3.5 h-3.5" />
-        </button>
+        </Button>
       </div>
     </div>
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import type { SnapshotCounts } from '../composables/useGit'
 
 defineProps<{
@@ -64,11 +65,12 @@ const emit = defineEmits<{
     <span class="opacity-50">·</span>
     <span class="opacity-70">{{ counts.all }} clusters · {{ counts.suspect }} suspect</span>
 
-    <button v-if="(counts.pushable_ready || 0) > 0" @click="emit('push-confirm')"
-      class="ml-auto px-3 py-1 rounded text-[11px] font-semibold flex items-center gap-1.5 bg-success-500 text-white">
+    <Button v-if="(counts.pushable_ready || 0) > 0" @click="emit('push-confirm')"
+      severity="success"
+      class="ml-auto !px-3 !py-1 !text-[11px] !font-semibold !gap-1.5">
       <Icon icon="tabler:upload" class="w-3.5 h-3.5" />
       Push {{ counts.pushable_ready }} ready
-    </button>
+    </Button>
     <span v-else-if="(counts.blocked_ready || 0) > 0" class="ml-auto opacity-60 text-[11px]">
       {{ counts.blocked_ready }} ready for review only
     </span>

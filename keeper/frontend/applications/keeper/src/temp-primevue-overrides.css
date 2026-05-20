@@ -154,26 +154,53 @@
   border-color: var(--p-primary-color);
 }
 
-/* k-btn-nav — keeper's `.keeper-nav-btn`. Transparent, muted text;
-   hover lifts to full text + kp-hover-bg; .k-btn-active (or .active)
-   adopts the primary color + primary-tinted bg. */
+/* k-btn-nav — keeper's `.keeper-nav-btn` (styles.css:93-106). Transparent
+   base with FULL text color (not muted — REJECT 1 in B4 code review);
+   hover lifts bg to surface-100; .k-btn-active (or .active) keeps surface-100
+   bg and swaps text to primary-color. */
 .p-button.k-btn-nav {
   background: transparent;
-  color: var(--p-text-muted-color);
+  color: var(--p-text-color);
   border: 1px solid transparent;
   border-radius: 4px;
   padding: 4px 10px;
   font-size: 12px;
   font-weight: 500;
+  /* match original `transition-colors` on .keeper-nav-btn (Tailwind default 150ms) */
+  transition: background-color 150ms, color 150ms, border-color 150ms;
 }
 .p-button.k-btn-nav:hover {
-  background: var(--kp-hover-bg);
-  color: var(--p-text-color);
+  background: var(--p-surface-100);
 }
 .p-button.k-btn-nav.k-btn-active,
 .p-button.k-btn-nav.active {
+  background: var(--p-surface-100);
   color: var(--p-primary-color);
-  background: color-mix(in srgb, var(--p-primary-color) 10%, transparent);
+}
+
+/* k-btn-icon — keeper's `.icon-btn` (mcp.vue:603-616) and similar
+   bare-icon buttons. Transparent base, muted text, surface-200 hover bg
+   with full text-color. Per-call-site metric tweaks via !-prefix Tailwind
+   utilities (e.g. `!p-0.5` for DetailPanel close, `!w-6 !h-6 !rounded-full`
+   for AppUserChip logout). */
+.p-button.k-btn-icon {
+  background: transparent;
+  color: var(--p-text-muted-color);
+  border: none;
+  border-radius: 3px;
+  padding: 4px;
+  font-weight: 400;
+}
+.p-button.k-btn-icon:hover:not(:disabled) {
+  background: var(--p-surface-200);
+  color: var(--p-text-color);
+}
+
+/* k-btn-icon-danger — danger-on-hover variant (rm-btn, clear-btn,
+   `.icon-btn.danger`). Layer on top of `.k-btn-icon`. */
+.p-button.k-btn-icon.k-btn-icon-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--p-danger-500) 15%, transparent);
+  color: var(--p-danger-500);
 }
 
 /* k-btn-graph-ctrl — ForceGraph zoom controls.

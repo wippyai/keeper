@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi } from '../../../composables/useWippy'
 import { entryName } from '../../../utils'
 import { listEntries, listNamespaces, kindIcon, type RegistryEntry } from '../../../api/registry'
@@ -91,12 +92,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="entry-picker">
-    <button class="ep-trigger" @click="open = !open">
+    <Button class="k-btn-dashed !w-full !justify-start !px-2 !gap-1.5" @click="open = !open">
       <Icon :icon="icon || 'tabler:plus'" class="w-3 h-3 shrink-0" style="color: var(--p-primary-color)" />
       <span class="flex-1 text-left text-[10px]" style="color: var(--p-text-muted-color)">{{ placeholder || 'Add ' + metaType + '...' }}</span>
       <span class="text-[9px]" style="color: var(--p-text-muted-color)">{{ available.length }}</span>
       <Icon icon="tabler:chevron-down" class="w-3 h-3 shrink-0" style="color: var(--p-text-muted-color)" />
-    </button>
+    </Button>
 
     <Teleport to="body">
       <div v-if="open" class="ep-dropdown" :style="{ position: 'fixed', zIndex: 9999 }">

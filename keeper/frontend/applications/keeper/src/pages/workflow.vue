@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi, useWippy } from '../composables/useWippy'
 import { listDataflows, cancelDataflow, terminateDataflow, statusColor, statusIcon, type Dataflow } from '../api/dataflows'
 import { timeAgo } from '../api/sessions'
@@ -156,7 +157,7 @@ onUnmounted(() => {
           <Icon icon="tabler:upload" class="w-3.5 h-3.5" />
           Import
         </button>
-        <button class="p-1 rounded" style="color: var(--p-text-muted-color)" @click="load"><Icon icon="tabler:refresh" class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" /></button>
+        <Button class="k-btn-icon !rounded" @click="load"><Icon icon="tabler:refresh" class="w-3.5 h-3.5" :class="{ 'animate-spin': loading }" /></Button>
       </div>
     </div>
 
@@ -211,8 +212,8 @@ onUnmounted(() => {
             <td class="px-4 py-2.5 text-right" @click.stop>
               <div class="flex items-center justify-end gap-1">
                 <button class="text-[10px] px-2 py-0.5 rounded" style="background: var(--p-surface-100); color: var(--p-text-color)" @click="viewDataflow(df.dataflow_id)">View</button>
-                <button v-if="df.status === 'running'" class="text-[10px] px-2 py-0.5 rounded bg-warn-500/15 text-warn-500" @click="doCancel(df.dataflow_id)">Cancel</button>
-                <button v-if="df.status === 'running'" class="text-[10px] px-2 py-0.5 rounded bg-danger-500/15 text-danger-500" @click="doTerminate(df.dataflow_id)">Kill</button>
+                <Button v-if="df.status === 'running'" class="k-btn-tinted k-btn-tinted-warn" @click="doCancel(df.dataflow_id)">Cancel</Button>
+                <Button v-if="df.status === 'running'" class="k-btn-tinted k-btn-tinted-danger" @click="doTerminate(df.dataflow_id)">Kill</Button>
               </div>
             </td>
           </tr>
@@ -261,7 +262,7 @@ onUnmounted(() => {
             <button class="header-btn" @click="pasteFromClipboard">
               <Icon icon="tabler:clipboard" class="w-3.5 h-3.5" /> Paste
             </button>
-            <label class="header-btn cursor-pointer">
+            <label class="p-button p-button-secondary cursor-pointer">
               <Icon icon="tabler:file-upload" class="w-3.5 h-3.5" /> Open file…
               <input type="file" accept=".json,application/json" class="hidden" @change="importFromFile" />
             </label>

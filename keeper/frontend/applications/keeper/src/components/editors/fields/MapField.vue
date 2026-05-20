@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { ref } from 'vue'
 
 const model = defineModel<Record<string, string>>({ default: () => ({}) })
@@ -42,16 +43,16 @@ function updateValue(key: string, value: string) {
         class="ed-input flex-1"
       />
       <span v-else class="text-[11px]" style="color: var(--p-text-color)">{{ val }}</span>
-      <button v-if="!readonly" class="ed-icon-btn" @click="remove(String(key))">
+      <Button v-if="!readonly" class="k-btn-icon" @click="remove(String(key))">
         <Icon icon="tabler:x" class="w-3 h-3" />
-      </button>
+      </Button>
     </div>
     <div v-if="!readonly" class="flex items-center gap-1">
       <input v-model="newKey" :placeholder="keyPlaceholder || 'Key'" class="ed-input w-24" @keydown.enter="add" />
       <input v-model="newVal" :placeholder="valuePlaceholder || 'Value'" class="ed-input flex-1" @keydown.enter="add" />
-      <button class="ed-icon-btn" @click="add">
+      <Button class="k-btn-icon" @click="add">
         <Icon icon="tabler:plus" class="w-3 h-3" />
-      </button>
+      </Button>
     </div>
   </div>
 </template>

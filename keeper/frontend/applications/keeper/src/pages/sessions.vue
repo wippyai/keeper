@@ -197,7 +197,7 @@ onMounted(loadSessions)
             <button class="header-btn" @click="pasteFromClipboard">
               <Icon icon="tabler:clipboard" class="w-3.5 h-3.5" /> Paste
             </button>
-            <label class="header-btn cursor-pointer">
+            <label class="p-button p-button-secondary cursor-pointer">
               <Icon icon="tabler:file-upload" class="w-3.5 h-3.5" /> Open file…
               <input type="file" accept=".json,application/json" class="hidden" @change="importFromFile" />
             </label>

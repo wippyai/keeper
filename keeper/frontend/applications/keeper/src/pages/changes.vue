@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import { useApi, useHost, useWippy } from '../composables/useWippy'
 import DiffViewer from '../components/DiffViewer.vue'
 import {
@@ -480,9 +481,9 @@ function onSelect(cs: Changeset) {
         <button @click="doRedo" :disabled="redoing" class="flex items-center gap-1 px-2 py-1 rounded text-[10px] hover:bg-[var(--kp-hover-bg)]" style="color: var(--p-text-muted-color)">
           <Icon :icon="redoing ? 'tabler:loader-2' : 'tabler:arrow-forward-up'" class="w-3 h-3" :class="{ 'animate-spin': redoing }" /> Redo
         </button>
-        <button @click="fetchHistory" :disabled="histLoading" class="p-1 rounded hover:bg-[var(--kp-hover-bg)]" style="color: var(--p-text-muted-color)">
+        <Button @click="fetchHistory" :disabled="histLoading" class="k-btn-icon !rounded">
           <Icon icon="tabler:refresh" class="w-3 h-3" />
-        </button>
+        </Button>
       </div>
     </div>
 
@@ -603,9 +604,9 @@ function onSelect(cs: Changeset) {
             <span class="text-[10px] px-1.5 py-0.5 rounded font-medium" :style="{ background: stateColors[selected.state] + '18', color: stateColors[selected.state] }">{{ selected.state }}</span>
           </div>
           <div class="flex items-center gap-1.5">
-            <button @click="refreshSelected" class="p-1 rounded hover:bg-[var(--kp-hover-bg)]" style="color: var(--p-text-muted-color)" title="Refresh">
+            <Button @click="refreshSelected" class="k-btn-icon !rounded" title="Refresh">
               <Icon icon="tabler:refresh" class="w-3.5 h-3.5" />
-            </button>
+            </Button>
             <button v-if="selected.state !== 'dropped' && selected.state !== 'merged'" @click="handleDrop"
               class="px-2 py-1 rounded text-[10px] font-medium hover:bg-danger-500/20 text-danger-500">
               Drop
@@ -833,7 +834,7 @@ function onSelect(cs: Changeset) {
             </label>
             <div class="flex items-center gap-2">
               <button @click="planPr" :disabled="prRunning || !prForm.title.trim()" class="px-3 py-1.5 rounded text-[11px] font-medium" style="background: var(--p-primary-color); color: var(--p-primary-contrast-color)">Dry-run PR</button>
-              <button @click="createPr" :disabled="prRunning || !prForm.title.trim()" class="px-3 py-1.5 rounded text-[11px] font-medium bg-danger-500/10 text-danger-500">Execute PR</button>
+              <Button @click="createPr" :disabled="prRunning || !prForm.title.trim()" class="!px-3 !py-1.5 !text-[11px] !font-medium k-btn-tinted k-btn-tinted-danger">Execute PR</Button>
             </div>
           </div>
 

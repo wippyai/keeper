@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import type { ClusterSummary, Importance } from '../composables/useGit'
 import { importanceTone, fmtChanges } from '../tones'
 
@@ -47,12 +48,13 @@ const emit = defineEmits<{
       </div>
       <div class="px-5 py-3 border-t flex items-center gap-2"
         style="border-color: var(--p-content-border-color)">
-        <button @click="emit('push')" :disabled="pushing"
-          class="px-4 py-1.5 rounded text-[12px] font-semibold flex items-center gap-1.5 disabled:opacity-60 bg-success-500 text-white">
+        <Button @click="emit('push')" :disabled="pushing"
+          severity="success"
+          class="!px-4 !py-1.5 !text-[12px] !font-semibold !gap-1.5">
           <Icon :icon="pushing ? 'tabler:loader-2' : 'tabler:upload'"
             :class="pushing ? 'w-3.5 h-3.5 animate-spin' : 'w-3.5 h-3.5'" />
           {{ pushing ? 'Pushing…' : 'Push all' }}
-        </button>
+        </Button>
         <button @click="emit('close')" :disabled="pushing"
           class="px-4 py-1.5 rounded text-[12px]" style="background: var(--kp-btn-secondary-bg)">
           Cancel

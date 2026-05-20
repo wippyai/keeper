@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { Icon } from '@iconify/vue'
+import Button from 'primevue/button'
 import type { RegistryEntry } from '../../../api/registry'
 import EditorSection from '../fields/EditorSection.vue'
 
@@ -108,13 +109,13 @@ const operators = [
             class="ed-input flex-1 font-mono"
             placeholder="namespace:group_name"
           />
-          <button class="ed-icon-btn" @click="removeGroup(i)">
+          <Button class="k-btn-icon k-btn-icon-danger" @click="removeGroup(i)">
             <Icon icon="tabler:trash" class="w-3 h-3" />
-          </button>
+          </Button>
         </div>
-        <button class="ed-add-btn" @click="addGroup">
+        <Button class="k-btn-dashed !gap-1" @click="addGroup">
           <Icon icon="tabler:plus" class="w-3 h-3" /> Add Group
-        </button>
+        </Button>
       </div>
     </EditorSection>
 
@@ -162,9 +163,9 @@ const operators = [
             <div v-for="(cond, i) in data.policy.conditions" :key="i" class="p-2.5 rounded" style="background: var(--p-surface-0); border: 1px solid var(--p-content-border-color)">
               <div class="flex justify-between items-center mb-2">
                 <span class="text-[10px] font-semibold" style="color: var(--p-text-muted-color)">Condition {{ i + 1 }}</span>
-                <button class="ed-icon-btn" @click="removeCondition(i)">
+                <Button class="k-btn-icon k-btn-icon-danger" @click="removeCondition(i)">
                   <Icon icon="tabler:trash" class="w-3 h-3" />
-                </button>
+                </Button>
               </div>
               <div class="grid grid-cols-2 gap-2 mb-2">
                 <div>
@@ -192,9 +193,9 @@ const operators = [
               </template>
             </div>
           </div>
-          <button class="ed-add-btn mt-2" @click="addCondition">
+          <Button class="k-btn-dashed !gap-1 mt-2" @click="addCondition">
             <Icon icon="tabler:plus" class="w-3 h-3" /> Add Condition
-          </button>
+          </Button>
         </div>
       </div>
     </EditorSection>
