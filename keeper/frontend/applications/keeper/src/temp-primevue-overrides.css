@@ -530,16 +530,17 @@
 /* k-tag-tone-accent — keeper-extension severity (not in PrimeVue's enum).
    Used by `.stat-pill--accent` and msgColor() returns for function/delegation/
    developer message types. Works standalone (tinted accent pill) or with
-   `.k-tag-metric` (neutral metric with accent text). WCAG-aware: -700 in
-   light, -400 in dark (via @media at EOF). */
+   `.k-tag-metric` (neutral metric with accent text). WCAG-aware: -800 in
+   light (mirrors .k-btn-tinted-accent — -700 hit 4.35:1 under AA 4.5),
+   -400 in dark (via @media at EOF). */
 .p-tag.k-tag-tone-accent {
   background: color-mix(in srgb, var(--p-accent-500) 10%, transparent);
-  color: var(--p-accent-700);
+  color: var(--p-accent-800);
 }
 .p-tag.k-tag-metric.k-tag-tone-accent {
   background: var(--p-surface-100);
   border-color: var(--p-content-border-color);
-  color: var(--p-accent-700);
+  color: var(--p-accent-800);
 }
 
 /* k-chip-managed — settings-registry success-tinted clickable variant.
