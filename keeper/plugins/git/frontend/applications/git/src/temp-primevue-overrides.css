@@ -376,18 +376,25 @@
 
 /* Severity classes → tint bg + severity-color text (status-tinted look).
    Higher specificity than PrimeVue's `.p-tag-success` alone, so our 10%
-   tint wins over PrimeVue's solid severity fill. */
-.p-tag.p-tag-primary    { background: color-mix(in srgb, var(--p-primary-500) 10%, transparent); color: var(--p-primary-500); }
-.p-tag.p-tag-success    { background: color-mix(in srgb, var(--p-success-500) 10%, transparent); color: var(--p-success-500); }
-.p-tag.p-tag-info       { background: color-mix(in srgb, var(--p-info-500) 10%, transparent); color: var(--p-info-500); }
-.p-tag.p-tag-warn       { background: color-mix(in srgb, var(--p-warn-500) 10%, transparent); color: var(--p-warn-500); }
-.p-tag.p-tag-danger     { background: color-mix(in srgb, var(--p-danger-500) 10%, transparent); color: var(--p-danger-500); }
-.p-tag.p-tag-help       { background: color-mix(in srgb, var(--p-help-500) 10%, transparent); color: var(--p-help-500); }
+   tint wins over PrimeVue's solid severity fill.
+   WCAG AA carve-out: -700 text (light mode) for AA contrast on the 10%
+   tint bg; success bumps to -800 (-700 hit ~4.06:1, just under AA 4.5).
+   Dark-mode brightening to -400 lives in the end-of-file @media block.
+   This diverges from byte-identical-to-hand-rolled (keeper code uses
+   -500); same divergence rule the Button family WCAG carve-out applied. */
+.p-tag.p-tag-primary    { background: color-mix(in srgb, var(--p-primary-500) 10%, transparent); color: var(--p-primary-700); }
+.p-tag.p-tag-success    { background: color-mix(in srgb, var(--p-success-500) 10%, transparent); color: var(--p-success-800); }
+.p-tag.p-tag-info       { background: color-mix(in srgb, var(--p-info-500) 10%, transparent); color: var(--p-info-700); }
+.p-tag.p-tag-warn       { background: color-mix(in srgb, var(--p-warn-500) 10%, transparent); color: var(--p-warn-700); }
+.p-tag.p-tag-danger     { background: color-mix(in srgb, var(--p-danger-500) 10%, transparent); color: var(--p-danger-700); }
+.p-tag.p-tag-help       { background: color-mix(in srgb, var(--p-help-500) 10%, transparent); color: var(--p-help-700); }
 /* secondary → neutral surface pill (covers model-pill, count-pill use of Tag,
-   percentage-chip with !-utility size override) */
+   percentage-chip with !-utility size override). Muted text on surface-100
+   is ~4.5:1 in light, ~5.4:1 in dark — AA-passing already, no carve-out. */
 .p-tag.p-tag-secondary  { background: var(--p-surface-100); color: var(--p-text-muted-color); }
 /* contrast → inverted text-on-bg (not in keeper's current usage per BD-B1
-   plan, but completes PrimeVue 4's full Tag severity enum). */
+   plan, but completes PrimeVue 4's full Tag severity enum). High-contrast
+   pair by construction; tokens auto-flip light/dark. */
 .p-tag.p-tag-contrast   { background: var(--p-text-color); color: var(--p-content-background); }
 
 /* ----- Badge base reset (counter family) ----- */
@@ -421,13 +428,14 @@
    solid PrimeVue defaults. Keeper currently only uses severity="secondary"
    for counters (the base reset above covers it), but these complete the
    PrimeVue 4 severity enum so any future usage stays on-design without
-   per-call overrides. */
-.p-badge.p-badge-primary  { background: color-mix(in srgb, var(--p-primary-500) 10%, transparent); color: var(--p-primary-500); }
-.p-badge.p-badge-success  { background: color-mix(in srgb, var(--p-success-500) 10%, transparent); color: var(--p-success-500); }
-.p-badge.p-badge-info     { background: color-mix(in srgb, var(--p-info-500) 10%, transparent); color: var(--p-info-500); }
-.p-badge.p-badge-warn     { background: color-mix(in srgb, var(--p-warn-500) 10%, transparent); color: var(--p-warn-500); }
-.p-badge.p-badge-danger   { background: color-mix(in srgb, var(--p-danger-500) 10%, transparent); color: var(--p-danger-500); }
-.p-badge.p-badge-help     { background: color-mix(in srgb, var(--p-help-500) 10%, transparent); color: var(--p-help-500); }
+   per-call overrides. Same WCAG carve-out as Tag: -700 text in light
+   (success bumps to -800), -400 in dark (via @media at EOF). */
+.p-badge.p-badge-primary  { background: color-mix(in srgb, var(--p-primary-500) 10%, transparent); color: var(--p-primary-700); }
+.p-badge.p-badge-success  { background: color-mix(in srgb, var(--p-success-500) 10%, transparent); color: var(--p-success-800); }
+.p-badge.p-badge-info     { background: color-mix(in srgb, var(--p-info-500) 10%, transparent); color: var(--p-info-700); }
+.p-badge.p-badge-warn     { background: color-mix(in srgb, var(--p-warn-500) 10%, transparent); color: var(--p-warn-700); }
+.p-badge.p-badge-danger   { background: color-mix(in srgb, var(--p-danger-500) 10%, transparent); color: var(--p-danger-700); }
+.p-badge.p-badge-help     { background: color-mix(in srgb, var(--p-help-500) 10%, transparent); color: var(--p-help-700); }
 .p-badge.p-badge-contrast { background: var(--p-text-color); color: var(--p-content-background); }
 
 /* ----- Chip base reset (removable chip family) ----- */
@@ -506,14 +514,17 @@
 /* The per-severity rules pin bg/border to neutral and override the text
    color only. Covers the full PrimeVue 4 severity enum so any keeper
    metric can be tone-coded. accent / arbitrary data-driven colors use
-   `:style="{ color: var(--p-accent-500) }"` on the call site instead. */
-.p-tag.k-tag-metric.p-tag-primary   { color: var(--p-primary-color); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+   `:style="{ color: var(--p-accent-500) }"` on the call site instead.
+   Same WCAG carve-out: -700 text in light (success bumps to -800),
+   -400 in dark (@media at EOF). surface-100 bg has ~same contrast as
+   the 10% tint of severity-on-white, so same bumps apply. */
+.p-tag.k-tag-metric.p-tag-primary   { color: var(--p-primary-700); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
 .p-tag.k-tag-metric.p-tag-secondary { color: var(--p-text-muted-color); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
-.p-tag.k-tag-metric.p-tag-success   { color: var(--p-success-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
-.p-tag.k-tag-metric.p-tag-info      { color: var(--p-info-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
-.p-tag.k-tag-metric.p-tag-warn      { color: var(--p-warn-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
-.p-tag.k-tag-metric.p-tag-danger    { color: var(--p-danger-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
-.p-tag.k-tag-metric.p-tag-help      { color: var(--p-help-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+.p-tag.k-tag-metric.p-tag-success   { color: var(--p-success-800); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+.p-tag.k-tag-metric.p-tag-info      { color: var(--p-info-700); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+.p-tag.k-tag-metric.p-tag-warn      { color: var(--p-warn-700); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+.p-tag.k-tag-metric.p-tag-danger    { color: var(--p-danger-700); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+.p-tag.k-tag-metric.p-tag-help      { color: var(--p-help-700); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
 .p-tag.k-tag-metric.p-tag-contrast  { color: var(--p-text-color); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
 /* Inner two-tone helpers — used inside .k-tag-metric default slot.
    Not counted as "slap-on classes" — call sites use them on inner spans. */
@@ -540,6 +551,7 @@
    selectors (notably .k-btn-nav.k-btn-active above).
    ============================================================ */
 @media (prefers-color-scheme: dark) {
+  /* Button dark-mode brightening (text/outlined/link primary text + nav-active) */
   .p-button-text:not(.p-button-danger),
   .p-button-outlined,
   .p-button-link,
@@ -547,4 +559,27 @@
   .p-button.k-btn-nav.active {
     color: var(--p-primary-400);
   }
+
+  /* Tag / Badge / k-tag-metric severity text — dark-mode WCAG carve-out:
+     -400 text reads bright against the dark-page-composited tint bg
+     (or against surface-100 dark for k-tag-metric). Mirrors the
+     Button family `.k-btn-tinted-*` dark-mode rule. */
+  .p-tag.p-tag-primary,
+  .p-badge.p-badge-primary,
+  .p-tag.k-tag-metric.p-tag-primary  { color: var(--p-primary-400); }
+  .p-tag.p-tag-success,
+  .p-badge.p-badge-success,
+  .p-tag.k-tag-metric.p-tag-success  { color: var(--p-success-400); }
+  .p-tag.p-tag-info,
+  .p-badge.p-badge-info,
+  .p-tag.k-tag-metric.p-tag-info     { color: var(--p-info-400); }
+  .p-tag.p-tag-warn,
+  .p-badge.p-badge-warn,
+  .p-tag.k-tag-metric.p-tag-warn     { color: var(--p-warn-400); }
+  .p-tag.p-tag-danger,
+  .p-badge.p-badge-danger,
+  .p-tag.k-tag-metric.p-tag-danger   { color: var(--p-danger-400); }
+  .p-tag.p-tag-help,
+  .p-badge.p-badge-help,
+  .p-tag.k-tag-metric.p-tag-help     { color: var(--p-help-400); }
 }
