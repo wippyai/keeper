@@ -386,6 +386,9 @@
 /* secondary → neutral surface pill (covers model-pill, count-pill use of Tag,
    percentage-chip with !-utility size override) */
 .p-tag.p-tag-secondary  { background: var(--p-surface-100); color: var(--p-text-muted-color); }
+/* contrast → inverted text-on-bg (not in keeper's current usage per BD-B1
+   plan, but completes PrimeVue 4's full Tag severity enum). */
+.p-tag.p-tag-contrast   { background: var(--p-text-color); color: var(--p-content-background); }
 
 /* ----- Badge base reset (counter family) ----- */
 /* PrimeVue 4 default Badge is circular `min-width: 1.5rem; height: 1.5rem;
@@ -412,6 +415,20 @@
   background: var(--p-surface-200);
   color: var(--p-text-color);
 }
+
+/* Badge severity colors — mirror the Tag tint logic (10% bg + severity
+   text) so severity-colored counters read as soft accents, not loud
+   solid PrimeVue defaults. Keeper currently only uses severity="secondary"
+   for counters (the base reset above covers it), but these complete the
+   PrimeVue 4 severity enum so any future usage stays on-design without
+   per-call overrides. */
+.p-badge.p-badge-primary  { background: color-mix(in srgb, var(--p-primary-500) 10%, transparent); color: var(--p-primary-500); }
+.p-badge.p-badge-success  { background: color-mix(in srgb, var(--p-success-500) 10%, transparent); color: var(--p-success-500); }
+.p-badge.p-badge-info     { background: color-mix(in srgb, var(--p-info-500) 10%, transparent); color: var(--p-info-500); }
+.p-badge.p-badge-warn     { background: color-mix(in srgb, var(--p-warn-500) 10%, transparent); color: var(--p-warn-500); }
+.p-badge.p-badge-danger   { background: color-mix(in srgb, var(--p-danger-500) 10%, transparent); color: var(--p-danger-500); }
+.p-badge.p-badge-help     { background: color-mix(in srgb, var(--p-help-500) 10%, transparent); color: var(--p-help-500); }
+.p-badge.p-badge-contrast { background: var(--p-text-color); color: var(--p-content-background); }
 
 /* ----- Chip base reset (removable chip family) ----- */
 /* PrimeVue 4 default Chip is large rounded-full. Keeper wants the .tag
@@ -486,10 +503,18 @@
   color: var(--p-text-color);
   gap: 5px;
 }
-.p-tag.k-tag-metric.p-tag-success { color: var(--p-success-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
-.p-tag.k-tag-metric.p-tag-info    { color: var(--p-info-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
-.p-tag.k-tag-metric.p-tag-warn    { color: var(--p-warn-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
-.p-tag.k-tag-metric.p-tag-danger  { color: var(--p-danger-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+/* The per-severity rules pin bg/border to neutral and override the text
+   color only. Covers the full PrimeVue 4 severity enum so any keeper
+   metric can be tone-coded. accent / arbitrary data-driven colors use
+   `:style="{ color: var(--p-accent-500) }"` on the call site instead. */
+.p-tag.k-tag-metric.p-tag-primary   { color: var(--p-primary-color); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+.p-tag.k-tag-metric.p-tag-secondary { color: var(--p-text-muted-color); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+.p-tag.k-tag-metric.p-tag-success   { color: var(--p-success-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+.p-tag.k-tag-metric.p-tag-info      { color: var(--p-info-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+.p-tag.k-tag-metric.p-tag-warn      { color: var(--p-warn-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+.p-tag.k-tag-metric.p-tag-danger    { color: var(--p-danger-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+.p-tag.k-tag-metric.p-tag-help      { color: var(--p-help-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+.p-tag.k-tag-metric.p-tag-contrast  { color: var(--p-text-color); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
 /* Inner two-tone helpers — used inside .k-tag-metric default slot.
    Not counted as "slap-on classes" — call sites use them on inner spans. */
 .k-tag-num { font-weight: 700; font-variant-numeric: tabular-nums; }
