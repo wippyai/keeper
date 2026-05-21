@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
+import Tag from 'primevue/tag'
 import type { ClusterSummary, SnapshotCounts, Importance, Verdict } from '../composables/useGit'
 import { importanceTone, verdictTone, fmtChanges } from '../tones'
 
@@ -84,9 +85,9 @@ const FILTER_CHIPS: Array<{ key: Filter; label: string }> = [
             <Icon :icon="verdictTone[c.verdict as Verdict].icon" class="w-3 h-3" />
             {{ verdictTone[c.verdict as Verdict].phrase }}
           </span>
-          <span v-if="c.rec_open > 0" class="ml-auto text-[9px] px-1 rounded bg-warn-500/10 text-warn-500">
+          <Tag v-if="c.rec_open > 0" severity="warn" class="ml-auto !text-[9px] !px-1 !py-0">
             {{ c.rec_open }} open
-          </span>
+          </Tag>
         </div>
         <p class="text-[10px] opacity-70 leading-snug truncate">{{ c.plain_summary }}</p>
       </article>

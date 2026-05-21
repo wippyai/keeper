@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { Icon } from '@iconify/vue'
+import Tag from 'primevue/tag'
 import type { DataflowNode, DataflowData } from '../../api/dataflows'
 import { nodeTitle } from './node-utils'
 import DataRenderer from './DataRenderer.vue'
@@ -311,10 +312,10 @@ function turnTitle(e: TimelineEntry): string {
 
           <span class="time" :title="formatFullDate(entry.dataItem.created_at)">{{ formatCompactTime(entry.dataItem.created_at) }}</span>
 
-          <span v-if="entry.isGrouped" class="type-badge text-accent-400" style="background: color-mix(in srgb, var(--p-accent-400) 15%, transparent)">yield/result</span>
-          <span v-else-if="entry.isTurn" class="type-badge text-success-500" style="background: color-mix(in srgb, var(--p-success-500) 15%, transparent)">
+          <Tag v-if="entry.isGrouped" class="k-tag-tone-accent !text-[9px] !font-bold !uppercase !tracking-wide !px-[7px] !py-px">yield/result</Tag>
+          <Tag v-else-if="entry.isTurn" severity="success" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[7px] !py-px">
             turn · {{ entry.observations?.length || 0 }} obs
-          </span>
+          </Tag>
           <span v-else class="type-badge" :style="{ background: `color-mix(in srgb, ${typeColor(entry.dataItem.type)} 18%, transparent)`, color: typeColor(entry.dataItem.type) }">
             {{ entry.dataItem.type }}
           </span>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Icon } from '@iconify/vue'
+import Tag from 'primevue/tag'
 import type { DataflowData } from '../../api/dataflows'
 import { formatTokens } from '../../api/sessions'
 import MarkdownContent from '../shared/MarkdownContent.vue'
@@ -68,10 +69,10 @@ function prettyJson(obj: any): string {
     <div class="flex items-center flex-wrap gap-2 mb-3">
       <Icon :icon="typeIcon(data.type)" class="w-4 h-4 shrink-0" :style="{ color: typeColor(data.type) }" />
       <span class="text-xs font-semibold" :style="{ color: typeColor(data.type) }">{{ data.type }}</span>
-      <span v-if="iteration" class="badge" style="background: var(--p-surface-100); color: var(--p-text-muted-color)">iter {{ iteration }}</span>
-      <span v-if="agentId" class="badge text-accent-400" style="background: color-mix(in srgb, var(--p-accent-400) 10%, transparent)">{{ agentId }}</span>
-      <span v-if="model" class="badge" style="background: var(--p-surface-100); color: var(--p-text-muted-color)">{{ model }}</span>
-      <span v-if="toolName" class="badge text-warn-500" style="background: color-mix(in srgb, var(--p-warn-500) 10%, transparent)">{{ toolName }}</span>
+      <Tag v-if="iteration" severity="secondary" class="!font-medium">iter {{ iteration }}</Tag>
+      <Tag v-if="agentId" class="k-tag-tone-accent !font-medium">{{ agentId }}</Tag>
+      <Tag v-if="model" severity="secondary" class="!font-medium">{{ model }}</Tag>
+      <Tag v-if="toolName" severity="warn" class="!font-medium">{{ toolName }}</Tag>
       <span v-if="finishReason" class="text-[10px]" :class="{ 'text-success-500': finishReason === 'stop', 'text-accent-400': finishReason === 'tool_call' }" :style="{ color: (finishReason !== 'stop' && finishReason !== 'tool_call') ? 'var(--p-text-muted-color)' : undefined }">{{ finishReason }}</span>
       <span v-if="tokens" class="text-[10px] font-mono ml-auto flex items-center gap-2" style="color: var(--p-text-muted-color)">
         <span class="text-accent-500" title="Prompt tokens">P&nbsp;{{ formatTokens(tokens.prompt_tokens) }}</span>

@@ -547,15 +547,15 @@ function fmt(n: number): string {
                 </div>
               </div>
               <div class="flex items-center gap-1">
-                <span v-if="a.data?.delegates?.length" class="badge bg-info-500/15 text-info-500" :title="`${a.data.delegates.length} delegates`">
+                <Tag v-if="a.data?.delegates?.length" severity="info" class="!text-[9px] !font-semibold !px-[5px] !py-px !gap-[2px]" :title="`${a.data.delegates.length} delegates`">
                   <Icon icon="tabler:users" class="w-2.5 h-2.5" />{{ a.data.delegates.length }}
-                </span>
-                <span v-if="a.data?.tools?.length" class="badge bg-info-500/15 text-info-500" :title="`${a.data.tools.length} tools`">
+                </Tag>
+                <Tag v-if="a.data?.tools?.length" severity="info" class="!text-[9px] !font-semibold !px-[5px] !py-px !gap-[2px]" :title="`${a.data.tools.length} tools`">
                   <Icon icon="tabler:tool" class="w-2.5 h-2.5" />{{ a.data.tools.length }}
-                </span>
-                <span v-if="a.data?.traits?.length" class="badge bg-accent-500/15 text-accent-500" :title="`${a.data.traits.length} traits`">
+                </Tag>
+                <Tag v-if="a.data?.traits?.length" class="k-tag-tone-accent !text-[9px] !font-semibold !px-[5px] !py-px !gap-[2px]" :title="`${a.data.traits.length} traits`">
                   <Icon icon="tabler:tag" class="w-2.5 h-2.5" />{{ a.data.traits.length }}
-                </span>
+                </Tag>
               </div>
             </div>
           </div>

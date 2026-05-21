@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
 import Button from 'primevue/button'
+import Tag from 'primevue/tag'
 import type { ClusterSummary, ClusterFull, ClusterChange, Decision, Importance, Verdict, Severity, RecState } from '../composables/useGit'
 import { importanceTone, verdictTone, sevTone, recStateTone, fmtChanges } from '../tones'
 
@@ -124,14 +125,10 @@ const emit = defineEmits<{
             @click="emit('open-diff', c.path)"
             class="px-3 py-1.5 border-b last:border-0 flex items-center gap-2 cursor-pointer hover:bg-[var(--p-content-hover-background)]"
             style="border-color: var(--p-content-border-color)">
-            <span class="text-[9px] font-semibold uppercase px-1 py-0.5 rounded shrink-0"
-              :class="{
-                'bg-success-500/10 text-success-500': c.op === 'create',
-                'bg-danger-500/10 text-danger-500': c.op === 'delete',
-                'bg-info-500/10 text-info-500': c.op !== 'create' && c.op !== 'delete',
-              }">
+            <Tag :severity="c.op === 'create' ? 'success' : c.op === 'delete' ? 'danger' : 'info'"
+              class="!text-[9px] !px-1 !py-px !font-semibold !uppercase shrink-0">
               {{ c.op[0].toUpperCase() }}
-            </span>
+            </Tag>
             <Icon :icon="c.category === 'registry' ? 'tabler:database' : 'tabler:file'"
               class="w-3 h-3 opacity-50 shrink-0" />
             <span class="font-mono text-[11px] flex-1 truncate">{{ c.path }}</span>
