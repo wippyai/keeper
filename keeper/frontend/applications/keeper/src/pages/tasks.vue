@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import Button from 'primevue/button'
+import Badge from 'primevue/badge'
 import { useApi, useHost, useWippy } from '../composables/useWippy'
 import {
   listTasks, createTask, startCycle, archiveTask,
@@ -228,7 +229,7 @@ onUnmounted(() => {
         <Icon icon="tabler:git-merge" class="w-4.5 h-4.5" style="color: var(--p-primary-color)" />
         <span class="text-sm font-semibold">Pipeline</span>
         <span v-if="waitingDesigns.length" class="awaiting-pulse">{{ waitingDesigns.length }} awaiting</span>
-        <span v-if="activeDesigns.length" class="hdr-count">{{ activeDesigns.length }} active</span>
+        <Badge v-if="activeDesigns.length" severity="secondary" :value="`${activeDesigns.length} active`" />
       </div>
       <div class="flex items-center gap-1.5">
         <div class="search-wrap">

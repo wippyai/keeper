@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Icon } from '@iconify/vue'
+import Badge from 'primevue/badge'
 import { useApi } from '../composables/useWippy'
 import { listEntries, getEntry, type RegistryEntry } from '../api/registry'
 import { entryName } from '../utils'
@@ -211,7 +212,7 @@ onMounted(load)
             <div v-if="ns" class="ns-head">
               <Icon icon="tabler:folder" class="w-3 h-3" />
               <span>{{ ns }}</span>
-              <span class="ns-count">{{ items.length }}</span>
+              <Badge severity="secondary" :value="items.length" />
             </div>
             <div class="grid grid-cols-1 gap-2">
               <div

@@ -3,6 +3,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import Button from 'primevue/button'
+import Tag from 'primevue/tag'
+import Badge from 'primevue/badge'
 import { useApi } from '../composables/useWippy'
 import { listNamespaces, listEntries, getSyncState, type RegistryEntry, type Namespace } from '../api/registry'
 import { fetchPmStats, type HostStats, type ServiceState } from '../api/pm'
@@ -318,12 +320,12 @@ function fmt(n: number): string {
           <div class="hero-num">{{ activeTasks }}</div>
           <div class="hero-sub">
             <span>{{ tasks.length }} total</span>
-            <span v-if="blockedTasks" class="hero-pill bg-warn-500/15 text-warn-500">
+            <Tag v-if="blockedTasks" severity="warn" class="!text-[11px] !px-[9px] !py-[3px] !font-medium">
               <Icon icon="tabler:message-question" class="w-3 h-3" />{{ blockedTasks }} waiting
-            </span>
-            <span v-if="completedTasks" class="hero-pill bg-success-500/15 text-success-500">
+            </Tag>
+            <Tag v-if="completedTasks" severity="success" class="!text-[11px] !px-[9px] !py-[3px] !font-medium">
               ✓ {{ completedTasks }}
-            </span>
+            </Tag>
           </div>
         </button>
 
@@ -337,9 +339,9 @@ function fmt(n: number): string {
           <div class="hero-num">{{ runningFlows }}</div>
           <div class="hero-sub">
             <span>running now</span>
-            <span v-if="completedFlows" class="hero-pill bg-success-500/15 text-success-500">{{ completedFlows }} ✓</span>
-            <span v-if="failedFlows" class="hero-pill bg-danger-500/15 text-danger-500">{{ failedFlows }} ✗</span>
-            <span v-if="pendingFlows" class="hero-pill bg-warn-500/15 text-warn-500">{{ pendingFlows }} queued</span>
+            <Tag v-if="completedFlows" severity="success" class="!text-[11px] !px-[9px] !py-[3px] !font-medium">{{ completedFlows }} ✓</Tag>
+            <Tag v-if="failedFlows" severity="danger" class="!text-[11px] !px-[9px] !py-[3px] !font-medium">{{ failedFlows }} ✗</Tag>
+            <Tag v-if="pendingFlows" severity="warn" class="!text-[11px] !px-[9px] !py-[3px] !font-medium">{{ pendingFlows }} queued</Tag>
           </div>
         </button>
 
@@ -353,8 +355,8 @@ function fmt(n: number): string {
           <div class="hero-num">{{ usageToday ? formatTokens(usageToday.total_tokens) : '—' }}</div>
           <div class="hero-sub" v-if="usageToday">
             <span>{{ usageToday.request_count }} req</span>
-            <span class="hero-pill bg-info-500/10 text-info-500">→ {{ formatTokens(usageToday.prompt_tokens) }}</span>
-            <span class="hero-pill bg-accent-500/10 text-accent-500">← {{ formatTokens(usageToday.completion_tokens) }}</span>
+            <Tag severity="info" class="!text-[11px] !px-[9px] !py-[3px] !font-medium">→ {{ formatTokens(usageToday.prompt_tokens) }}</Tag>
+            <Tag class="k-tag-tone-accent !text-[11px] !px-[9px] !py-[3px] !font-medium">← {{ formatTokens(usageToday.completion_tokens) }}</Tag>
           </div>
           <div class="hero-sub" v-else>
             <span class="opacity-60">no calls yet</span>
@@ -371,8 +373,8 @@ function fmt(n: number): string {
           <div class="hero-num">{{ runningServices }}<span class="hero-num-sub">/{{ services.length }}</span></div>
           <div class="hero-sub">
             <span>{{ processCount }} processes · {{ hosts.length }} host{{ hosts.length === 1 ? '' : 's' }}</span>
-            <span v-if="queueDepth > 0" class="hero-pill bg-warn-500/15 text-warn-500">queue {{ queueDepth }}</span>
-            <span v-if="failedServices" class="hero-pill bg-danger-500/15 text-danger-500">{{ failedServices }} fail</span>
+            <Tag v-if="queueDepth > 0" severity="warn" class="!text-[11px] !px-[9px] !py-[3px] !font-medium">queue {{ queueDepth }}</Tag>
+            <Tag v-if="failedServices" severity="danger" class="!text-[11px] !px-[9px] !py-[3px] !font-medium">{{ failedServices }} fail</Tag>
           </div>
         </button>
       </div>
@@ -670,7 +672,7 @@ function fmt(n: number): string {
         <div class="ns-cloud-wrap">
           <div class="ns-cloud">
             <button v-for="ns in topNamespaces" :key="ns.name" class="ns-chip" @click="goStructure(ns.name)">
-              {{ ns.name }} <span class="ns-count">{{ ns.count }}</span>
+              {{ ns.name }} <Badge severity="secondary" :value="ns.count" />
             </button>
           </div>
         </div>

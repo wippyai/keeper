@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { Icon } from '@iconify/vue'
 import Tag from 'primevue/tag'
+import Badge from 'primevue/badge'
 import { useApi } from '../composables/useWippy'
 import { listEntries, getEntry, type RegistryEntry } from '../api/registry'
 import EntryDetailPanel from '../components/shared/EntryDetailPanel.vue'
@@ -219,7 +220,7 @@ onMounted(load)
             <div v-if="ns" class="ns-head">
               <Icon icon="tabler:folder" class="w-3 h-3" />
               <span>{{ ns }}</span>
-              <span class="ns-count">{{ items.length }}</span>
+              <Badge severity="secondary" :value="items.length" />
             </div>
             <div class="ep-list">
               <div

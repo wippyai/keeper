@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import Button from 'primevue/button'
+import Tag from 'primevue/tag'
 import { useApi } from '../../composables/useWippy'
 import { getEntry, type RegistryEntry } from '../../api/registry'
 import DetailPanel from './DetailPanel.vue'
@@ -113,7 +114,7 @@ const hasData = computed(() => Object.keys(data.value).length > 0)
           </div>
           <div class="kv">
             <div class="k">Kind</div>
-            <div class="v"><span class="kind-badge">{{ current?.kind || '—' }}</span></div>
+            <div class="v"><Tag severity="secondary" class="k-tag-mono">{{ current?.kind || '—' }}</Tag></div>
           </div>
           <div v-if="meta.type" class="kv">
             <div class="k">Type</div>
