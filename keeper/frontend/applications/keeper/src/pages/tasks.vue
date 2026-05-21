@@ -513,13 +513,6 @@ onUnmounted(() => {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--p-warn-500) 45%, transparent); }
   50%      { box-shadow: 0 0 0 5px color-mix(in srgb, var(--p-warn-500) 0%, transparent); }
 }
-.hdr-count {
-  font-size: 10px; font-weight: 500;
-  padding: 2px 8px; border-radius: 12px;
-  background: var(--p-surface-100);
-  color: var(--p-text-muted-color);
-}
-
 .hdr-btn {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 4px 10px; border-radius: 6px;

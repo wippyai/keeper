@@ -161,7 +161,6 @@ function prettyJson(obj: any): string {
 </template>
 
 <style scoped>
-.badge { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 500; }
 .section-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; color: var(--p-text-muted-color); margin-bottom: 4px; }
 .tool-block { background: var(--p-surface-100); border-radius: 6px; padding: 10px 12px; }
 .delegate-block { background: color-mix(in srgb, var(--p-accent-500) 5%, transparent); border: 1px solid color-mix(in srgb, var(--p-accent-500) 10%, transparent); border-radius: 6px; padding: 10px 12px; }

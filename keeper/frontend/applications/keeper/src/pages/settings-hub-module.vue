@@ -1073,30 +1073,6 @@ onMounted(load)
   padding: 1px 7px;
   border-radius: 4px;
 }
-.status-badge {
-  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
-  padding: 1px 6px; border-radius: 3px;
-  display: inline-flex; align-items: center;
-}
-.status-badge--success { background: color-mix(in srgb, var(--p-success-500) 15%, transparent); color: var(--p-success-500); }
-.status-badge--warn    { background: color-mix(in srgb, var(--p-warn-500) 18%, transparent);    color: var(--p-warn-500); }
-.status-badge--danger  { background: color-mix(in srgb, var(--p-danger-500) 15%, transparent);  color: var(--p-danger-500); }
-.status-badge--info    { background: color-mix(in srgb, var(--p-info-500) 15%, transparent);    color: var(--p-info-500); }
-
-/* Aliases mapped to the standardized status-badge */
-.installed-pill {
-  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
-  padding: 1px 6px; border-radius: 3px;
-  background: color-mix(in srgb, var(--p-success-500) 15%, transparent);
-  color: var(--p-success-500);
-}
-.deprecated-pill {
-  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
-  padding: 1px 6px; border-radius: 3px;
-  background: color-mix(in srgb, var(--p-warn-500) 18%, transparent);
-  color: var(--p-warn-500);
-}
-
 /* Grid */
 .mod-grid {
   display: grid;
@@ -1488,25 +1464,6 @@ onMounted(load)
 }
 .kv-line { display: flex; gap: 10px; align-items: baseline; font-size: 11px; }
 .kv-key { color: var(--p-text-muted-color); min-width: 90px; }
-
-.latest-badge {
-  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
-  padding: 1px 6px; border-radius: 3px;
-  background: color-mix(in srgb, var(--p-success-500) 15%, transparent);
-  color: var(--p-success-500);
-}
-.yanked-badge {
-  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
-  padding: 1px 6px; border-radius: 3px;
-  background: color-mix(in srgb, var(--p-danger-500) 15%, transparent);
-  color: var(--p-danger-500);
-}
-.protected-badge {
-  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
-  padding: 1px 6px; border-radius: 3px;
-  background: color-mix(in srgb, var(--p-info-500) 15%, transparent);
-  color: var(--p-info-500);
-}
 
 .ghost-sm {
   display: inline-flex; align-items: center; gap: 4px;

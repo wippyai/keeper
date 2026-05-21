@@ -388,13 +388,6 @@ onMounted(load)
   margin-bottom: 6px;
   padding: 0 4px;
 }
-.ns-count {
-  padding: 0 5px;
-  border-radius: 8px;
-  background: var(--p-surface-200);
-  color: var(--p-text-muted-color);
-}
-
 .trait-card {
   padding: 12px;
   border-radius: 6px;

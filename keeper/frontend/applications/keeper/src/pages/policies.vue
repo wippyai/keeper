@@ -361,21 +361,6 @@ onMounted(load)
   background: color-mix(in srgb, var(--p-surface-50) 70%, transparent);
   flex-wrap: wrap;
 }
-.stat-pill {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 3px 9px;
-  border-radius: 4px;
-  background: var(--p-surface-100);
-  border: 1px solid var(--p-content-border-color);
-  font-size: 11px;
-}
-.stat-pill .stat-num { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--p-text-color); }
-.stat-pill .stat-lbl { font-size: 10px; color: var(--p-text-muted-color); }
-.stat-pill--success { color: var(--p-success-500); }
-.stat-pill--danger  { color: var(--p-danger-500); }
-.stat-pill--info    { color: var(--p-info-500); }
-.stat-pill--warn    { color: var(--p-warn-500); }
-
 .effect-filter {
   display: flex; gap: 4px;
   margin-left: auto;
@@ -416,13 +401,6 @@ onMounted(load)
 }
 .ns-head--allow { color: var(--p-success-500); }
 .ns-head--deny  { color: var(--p-danger-500); }
-.ns-count {
-  padding: 0 5px;
-  border-radius: 8px;
-  background: var(--p-surface-200);
-  color: var(--p-text-muted-color);
-}
-
 .pol-card {
   padding: 12px;
   border-radius: 6px;

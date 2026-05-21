@@ -1384,25 +1384,6 @@ onMounted(() => {
   color: var(--p-text-color);
   border: 1px solid var(--p-content-border-color);
 }
-.installed-pill {
-  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
-  padding: 1px 6px; border-radius: 3px;
-  background: color-mix(in srgb, var(--p-success-500) 15%, transparent);
-  color: var(--p-success-500);
-}
-.deprecated-pill {
-  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
-  padding: 1px 6px; border-radius: 3px;
-  background: color-mix(in srgb, var(--p-warn-500) 18%, transparent);
-  color: var(--p-warn-500);
-}
-.warn-pill {
-  font-size: 9px; font-weight: 600;
-  padding: 1px 6px; border-radius: 8px;
-  background: color-mix(in srgb, var(--p-warn-500) 16%, transparent);
-  color: var(--p-warn-500);
-}
-
 /* ---------- Pager ---------- */
 .pager {
   display: flex; align-items: center; justify-content: space-between;
@@ -1685,13 +1666,6 @@ onMounted(() => {
 }
 .ver-meta-line { display: flex; gap: 8px; align-items: baseline; font-size: 11px; }
 .ver-meta-key { color: var(--p-text-muted-color); min-width: 90px; }
-.protected-badge {
-  font-size: 8px; font-weight: 700;
-  padding: 1px 5px; border-radius: 3px;
-  background: color-mix(in srgb, var(--p-info-500) 15%, transparent);
-  color: var(--p-info-500);
-}
-
 .ov-block {
   margin-top: 16px;
   padding-top: 12px;
@@ -1808,19 +1782,6 @@ onMounted(() => {
 .readme-body :deep(picture img) { display: inline-block; max-width: 100%; }
 
 .drawer-tab:disabled { opacity: 0.4; cursor: not-allowed; }
-.latest-badge {
-  font-size: 8px; font-weight: 700;
-  padding: 1px 5px; border-radius: 3px;
-  background: color-mix(in srgb, var(--p-success-500) 15%, transparent);
-  color: var(--p-success-500);
-}
-.yanked-badge {
-  font-size: 8px; font-weight: 700;
-  padding: 1px 5px; border-radius: 3px;
-  background: color-mix(in srgb, var(--p-danger-500) 15%, transparent);
-  color: var(--p-danger-500);
-}
-
 /* ---------- Dialogs ---------- */
 .overlay {
   position: fixed; inset: 0; z-index: 9999;

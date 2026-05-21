@@ -809,10 +809,6 @@ function fmt(n: number): string {
 .hero-num { font-size: 28px; font-weight: 700; line-height: 1; color: var(--p-text-color); }
 .hero-num-sub { font-size: 14px; font-weight: 500; color: var(--p-text-muted-color); }
 .hero-sub { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--p-text-muted-color); flex-wrap: wrap; }
-.hero-pill {
-  display: inline-flex; align-items: center; gap: 3px;
-  padding: 1px 6px; border-radius: 3px; font-size: 9px; font-weight: 600;
-}
 
 /* Health dot */
 .health-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
@@ -924,12 +920,6 @@ function fmt(n: number): string {
 .log-pill--warn { border-color: color-mix(in srgb, var(--p-warn-500) 50%, transparent); }
 .log-num { font-weight: 600; color: var(--p-text-color); font-variant-numeric: tabular-nums; }
 
-/* Badge */
-.badge {
-  display: inline-flex; align-items: center; gap: 2px;
-  padding: 1px 5px; border-radius: 3px; font-size: 9px; font-weight: 600;
-}
-
 /* Namespace cloud */
 .ns-cloud-wrap { padding: 8px; }
 .ns-cloud { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -941,5 +931,4 @@ function fmt(n: number): string {
   transition: background 0.1s, border-color 0.1s;
 }
 .ns-chip:hover { background: var(--p-surface-200); border-color: var(--p-primary-color); }
-.ns-count { font-size: 9px; color: var(--p-text-muted-color); }
 </style>

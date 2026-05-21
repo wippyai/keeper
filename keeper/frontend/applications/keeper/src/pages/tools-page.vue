@@ -314,22 +314,6 @@ onMounted(load)
   background: color-mix(in srgb, var(--p-surface-50) 70%, transparent);
   flex-wrap: wrap;
 }
-.stat-pill {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 3px 9px;
-  border-radius: 4px;
-  background: var(--p-surface-100);
-  border: 1px solid var(--p-content-border-color);
-  font-size: 11px;
-  color: var(--p-text-color);
-}
-.stat-pill .stat-num { font-weight: 700; font-variant-numeric: tabular-nums; }
-.stat-pill .stat-lbl { font-size: 10px; color: var(--p-text-muted-color); }
-.stat-pill--info    { color: var(--p-info-500); }
-.stat-pill--accent  { color: var(--p-accent-500); }
-.stat-pill--success { color: var(--p-success-500); }
-.stat-pill--warn    { color: var(--p-warn-500); }
-
 .ns-head {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 9px; font-weight: 700;
@@ -338,13 +322,6 @@ onMounted(load)
   margin-bottom: 6px;
   padding: 0 4px;
 }
-.ns-count {
-  padding: 0 5px;
-  border-radius: 8px;
-  background: var(--p-surface-200);
-  color: var(--p-text-muted-color);
-}
-
 .tool-list {
   border: 1px solid var(--p-content-border-color);
   border-radius: 5px;

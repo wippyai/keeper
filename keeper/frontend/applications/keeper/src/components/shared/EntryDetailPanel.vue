@@ -175,13 +175,6 @@ const hasData = computed(() => Object.keys(data.value).length > 0)
 .kv-row:last-child { border-bottom: 0; }
 .k-row { font-size: 10px; color: var(--p-text-muted-color); margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
 .v-row { font-size: 11px; color: var(--p-text-color); word-break: break-word; }
-.kind-badge {
-  display: inline-block;
-  padding: 1px 8px; border-radius: 3px;
-  font-size: 10px; font-family: 'JetBrains Mono', monospace;
-  background: var(--p-surface-100); color: var(--p-text-color);
-  border: 1px solid var(--p-content-border-color);
-}
 .json-mini {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
