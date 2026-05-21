@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import Button from 'primevue/button'
+import Tag from 'primevue/tag'
 import { useApi } from '../composables/useWippy'
 import {
   listHubDependencies, installHubDependency, uninstallHubDependency,
@@ -641,8 +642,8 @@ onMounted(() => {
                 <div class="feat-body">
                   <div class="flex items-center gap-1.5 flex-wrap">
                     <span class="feat-name">{{ m.display_name || m.name }}</span>
-                    <span v-if="isInstalled(m)" class="installed-pill">installed</span>
-                    <span v-if="m.deprecated" class="deprecated-pill">deprecated</span>
+                    <Tag v-if="isInstalled(m)" severity="success" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">installed</Tag>
+                    <Tag v-if="m.deprecated" severity="warn" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">deprecated</Tag>
                   </div>
                   <div class="feat-org">{{ m.full_name || (m.org + '/' + m.name) }}</div>
                   <p v-if="m.description" class="feat-desc">{{ m.description }}</p>
@@ -675,8 +676,8 @@ onMounted(() => {
                   <div class="flex items-center gap-1.5 flex-wrap">
                     <span class="mod-name">{{ m.display_name || m.name }}</span>
                     <span class="mod-version">{{ m.latest_version || '—' }}</span>
-                    <span v-if="isInstalled(m)" class="installed-pill">installed</span>
-                    <span v-if="m.deprecated" class="deprecated-pill">deprecated</span>
+                    <Tag v-if="isInstalled(m)" severity="success" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">installed</Tag>
+                    <Tag v-if="m.deprecated" severity="warn" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">deprecated</Tag>
                   </div>
                   <div class="mod-org">{{ m.full_name || (m.org + '/' + m.name) }}</div>
                   <p v-if="m.description" class="mod-desc">{{ m.description }}</p>
@@ -734,9 +735,9 @@ onMounted(() => {
                   <span v-if="d.installed_entries_count" class="meta-pill" style="background: var(--p-surface-200); color: var(--p-text-muted-color); border: none">
                     {{ d.installed_entries_count }} entries
                   </span>
-                  <span v-if="d.migrations && d.migrations.filter(m => m.status === 'pending').length" class="warn-pill">
+                  <Tag v-if="d.migrations && d.migrations.filter(m => m.status === 'pending').length" severity="warn" class="!text-[9px] !font-semibold !px-[6px] !py-px !rounded-lg">
                     {{ d.migrations.filter(m => m.status === 'pending').length }} pending
-                  </span>
+                  </Tag>
                 </div>
                 <div class="mod-org" style="margin-top: 1px">{{ d.id }}</div>
               </div>
@@ -777,8 +778,8 @@ onMounted(() => {
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="drawer-name">{{ detail.display_name || detail.name }}</span>
-                <span v-if="isInstalled(detail)" class="installed-pill">installed</span>
-                <span v-if="detail.deprecated" class="deprecated-pill">deprecated</span>
+                <Tag v-if="isInstalled(detail)" severity="success" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">installed</Tag>
+                <Tag v-if="detail.deprecated" severity="warn" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">deprecated</Tag>
               </div>
               <div class="drawer-org">{{ detail.full_name || (detail.org + '/' + detail.name) }}</div>
               <p v-if="detail.description" class="drawer-desc">{{ detail.description }}</p>
@@ -923,9 +924,9 @@ onMounted(() => {
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center gap-2">
                         <span class="font-mono text-[12px] font-semibold" style="color: var(--p-text-color)">{{ v.version }}</span>
-                        <span v-if="v.is_latest || v.version === detail.latest_version" class="latest-badge">latest</span>
-                        <span v-if="v.yanked" class="yanked-badge">yanked</span>
-                        <span v-if="v.protected" class="protected-badge" :title="v.protection_type">protected</span>
+                        <Tag v-if="v.is_latest || v.version === detail.latest_version" severity="success" class="!text-[8px] !font-bold !px-[5px] !py-px !rounded-[3px]">latest</Tag>
+                        <Tag v-if="v.yanked" severity="danger" class="!text-[8px] !font-bold !px-[5px] !py-px !rounded-[3px]">yanked</Tag>
+                        <Tag v-if="v.protected" severity="info" class="!text-[8px] !font-bold !px-[5px] !py-px !rounded-[3px]" :title="v.protection_type">protected</Tag>
                       </div>
                       <div class="text-[10px] mt-0.5" style="color: var(--p-text-muted-color)">
                         <span v-if="v.create_time">{{ timeAgo(v.create_time) }}</span>

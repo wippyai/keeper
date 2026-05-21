@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
+import Tag from 'primevue/tag'
 import { useApi } from '../composables/useWippy'
 import {
   browseHubModules, listHubVersions, getHubReadme,
@@ -535,8 +536,8 @@ onMounted(load)
             <div class="flex items-center gap-2 flex-wrap">
               <h1 class="mod-hero-name">{{ module_.display_name || module_.name }}</h1>
               <span v-if="module_.latest_version" class="version-tag mono">{{ module_.latest_version }}</span>
-              <span v-if="installed" class="installed-pill">installed</span>
-              <span v-if="module_.deprecated" class="deprecated-pill">deprecated</span>
+              <Tag v-if="installed" severity="success" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">installed</Tag>
+              <Tag v-if="module_.deprecated" severity="warn" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">deprecated</Tag>
             </div>
             <div class="mod-hero-org mono">{{ module_.full_name || fullRef }}</div>
             <p v-if="module_.description" class="mod-hero-desc">{{ module_.description }}</p>
@@ -707,9 +708,9 @@ onMounted(load)
                     <h3 class="ov-section-title">Latest release</h3>
                     <div class="flex items-center gap-2">
                       <span class="version-chip mono">{{ latestVersion.version }}</span>
-                      <span class="status-badge status-badge--success">latest</span>
-                      <span v-if="latestVersion.yanked" class="status-badge status-badge--danger">yanked</span>
-                      <span v-if="latestVersion.protected" class="status-badge status-badge--info">protected</span>
+                      <Tag severity="success">latest</Tag>
+                      <Tag v-if="latestVersion.yanked" severity="danger">yanked</Tag>
+                      <Tag v-if="latestVersion.protected" severity="info">protected</Tag>
                       <span v-if="latestVersion.create_time" class="ov-meta-time">released {{ timeAgo(latestVersion.create_time) }}</span>
                     </div>
                   </div>
@@ -803,9 +804,9 @@ onMounted(load)
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center gap-2">
                         <span class="mono text-[13px] font-semibold">{{ v.version }}</span>
-                        <span v-if="v.is_latest || v.version === module_.latest_version" class="latest-badge">latest</span>
-                        <span v-if="v.yanked" class="yanked-badge">yanked</span>
-                        <span v-if="v.protected" class="protected-badge">protected</span>
+                        <Tag v-if="v.is_latest || v.version === module_.latest_version" severity="success" class="!text-[8px] !font-bold !px-[5px] !py-px !rounded-[3px]">latest</Tag>
+                        <Tag v-if="v.yanked" severity="danger" class="!text-[8px] !font-bold !px-[5px] !py-px !rounded-[3px]">yanked</Tag>
+                        <Tag v-if="v.protected" severity="info" class="!text-[8px] !font-bold !px-[5px] !py-px !rounded-[3px]">protected</Tag>
                       </div>
                       <div class="dim text-[10px] mt-0.5">
                         <span v-if="v.create_time">{{ timeAgo(v.create_time) }}</span>
