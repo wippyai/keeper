@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
+import Tag from 'primevue/tag'
+import Chip from 'primevue/chip'
+import Badge from 'primevue/badge'
 
-// Reference gallery for the D2 Badge/Chip family migration (B1-equivalent).
+// Reference gallery for the D2 Badge/Chip family migration (BD-B1 + BD-B3).
 // 12 variants from .local/2026-05-19-d2-inventory/00-consolidated-census.md.
-// REMOVE in the cleanup chunk equivalent to B5.
-// All CSS inlined here is source-of-truth lifted verbatim from the call-site
-// scoped <style> blocks — adjusting any value here MUST be tracked back to
-// the original location.
+// REMOVE in the cleanup chunk equivalent to BD-B5.
+//
+// Each cell shows the HAND-ROLLED reference (source-of-truth styling lifted
+// verbatim from the call-site scoped <style> blocks) AND, where applicable,
+// the BD-B3 PrimeVue Tag/Chip equivalent using `.k-tag-*` / `.k-chip-*`
+// extension classes from temp-primevue-overrides.css. Compare visually
+// + via computed-style capture to verify byte-match.
 
 const variants = [
   { id: 'badge-status-tinted', name: '1 — Status tinted', source: 'MsgHeader.vue:20-24, StatusBadge.vue, GitClusterList.vue:82-89' },
@@ -46,7 +52,8 @@ const variants = [
         <div class="cell-body">
           <!-- 1 — badge-status-tinted -->
           <template v-if="v.id === 'badge-status-tinted'">
-            <!-- MsgHeader.vue:20-24 tinted-pill flavour (icon + label) -->
+            <!-- HAND-ROLLED — MsgHeader.vue:20-24 tinted-pill flavour -->
+            <div class="cmp-label">hand-rolled (verbatim)</div>
             <div class="flex flex-wrap items-center gap-2">
               <span class="badge-st" style="background: color-mix(in srgb, var(--p-success-500) 10%, transparent); color: var(--p-success-500)">
                 <Icon icon="tabler:check" class="w-3 h-3" /> ok
@@ -61,8 +68,17 @@ const variants = [
                 <Icon icon="tabler:info-circle" class="w-3 h-3" /> info
               </span>
             </div>
-            <!-- StatusBadge.vue — dot + label, no bg -->
-            <div class="flex flex-wrap items-center gap-2 mt-2">
+            <!-- BD-B3 — Tag with severity prop (NO class — base reset gives 10% tint) -->
+            <div class="cmp-label mt-2">BD-B3 — Tag severity prop only, no class</div>
+            <div class="flex flex-wrap items-center gap-2">
+              <Tag severity="success"><Icon icon="tabler:check" class="w-3 h-3" /> ok</Tag>
+              <Tag severity="danger"><Icon icon="tabler:x" class="w-3 h-3" /> error</Tag>
+              <Tag severity="warn"><Icon icon="tabler:alert-triangle" class="w-3 h-3" /> warn</Tag>
+              <Tag severity="info"><Icon icon="tabler:info-circle" class="w-3 h-3" /> info</Tag>
+            </div>
+            <!-- StatusBadge.vue — KEEP HAND-ROLLED per plan -->
+            <div class="cmp-label mt-2">StatusBadge (keep hand-rolled — no Tag equivalent)</div>
+            <div class="flex flex-wrap items-center gap-2">
               <span class="status-badge"><span class="w-1.5 h-1.5 rounded-full" style="background: var(--p-success-500)"></span><span>OK</span></span>
               <span class="status-badge"><span class="w-1.5 h-1.5 rounded-full" style="background: var(--p-warn-500)"></span><span>warn</span></span>
               <span class="status-badge"><span class="w-1.5 h-1.5 rounded-full" style="background: var(--p-danger-500)"></span><span>error</span></span>
@@ -71,48 +87,71 @@ const variants = [
 
           <!-- 2 — badge-kind-colored -->
           <template v-else-if="v.id === 'badge-kind-colored'">
-            <!-- .kind-badge (EntryDetailPanel.vue:115) — neutral monospace -->
+            <div class="cmp-label">hand-rolled (verbatim)</div>
             <div class="flex flex-wrap items-center gap-2">
               <span class="kind-badge">agent.gen1</span>
               <span class="kind-badge">function.lua</span>
               <span class="kind-badge">http.endpoint</span>
             </div>
-            <!-- colored kind label (MsgHeader.vue:13) — no bg, just colored text -->
-            <div class="flex flex-wrap items-center gap-2 mt-2">
+            <div class="cmp-label mt-2">BD-B3 — Tag severity="secondary" + .k-tag-mono</div>
+            <div class="flex flex-wrap items-center gap-2">
+              <Tag severity="secondary" class="k-tag-mono">agent.gen1</Tag>
+              <Tag severity="secondary" class="k-tag-mono">function.lua</Tag>
+              <Tag severity="secondary" class="k-tag-mono">http.endpoint</Tag>
+            </div>
+            <!-- colored kind label (MsgHeader.vue:13) — keep as <span>, not a Tag -->
+            <div class="cmp-label mt-2">colored text label (keep as &lt;span&gt;)</div>
+            <div class="flex flex-wrap items-center gap-2">
               <span class="text-xs font-semibold" style="color: var(--p-info-500)">user</span>
               <span class="text-xs font-semibold" style="color: var(--p-success-500)">assistant</span>
               <span class="text-xs font-semibold" style="color: var(--p-danger-500)">delegation</span>
               <span class="text-xs font-semibold" style="color: var(--p-accent-400)">function</span>
             </div>
-            <!-- op-letter (changes.vue:647) — tinted single-letter -->
-            <div class="flex flex-wrap items-center gap-2 mt-2">
+            <!-- op-letter (changes.vue:647) — hand-rolled then PrimeVue Tag .k-tag-letter -->
+            <div class="cmp-label mt-2">op-letter — hand-rolled / Tag .k-tag-letter</div>
+            <div class="flex flex-wrap items-center gap-2">
               <span class="op-letter" style="background: color-mix(in srgb, var(--p-success-500) 10%, transparent); color: var(--p-success-500)">A</span>
               <span class="op-letter" style="background: color-mix(in srgb, var(--p-info-500) 10%, transparent); color: var(--p-info-500)">M</span>
               <span class="op-letter" style="background: color-mix(in srgb, var(--p-danger-500) 10%, transparent); color: var(--p-danger-500)">D</span>
+              <span style="opacity:0.4">·</span>
+              <Tag severity="success" class="k-tag-letter">A</Tag>
+              <Tag severity="info" class="k-tag-letter">M</Tag>
+              <Tag severity="danger" class="k-tag-letter">D</Tag>
             </div>
           </template>
 
           <!-- 3 — badge-count-pill -->
           <template v-else-if="v.id === 'badge-count-pill'">
-            <!-- PageHeader.vue:19 — bare text count (NO bg) -->
+            <div class="cmp-label">hand-rolled (verbatim)</div>
+            <!-- PageHeader.vue:19 — bare text count (NO bg) — keep as <span> -->
             <div class="flex items-center gap-2">
               <span class="text-xs">Header label</span>
               <span class="text-[10px]" style="color: var(--p-text-muted-color)">12</span>
             </div>
-            <!-- .tab-cnt (AgentEditor.vue:106) — 8px tiny -->
             <div class="mt-2 flex items-center gap-2">
               <span class="text-xs">Tab name</span>
               <span class="tab-cnt">3</span>
             </div>
-            <!-- .hdr-count (tasks.vue:230) — 10px rounded-12 -->
             <div class="mt-2 flex items-center gap-2">
               <span class="text-xs">Tasks</span>
               <span class="hdr-count">47</span>
             </div>
-            <!-- .ns-count (agents.vue:386) — 10px rounded-8 -->
             <div class="mt-2 flex items-center gap-2">
               <span class="text-xs">Namespace</span>
               <span class="ns-count">8</span>
+            </div>
+            <div class="cmp-label mt-3">BD-B3 — Badge severity="secondary" + size prop</div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs">Tab name</span>
+              <Badge severity="secondary" value="3" size="small" />
+            </div>
+            <div class="mt-2 flex items-center gap-2">
+              <span class="text-xs">Tasks</span>
+              <Badge severity="secondary" value="47" />
+            </div>
+            <div class="mt-2 flex items-center gap-2">
+              <span class="text-xs">Namespace (merged with Tasks)</span>
+              <Badge severity="secondary" value="8" />
             </div>
           </template>
 
@@ -143,7 +182,7 @@ const variants = [
 
           <!-- 5 — badge-stat-pill -->
           <template v-else-if="v.id === 'badge-stat-pill'">
-            <!-- .stat-pill — neutral bg + bordered, text recolored -->
+            <div class="cmp-label">hand-rolled (.stat-pill)</div>
             <div class="flex flex-wrap items-center gap-2">
               <span class="stat-pill"><span class="stat-num">42</span><span class="stat-lbl">total</span></span>
               <span class="stat-pill" style="color: var(--p-accent-500)"><span class="stat-num">128</span><span class="stat-lbl">tokens</span></span>
@@ -151,11 +190,23 @@ const variants = [
               <span class="stat-pill" style="color: var(--p-warn-500)"><span class="stat-num">3</span><span class="stat-lbl">blocked</span></span>
               <span class="stat-pill" style="color: var(--p-success-500)"><span class="stat-num">31</span><span class="stat-lbl">done</span></span>
             </div>
-            <!-- .hero-pill — 15% tinted bg + colored text, no border -->
-            <div class="flex flex-wrap items-center gap-2 mt-2">
+            <div class="cmp-label mt-2">BD-B3 PrimeVue Tag (.k-tag-metric)</div>
+            <div class="flex flex-wrap items-center gap-2">
+              <Tag class="k-tag-metric"><span class="k-tag-num">42</span><span class="k-tag-lbl">total</span></Tag>
+              <Tag class="k-tag-metric" :style="{ color: 'var(--p-accent-500)' }"><span class="k-tag-num">128</span><span class="k-tag-lbl">tokens</span></Tag>
+              <Tag severity="info" class="k-tag-metric"><span class="k-tag-num">7</span><span class="k-tag-lbl">active</span></Tag>
+              <Tag severity="warn" class="k-tag-metric"><span class="k-tag-num">3</span><span class="k-tag-lbl">blocked</span></Tag>
+              <Tag severity="success" class="k-tag-metric"><span class="k-tag-num">31</span><span class="k-tag-lbl">done</span></Tag>
+            </div>
+            <div class="cmp-label mt-2">.hero-pill — hand-rolled / Tag with !-prefix utilities (no class)</div>
+            <div class="flex flex-wrap items-center gap-2">
               <span class="hero-pill" style="background: color-mix(in srgb, var(--p-warn-500) 15%, transparent); color: var(--p-warn-500)">3 blocked</span>
               <span class="hero-pill" style="background: color-mix(in srgb, var(--p-success-500) 15%, transparent); color: var(--p-success-500)">31 ✓</span>
               <span class="hero-pill" style="background: color-mix(in srgb, var(--p-info-500) 15%, transparent); color: var(--p-info-500)">→ 4.2k</span>
+              <span style="opacity:0.4">·</span>
+              <Tag severity="warn" class="!text-[11px] !px-[9px] !py-[3px] !font-medium">3 blocked</Tag>
+              <Tag severity="success" class="!text-[11px] !px-[9px] !py-[3px] !font-medium">31 ✓</Tag>
+              <Tag severity="info" class="!text-[11px] !px-[9px] !py-[3px] !font-medium">→ 4.2k</Tag>
             </div>
           </template>
 
@@ -232,35 +283,56 @@ const variants = [
 
           <!-- 10 — badge-percentage-chip -->
           <template v-else-if="v.id === 'badge-percentage-chip'">
+            <div class="cmp-label">hand-rolled (verbatim)</div>
             <div class="flex flex-wrap items-center gap-2">
               <span class="pct-chip">42%</span>
               <span class="pct-chip">100%</span>
               <span class="pct-chip">3%</span>
               <span class="pct-chip">99.9%</span>
             </div>
+            <div class="cmp-label mt-2">BD-B3 — Tag severity="secondary" with !-prefix size (1 utility)</div>
+            <div class="flex flex-wrap items-center gap-2">
+              <Tag severity="secondary" class="!text-[9px]">42%</Tag>
+              <Tag severity="secondary" class="!text-[9px]">100%</Tag>
+              <Tag severity="secondary" class="!text-[9px]">3%</Tag>
+              <Tag severity="secondary" class="!text-[9px]">99.9%</Tag>
+            </div>
           </template>
 
           <!-- 11 — badge-removable-chip -->
           <template v-else-if="v.id === 'badge-removable-chip'">
-            <!-- .tag (TagsField) -->
+            <div class="cmp-label">hand-rolled (verbatim)</div>
             <div class="flex flex-wrap items-center gap-2">
               <span class="tag-rm">development<button class="tag-x"><Icon icon="tabler:x" class="w-2.5 h-2.5" /></button></span>
               <span class="tag-rm">implementation<button class="tag-x"><Icon icon="tabler:x" class="w-2.5 h-2.5" /></button></span>
               <span class="tag-rm">coding<button class="tag-x"><Icon icon="tabler:x" class="w-2.5 h-2.5" /></button></span>
             </div>
-            <!-- .managed-chip (settings-registry) — success-tinted, clickable -->
-            <div class="flex flex-wrap items-center gap-2 mt-2">
+            <div class="cmp-label mt-2">BD-B3 PrimeVue Chip (removable)</div>
+            <div class="flex flex-wrap items-center gap-2">
+              <Chip label="development" removable />
+              <Chip label="implementation" removable />
+              <Chip label="coding" removable />
+            </div>
+            <div class="cmp-label mt-2">hand-rolled (.managed-chip)</div>
+            <div class="flex flex-wrap items-center gap-2">
               <span class="managed-chip">keeper.agents:coder<button class="managed-chip-x"><Icon icon="tabler:x" class="w-2.5 h-2.5" /></button></span>
               <span class="managed-chip">keeper.tools:fetch<button class="managed-chip-x"><Icon icon="tabler:x" class="w-2.5 h-2.5" /></button></span>
+            </div>
+            <div class="cmp-label mt-2">BD-B3 PrimeVue Chip (.k-chip-managed)</div>
+            <div class="flex flex-wrap items-center gap-2">
+              <Chip label="keeper.agents:coder" removable class="k-chip-managed" />
+              <Chip label="keeper.tools:fetch" removable class="k-chip-managed" />
             </div>
           </template>
 
           <!-- 12 — badge-awaiting-pulse -->
           <template v-else-if="v.id === 'badge-awaiting-pulse'">
+            <div class="cmp-label">hand-rolled (verbatim)</div>
             <div class="flex flex-wrap items-center gap-2">
               <span class="awaiting-pulse">3 awaiting</span>
               <span class="awaiting-pulse">reply →</span>
             </div>
+            <div class="cmp-label mt-2" style="color: var(--p-warn-500)">verdict: KEEP HAND-ROLLED (animation has no PrimeVue primitive, 2 sites)</div>
           </template>
 
         </div>
@@ -284,6 +356,7 @@ const variants = [
 .cell-name { font-size: 11px; color: var(--p-text-muted-color); }
 .cell-src { font-size: 9px; color: var(--p-text-muted-color); font-family: ui-monospace, monospace; opacity: 0.7; }
 .cell-body { margin-top: 8px; padding: 8px; background: var(--p-surface-50); border-radius: 4px; min-height: 64px; }
+.cmp-label { font-size: 9px; color: var(--p-text-muted-color); font-family: ui-monospace, monospace; opacity: 0.6; margin-bottom: 4px; }
 
 /* 1 — badge-status-tinted (MsgHeader.vue:20-24 — verbatim) */
 .badge-st {

@@ -165,6 +165,11 @@ const routes = [
     component: () => import('../pages/_dev-badge-gallery.vue'),
   },
   {
+    path: '/badge-merge',
+    name: 'badge-merge',
+    component: () => import('../pages/_dev-badge-merge.vue'),
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     redirect: '/',

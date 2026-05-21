@@ -319,6 +319,193 @@
 }
 
 /* ============================================================
+   D2 BD-B3 — Tag / Badge / Chip override layer for the Badge/Chip family.
+   ============================================================
+   DESIGN PRINCIPLE: lean into PrimeVue's own primitives (severity / size /
+   removable props) so most call sites need NO keeper-specific class.
+   Keeper layer is ONLY:
+     - Base resets that bend Tag/Badge/Chip defaults to keeper's compact
+       look (10px font, 4px radius, dense padding, tint-bg severities).
+     - 4 slap-on classes for the patterns PrimeVue genuinely can't express:
+       .k-tag-mono   — monospace + bordered (kind-badge)
+       .k-tag-letter — fixed 18x18 single-char tile (op-letter)
+       .k-tag-metric — neutral bordered + text-only severity (stat-pill)
+       .k-chip-managed — success-tinted bordered chip (settings-registry)
+
+   API SUMMARY for call sites:
+     status-tinted:    <Tag severity="success">ok</Tag>                  (no class)
+     neutral pill:     <Tag severity="secondary">…</Tag>                 (no class)
+     kind-badge:       <Tag severity="secondary" class="k-tag-mono">agent.gen1</Tag>
+     op-letter:        <Tag severity="success" class="k-tag-letter">A</Tag>
+     count pill:       <Badge severity="secondary" :value="47" />        (no class)
+     tab-cnt 8px:      <Badge severity="secondary" :value="3" size="small" />
+     stat-pill:        <Tag severity="info" class="k-tag-metric">
+                         <span class="k-tag-num">7</span><span class="k-tag-lbl">active</span>
+                       </Tag>
+     hero-pill 11px:   <Tag severity="warn" class="!text-[11px] !px-[9px] !py-[3px]">
+                                                                          (3 utilities, ~4 sites)
+     percentage-chip:  <Tag severity="secondary" class="!text-[9px]">42%</Tag>
+                                                                          (1 utility, ~4 sites)
+     removable-chip:   <Chip label="dev" removable />                    (no class)
+     managed-chip:     <Chip label="x" removable class="k-chip-managed" />
+     awaiting-pulse:   KEEP HAND-ROLLED (animation, 2 sites)
+
+   For data-driven colors that exceed PrimeVue's severity enum (e.g.
+   msgColor() returns var(--p-accent-500)), call sites use inline
+   `:style="{ color: dataColor, background: 'color-mix(...)' }"`.
+
+   Hand-rolled per BD-B1 plan (no Tag class): variants 4 (data-neutral),
+   6 (filter-chip), 7 (dot), 8 (icon-bubble), 9 (kbd), 12 (awaiting-pulse).
+   ============================================================ */
+
+/* ----- Tag base reset ----- */
+/* PrimeVue 4 default Tag is 0.25rem/0.5rem padding, 0.75rem font, 700
+   weight, 16px radius (rounded chip). Keeper wants compact 10px / 4px
+   radius / dense flat pills. */
+.p-tag {
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 400;
+  border-radius: 4px;
+  gap: 4px;
+}
+
+/* Severity classes → tint bg + severity-color text (status-tinted look).
+   Higher specificity than PrimeVue's `.p-tag-success` alone, so our 10%
+   tint wins over PrimeVue's solid severity fill. */
+.p-tag.p-tag-primary    { background: color-mix(in srgb, var(--p-primary-500) 10%, transparent); color: var(--p-primary-500); }
+.p-tag.p-tag-success    { background: color-mix(in srgb, var(--p-success-500) 10%, transparent); color: var(--p-success-500); }
+.p-tag.p-tag-info       { background: color-mix(in srgb, var(--p-info-500) 10%, transparent); color: var(--p-info-500); }
+.p-tag.p-tag-warn       { background: color-mix(in srgb, var(--p-warn-500) 10%, transparent); color: var(--p-warn-500); }
+.p-tag.p-tag-danger     { background: color-mix(in srgb, var(--p-danger-500) 10%, transparent); color: var(--p-danger-500); }
+.p-tag.p-tag-help       { background: color-mix(in srgb, var(--p-help-500) 10%, transparent); color: var(--p-help-500); }
+/* secondary → neutral surface pill (covers model-pill, count-pill use of Tag,
+   percentage-chip with !-utility size override) */
+.p-tag.p-tag-secondary  { background: var(--p-surface-100); color: var(--p-text-muted-color); }
+
+/* ----- Badge base reset (counter family) ----- */
+/* PrimeVue 4 default Badge is circular `min-width: 1.5rem; height: 1.5rem;
+   border-radius: 50%` with bold primary fill. Keeper's count pills are
+   rectangular small muted neutral chips. After merge A: ns-count + hdr-count
+   unify into one default Badge look. */
+.p-badge {
+  min-width: auto;
+  height: auto;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 500;
+  border-radius: 10px;
+  background: var(--p-surface-100);
+  color: var(--p-text-muted-color);
+  gap: 0;
+}
+/* tab-cnt — PrimeVue's `size="small"` prop applies .p-badge-sm */
+.p-badge.p-badge-sm {
+  font-size: 8px;
+  font-weight: 400;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: var(--p-surface-200);
+  color: var(--p-text-color);
+}
+
+/* ----- Chip base reset (removable chip family) ----- */
+/* PrimeVue 4 default Chip is large rounded-full. Keeper wants the .tag
+   shape from TagsField — small surface-200 neutral with embedded x. */
+.p-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 400;
+  background: var(--p-surface-200);
+  color: var(--p-text-color);
+  border: 0;
+}
+.p-chip .p-chip-remove-icon {
+  width: 10px;
+  height: 10px;
+  color: var(--p-text-muted-color);
+  cursor: pointer;
+}
+.p-chip .p-chip-remove-icon:hover {
+  color: var(--p-danger-500);
+}
+
+/* ============================================================
+   Keeper slap-on classes (4) — only for patterns PrimeVue can't express
+   ============================================================ */
+
+/* k-tag-mono — kind-badge (mono + bordered + tighter padding).
+   PrimeVue Tag has no font-family token, and Tag's severity-tinted base
+   has no border. Override both here. */
+.p-tag.k-tag-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  border-radius: 3px;
+  padding: 1px 8px;
+  background: var(--p-surface-100);
+  color: var(--p-text-color);
+  border: 1px solid var(--p-content-border-color);
+}
+
+/* k-tag-letter — op-letter (18x18 single-char square tile).
+   PrimeVue has no fixed-size variant. The severity class adds tint bg
+   + severity color (inherited from base reset above). */
+.p-tag.k-tag-letter {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 9px;
+  font-weight: 600;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+}
+
+/* k-tag-metric — stat-pill (neutral bordered, text-only severity recolor).
+   This fights PrimeVue's severity-recolors-bg model: we want neutral
+   surface-100 bg + bordered, with severity recoloring TEXT ONLY. The
+   per-severity rules below pin bg/border to neutral and override only
+   the color. */
+.p-tag.k-tag-metric {
+  padding: 3px 9px;
+  border-radius: 4px;
+  background: var(--p-surface-100);
+  border: 1px solid var(--p-content-border-color);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--p-text-color);
+  gap: 5px;
+}
+.p-tag.k-tag-metric.p-tag-success { color: var(--p-success-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+.p-tag.k-tag-metric.p-tag-info    { color: var(--p-info-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+.p-tag.k-tag-metric.p-tag-warn    { color: var(--p-warn-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+.p-tag.k-tag-metric.p-tag-danger  { color: var(--p-danger-500); background: var(--p-surface-100); border-color: var(--p-content-border-color); }
+/* Inner two-tone helpers — used inside .k-tag-metric default slot.
+   Not counted as "slap-on classes" — call sites use them on inner spans. */
+.k-tag-num { font-weight: 700; font-variant-numeric: tabular-nums; }
+.k-tag-lbl { font-size: 10px; color: var(--p-text-muted-color); }
+
+/* k-chip-managed — settings-registry success-tinted clickable variant.
+   Keeper-specific tint of Chip not expressible via Chip's prop API. */
+.p-chip.k-chip-managed {
+  padding: 2px 6px 2px 8px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--p-success-500) 30%, transparent);
+  background: color-mix(in srgb, var(--p-success-500) 12%, transparent);
+  color: var(--p-text-color);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  gap: 4px;
+  cursor: pointer;
+}
+
+/* ============================================================
    END-OF-FILE: dark-mode WCAG brightening — placed last so source
    order beats any earlier rules that set primary-color on the same
    selectors (notably .k-btn-nav.k-btn-active above).
