@@ -6,10 +6,6 @@ import { AXIOS_INSTANCE, HOST_API, WIPPY_INSTANCE, WIPPY_CONFIG } from './consta
 import { createAppRouter } from './router'
 import './styles.css'
 import './tailwind.css'
-// TEMP D2 chunk B3 — DEBUG ONLY. Identical copy of keeper-main's
-// temp-primevue-overrides.css. Both must be transcribed into the 4-way
-// customCSS configOverrides in chunk B5 and both temp files deleted.
-import './temp-primevue-overrides.css'
 
 function applyThemeOverride() {
   let theme: string | null = null

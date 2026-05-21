@@ -9,9 +9,6 @@ import type { OnSubscription } from './constants'
 import { createAppRouter } from './router'
 import './styles.css'
 import './tailwind.css'
-// TEMP D2 chunk B3 — DEBUG ONLY. Transcribe into customCSS in the 4 configOverrides
-// blocks and delete this import + the .css file as part of chunk B5 cleanup.
-import './temp-primevue-overrides.css'
 
 export async function createKeeperApp() {
   const config = await window.$W.config()
