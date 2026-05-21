@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Icon } from '@iconify/vue'
+import Tag from 'primevue/tag'
 import { useApi } from '../composables/useWippy'
 import { listEntries, getEntry, type RegistryEntry } from '../api/registry'
 import { entryName } from '../utils'
@@ -149,30 +150,30 @@ onMounted(load)
 
     <!-- Stats strip -->
     <div v-if="!loading && entries.length" class="stats-row">
-      <div class="stat-pill">
-        <span class="stat-num">{{ stats.total }}</span>
-        <span class="stat-lbl">tools</span>
-      </div>
-      <div class="stat-pill stat-pill--info">
+      <Tag class="k-tag-metric">
+        <span class="k-tag-num">{{ stats.total }}</span>
+        <span class="k-tag-lbl">tools</span>
+      </Tag>
+      <Tag severity="info" class="k-tag-metric">
         <Icon icon="tabler:variable" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.totalParams }}</span>
-        <span class="stat-lbl">parameters</span>
-      </div>
-      <div class="stat-pill stat-pill--accent">
+        <span class="k-tag-num">{{ stats.totalParams }}</span>
+        <span class="k-tag-lbl">parameters</span>
+      </Tag>
+      <Tag class="k-tag-metric k-tag-tone-accent">
         <Icon icon="tabler:tag" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.withAlias }}</span>
-        <span class="stat-lbl">with llm_alias</span>
-      </div>
-      <div class="stat-pill stat-pill--success">
+        <span class="k-tag-num">{{ stats.withAlias }}</span>
+        <span class="k-tag-lbl">with llm_alias</span>
+      </Tag>
+      <Tag severity="success" class="k-tag-metric">
         <Icon icon="tabler:braces" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.withOutput }}</span>
-        <span class="stat-lbl">typed output</span>
-      </div>
-      <div v-if="stats.totalDeps" class="stat-pill stat-pill--warn">
+        <span class="k-tag-num">{{ stats.withOutput }}</span>
+        <span class="k-tag-lbl">typed output</span>
+      </Tag>
+      <Tag v-if="stats.totalDeps" severity="warn" class="k-tag-metric">
         <Icon icon="tabler:link" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.totalDeps }}</span>
-        <span class="stat-lbl">deps</span>
-      </div>
+        <span class="k-tag-num">{{ stats.totalDeps }}</span>
+        <span class="k-tag-lbl">deps</span>
+      </Tag>
     </div>
 
     <div class="flex-1 flex overflow-hidden">

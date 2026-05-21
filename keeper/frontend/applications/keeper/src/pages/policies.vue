@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Icon } from '@iconify/vue'
+import Tag from 'primevue/tag'
 import { useApi } from '../composables/useWippy'
 import { listEntries, getEntry, type RegistryEntry } from '../api/registry'
 import { entryName } from '../utils'
@@ -147,30 +148,30 @@ onMounted(load)
 
     <!-- Stats / effect filters -->
     <div v-if="!loading && entries.length" class="stats-row">
-      <div class="stat-pill">
-        <span class="stat-num">{{ stats.total }}</span>
-        <span class="stat-lbl">policies</span>
-      </div>
-      <div class="stat-pill stat-pill--success">
+      <Tag class="k-tag-metric">
+        <span class="k-tag-num">{{ stats.total }}</span>
+        <span class="k-tag-lbl">policies</span>
+      </Tag>
+      <Tag severity="success" class="k-tag-metric">
         <Icon icon="tabler:check" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.allow }}</span>
-        <span class="stat-lbl">allow</span>
-      </div>
-      <div class="stat-pill stat-pill--danger">
+        <span class="k-tag-num">{{ stats.allow }}</span>
+        <span class="k-tag-lbl">allow</span>
+      </Tag>
+      <Tag severity="danger" class="k-tag-metric">
         <Icon icon="tabler:ban" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.deny }}</span>
-        <span class="stat-lbl">deny</span>
-      </div>
-      <div class="stat-pill stat-pill--info">
+        <span class="k-tag-num">{{ stats.deny }}</span>
+        <span class="k-tag-lbl">deny</span>
+      </Tag>
+      <Tag severity="info" class="k-tag-metric">
         <Icon icon="tabler:users" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.groups }}</span>
-        <span class="stat-lbl">groups</span>
-      </div>
-      <div class="stat-pill stat-pill--warn">
+        <span class="k-tag-num">{{ stats.groups }}</span>
+        <span class="k-tag-lbl">groups</span>
+      </Tag>
+      <Tag severity="warn" class="k-tag-metric">
         <Icon icon="tabler:filter" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.conditional }}</span>
-        <span class="stat-lbl">conditional</span>
-      </div>
+        <span class="k-tag-num">{{ stats.conditional }}</span>
+        <span class="k-tag-lbl">conditional</span>
+      </Tag>
 
       <div class="effect-filter">
         <button class="e-chip" :class="{ 'e-chip--active': !effectFilter }" @click="effectFilter = ''">all</button>

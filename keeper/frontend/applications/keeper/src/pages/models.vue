@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Icon } from '@iconify/vue'
+import Tag from 'primevue/tag'
 import { useApi } from '../composables/useWippy'
 import { listEntries, getEntry, type RegistryEntry } from '../api/registry'
 import { entryName } from '../utils'
@@ -212,30 +213,30 @@ onMounted(load)
 
     <!-- Stats strip -->
     <div v-if="!loading && entries.length" class="stats-row">
-      <div class="stat-pill">
-        <span class="stat-num">{{ stats.total }}</span>
-        <span class="stat-lbl">models</span>
-      </div>
-      <div class="stat-pill stat-pill--accent">
+      <Tag class="k-tag-metric">
+        <span class="k-tag-num">{{ stats.total }}</span>
+        <span class="k-tag-lbl">models</span>
+      </Tag>
+      <Tag class="k-tag-metric k-tag-tone-accent">
         <Icon icon="tabler:building" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.providers }}</span>
-        <span class="stat-lbl">providers</span>
-      </div>
-      <div class="stat-pill stat-pill--warn">
+        <span class="k-tag-num">{{ stats.providers }}</span>
+        <span class="k-tag-lbl">providers</span>
+      </Tag>
+      <Tag severity="warn" class="k-tag-metric">
         <Icon icon="tabler:tool" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.withTools }}</span>
-        <span class="stat-lbl">tools</span>
-      </div>
-      <div class="stat-pill stat-pill--info">
+        <span class="k-tag-num">{{ stats.withTools }}</span>
+        <span class="k-tag-lbl">tools</span>
+      </Tag>
+      <Tag severity="info" class="k-tag-metric">
         <Icon icon="tabler:eye" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.withVision }}</span>
-        <span class="stat-lbl">vision</span>
-      </div>
-      <div class="stat-pill stat-pill--success">
+        <span class="k-tag-num">{{ stats.withVision }}</span>
+        <span class="k-tag-lbl">vision</span>
+      </Tag>
+      <Tag severity="success" class="k-tag-metric">
         <Icon icon="tabler:bulb" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.withThinking }}</span>
-        <span class="stat-lbl">thinking</span>
-      </div>
+        <span class="k-tag-num">{{ stats.withThinking }}</span>
+        <span class="k-tag-lbl">thinking</span>
+      </Tag>
 
       <div class="cap-filter">
         <button class="cap-chip" :class="{ 'cap-chip--active': !capFilter }" @click="capFilter = ''">all caps</button>

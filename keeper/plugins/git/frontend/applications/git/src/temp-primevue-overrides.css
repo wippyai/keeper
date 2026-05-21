@@ -531,6 +531,21 @@
 .k-tag-num { font-weight: 700; font-variant-numeric: tabular-nums; }
 .k-tag-lbl { font-size: 10px; color: var(--p-text-muted-color); }
 
+/* k-tag-tone-accent — keeper-extension severity (not in PrimeVue's enum).
+   Used by `.stat-pill--accent` and msgColor() returns for function/delegation/
+   developer message types. Works standalone (tinted accent pill) or with
+   `.k-tag-metric` (neutral metric with accent text). WCAG-aware: -700 in
+   light, -400 in dark (via @media at EOF). */
+.p-tag.k-tag-tone-accent {
+  background: color-mix(in srgb, var(--p-accent-500) 10%, transparent);
+  color: var(--p-accent-700);
+}
+.p-tag.k-tag-metric.k-tag-tone-accent {
+  background: var(--p-surface-100);
+  border-color: var(--p-content-border-color);
+  color: var(--p-accent-700);
+}
+
 /* k-chip-managed — settings-registry success-tinted clickable variant.
    Keeper-specific tint of Chip not expressible via Chip's prop API. */
 .p-chip.k-chip-managed {
@@ -582,4 +597,6 @@
   .p-tag.p-tag-help,
   .p-badge.p-badge-help,
   .p-tag.k-tag-metric.p-tag-help     { color: var(--p-help-400); }
+  .p-tag.k-tag-tone-accent,
+  .p-tag.k-tag-metric.k-tag-tone-accent { color: var(--p-accent-400); }
 }

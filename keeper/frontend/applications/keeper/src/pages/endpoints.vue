@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Icon } from '@iconify/vue'
+import Tag from 'primevue/tag'
 import { useApi } from '../composables/useWippy'
 import { listEntries, getEntry, type RegistryEntry } from '../api/registry'
 import EntryDetailPanel from '../components/shared/EntryDetailPanel.vue'
@@ -170,25 +171,25 @@ onMounted(load)
 
     <!-- Stats / method filters -->
     <div v-if="!loading && endpoints.length" class="stats-row">
-      <div class="stat-pill">
-        <span class="stat-num">{{ stats.total }}</span>
-        <span class="stat-lbl">endpoints</span>
-      </div>
-      <div class="stat-pill stat-pill--info">
+      <Tag class="k-tag-metric">
+        <span class="k-tag-num">{{ stats.total }}</span>
+        <span class="k-tag-lbl">endpoints</span>
+      </Tag>
+      <Tag severity="info" class="k-tag-metric">
         <Icon icon="tabler:route" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.routers }}</span>
-        <span class="stat-lbl">routers</span>
-      </div>
-      <div v-if="stats.withMiddleware" class="stat-pill stat-pill--warn">
+        <span class="k-tag-num">{{ stats.routers }}</span>
+        <span class="k-tag-lbl">routers</span>
+      </Tag>
+      <Tag v-if="stats.withMiddleware" severity="warn" class="k-tag-metric">
         <Icon icon="tabler:filter" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.withMiddleware }}</span>
-        <span class="stat-lbl">middleware</span>
-      </div>
-      <div v-if="stats.withOptions" class="stat-pill stat-pill--accent">
+        <span class="k-tag-num">{{ stats.withMiddleware }}</span>
+        <span class="k-tag-lbl">middleware</span>
+      </Tag>
+      <Tag v-if="stats.withOptions" class="k-tag-metric k-tag-tone-accent">
         <Icon icon="tabler:settings" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.withOptions }}</span>
-        <span class="stat-lbl">options</span>
-      </div>
+        <span class="k-tag-num">{{ stats.withOptions }}</span>
+        <span class="k-tag-lbl">options</span>
+      </Tag>
 
       <div class="method-filter">
         <button class="m-chip" :class="{ 'm-chip--active': !methodFilter }" @click="methodFilter = ''">all</button>

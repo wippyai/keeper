@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Icon } from '@iconify/vue'
+import Tag from 'primevue/tag'
 import { useApi, useHost } from '../composables/useWippy'
 import { entryName } from '../utils'
 import EntryDetailPanel from '../components/shared/EntryDetailPanel.vue'
@@ -142,30 +143,30 @@ onMounted(load)
 
     <!-- Stats strip -->
     <div v-if="!loading && agents.length" class="stats-row">
-      <div class="stat-pill">
-        <span class="stat-num">{{ stats.total }}</span>
-        <span class="stat-lbl">agents</span>
-      </div>
-      <div class="stat-pill stat-pill--accent">
+      <Tag class="k-tag-metric">
+        <span class="k-tag-num">{{ stats.total }}</span>
+        <span class="k-tag-lbl">agents</span>
+      </Tag>
+      <Tag class="k-tag-metric k-tag-tone-accent">
         <Icon icon="tabler:message-bolt" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.withPrompt }}</span>
-        <span class="stat-lbl">with prompt</span>
-      </div>
-      <div class="stat-pill stat-pill--info">
+        <span class="k-tag-num">{{ stats.withPrompt }}</span>
+        <span class="k-tag-lbl">with prompt</span>
+      </Tag>
+      <Tag severity="info" class="k-tag-metric">
         <Icon icon="tabler:sparkles" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.totalTraits }}</span>
-        <span class="stat-lbl">trait bindings</span>
-      </div>
-      <div class="stat-pill stat-pill--warn">
+        <span class="k-tag-num">{{ stats.totalTraits }}</span>
+        <span class="k-tag-lbl">trait bindings</span>
+      </Tag>
+      <Tag severity="warn" class="k-tag-metric">
         <Icon icon="tabler:tool" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.totalTools }}</span>
-        <span class="stat-lbl">tool bindings</span>
-      </div>
-      <div v-if="stats.withMemory" class="stat-pill stat-pill--success">
+        <span class="k-tag-num">{{ stats.totalTools }}</span>
+        <span class="k-tag-lbl">tool bindings</span>
+      </Tag>
+      <Tag v-if="stats.withMemory" severity="success" class="k-tag-metric">
         <Icon icon="tabler:database" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.withMemory }}</span>
-        <span class="stat-lbl">with memory</span>
-      </div>
+        <span class="k-tag-num">{{ stats.withMemory }}</span>
+        <span class="k-tag-lbl">with memory</span>
+      </Tag>
 
       <div v-if="allClasses.length" class="class-filter">
         <button
