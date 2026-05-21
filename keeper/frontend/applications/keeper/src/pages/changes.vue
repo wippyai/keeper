@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import Button from 'primevue/button'
+import Tag from 'primevue/tag'
 import { useApi, useHost, useWippy } from '../composables/useWippy'
 import DiffViewer from '../components/DiffViewer.vue'
 import {
@@ -848,7 +849,7 @@ function onSelect(cs: Changeset) {
               <div v-for="(cmd, i) in prResult.commands || []" :key="i" class="rounded p-2" style="background: var(--p-surface-50); border: 1px solid var(--p-surface-100)">
                 <div class="flex items-center gap-2 text-[10px] mb-1">
                   <span class="font-semibold" style="color: var(--p-text-color)">{{ cmd.label }}</span>
-                  <span v-if="cmd.mutates" class="px-1 py-px rounded text-[9px] bg-warn-500/10 text-warn-500">mutates</span>
+                  <Tag v-if="cmd.mutates" severity="warn" class="!text-[9px] !px-1 !py-px">mutates</Tag>
                 </div>
                 <pre class="text-[10px] whitespace-pre-wrap break-all" style="color: var(--p-text-muted-color)">{{ cmd.command }}</pre>
               </div>

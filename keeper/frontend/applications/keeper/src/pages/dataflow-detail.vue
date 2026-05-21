@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import Button from 'primevue/button'
+import Tag from 'primevue/tag'
 import { useApi, useWippy } from '../composables/useWippy'
 import { getDataflow, cancelDataflow, terminateDataflow, statusColor, statusIcon, nodeTypeShort, type Dataflow, type DataflowNode, type DataflowData } from '../api/dataflows'
 import { formatDate, timeAgo } from '../api/sessions'
@@ -267,9 +268,9 @@ async function handleTerminate() { if (!dataflowId.value) return; await terminat
           </span>
         </div>
       </div>
-      <span v-if="isImported" class="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-info-500/15 text-info-500" title="Read-only — loaded from a JSON dump">
+      <Tag v-if="isImported" severity="info" title="Read-only — loaded from a JSON dump">
         <Icon icon="tabler:download" class="w-3 h-3" />Imported
-      </span>
+      </Tag>
       <template v-if="!isImported && dataflow?.status === 'running'">
         <Button class="!py-1 k-btn-tinted k-btn-tinted-warn" @click="handleCancel">Cancel</Button>
         <Button class="!py-1 k-btn-tinted k-btn-tinted-danger" @click="handleTerminate">Kill</Button>

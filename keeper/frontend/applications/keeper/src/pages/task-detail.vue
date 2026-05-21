@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import Button from 'primevue/button'
+import Tag from 'primevue/tag'
 import { useApi, useHost, useWippy } from '../composables/useWippy'
 import {
   getTask, listTaskNodes, startCycle, syncResearch,
@@ -620,11 +621,10 @@ const dataflowId = computed(() => {
 
         <!-- bounce badges -->
         <div v-if="Object.keys(bounces).length" class="mt-2 flex flex-wrap gap-1">
-          <span v-for="(count, edge) in bounces" :key="edge"
-            class="text-[9px] px-1.5 py-0.5 rounded flex items-center gap-0.5 bg-warn-500/15 text-warn-500">
+          <Tag v-for="(count, edge) in bounces" :key="edge" severity="warn" class="!text-[9px] !gap-[2px]">
             <Icon icon="tabler:refresh" class="w-2.5 h-2.5" />
             {{ edge }} ×{{ count }}
-          </span>
+          </Tag>
         </div>
 
         <!-- dataflow link -->
@@ -1005,12 +1005,9 @@ const dataflowId = computed(() => {
               <Icon icon="tabler:file-text" class="w-4 h-4" />
               <span class="font-semibold">{{ currentSpec.title }}</span>
               <span class="text-[10px] opacity-60">rev {{ currentSpec.discriminator }} · {{ fmtTime(currentSpec.created_at) }}</span>
-              <span class="ml-auto text-[10px] px-1.5 py-0.5 rounded"
-                :class="currentSpec.status === 'active'
-                  ? 'bg-success-500/15 text-success-500'
-                  : 'bg-surface-400/15 text-surface-400'">
+              <Tag class="ml-auto" :severity="currentSpec.status === 'active' ? 'success' : 'secondary'">
                 {{ currentSpec.status }}
-              </span>
+              </Tag>
             </header>
             <div class="rounded px-4 py-3" style="border: 1px solid var(--p-content-border-color)">
               <MarkdownContent :content="currentSpec.content || '(empty)'" />

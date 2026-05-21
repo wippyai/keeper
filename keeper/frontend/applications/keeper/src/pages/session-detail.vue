@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import Button from 'primevue/button'
+import Tag from 'primevue/tag'
 import { useApi, useWippy } from '../composables/useWippy'
 import { getSession, getSessionMessages, formatTokens, formatDate, timeAgo, type Session, type Message } from '../api/sessions'
 import { msgColor, msgIcon, isSystemAction, systemActionText, prettyJson } from '../components/messages/msg-utils'
@@ -175,8 +176,8 @@ onUnmounted(() => {
           <span>{{ formatTokens(tokens.total) }} tokens</span>
         </div>
       </div>
-      <span v-if="isImported" class="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-info-500/15 text-info-500" title="Read-only — loaded from a JSON dump"><Icon icon="tabler:download" class="w-3 h-3" />Imported</span>
-      <span v-else-if="session?.status === 'running'" class="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-success-500/15 text-success-500"><span class="w-1.5 h-1.5 rounded-full animate-pulse bg-success-500"></span>Running</span>
+      <Tag v-if="isImported" severity="info" title="Read-only — loaded from a JSON dump"><Icon icon="tabler:download" class="w-3 h-3" />Imported</Tag>
+      <Tag v-else-if="session?.status === 'running'" severity="success"><span class="w-1.5 h-1.5 rounded-full animate-pulse bg-success-500"></span>Running</Tag>
       <Button v-if="!isImported && session" class="k-btn-icon !rounded" @click="exportSession" title="Export JSON (download + clipboard)"><Icon icon="tabler:download" class="w-4 h-4" /></Button>
       <Button v-if="!isImported" class="k-btn-icon !rounded" @click="load" :disabled="loading"><Icon icon="tabler:refresh" class="w-4 h-4" :class="{ 'animate-spin': loading }" /></Button>
     </div>
