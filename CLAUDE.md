@@ -25,11 +25,11 @@ When a `<wippy-monaco>` or other Wippy web component silently renders as an unkn
 
 ## FE theming placement — hard rule
 
-**🚫 PrimeVue / host-owned selectors NEVER go in `src/styles.css`. Always in `customization.customCSS` of the configOverrides 4-way pair.**
+**🚫 PrimeVue / host-owned selectors NEVER go in `src/styles.css`. Always in `customization.customCSS` of the FE app's `package.json` `wippy.configOverrides` block (or the sidecar `custom-css.do-not-link.css` file it references).**
 
 | Override target | Where | Where it MUST NOT go |
 |---|---|---|
-| HOST-owned selector (`.p-button`, `.p-dialog`, `.p-inputtext`, ...) | `customization.customCSS` (4-way: keeper-main YAML + keeper-git YAML + both `package.json` mirrors) | NEVER in any child app's `src/styles.css` |
+| HOST-owned selector (`.p-button`, `.p-dialog`, `.p-inputtext`, ...) | The FE app's `custom-css.do-not-link.css` sidecar (referenced from `customization.customCSS` via `"file://custom-css.do-not-link.css"` in `package.json`). The vite plugin inlines it into `dist/wippy-meta.json` at build time and `wippy/views ≥ 0.5.0` reads it as the single source of truth. | NEVER in any child app's `src/styles.css` |
 | Project-internal class (`.keeper-nav-btn`, `.search-input`, ...) | `src/styles.css` (or `customCSS` if it must reach the host shell) | n/a |
 
 **Why** (`app-template/frontend/docs/theming.md` §"Where each override lives", §"What the Wippy host provides", REJECT 43a):
@@ -38,30 +38,37 @@ When a `<wippy-monaco>` or other Wippy web component silently renders as an unkn
 - `customCSS` stylesheet rules do NOT cross Shadow DOM — WCs that render PrimeVue inside must replay relevant rules in their own `:host { … }` block, or lift the override to `--p-*` token form.
 - `src/styles.css` is per-iframe-bundle and reaches none of the above; using it for `.p-*` rules creates per-iframe drift and is flagged REJECT 43a.
 
-**Iteration escape (debug only):** during active development of a family migration chunk (e.g. D2's button chunk B3), a temporary `src/temp-primevue-overrides.css` file imported in `app.ts` with a prominent TODO is allowed. It MUST be transcribed into the 4-way `customCSS` and removed in the chunk's cleanup step. Never ship.
+**Iteration escape (debug only):** during active development of a family migration chunk (e.g. D2's button chunk B3), a temporary `src/temp-primevue-overrides.css` file imported in `app.ts` with a prominent TODO is allowed. It MUST be transcribed into `wippy.configOverrides.customization.customCSS` (via `file://custom-css.do-not-link.css` reference; see below) and removed in the chunk's cleanup step. Never ship.
 
-`usage` deliberately omits `configOverrides` (inherits the facade per §5.1) — do NOT add a fifth `customCSS` copy there. usage's PrimeVue components will render with facade defaults unless we lift the override into the facade itself.
+`usage` deliberately omits `configOverrides` (inherits the facade per §5.1) — do NOT add a `customCSS` copy there. usage's PrimeVue components will render with facade defaults unless we lift the override into the facade itself.
 
 ## Intentional patterns (do NOT "fix" these)
 
-### Warm-grey theme duplicated 4 ways
+### Warm-grey theme — single-source-of-truth in each FE app's package.json
 
-The keeper warm-grey identity palette (`--kp-*` aliases + `--p-surface-N` ramps + `--p-content-background`/`--p-text-color` + `@light`/`@dark` blocks) is intentionally duplicated across **four** locations:
+The keeper warm-grey identity palette (`--kp-*` aliases + `--p-surface-N` ramps + `--p-content-background`/`--p-text-color` + `@light`/`@dark` blocks) lives in **one** location per FE app:
 
-1. `keeper/src/keeper/_index.yaml` → `keeper:main` `meta.config_overrides.customization.cssVariables` (lines ~559-652)
-2. `keeper/src/keeper/git/_index.yaml` → `keeper.git:main` `meta.config_overrides.customization.cssVariables` (lines ~47-140)
-3. `keeper/frontend/applications/keeper/package.json` → `wippy.configOverrides.customization.cssVariables` (lines ~40-138)
-4. `keeper/plugins/git/frontend/applications/git/package.json` → `wippy.configOverrides.customization.cssVariables` (lines ~41-139)
+1. `keeper/frontend/applications/keeper/package.json` → `wippy.configOverrides.customization.cssVariables` (the keeper-main FE app)
+2. `keeper/plugins/git/frontend/applications/git/package.json` → `wippy.configOverrides.customization.cssVariables` (the keeper-git FE plugin)
 
-This is **NOT a §5.1 facade-first violation** — rev-3 §2.3 explicitly endorses `config_overrides` for the "artifact viewer with a brand identity that should not change with the host theme" use case. Both keeper-main and keeper-git are sub-apps that MUST look like keeper regardless of which host facade is loading them; the YAML pair is the canonical runtime path (host reads it and merges into AppConfig before CSS injection); the package.json pair is the host-less mirror so the apps theme correctly under dev-proxy / standalone preview.
+The `customCSS` (Button / Tag / Badge / Chip overrides — ~580 lines as of 2026-05-22) lives in a sidecar file next to each `package.json`, referenced via the vite plugin's `file://` resolver:
 
-**Maintenance rule:** when one of the four blocks changes, update the other three. The 46 `@dark` keys + 29 `@light` keys + 16 top-level keys (under `cssVariables`) plus the `customCSS` string (peer of `cssVariables`, ~580 lines as of 2026-05-21 — JetBrains Mono `@import` followed by the BD-B3/BD-B4 PrimeVue Button / Tag / Badge / Chip overrides) MUST stay identical across all four. The keeper-v5 `usage` analytics app deliberately omits `configOverrides` (it inherits from the host facade, per rev-3 §5.1) — do not add a fifth copy there.
+- `keeper/frontend/applications/keeper/custom-css.do-not-link.css` ← `"customCSS": "file://custom-css.do-not-link.css"` in package.json
+- `keeper/plugins/git/frontend/applications/git/custom-css.do-not-link.css` ← same pattern
 
-The Phase 3B rev-3 audit recommendation to migrate to a single `wippy/facade` `ns.dependency` was reviewed and rejected: keeper-main and keeper-git are sub-apps that need to carry their own identity, not just inherit. Treat the duplication as load-bearing.
+The `.do-not-link.css` filename suffix is enforced by `@wippy-fe/vite-plugin@0.0.32+`'s `wippyPagePlugin` (and the canonical basename is exactly `custom-css.do-not-link.css`). The plugin inlines the file content into the emitted `dist/wippy-meta.json` at build time. `wippy/views@0.5.0+` fetches that JSON via self-HTTP as the canonical source for the entry's `wippy.configOverrides`. YAML `meta.config_overrides` is no longer required — keep it ONLY for per-entry variant overlays (deep-merged on top of the bundled meta; see `iframe-demo-themed` in app-template-raw for the pattern).
+
+This is **NOT a §5.1 facade-first violation** — rev-3 §2.3 explicitly endorses `configOverrides` for sub-apps with a brand identity that should not change with the host theme. Both keeper-main and keeper-git are sub-apps that MUST look like keeper regardless of which host facade is loading them.
+
+**Maintenance rule:** keep keeper-main's package.json + custom-css sidecar in sync with keeper-git's (the two apps share the same keeper identity). The two CSS sidecars are byte-identical; the two package.json `cssVariables` maps are also byte-identical (46 `@dark` + 29 `@light` + 16 top-level keys). When one changes, update the other. The keeper-v5 `usage` app deliberately omits `configOverrides` (inherits from the host facade per rev-3 §5.1) — do not add a third copy there.
+
+**Pre-BD-B5 history (for archaeology):** before 2026-05-22 this block was duplicated 4-way across both YAMLs AND both package.jsons (~700 lines × 4 = ~2,800 lines of duplicate CSS). The migration to wippy/views 0.5.0 + @wippy-fe/vite-plugin 0.0.32's `wippyPagePlugin` collapsed this to a 1-way source per FE app via the `file://` reference + bundled `wippy-meta.json` pipeline.
+
+The Phase 3B rev-3 audit recommendation to migrate to a single `wippy/facade` `ns.dependency` was reviewed and rejected: keeper-main and keeper-git are sub-apps that need to carry their own identity, not just inherit. Treat the per-FE-app config_overrides as load-bearing.
 
 ### `--p-surface-0..300` inversion in `@dark` (deliberate, dev-approved)
 
-Each of the four `configOverrides.cssVariables` blocks (the warm-grey identity duplication above) **inverts the bottom of the surface scale** in `@dark`:
+Each of the two per-app `configOverrides.cssVariables` blocks (the warm-grey identity above) **inverts the bottom of the surface scale** in `@dark`:
 
 | Token | `@light` value | `@dark` value | Note |
 |---|---|---|---|
@@ -82,7 +89,7 @@ Each of the four `configOverrides.cssVariables` blocks (the warm-grey identity d
 
 **Maintenance contract:** if keeper-v5 is ever embedded under a non-warm-grey host facade, or if a third-party WC is loaded inside keeper that consumes the spec-canonical `--p-surface-N` scale, this inversion will produce wrong results. Revisit when either condition arises (track as Phase 4B in `.local/2026-05-13-theming-audit/PLAN.md`).
 
-**Do NOT propose migrating callers off `--p-surface-N` until the decision is revisited.** The 4-way duplication maintenance rule applies here too: the `@dark` surface inversion must stay identical across all four configOverrides blocks.
+**Do NOT propose migrating callers off `--p-surface-N` until the decision is revisited.** The cross-app sync rule applies: the `@dark` surface inversion must stay identical across both FE apps' package.json `configOverrides`.
 
 The `--kp-bg`, `--kp-bg-elevated`, `--kp-hover-bg`, `--kp-border`, `--kp-btn-secondary-bg` aliases declared in the same blocks are **currently dead** (no callers). They are kept as the eventual migration target if Phase 4B is greenlit.
 

@@ -48,5 +48,5 @@ modules:
       version: 0.3.23
       hash: 8a4d01de4de4a78a6e319a9b03b8f1ed5aa89e0d3cc271869d7583041d136140
     - name: wippy/views
-      version: 0.4.30
-      hash: 9c7fec0eb369af49e484a6eb896055f8d7dfed04c77828eac1ec4aeacb7d0808
+      version: 0.5.0
+      hash: 053634b9d1bba0f6f89f8ac1b539580aa4093e5c4a13b443e4dc860f43571146

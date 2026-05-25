@@ -1,4 +1,4 @@
-import{D as l,E as u,F as g}from"../app.js";import{openBlock as s,createElementBlock as i,mergeProps as o,createBlock as p,resolveDynamicComponent as y,createCommentVNode as c,renderSlot as f,createElementVNode as b,toDisplayString as m}from"vue";var v=`
+import{C as l,D as u,E as g}from"../app.js";import{openBlock as s,createElementBlock as i,mergeProps as o,createBlock as p,resolveDynamicComponent as y,createCommentVNode as c,renderSlot as f,createElementVNode as b,toDisplayString as m}from"vue";var v=`
     .p-tag {
         display: inline-flex;
         align-items: center;

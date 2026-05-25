@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import vue from '@vitejs/plugin-vue'
-import { wippyPackagePlugin } from '@wippy-fe/vite-plugin'
+import { wippyPagePlugin } from '@wippy-fe/vite-plugin'
 import { defineConfig, type Plugin } from 'vite'
 
 function inlineCssPlugin(): Plugin {
@@ -33,7 +33,7 @@ function inlineCssPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [vue(), wippyPackagePlugin(), inlineCssPlugin()],
+  plugins: [vue(), wippyPagePlugin(), inlineCssPlugin()],
   base: '',
   resolve: {
     alias: {

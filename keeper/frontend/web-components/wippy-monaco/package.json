@@ -11,14 +11,15 @@
     "package.json"
   ],
   "dependencies": {
-    "@wippy-fe/theme": "^0.0.30",
-    "@wippy-fe/webcomponent-core": "^0.0.30",
-    "@wippy-fe/webcomponent-vue": "^0.0.30",
+    "@wippy-fe/theme": "^0.0.32",
+    "@wippy-fe/webcomponent-core": "^0.0.32",
+    "@wippy-fe/webcomponent-vue": "^0.0.32",
     "monaco-editor": "^0.55.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",
-    "@wippy-fe/proxy": "^0.0.30",
+    "@wippy-fe/proxy": "^0.0.32",
+    "@wippy-fe/vite-plugin": "^0.0.32",
     "patch-package": "^8.0.1",
     "typescript": "^5.0.0",
     "vite": "^6.0.0",
@@ -26,7 +27,7 @@
     "vue-tsc": "^2.0.0"
   },
   "peerDependencies": {
-    "@wippy-fe/proxy": "^0.0.30",
+    "@wippy-fe/proxy": "^0.0.32",
     "vue": "^3.5.0"
   },
   "wippy": {

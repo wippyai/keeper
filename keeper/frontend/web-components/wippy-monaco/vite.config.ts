@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import vue from '@vitejs/plugin-vue'
+import { wippyComponentPlugin } from '@wippy-fe/vite-plugin'
 import { defineConfig } from 'vite'
 
 /**
@@ -70,6 +71,7 @@ function stripMonacoCssImports() {
 export default defineConfig({
   plugins: [
     vue(),
+    wippyComponentPlugin(),
     stripMonacoCssImports(),
   ],
   // Emit relative URLs for asset and worker references. Default `base: '/'`
