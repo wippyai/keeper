@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
-import { useApi, useHost } from '../composables/useWippy'
+import { ref, watch, computed } from 'vue'
 
 const props = defineProps<{
   url: string
@@ -8,8 +7,6 @@ const props = defineProps<{
   context?: Record<string, unknown>
 }>()
 
-const api = useApi()
-const host = useHost()
 const iframe = ref<HTMLIFrameElement | null>(null)
 const loaded = ref(false)
 
@@ -33,33 +30,6 @@ const fullUrl = computed(() => {
   }
   const sep = base.includes('?') ? '&' : '?'
   return params.toString() ? base + sep + params.toString() : base
-})
-
-function onMessage(event: MessageEvent) {
-  if (!iframe.value || event.source !== iframe.value.contentWindow) return
-  try {
-    const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data
-    if (msg.action === 'api-call' && msg.method && msg.path) {
-      const method = msg.method.toLowerCase() as 'get' | 'post' | 'put' | 'delete'
-      api[method](msg.path, msg.body).then(({ data }) => {
-        iframe.value?.contentWindow?.postMessage(JSON.stringify({
-          action: 'api-response', id: msg.id, data,
-        }), '*')
-      }).catch((err: any) => {
-        iframe.value?.contentWindow?.postMessage(JSON.stringify({
-          action: 'api-response', id: msg.id, error: err?.response?.data?.error || err.message,
-        }), '*')
-      })
-    }
-  } catch { /* malformed postMessage from plugin iframe — drop silently */ }
-}
-
-onMounted(() => {
-  window.addEventListener('message', onMessage)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('message', onMessage)
 })
 
 watch(fullUrl, () => { loaded.value = false })
