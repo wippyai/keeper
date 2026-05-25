@@ -147,7 +147,7 @@ src/
 ├── app/app.vue       # root: header w/ dropdown nav, search overlay, <router-view />
 ├── constants.ts      # InjectionKey symbols: HOST_API, AXIOS_INSTANCE, WIPPY_INSTANCE, WIPPY_CONFIG, ON_SUBSCRIPTION
 ├── types.ts          # HostApi / ProxyApiInstance / WippyConfig from `Awaited<ReturnType<...>>`
-├── router/index.ts   # @wippy-fe/router createAppRouter factory (handles createMemoryHistory + initial-path replace + host.onRouteChanged + @history listener with navId echo suppression) + a bespoke window 'message' cmd-navigate listener
+├── router/index.ts   # @wippy-fe/router createAppRouter factory (handles createMemoryHistory + initial-path replace + host.onRouteChanged + @history listener with navId echo suppression)
 ├── composables/
 │   ├── useWippy.ts   # useHost / useApi / useWippy / useOn / useConfig
 │   └── useUserProvider.ts
