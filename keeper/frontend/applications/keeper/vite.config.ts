@@ -39,7 +39,7 @@ export default defineConfig({
     vue({
       template: {
         compilerOptions: {
-          isCustomElement: (tag) => tag.startsWith('keeper-') || tag.startsWith('wc-') || tag.startsWith('wippy-'),
+          isCustomElement: (tag) => tag.startsWith('keeper-') || tag.startsWith('wc-') || tag.startsWith('wippy-') || tag === 'w-artifact' || tag === 'w-iframe',
         },
       },
     }),
