@@ -64,5 +64,6 @@ entries:
       description: Dedicated filesystem for governance-managed source files and sync operations
     auto_init: true
     directory: ./src/
+    base: project
     mode: "0755"
     
