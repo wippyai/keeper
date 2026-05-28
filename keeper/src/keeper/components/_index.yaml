@@ -19,6 +19,7 @@ entries:
       description: Only surface sessions should use to write FE component files.
     auto_init: true
     directory: ./frontend
+    base: project
     mode: "0755"
 
   # keeper.components:ui_static_fs
@@ -153,6 +154,7 @@ entries:
       description: Served by the main HTTP server at /public/previews (auto-cleanup after TTL).
     auto_init: true
     directory: ./static/public/previews
+    base: project
     mode: "0755"
     
   # keeper.components:project_fs
@@ -162,6 +164,7 @@ entries:
       comment: Read-only project root filesystem (used by the scanner)
     auto_init: true
     directory: ./
+    base: project
     mode: "0755"
     
   # keeper.components:pw_runtime_fs
@@ -172,6 +175,7 @@ entries:
       description: ./.wippy/fe-playwright-runtime — holds the npm-installed playwright node_modules plus the ui_runner.cjs that the supervisor writes before spawning the container. Mounted at /pw inside the container. First call populates it; later calls reuse the warm install.
     auto_init: true
     directory: ./.wippy/fe-playwright-runtime
+    base: project
     mode: "0755"
     
   # keeper.components:siblings_fs
@@ -182,6 +186,7 @@ entries:
       description: Used to resolve origin.source_path for linked prebuilt bundles.
     auto_init: false
     directory: ..
+    base: project
     mode: "0755"
     
   # keeper.components:staging_fs
@@ -192,5 +197,6 @@ entries:
       description: Agent edit sessions materialize here before docker build. Disposable.
     auto_init: true
     directory: ./.wippy/fe-sessions
+    base: project
     mode: "0755"
     
