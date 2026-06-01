@@ -174,22 +174,5 @@ export function createAppRouter(host: HostApi, on: OnSubscription | null, initia
     on: on as Parameters<typeof createAppRouterFactory>[1] extends { on?: infer T } ? T : never,
   })
 
-  // Bespoke cmd-navigate listener — keeper's parent shell can post a
-  // programmatic navigation command. Module-scope (app-lifetime) — no
-  // cleanup needed.
-  window.addEventListener('message', (event) => {
-    if (event.source !== window.parent) return
-    if (typeof event.data !== 'string') return
-    try {
-      const msg = JSON.parse(event.data)
-      if (msg.action === 'cmd-navigate' && msg.url) {
-        const resolved = router.resolve(msg.url)
-        if (resolved.matched.length > 0 && resolved.name !== 'not-found') {
-          router.push(msg.url)
-        }
-      }
-    } catch { /* malformed message — ignore */ }
-  })
-
   return router
 }

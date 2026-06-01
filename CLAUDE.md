@@ -42,6 +42,32 @@ When a `<wippy-monaco>` or other Wippy web component silently renders as an unkn
 
 `usage` deliberately omits `configOverrides` (inherits the facade per §5.1) — do NOT add a `customCSS` copy there. usage's PrimeVue components will render with facade defaults unless we lift the override into the facade itself.
 
+## 🚫 SUPER ANTI-PATTERN — nested `<iframe src="/c/<id>">` host shells
+
+**NEVER embed a Wippy view.page in another Wippy view.page by writing a raw `<iframe src="/c/<id>">`** (or any other handler that points at a `/c/<id>` host-facade route). Hitting `/c/<id>` returns the FULL Wippy host wrapper HTML (host shell + chat sidebar + auth + WebSocket + AppConfig + nested iframe to the actual FE bundle). When that URL is loaded inside another Wippy iframe, you end up with a triple-nested structure:
+
+```
+Browser tab
+ └─ Wippy host shell (gen-2-chat, level 0)
+     └─ iframe srcdoc → keeper-main bundle (level 1)
+         └─ <iframe src="/c/keeper.git:main">           ← THE ANTI-PATTERN
+             └─ ANOTHER complete Wippy host shell (level 2)
+                 └─ iframe srcdoc → keeper-git bundle (level 3)
+```
+
+Each level-2 host shell instance spawns its own WebSocket, runs its own auth flow, holds its own AppConfig, instantiates its own chat sidebar, doubles all proxy injections — for no functional reason. The inner iframe doesn't need any of that.
+
+**The canonical primitive is `<w-artifact id="<page-id>" type="page">`** (introduced in gen-2-chat 1.0.33, documented in `app-template-raw/frontend/docs/proxy-api.md` § "w-artifact"). It:
+- Fetches just the FE bundle via the proxy's authenticated `api` instance (`/api/public/pages/content/<id>`), NOT the host wrapper.
+- Mounts the bundle in a single sandboxed iframe under the EXISTING host's bridge.
+- Auto-bridges iframe → host commands and proxy injections.
+- Exposes lifecycle events (`loading` / `load` / `error` / `size`) + Shadow Parts (`loader` / `error` / `frame`) for styling.
+- Supports `auto-height` for CmdBodySize-driven auto-resize.
+
+Keeper-v5 had this anti-pattern in `keeper/frontend/applications/keeper/src/components/PluginHost.vue` (loaded `/c/<pluginId>` via raw iframe) — fixed by switching to `<w-artifact type="page" :id="pluginId">`. The two callers (`pages/plugin-page.vue`, `pages/changes.vue` plugin tab panel) pass the registry entry ID directly (e.g. `keeper.usage:main`, NOT a `/c/` URL).
+
+If you find ANY new code that does `<iframe src="/c/...">` or `<iframe :src="/c/${id}">`, REJECT it — use `<w-artifact>` instead.
+
 ## Intentional patterns (do NOT "fix" these)
 
 ### Warm-grey theme — single-source-of-truth in each FE app's package.json
@@ -147,7 +173,7 @@ src/
 ├── app/app.vue       # root: header w/ dropdown nav, search overlay, <router-view />
 ├── constants.ts      # InjectionKey symbols: HOST_API, AXIOS_INSTANCE, WIPPY_INSTANCE, WIPPY_CONFIG, ON_SUBSCRIPTION
 ├── types.ts          # HostApi / ProxyApiInstance / WippyConfig from `Awaited<ReturnType<...>>`
-├── router/index.ts   # @wippy-fe/router createAppRouter factory (handles createMemoryHistory + initial-path replace + host.onRouteChanged + @history listener with navId echo suppression) + a bespoke window 'message' cmd-navigate listener
+├── router/index.ts   # @wippy-fe/router createAppRouter factory (handles createMemoryHistory + initial-path replace + host.onRouteChanged + @history listener with navId echo suppression)
 ├── composables/
 │   ├── useWippy.ts   # useHost / useApi / useWippy / useOn / useConfig
 │   └── useUserProvider.ts

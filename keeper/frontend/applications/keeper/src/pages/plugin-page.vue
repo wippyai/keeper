@@ -5,11 +5,10 @@ import PluginHost from '../components/PluginHost.vue'
 
 const route = useRoute()
 const pluginId = computed(() => String(route.params.id || ''))
-const url = computed(() => pluginId.value ? `/c/${pluginId.value}` : '')
 </script>
 
 <template>
   <div class="h-full">
-    <PluginHost v-if="url" :url="url" :title="pluginId" />
+    <PluginHost v-if="pluginId" :page-id="pluginId" :title="pluginId" />
   </div>
 </template>

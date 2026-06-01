@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { Icon } from '@iconify/vue'
 import Badge from 'primevue/badge'
+import Tag from 'primevue/tag'
 import { useApi } from '../composables/useWippy'
 import { listEntries, getEntry, type RegistryEntry } from '../api/registry'
 import { entryName } from '../utils'
@@ -158,30 +159,30 @@ onMounted(load)
 
     <!-- Stats strip -->
     <div v-if="!loading && entries.length" class="stats-row">
-      <div class="stat-pill">
-        <span class="stat-num">{{ stats.total }}</span>
-        <span class="stat-lbl">traits</span>
-      </div>
-      <div class="stat-pill stat-pill--warn">
+      <Tag class="k-tag-metric">
+        <span class="k-tag-num">{{ stats.total }}</span>
+        <span class="k-tag-lbl">traits</span>
+      </Tag>
+      <Tag severity="warn" class="k-tag-metric">
         <Icon icon="tabler:tool" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.totalTools }}</span>
-        <span class="stat-lbl">tool refs</span>
-      </div>
-      <div class="stat-pill stat-pill--accent">
+        <span class="k-tag-num">{{ stats.totalTools }}</span>
+        <span class="k-tag-lbl">tool refs</span>
+      </Tag>
+      <Tag class="k-tag-metric k-tag-tone-accent">
         <Icon icon="tabler:message" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.withPrompt }}</span>
-        <span class="stat-lbl">with prompt</span>
-      </div>
-      <div class="stat-pill stat-pill--info">
+        <span class="k-tag-num">{{ stats.withPrompt }}</span>
+        <span class="k-tag-lbl">with prompt</span>
+      </Tag>
+      <Tag severity="info" class="k-tag-metric">
         <Icon icon="tabler:hammer" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.withBuild }}</span>
-        <span class="stat-lbl">build hook</span>
-      </div>
-      <div class="stat-pill stat-pill--success">
+        <span class="k-tag-num">{{ stats.withBuild }}</span>
+        <span class="k-tag-lbl">build hook</span>
+      </Tag>
+      <Tag severity="success" class="k-tag-metric">
         <Icon icon="tabler:player-track-next" class="w-3 h-3" />
-        <span class="stat-num">{{ stats.withStep }}</span>
-        <span class="stat-lbl">step hook</span>
-      </div>
+        <span class="k-tag-num">{{ stats.withStep }}</span>
+        <span class="k-tag-lbl">step hook</span>
+      </Tag>
 
       <div class="phase-filter">
         <button class="phase-chip" :class="{ 'phase-chip--active': !phaseFilter }" @click="phaseFilter = ''">all phases</button>
@@ -345,21 +346,6 @@ onMounted(load)
   background: color-mix(in srgb, var(--p-surface-50) 70%, transparent);
   flex-wrap: wrap;
 }
-.stat-pill {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 3px 9px;
-  border-radius: 4px;
-  background: var(--p-surface-100);
-  border: 1px solid var(--p-content-border-color);
-  font-size: 11px;
-}
-.stat-pill .stat-num { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--p-text-color); }
-.stat-pill .stat-lbl { font-size: 10px; color: var(--p-text-muted-color); }
-.stat-pill--warn    { color: var(--p-warn-500); }
-.stat-pill--accent  { color: var(--p-accent-500); }
-.stat-pill--info    { color: var(--p-info-500); }
-.stat-pill--success { color: var(--p-success-500); }
-
 .phase-filter {
   display: flex; gap: 4px; flex-wrap: wrap;
   margin-left: auto;

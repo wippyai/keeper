@@ -148,11 +148,6 @@ async function loadPlugins() {
   plugins.value = (await listPlugins(api)).filter(p => p.slot === 'changes.detail')
 }
 
-const pluginContext = computed(() => {
-  if (!selected.value) return {}
-  return { changeset_id: selected.value.changeset_id, state: selected.value.state }
-})
-
 const liveStates = new Set(['open', 'editing', 'review', 'accepted', 'rejected'])
 const liveChangesets = computed(() => changesets.value.filter(w => liveStates.has(w.state)))
 const closedChangesets = computed(() => changesets.value.filter(w => !liveStates.has(w.state)))
@@ -717,7 +712,7 @@ function onSelect(cs: Changeset) {
             </div>
 
             <!-- Plugin panel -->
-            <PluginHost v-if="activePlugin" :url="activePlugin.url" :title="activePlugin.title" :context="pluginContext" class="flex-1" />
+            <PluginHost v-if="activePlugin" :page-id="activePlugin.id" :title="activePlugin.title" class="flex-1" />
 
             <!-- Diff panel (default) -->
             <template v-else>
