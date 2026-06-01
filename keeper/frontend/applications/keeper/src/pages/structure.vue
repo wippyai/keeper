@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import Button from 'primevue/button'
 import { useApi } from '../composables/useWippy'
-import { listNamespaces, listEntries, getEntry, updateEntry, fetchGraph, kindColor, kindIcon, type Namespace, type RegistryEntry } from '../api/registry'
+import { listNamespaces, listEntries, getEntry, updateEntry, fetchGraph, getGovernanceConfig, kindColor, kindIcon, type Namespace, type RegistryEntry } from '../api/registry'
 import { entryName, prettyJson } from '../utils'
 import EditorWrapper from '../components/editors/EditorWrapper.vue'
 import ForceGraph from '../components/shared/ForceGraph.vue'
@@ -13,7 +13,14 @@ const api = useApi()
 const route = useRoute()
 
 const namespaces = ref<Namespace[]>([])
+const managedNamespaces = ref<string[]>([])
 const nsEntries = ref<Map<string, RegistryEntry[]>>(new Map())
+
+// A namespace is governed when it matches a managed root exactly or sits under
+// one (prefix match) — the same rule the registry settings editor applies.
+function isManaged(ns: string): boolean {
+  return managedNamespaces.value.some(root => ns === root || ns.startsWith(`${root}.`))
+}
 const selectedEntry = ref<RegistryEntry | null>(null)
 const entryDetail = ref<any>(null)
 const loading = ref(true)
@@ -208,8 +215,11 @@ async function selectEntry(entry: RegistryEntry) {
 async function loadAll() {
   loading.value = true; error.value = null
   try {
-    const r = await listNamespaces(api)
-    namespaces.value = r.namespaces || []
+    const [nsRes, govRes] = await Promise.allSettled([listNamespaces(api), getGovernanceConfig(api)])
+    if (nsRes.status === 'rejected') throw nsRes.reason
+    namespaces.value = nsRes.value.namespaces || []
+    // Governance is advisory for the tree; a failure here must not blank the page.
+    managedNamespaces.value = govRes.status === 'fulfilled' ? (govRes.value.managed_namespaces || []) : []
   } catch (e: any) { error.value = e.message }
   finally { loading.value = false }
 }
@@ -288,6 +298,14 @@ onUnmounted(() => {
       <div class="flex items-center gap-2">
         <span class="text-xs font-medium" style="color: var(--p-text-color)">Structure</span>
         <span class="text-[10px]" style="color: var(--p-text-muted-color)">{{ namespaces.length }} namespaces</span>
+        <span
+          v-if="managedNamespaces.length"
+          class="flex items-center gap-1 text-[10px]"
+          style="color: var(--p-text-muted-color)"
+          title="Managed namespaces are governed — edits sync back to the source filesystem. Others are read-only."
+        >
+          <span class="managed-dot"></span> managed
+        </span>
         <Icon v-if="loading" icon="tabler:loader-2" class="w-3.5 h-3.5 animate-spin keeper-accent" />
       </div>
       <div class="flex items-center gap-2">
@@ -343,7 +361,9 @@ onUnmounted(() => {
           <div
             v-if="item.type === 'ns'"
             class="tree-row flex items-center gap-1 py-1 cursor-pointer text-[11px]"
+            :class="{ 'tree-row--managed': isManaged(item.node.fullPath) }"
             :style="{ paddingLeft: (6 + item.depth * 14) + 'px', paddingRight: '6px' }"
+            :title="isManaged(item.node.fullPath) ? 'Managed namespace — edits sync to source' : undefined"
             @click="toggleExpand(item.node.fullPath)"
           >
             <button class="w-3 h-3 flex items-center justify-center shrink-0" style="color: var(--p-text-muted-color)">
@@ -351,13 +371,14 @@ onUnmounted(() => {
             </button>
             <Icon :icon="item.node.isLeaf ? 'tabler:package' : 'tabler:folder'" class="w-3 h-3 shrink-0" :class="{ 'text-info-500': item.node.isLeaf }" :style="item.node.isLeaf ? {} : { color: 'var(--p-text-muted-color)' }" />
             <span class="flex-1 truncate" style="color: var(--p-text-color)">{{ item.node.name }}</span>
+            <span v-if="isManaged(item.node.fullPath)" class="managed-dot shrink-0"></span>
             <span v-if="item.node.count > 0" class="shrink-0 text-[9px]" style="color: var(--p-text-muted-color)">{{ item.node.count }}</span>
           </div>
           <!-- Entry row -->
           <div
             v-else
             class="tree-row tree-entry flex items-center gap-1.5 py-0.5 cursor-pointer text-[10px]"
-            :class="{ 'tree-entry--selected': selectedEntry?.id === item.entry.id }"
+            :class="{ 'tree-entry--selected': selectedEntry?.id === item.entry.id, 'tree-row--managed': isManaged(item.ns) }"
             :style="{ paddingLeft: (6 + item.depth * 14 + 16) + 'px', paddingRight: '6px' }"
             @click="selectEntry(item.entry)"
           >
@@ -443,6 +464,8 @@ onUnmounted(() => {
 .resize-handle { width: 4px; cursor: col-resize; flex-shrink: 0; border-left: 1px solid var(--p-content-border-color); }
 .resize-handle:hover { background: var(--p-primary-color); opacity: 0.3; }
 .tree-row:hover { background: var(--p-surface-100); }
+.tree-row--managed { box-shadow: inset 2px 0 0 var(--p-primary-color); }
+.managed-dot { width: 6px; height: 6px; border-radius: 9999px; background: var(--p-primary-color); display: inline-block; }
 .tree-entry { opacity: 0.85; }
 .tree-entry:hover { opacity: 1; }
 .tree-entry--selected { background: var(--p-surface-100) !important; opacity: 1; }

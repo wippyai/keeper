@@ -12,9 +12,11 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
 
-// Boolean → string coercion: HTML attributes are always strings; the WC
-// prop-parser converts "true"/"false" back to boolean per the JSON schema.
-const readonlyAttr = computed(() => (props.readonly ? 'true' : 'false'))
+// `readonly` is a reserved HTML boolean attribute, so Vue coerces any truthy
+// value (including the string "false") to a bare `readonly=""` and only drops
+// the attribute for a real boolean false. Pass a boolean so the WC sees the
+// attribute solely when read-only; absence falls back to its `false` default.
+const isReadonly = computed(() => props.readonly === true)
 const minHeightAttr = computed(() => (props.minHeight && props.minHeight > 0 ? String(props.minHeight) : '0'))
 
 function onChange(event: Event) {
@@ -30,7 +32,7 @@ function onChange(event: Event) {
     mode="editor"
     :value="modelValue"
     :language="language || 'plaintext'"
-    :readonly="readonlyAttr"
+    :readonly="isReadonly"
     :min-height="minHeightAttr"
     class="monaco-wrap"
     @change="onChange"

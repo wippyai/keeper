@@ -11,6 +11,7 @@
 .research/
 .screenshots-archive/
 .local/
+.playwright-mcp/
 *.log
 
 # Frontend dependencies and build scratch
