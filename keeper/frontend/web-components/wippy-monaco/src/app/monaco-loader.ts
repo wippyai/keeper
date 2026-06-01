@@ -188,6 +188,13 @@ function autoThemeNameFor(hostElement: Element): string {
 // Shared keeper token palettes — referenced by both the fixed
 // keeper-dark/keeper-light presets AND by the auto theme, so the syntax
 // identity is consistent across all three modes.
+// The trailing `delimiter` + default (`''`) rules are load-bearing: themes
+// inherit base `vs` (see registerThemes), whose default glyph colors are tuned
+// for a light background. Without explicit overrides, any token we don't name
+// (`=`, `.`, `,`, `;`, `:`, bracket/parenthesis delimiters, and the empty
+// default token) falls through to that light base and renders near-black on
+// the dark editor background. Keep this list and KEEPER_LIGHT_TOKEN_RULES in
+// the same order so the per-host theme patch's mtkN colorMap stays aligned.
 const KEEPER_DARK_TOKEN_RULES = [
   { token: 'comment', foreground: '6a737d', fontStyle: 'italic' },
   { token: 'keyword', foreground: 'f59e0b' },
@@ -197,6 +204,8 @@ const KEEPER_DARK_TOKEN_RULES = [
   { token: 'function', foreground: '2dd4bf' },
   { token: 'variable', foreground: 'e2e8f0' },
   { token: 'operator', foreground: 'f87171' },
+  { token: 'delimiter', foreground: 'cbd5e1' },
+  { token: '', foreground: 'e2e8f0' },
 ] as const
 
 const KEEPER_LIGHT_TOKEN_RULES = [
@@ -208,6 +217,8 @@ const KEEPER_LIGHT_TOKEN_RULES = [
   { token: 'function', foreground: '0d9488' },
   { token: 'variable', foreground: '1e293b' },
   { token: 'operator', foreground: 'b91c1c' },
+  { token: 'delimiter', foreground: '475569' },
+  { token: '', foreground: '1e293b' },
 ] as const
 
 let themesRegistered = false

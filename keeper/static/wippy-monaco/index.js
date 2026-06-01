@@ -1,7 +1,7 @@
-import { inject as F, ref as w, createApp as ie, defineComponent as se, computed as ae, useTemplateRef as ce, shallowRef as _, onMounted as le, watchEffect as P, watch as K, onBeforeUnmount as pe, openBlock as L, createElementBlock as T, normalizeStyle as de, toDisplayString as ue, createCommentVNode as fe, withDirectives as he, createElementVNode as me, vShow as ge } from "vue";
+import { inject as F, ref as k, createApp as ie, defineComponent as se, computed as ae, useTemplateRef as ce, shallowRef as _, onMounted as le, watchEffect as P, watch as K, onBeforeUnmount as pe, openBlock as L, createElementBlock as T, normalizeStyle as de, toDisplayString as ue, createCommentVNode as fe, withDirectives as he, createElementVNode as me, vShow as ge } from "vue";
 import { addCollection as ve } from "@iconify/vue";
-import { hostCss as be, loadCss as ye, addIcons as _e, define as we } from "@wippy-fe/proxy";
-import { getActivePinia as ke, createPinia as xe, setActivePinia as Ce } from "pinia";
+import { hostCss as be, loadCss as ye, addIcons as _e, define as ke } from "@wippy-fe/proxy";
+import { getActivePinia as we, createPinia as xe, setActivePinia as Ce } from "pinia";
 const G = Symbol("wippy:emit"), q = Symbol("wippy:props"), Ee = Symbol("wippy:props_error"), Se = Symbol("wippy:content"), Re = Symbol("wippy:panel-id"), Pe = Symbol("wippy:layout-bus"), Le = Symbol("wippy:host");
 function Te() {
   const n = F(q);
@@ -324,7 +324,7 @@ function Ve(n) {
 }
 class ze extends He {
   constructor() {
-    super(...arguments), this._vueApp = null, this._propsRef = w({}), this._errorsRef = w([]), this._contentRef = w(null), this._bridgeAbort = null;
+    super(...arguments), this._vueApp = null, this._propsRef = k({}), this._errorsRef = k([]), this._contentRef = k(null), this._bridgeAbort = null;
   }
   /**
    * Override to provide Vue-specific configuration.
@@ -344,7 +344,7 @@ class ze extends He {
     }, { signal: this._bridgeAbort.signal }), this.reactive.content && this.reactive.content.subscribe((f) => {
       this._contentRef.value = f;
     }, { signal: this._bridgeAbort.signal });
-    const u = ke();
+    const u = we();
     this._vueApp = ie(p.rootComponent);
     const c = xe();
     if (p.piniaPlugins)
@@ -364,15 +364,15 @@ let Y = null;
 function je() {
   return Y;
 }
-let k = null, M = 0;
+let w = null, M = 0;
 function $e(n) {
-  if (!k)
+  if (!w)
     return console.warn("[wippy-monaco] bindShadowStylesheetContainer called before loadMonaco resolved — runtime CSS will leak to document.head"), () => {
     };
-  k(n), M++;
+  w(n), M++;
   let e = !1;
   return () => {
-    e || (e = !0, M--, M === 0 && k?.(null));
+    e || (e = !0, M--, M === 0 && w?.(null));
   };
 }
 let x = null;
@@ -410,7 +410,7 @@ function Ge() {
       import("./html.worker-BTgg5INT.js").then((c) => c.default),
       import("./ts.worker-Dj3vtSc8.js").then((c) => c.default)
     ]);
-    Y = n, k = e.setDefaultStylesheetContainer, x = r.setHostTheme, self.MonacoEnvironment = {
+    Y = n, w = e.setDefaultStylesheetContainer, x = r.setHostTheme, self.MonacoEnvironment = {
       getWorker(c, f) {
         switch (f) {
           case "json":
@@ -449,7 +449,9 @@ const Z = [
   { token: "type", foreground: "60a5fa" },
   { token: "function", foreground: "2dd4bf" },
   { token: "variable", foreground: "e2e8f0" },
-  { token: "operator", foreground: "f87171" }
+  { token: "operator", foreground: "f87171" },
+  { token: "delimiter", foreground: "cbd5e1" },
+  { token: "", foreground: "e2e8f0" }
 ], ee = [
   { token: "comment", foreground: "6a737d", fontStyle: "italic" },
   { token: "keyword", foreground: "b45309" },
@@ -458,7 +460,9 @@ const Z = [
   { token: "type", foreground: "1d4ed8" },
   { token: "function", foreground: "0d9488" },
   { token: "variable", foreground: "1e293b" },
-  { token: "operator", foreground: "b91c1c" }
+  { token: "operator", foreground: "b91c1c" },
+  { token: "delimiter", foreground: "475569" },
+  { token: "", foreground: "1e293b" }
 ];
 let j = !1;
 function Xe(n) {
@@ -588,7 +592,7 @@ const er = {
     const e = Ke(), r = Ue(), t = ae(() => {
       const s = e.value?.["min-height"];
       return s && s > 0 ? { minHeight: `${s}px` } : void 0;
-    }), o = ce("container"), a = w({ kind: "loading" }), i = _(null), p = _(null), u = _(null), c = _(null), f = _(null);
+    }), o = ce("container"), a = k({ kind: "loading" }), i = _(null), p = _(null), u = _(null), c = _(null), f = _(null);
     let v = null, b = null, y = null, C = !1, E = null, g = null;
     function S(s) {
       const l = s.getRootNode();
@@ -763,5 +767,5 @@ class ar extends ze {
     };
   }
 }
-we(import.meta.url, ar);
+ke(import.meta.url, ar);
 //# sourceMappingURL=index.js.map
