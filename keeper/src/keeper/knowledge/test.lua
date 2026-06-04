@@ -260,10 +260,10 @@ local function define_tests()
         end)
 
         describe("search_by_embedding", function()
-            it("uses legacy and canonical embedding class aliases by default", function()
+            it("uses the canonical embedding class by default", function()
                 local models = kb_consts.embedding_models()
+                test.eq(#models, 1)
                 test.eq(models[1], "class:embed")
-                test.eq(models[2], "class:embedding")
             end)
 
             it("respects an explicit embedding model override", function()

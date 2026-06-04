@@ -41,7 +41,7 @@ M.EVENTS = {
 
 M.EMBED = {
     MODEL = "class:embed",
-    FALLBACK_MODELS = { "class:embedding" },
+    FALLBACK_MODELS = {},
     DIMENSIONS = 512,
 }
 
