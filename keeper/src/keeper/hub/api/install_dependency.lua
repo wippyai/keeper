@@ -1,6 +1,7 @@
 local http = require("http")
 local hub_service = require("hub_service")
 local api_http = require("api_http")
+local hub_token = require("hub_token")
 
 local function handler()
     local res = http.response()
@@ -16,7 +17,8 @@ local function handler()
         return
     end
 
-    local result, service_err = hub_service.install(body, { actor_id = actor:id() })
+    local token = hub_token.resolve()
+    local result, service_err = hub_service.install(body, { actor_id = actor:id(), token = token })
     if not result then
         api_http.write_service_error(res, service_err)
         return

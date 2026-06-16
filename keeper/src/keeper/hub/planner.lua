@@ -74,11 +74,13 @@ type PlannerDeps = {
     registry: unknown?,
     catalog: unknown?,
     gov: unknown?,
+    token: string?,
 }
 type PlannerInstance = {
     registry: unknown,
     catalog: unknown,
     gov: unknown,
+    token: string?,
     version_cache: {[string]: {VersionItem}},
     plan_install: (PlannerInstance, unknown) -> (unknown, unknown?),
 }
@@ -582,6 +584,7 @@ function M.new(deps: PlannerDeps?)
         registry = deps.registry or registry,
         catalog = deps.catalog or hub_sdk,
         gov = deps.gov or gov_consts,
+        token = deps.token,
         version_cache = {},
     }, Planner) :: PlannerInstance
 end
@@ -678,7 +681,7 @@ function Planner:list_all_versions(component)
     local out = {}
     local page = 1
     while true do
-        local result, call_err = self.catalog.versions.list(component, { page = page, page_size = 100 })
+        local result, call_err = self.catalog.versions.list(component, { page = page, page_size = 100, token = self.token })
         if not result then
             return nil, err("INTERNAL", "hub versions lookup failed for " .. component .. ": " .. tostring(call_err))
         end
@@ -714,7 +717,7 @@ function Planner:version_details(component, selected)
         return selected, nil
     end
 
-    local detailed, detail_err = self.catalog.versions.get(component, ref)
+    local detailed, detail_err = self.catalog.versions.get(component, ref, { token = self.token })
     if detailed then
         local with_deps, dep_err = self:dependency_details(component, detailed)
         if not with_deps then return nil, dep_err end
@@ -750,7 +753,7 @@ function Planner:artifact_requirement_details(component, selected)
         return nil, err("INTERNAL", "cannot inspect Hub artifact without version id or version")
     end
 
-    local inspected, inspect_err = self.catalog.versions.inspect(component, ref)
+    local inspected, inspect_err = self.catalog.versions.inspect(component, ref, { token = self.token })
     if not inspected then
         return nil, err("INTERNAL", "hub artifact inspection failed for " .. component .. ": " .. tostring(inspect_err))
     end
@@ -784,7 +787,7 @@ function Planner:dependency_details(component, selected)
         return nil, err("INTERNAL", "cannot resolve Hub dependencies without version id or version")
     end
 
-    local result, dependency_err = self.catalog.dependencies.get(component, version_ref)
+    local result, dependency_err = self.catalog.dependencies.get(component, version_ref, { token = self.token })
     if not result then
         return nil, err("INTERNAL", "hub dependency lookup failed for " .. component .. ": " .. tostring(dependency_err))
     end
@@ -810,7 +813,7 @@ function Planner:select_version(component, constraint)
     if starts_with(constraint, "@") then
         if self.catalog.versions.get then
             local label = string.sub(constraint, 2)
-            local version, get_err = self.catalog.versions.get(component, { label = label })
+            local version, get_err = self.catalog.versions.get(component, { label = label }, { token = self.token })
             if version then return version, nil end
             return nil, err("NOT_FOUND", "label " .. constraint .. " not found for " .. component .. ": " .. tostring(get_err))
         end
@@ -1226,8 +1229,8 @@ function Planner:plan_install(args)
     }, nil
 end
 
-function M.plan_install(args)
-    return M.new():plan_install(args)
+function M.plan_install(args, token)
+    return M.new({ token = token }):plan_install(args)
 end
 
 return M

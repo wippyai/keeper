@@ -14,6 +14,7 @@ entries:
       - hub
     imports:
       api_http: keeper.hub.api:http
+      hub_token: keeper.hub:hub_token
     method: handler
     pool:
       size: 2
@@ -39,6 +40,7 @@ entries:
       - hub
     imports:
       api_http: keeper.hub.api:http
+      hub_token: keeper.hub:hub_token
     method: handler
     pool:
       size: 2
@@ -77,6 +79,7 @@ entries:
     imports:
       api_http: keeper.hub.api:http
       hub_service: keeper.hub:service
+      hub_token: keeper.hub:hub_token
     method: handler
     pool:
       size: 2
@@ -152,6 +155,7 @@ entries:
       - hub
     imports:
       api_http: keeper.hub.api:http
+      hub_token: keeper.hub:hub_token
     method: handler
     pool:
       size: 2
@@ -177,6 +181,7 @@ entries:
     imports:
       api_http: keeper.hub.api:http
       planner: keeper.hub:planner
+      hub_token: keeper.hub:hub_token
     method: handler
     pool:
       size: 2
