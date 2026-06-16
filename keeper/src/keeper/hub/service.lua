@@ -725,14 +725,14 @@ function Service:restore_lock_update(update)
     return self.lockfile.restore(M.LOCK_PATH, update)
 end
 
-function Service:plan_install(args, token)
+function Service:plan_install(args)
     local p = self.planner
     if type(p) == "table" and p.new then
-        local instance = p.new({ registry = self.registry, token = token })
+        local instance = p.new({ registry = self.registry })
         return instance:plan_install(args)
     end
     if type(p) == "table" and p.plan_install then
-        return p.plan_install(args, token)
+        return p.plan_install(args)
     end
     return nil, err("INTERNAL", "hub install planner unavailable")
 end
@@ -796,7 +796,7 @@ function Service:install(args, opts)
     args = args or {}
     opts = opts or {}
 
-    local plan, plan_err = self:plan_install(args, opts.token)
+    local plan, plan_err = self:plan_install(args)
     if not plan then return nil, plan_err end
     if #(plan.missing_requirements or {}) > 0 then
         return nil, err("REQUIREMENTS_MISSING", "Hub dependency requires explicit configuration", {

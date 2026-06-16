@@ -42,45 +42,6 @@ entries:
       materialize: keeper.state.persist:materialize
       planner: keeper.hub:planner
     
-  # keeper.hub:token_provider — optional seam for a per-user Hub registry token.
-  # keeper stays decoupled from any app: it only knows this contract id. An app
-  # (e.g. kickside) binds an implementation that returns the current actor's Hub
-  # access token; when nothing is bound, keeper resolves no token and serves only
-  # public modules.
-  - name: token_provider
-    kind: contract.definition
-    meta:
-      comment: Resolves the current actor's Wippy Hub registry access token (optional, app-provided).
-    methods:
-      - name: get_token
-        description: |
-          Return the current actor's Hub registry access token, or no token when
-          the actor has not connected a Hub identity. Calling: get_token()
-        output_schemas:
-          - format: application/schema+json
-            definition: |
-              {
-                "type": "object",
-                "properties": {
-                  "success": { "type": "boolean" },
-                  "token": { "type": "string", "description": "Hub bearer token; absent when not connected" },
-                  "error": { "type": "string" }
-                },
-                "required": ["success"]
-              }
-
-  # keeper.hub:hub_token — resolves the per-user Hub token through token_provider
-  # (if an implementation is bound) for the hub API handlers and planner. No app
-  # dependency: a missing binding yields (nil, false) so callers fall back to
-  # public, anonymous Hub access.
-  - name: hub_token
-    kind: library.lua
-    meta:
-      comment: Resolve the current actor's Hub registry token via the optional token_provider seam.
-    source: file://hub_token.lua
-    modules:
-      - contract
-
   # keeper.hub:test
   - name: test
     kind: function.lua

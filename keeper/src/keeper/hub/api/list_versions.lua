@@ -1,7 +1,6 @@
 local http = require("http")
 local hub = require("hub")
 local api_http = require("api_http")
-local hub_token = require("hub_token")
 
 local function tonumber_or(v, fallback)
     if v == nil or v == "" then return fallback end
@@ -26,11 +25,7 @@ local function handler()
     local page = tonumber_or(req:query("page"), 1)
     local page_size = math.min(100, tonumber_or(req:query("page_size"), 30))
 
-    local opts = { page = page, page_size = page_size }
-    local token = hub_token.resolve()
-    if token then opts.token = token end
-
-    local result, call_err = hub.versions.list(module_ref, opts)
+    local result, call_err = hub.versions.list(module_ref, { page = page, page_size = page_size })
     if not result then
         res:set_status(http.STATUS.INTERNAL_ERROR)
         res:write_json({ success = false, error = tostring(call_err) })
