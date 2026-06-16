@@ -1,6 +1,7 @@
 local http = require("http")
 local hub = require("hub")
 local api_http = require("api_http")
+local hub_token = require("hub_token")
 
 local function handler()
     local res = http.response()
@@ -19,6 +20,8 @@ local function handler()
     local opts = {}
     local version = req:query("version")
     if version and version ~= "" then opts.version = version end
+    local token = hub_token.resolve()
+    if token then opts.token = token end
 
     local result, call_err = hub.modules.readme(module_ref, opts)
     if not result then

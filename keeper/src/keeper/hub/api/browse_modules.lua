@@ -1,8 +1,11 @@
 local http = require("http")
 local hub = require("hub")
 local api_http = require("api_http")
+local hub_token = require("hub_token")
 
 local DEFAULT_PAGE_SIZE = 30
+
+local PRIVATE_VISIBILITY = { private = true, internal = true }
 
 local function tonumber_or(v, fallback)
     if v == nil or v == "" then return fallback end
@@ -17,16 +20,40 @@ local function handler()
 
     if not api_http.require_actor(res) then return end
 
+    local token, connected = hub_token.resolve()
+
     local query = req:query("q") or req:query("query")
     local page = tonumber_or(req:query("page"), 1)
     local page_size = math.min(100, tonumber_or(req:query("page_size"), DEFAULT_PAGE_SIZE))
+    local visibility = req:query("visibility")
+
+    -- Private/internal modules require a connected Hub identity. Without one,
+    -- return an empty, well-formed page flagged not_connected so the UI prompts
+    -- the user to connect instead of surfacing an error.
+    if not connected and visibility and PRIVATE_VISIBILITY[visibility] then
+        res:set_content_type(http.CONTENT.JSON)
+        res:set_status(http.STATUS.OK)
+        res:write_json({
+            success = true,
+            items = {},
+            total = 0,
+            page = page,
+            page_size = page_size,
+            query = query or "",
+            connected = false,
+            not_connected = true,
+        })
+        return
+    end
 
     local result, call_err
     if query and query ~= "" then
-        result, call_err = hub.modules.search(query, { page = page, page_size = page_size })
+        local opts = { page = page, page_size = page_size }
+        if token then opts.token = token end
+        result, call_err = hub.modules.search(query, opts)
     else
         local opts = { page = page, page_size = page_size }
-        local visibility = req:query("visibility")
+        if token then opts.token = token end
         if visibility and visibility ~= "" then opts.visibility = visibility end
         local module_type = req:query("type")
         if module_type and module_type ~= "" then opts.type = module_type end
@@ -50,6 +77,8 @@ local function handler()
         page = result.page or page,
         page_size = result.page_size or page_size,
         query = query or "",
+        connected = connected,
+        not_connected = not connected,
     })
 end
 
