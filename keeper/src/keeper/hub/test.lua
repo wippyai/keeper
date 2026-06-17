@@ -1387,6 +1387,25 @@ local function define_tests()
                 test.eq(plan.install_payload.namespace, "app.plugins")
             end)
 
+            it("pins the resolved concrete version into the install payload, not the input constraint", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/widget"] = {
+                            { version = "v0.1.0", requirements = {}, digest = "sha256:aaa" },
+                            { version = "v0.2.0", requirements = {}, digest = "sha256:bbb" },
+                        },
+                    }),
+                    registry = fake_registry({}),
+                }) :: any
+
+                local plan, err = svc:plan_install({ component = "acme/widget" })
+
+                test.is_nil(err)
+                test.not_nil(plan)
+                test.eq(plan.install_payload.version, "v0.2.0")
+                test.eq(plan.dependency.version, "v0.2.0")
+            end)
+
             it("places new dependencies in the strongest existing dependency namespace cluster", function()
                 local svc = planner.new({
                     catalog = fake_catalog({

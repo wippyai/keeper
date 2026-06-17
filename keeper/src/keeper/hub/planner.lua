@@ -1202,6 +1202,13 @@ function Planner:plan_install(args)
     })
     if not graph then return nil, graph_err end
 
+    for _, node in ipairs(graph) do
+        if node.direct then
+            if trim(node.version) ~= "" then data.version = node.version end
+            break
+        end
+    end
+
     local req_plan, req_err = self:plan_requirements(graph, data.parameters or {})
     if not req_plan then return nil, req_err end
 
