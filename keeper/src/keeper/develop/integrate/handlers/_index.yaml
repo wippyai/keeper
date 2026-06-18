@@ -247,4 +247,67 @@ entries:
     method: define_tests
     pool:
       size: 1
-    
+
+  # keeper.develop.integrate.handlers:upgrade_coordinator
+  - name: upgrade_coordinator
+    kind: library.lua
+    meta:
+      comment: Maps changed process source entries to the opted-in process.service entries that run them and signals each running instance to live-upgrade
+    source: file://upgrade_coordinator.lua
+    modules:
+      - registry
+
+  # keeper.develop.integrate.handlers:service_upgrade_handler
+  - name: service_upgrade_handler
+    kind: function.lua
+    meta:
+      type: integration.handler
+      title: Signal Live Service Upgrade
+      comment: After process source code is pushed, finds long-running opted-in process.service instances (meta.upgradable) running the changed process and sends them a system.upgrade event so they hot-swap via process.upgrade. Best-effort - never gates the install.
+      icon: tabler:refresh
+      order: 700
+      handles:
+        kind: ^process%.lua
+      mode: batch
+      operations:
+        - up
+        - down
+    source: file://service_upgrade_handler.lua
+    modules:
+      - registry
+    imports:
+      coordinator: keeper.develop.integrate.handlers:upgrade_coordinator
+    method: handler
+
+  # keeper.develop.integrate.handlers:service_upgrade_handler_test
+  - name: service_upgrade_handler_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for service_upgrade_handler - down noop, empty input, non-matching entries
+      suite: develop
+    source: file://service_upgrade_handler_test.lua
+    modules:
+      - funcs
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+
+  # keeper.develop.integrate.handlers:upgrade_coordinator_test
+  - name: upgrade_coordinator_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for upgrade_coordinator - find_targets filtering by changed-set membership
+      suite: develop
+    source: file://upgrade_coordinator_test.lua
+    modules:
+      - registry
+    imports:
+      coordinator: keeper.develop.integrate.handlers:upgrade_coordinator
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
