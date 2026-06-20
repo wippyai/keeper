@@ -116,15 +116,6 @@ entries:
       test: wippy.test:test
     method: define_tests
     
-  # keeper.components.tools:helpers
-  - name: helpers
-    kind: library.lua
-    meta:
-      comment: Shared helpers for components tools (user-scoped token mint, etc.)
-    source: file://helpers.lua
-    modules:
-      - security
-    
   # keeper.components.tools:resolve_touched
   - name: resolve_touched
     kind: function.lua
@@ -189,10 +180,11 @@ entries:
       - process
       - channel
       - json
+      - security
     imports:
       audit: keeper.task:audit
-      comp_helpers: keeper.components.tools:helpers
       filenames: keeper.components:filenames
+      keeper_config: keeper:config
       scanner: keeper.components.build:scanner
       ui: keeper.components.ui:client
     method: handler
@@ -213,7 +205,6 @@ entries:
       - json
     imports:
       audit: keeper.task:audit
-      comp_helpers: keeper.components.tools:helpers
       scanner: keeper.components.build:scanner
       screenshot_ui: keeper.components.tools:screenshot_ui
       test: wippy.test:test
@@ -273,10 +264,11 @@ entries:
       - base64
       - process
       - channel
+      - security
     imports:
       audit: keeper.task:audit
-      comp_helpers: keeper.components.tools:helpers
       filenames: keeper.components:filenames
+      keeper_config: keeper:config
       ui: keeper.components.ui:client
     method: handler
     pool:

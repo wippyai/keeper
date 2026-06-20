@@ -15,6 +15,13 @@ entries:
     meta:
       comment: Security scope used when Keeper needs to validate admin/root authority
 
+  # keeper.config:auth_token_store
+  - name: auth_token_store
+    kind: registry.entry
+    meta:
+      comment: Host auth token store used for short-lived authenticated Keeper probes.
+    default: undefined
+
   # keeper.config:process_host
   - name: process_host
     kind: registry.entry

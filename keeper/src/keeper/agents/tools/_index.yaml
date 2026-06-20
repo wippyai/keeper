@@ -376,4 +376,5 @@ entries:
     imports:
       audit: keeper.task:audit
       consts: keeper.components:consts
+      keeper_config: keeper:config
     method: handler

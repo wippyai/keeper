@@ -405,6 +405,16 @@ entries:
       - entry: keeper.config:admin_scope
         path: .default
 
+  # keeper:auth_token_store
+  - name: auth_token_store
+    kind: ns.requirement
+    meta:
+      description: Host auth token store used for short-lived authenticated Keeper probes.
+    default: undefined
+    targets:
+      - entry: keeper.config:auth_token_store
+        path: .default
+
   # keeper:env_storage
   - name: env_storage
     kind: ns.requirement

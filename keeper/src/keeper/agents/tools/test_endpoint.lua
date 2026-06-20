@@ -4,8 +4,8 @@ local json = require("json")
 local env = require("env")
 local audit = require("audit")
 local consts = require("consts")
+local keeper_config = require("keeper_config")
 
-local TOKEN_STORE_ID = "userspace.user.security:tokens"
 local TOKEN_EXPIRATION = "5m"
 
 type RequestOptions = {
@@ -24,7 +24,8 @@ local function do_handler(input)
         return nil, "No security context available"
     end
 
-    local token_store, err = security.token_store(TOKEN_STORE_ID)
+    local token_store_id = keeper_config.auth_token_store()
+    local token_store, err = security.token_store(token_store_id)
     if err then
         return nil, "Token store failed: " .. tostring(err)
     end

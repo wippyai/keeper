@@ -8,7 +8,7 @@
 -- of the same page was already on disk.
 --
 -- We exercise the pure logic via M.run(deps, params) instead of the
--- audited handler wrapper, so tests can swap in fake ui/scanner/helpers
+-- audited handler wrapper, so tests can swap in fake ui/scanner/token minting
 -- without touching the wippy registry loader.
 
 local test          = require("test")
@@ -29,13 +29,11 @@ local function fakes(opts)
                 return { component_id = component_id, path = "/components/keeper" }, nil
             end,
         },
-        helpers = {
-            mint_token = function(scope)
-                calls.mint_token = calls.mint_token + 1
-                last.token_scope = scope
-                return "test-token", nil
-            end,
-        },
+        mint_token = function(scope)
+            calls.mint_token = calls.mint_token + 1
+            last.token_scope = scope
+            return "test-token", nil
+        end,
         ui = {
             open = function(args)
                 calls.open = calls.open + 1

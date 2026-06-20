@@ -8,16 +8,31 @@
 
 local fs = require("fs")
 local base64 = require("base64")
+local security = require("security")
 local audit = require("audit")
 local ui = require("ui")
-local helpers = require("comp_helpers")
+local keeper_config = require("keeper_config")
 local filenames = require("filenames")
 
 local PREVIEWS_FS_ID = "keeper.components:previews_fs"
 local PREVIEWS_URL_PREFIX = "/app/public/previews/"
 
 local function mint_token()
-    return helpers.mint_token("keeper.components.tools:ui")
+    local actor = security.actor()
+    local scope = security.scope()
+    if not actor or not scope then
+        return nil, "No security context available"
+    end
+    local token_store_id = keeper_config.auth_token_store()
+    local store, err = security.token_store(token_store_id)
+    if not store then return nil, "Token store failed: " .. tostring(err) end
+    local token, terr = store:create(actor, scope, {
+        expiration = "5m",
+        meta = { source = "keeper.components.tools:ui" },
+    })
+    store:close()
+    if not token then return nil, "Token creation failed: " .. tostring(terr) end
+    return token
 end
 
 local function wrap(res, label)

@@ -1,11 +1,30 @@
 local audit = require("audit")
+local security = require("security")
 local ui_default = require("ui")
 local scanner_default = require("scanner")
-local helpers_default = require("comp_helpers")
+local keeper_config = require("keeper_config")
 local filenames = require("filenames")
 local json = require("json")
 
 local M = {}
+
+local function mint_auth_token(source: string): (string?, string?)
+    local actor = security.actor()
+    local scope = security.scope()
+    if not actor or not scope then
+        return nil, "No security context available"
+    end
+    local token_store_id = keeper_config.auth_token_store()
+    local store, err = security.token_store(token_store_id)
+    if not store then return nil, "Token store failed: " .. tostring(err) end
+    local token, terr = store:create(actor, scope, {
+        expiration = "5m",
+        meta = { source = source },
+    })
+    store:close()
+    if not token then return nil, "Token creation failed: " .. tostring(terr) end
+    return token
+end
 
 -- Probe each selector in ONE eval call. Cheap, deterministic, runs in the
 -- same Playwright session as the screenshot so it sees the exact DOM the
@@ -96,7 +115,7 @@ function M.run(deps, params)
     params = params or {}
     local ui      = deps.ui      or ui_default
     local scanner = deps.scanner or scanner_default
-    local helpers = deps.helpers or helpers_default
+    local mint_token = deps.mint_token or mint_auth_token
 
     local component_id = params.component_id
     if type(component_id) ~= "string" or component_id == "" then
@@ -108,7 +127,7 @@ function M.run(deps, params)
         return nil, "component not found: " .. tostring(derr or component_id)
     end
 
-    local token, terr = helpers.mint_token("screenshot_ui")
+    local token, terr = mint_token("screenshot_ui")
     if terr then return nil, terr end
 
     local open_res = ui.open({

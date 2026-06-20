@@ -24,7 +24,7 @@ function M.error_message(err)
     return tostring(err)
 end
 
-function M.read_default(name)
+function M.read_default(name: string): (string?, unknown?)
     local entry, err = registry.get("keeper.config:" .. name)
     if err or not entry then return nil, config_error(name, "missing", err) end
     local data = entry.data or {}
@@ -33,25 +33,33 @@ function M.read_default(name)
     return tostring(value), nil
 end
 
-local function read_default(name)
+local function read_default(name: string): string
     local value, err = M.read_default(name)
     if not value then error(M.error_message(err)) end
     return value
 end
 
-function M.app_db()
+function M.app_db(): string
     return read_default("app_db")
 end
 
-function M.admin_scope()
+function M.admin_scope(): string
     return read_default("admin_scope")
 end
 
-function M.process_host()
+function M.auth_token_store(): string
+    local value, err = M.read_default("auth_token_store")
+    if not value or value == "undefined" then
+        error(M.error_message(err or config_error("auth_token_store", "empty", "set keeper:auth_token_store")))
+    end
+    return tostring(value)
+end
+
+function M.process_host(): string
     return read_default("process_host")
 end
 
-function M.mcp_route()
+function M.mcp_route(): string
     return read_default("mcp_route")
 end
 
