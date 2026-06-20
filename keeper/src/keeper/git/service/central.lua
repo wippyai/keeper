@@ -17,7 +17,7 @@ local push_handler = require("push_handler")
 local explain_handler = require("explain_handler")
 local split_handler = require("split_handler")
 local pr_handler = require("pr_handler")
-local events = require("events")
+local notify = require("notify")
 local events_consts = require("events_consts")
 
 local log = logger:named("keeper.git.central")
@@ -35,7 +35,7 @@ local function reply(payload, result, err)
 end
 
 local function relay(event, data)
-    events.publish(events_consts.TOPICS.GIT, { event = event, data = data })
+    notify.publish(events_consts.TOPICS.GIT, { event = event, data = data })
 end
 
 local deps = { state = state, reply = reply, relay = relay, log = log }

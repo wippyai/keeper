@@ -16,8 +16,7 @@ local consts = {
         RESOURCE_ID = "keeper.state:db",
     },
 
-    -- CQRS event publishing
-    CENTRAL = "wippy.central",
+    -- CQRS event publishing topic (admin events bus)
     TOPIC   = "keeper.task",
 
     PROCESS_NAMES = {

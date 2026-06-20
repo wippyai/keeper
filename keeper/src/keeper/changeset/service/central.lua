@@ -8,7 +8,7 @@ local edit_lib = require("edit")
 local drop_lib = require("drop")
 local transitions_lib = require("transitions")
 local diff = require("diff")
-local events = require("events")
+local notify = require("notify")
 local events_consts = require("events_consts")
 
 local log = logger:named("keeper.changeset.central")
@@ -56,7 +56,7 @@ local function send_reply(from: string?, payload: RequestPayload?, result: unkno
 end
 
 local function relay(event, data)
-    local ok, err = events.publish(events_consts.TOPICS.CHANGESET, {
+    local ok, err = notify.publish(events_consts.TOPICS.CHANGESET, {
         event = event,
         data  = data,
     })

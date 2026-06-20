@@ -20,15 +20,14 @@ local process = require("process")
 local consts = require("consts")
 local config = require("keeper_config")
 local scanner = require("scanner")
+local notify = require("notify")
 
 local M = {}
 
 local RELAY_TOPIC = "keeper.builds"
 
 local function publish(event, data)
-    pcall(function()
-        process.send("wippy.central", RELAY_TOPIC, { event = event, data = data })
-    end)
+    notify.publish(RELAY_TOPIC, { event = event, data = data })
 end
 
 local function get_db()

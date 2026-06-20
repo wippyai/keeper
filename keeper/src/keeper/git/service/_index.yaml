@@ -48,7 +48,7 @@ entries:
       snapshot_handler: keeper.git.service.handlers:snapshot
       split_handler: keeper.git.service.handlers:split
       state: keeper.git.service:state
-      events: keeper.events:publisher
+      notify: keeper.events:notify
       events_consts: keeper.events:consts
     method: run
     

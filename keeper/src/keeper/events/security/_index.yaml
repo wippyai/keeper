@@ -10,7 +10,7 @@ entries:
   - name: publish
     kind: security.policy
     meta:
-      comment: Keeper governance supervisors may open the events bus to publish.
+      comment: The governance-scoped events relay may open the bus to broadcast.
     groups:
       - keeper.gov.service.security:governance
     policy:

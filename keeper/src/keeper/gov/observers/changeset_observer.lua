@@ -4,14 +4,12 @@ local time = require("time")
 local logger = require("logger")
 local changelog_repo = require("changelog_repo")
 local gov_consts = require("gov_consts")
+local notify = require("notify")
 
 local log = logger:named("gov.observer.changeset")
 
 local CONST = {
     OPERATIONS = gov_consts.REGISTRY_OPERATIONS,
-
-    -- Central topic to publish to
-    CENTRAL_TOPIC = "wippy.central",
 
     -- Entity mappings - which kinds and meta.types to monitor for notifications
     ENTITY_MAPPINGS = {
@@ -50,8 +48,8 @@ end
 local function publish_entry_change(entry_type, entry_id)
     local time_now = time.now():format("2006-01-02 15:04:05")
 
-    -- Send the event to wippy.central
-    process.send(CONST.CENTRAL_TOPIC, entry_type, { id = entry_id })
+    -- Publish the entity change to subscribed admins via the events bus.
+    notify.publish(entry_type, { id = entry_id })
 
     -- Also log a confirmation message
     log:debug("Entity change notification sent", {
@@ -149,9 +147,9 @@ local function run(args)
         end
     end
 
-    -- Send global registry version update notification (to ALL users)
+    -- Publish the registry version update to subscribed admins.
     if result.version then
-        process.send(CONST.CENTRAL_TOPIC, "registry:version", {
+        notify.publish("registry:version", {
             version = result.version,
             operation_counts = summary.operation_counts,
             namespaces = summary.namespaces,

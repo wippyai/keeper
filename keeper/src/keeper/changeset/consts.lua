@@ -12,7 +12,7 @@ local consts = {
         RESPONSE = "workspace.response",
     },
 
-    -- Realtime events publish via keeper.events:publisher (topic keeper.changeset).
+    -- Realtime events publish via keeper.events:notify (topic keeper.changeset).
 
     EVENTS = {
         CREATED    = "workspace.created",

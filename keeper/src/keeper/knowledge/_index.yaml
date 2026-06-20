@@ -24,6 +24,7 @@ entries:
       kb_consts: keeper.knowledge:consts
       kb_repo: keeper.knowledge:repo
       llm: wippy.llm:llm
+      notify: keeper.events:notify
     method: embed
     pool:
       size: 1
@@ -42,6 +43,7 @@ entries:
       - registry
     imports:
       kb_consts: keeper.knowledge:consts
+      notify: keeper.events:notify
     
   # keeper.knowledge:seeder
   - name: seeder

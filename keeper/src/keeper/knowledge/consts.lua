@@ -6,7 +6,6 @@ function M.db_id(): string
     return config.app_db()
 end
 
-M.CENTRAL = "wippy.central"
 M.TOPIC = "keeper.knowledge"
 
 M.DEFAULT_KB_ID = "00000000-0000-0000-0000-000000000001"

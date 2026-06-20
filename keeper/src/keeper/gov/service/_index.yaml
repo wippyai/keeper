@@ -16,7 +16,7 @@ entries:
       - logger
     imports:
       consts: keeper.gov:consts
-      events: keeper.events:publisher
+      notify: keeper.events:notify
       events_consts: keeper.events:consts
     method: run
 

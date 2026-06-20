@@ -7,7 +7,7 @@ local consts = {
         COMMANDS = "git.commands",
     },
 
-    -- Realtime events publish via keeper.events:publisher (topic keeper.git).
+    -- Realtime events publish via keeper.events:notify (topic keeper.git).
 
     EVENTS = {
         REBUILD_STARTED       = "git.rebuild.started",

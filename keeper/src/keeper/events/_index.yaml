@@ -24,12 +24,38 @@ entries:
     meta:
       comment: Process-group bus carrying keeper admin events to subscribed user hubs.
 
-  - name: publisher
+  - name: notify
     kind: library.lua
     meta:
       comment: Internal SDK keeper modules call to publish an admin event over the bus.
-    source: file://publisher.lua
-    modules:
-      - pg
+    source: file://notify.lua
     imports:
       events_consts: keeper.events:consts
+
+  - name: relay_process
+    kind: process.lua
+    meta:
+      comment: Events relay — owns the bus and rebroadcasts published events to admin hubs.
+    source: file://relay.lua
+    modules:
+      - pg
+      - logger
+    imports:
+      events_consts: keeper.events:consts
+    method: run
+
+  - name: relay
+    kind: process.service
+    meta:
+      comment: Events relay service — single bus owner; publishers send to it via process.registry.
+    host: keeper.gov:processes
+    lifecycle:
+      depends_on:
+        - keeper.gov:processes
+      auto_start: true
+      security:
+        actor:
+          id: keeper.events.relay
+        groups:
+          - keeper.gov.service.security:governance
+    process: relay_process

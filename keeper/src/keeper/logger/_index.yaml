@@ -39,6 +39,8 @@ entries:
       - channel
     imports:
       logger_consts: keeper.logger:consts
+      notify: keeper.events:notify
+      events_consts: keeper.events:consts
     method: run
     
   # keeper.logger:service

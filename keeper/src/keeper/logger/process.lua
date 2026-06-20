@@ -3,6 +3,8 @@ local time = require("time")
 local json = require("json")
 local expr = require("expr")
 local events = require("events")
+local notify = require("notify")
+local events_consts = require("events_consts")
 local consts = require("logger_consts")
 
 local log = logger:named("keeper.logger")
@@ -323,7 +325,7 @@ local function run()
             elseif lvl >= 2 then state.counters.error = state.counters.error + 1
             end
 
-            process.send("wippy.central", "keeper.logs", {
+            notify.publish(events_consts.TOPICS.LOGS, {
                 entry = flattened,
                 counters = state.counters,
             })

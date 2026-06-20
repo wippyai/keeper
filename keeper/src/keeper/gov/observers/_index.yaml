@@ -24,5 +24,6 @@ entries:
     imports:
       changelog_repo: keeper.knowledge.changelog:changelog
       gov_consts: keeper.gov:consts
+      notify: keeper.events:notify
     method: run
     

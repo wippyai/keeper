@@ -9,6 +9,7 @@ local json = require("json")
 local uuid = require("uuid")
 local time = require("time")
 local consts = require("task_consts")
+local notify = require("notify")
 
 local task_writer = {}
 local builder_methods = {}
@@ -51,7 +52,7 @@ end
 
 local function publish(event, data)
     pcall(function()
-        process.send(consts.CENTRAL, consts.TOPIC, { event = event, data = data })
+        notify.publish(consts.TOPIC, { event = event, data = data })
     end)
 end
 

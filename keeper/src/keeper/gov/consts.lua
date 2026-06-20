@@ -29,7 +29,6 @@ local consts = {
     TOPICS = {
         COMMANDS = "registry.governance.command",
         RESPONSE = "response",
-        RELAY = "wippy.central",
         VERSION = "registry:version"
     },
 

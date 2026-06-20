@@ -21,7 +21,7 @@ entries:
       open: keeper.changeset.service:open
       repo: keeper.changeset.persist:repo
       transitions: keeper.changeset.service:transitions
-      events: keeper.events:publisher
+      notify: keeper.events:notify
       events_consts: keeper.events:consts
     method: run
     

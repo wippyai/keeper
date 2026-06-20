@@ -5,6 +5,7 @@ local time = require("time")
 local registry = require("registry")
 
 local consts = require("kb_consts")
+local notify = require("notify")
 
 local M = {}
 
@@ -24,7 +25,7 @@ end
 
 local function publish(event, data)
     pcall(function()
-        process.send(consts.CENTRAL, consts.TOPIC, { event = event, data = data })
+        notify.publish(consts.TOPIC, { event = event, data = data })
     end)
 end
 

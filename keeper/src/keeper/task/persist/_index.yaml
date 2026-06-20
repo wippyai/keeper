@@ -82,6 +82,7 @@ entries:
       - time
     imports:
       task_consts: keeper.task:consts
+      notify: keeper.events:notify
     
   # keeper.task.persist:reader
   - name: reader
@@ -111,4 +112,5 @@ entries:
       changeset_client: keeper.changeset:client
       changeset_consts: keeper.changeset:consts
       task_consts: keeper.task:consts
+      notify: keeper.events:notify
     

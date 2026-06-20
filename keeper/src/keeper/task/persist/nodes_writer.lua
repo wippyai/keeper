@@ -15,9 +15,9 @@ local sql  = require("sql")
 local json = require("json")
 local uuid = require("uuid")
 local time = require("time")
-local process = require("process")
 
 local task_consts = require("task_consts")
+local notify = require("notify")
 
 local M = {}
 
@@ -48,14 +48,13 @@ type TaskNodeWorkspace = {
     update: (TaskNodeWorkspace, string, {[string]: unknown}) -> (unknown?, string?),
 }
 
--- CQRS event publish. Best-effort broadcast to wippy.central on the
--- keeper.task topic so subscribers (FE relay, dataflow listeners) can react
+-- CQRS event publish. Best-effort broadcast over the admin events bus on the
+-- keeper.task topic so subscribed admins (FE relay, dataflow listeners) can react
 -- to node creates/updates without polling. Failures are swallowed —
 -- persistence must not depend on the bus being up.
 local function publish(event, data)
     pcall(function()
-        process.send(task_consts.CENTRAL, task_consts.TOPIC,
-            { event = event, data = data })
+        notify.publish(task_consts.TOPIC, { event = event, data = data })
     end)
 end
 

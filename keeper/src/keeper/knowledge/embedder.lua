@@ -4,6 +4,7 @@ local json = require("json")
 local kb_repo = require("kb_repo")
 local consts = require("kb_consts")
 local llm = require("llm")
+local notify = require("notify")
 
 type EmbedArgs = {
     node_id: string?,
@@ -77,7 +78,7 @@ local function embed_node(id, params)
         :exec()
 
     pcall(function()
-        process.send(consts.CENTRAL, consts.TOPIC, { event = consts.EVENTS.NODE_EMBEDDED, data = { id = id, title = node.title, model = model } })
+        notify.publish(consts.TOPIC, { event = consts.EVENTS.NODE_EMBEDDED, data = { id = id, title = node.title, model = model } })
     end)
 
     return { id = id, embedded = true, model = model }
@@ -100,7 +101,7 @@ local function embed(args: unknown)
         if result then
             count = count + 1
             pcall(function()
-                process.send(consts.CENTRAL, consts.TOPIC, {
+                notify.publish(consts.TOPIC, {
                     event = consts.EVENTS.SCAN_PROGRESS,
                     data = { type = "embed", embedded = count, total = #rows },
                 })

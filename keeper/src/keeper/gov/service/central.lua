@@ -3,7 +3,7 @@ local time = require("time")
 local channel = require("channel")
 local logger = require("logger")
 local consts = require("consts")
-local events = require("events")
+local notify = require("notify")
 local events_consts = require("events_consts")
 
 local log = logger:named("gov.service.central")
@@ -20,7 +20,7 @@ local function response_topic(payload)
 end
 
 local function propagate_version_change(old_version, new_version)
-    events.publish(events_consts.TOPICS.VERSION, {
+    notify.publish(events_consts.TOPICS.VERSION, {
         old_version = old_version,
         new_version = new_version,
         timestamp = time.now():unix()
