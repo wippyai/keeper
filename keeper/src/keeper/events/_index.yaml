@@ -23,6 +23,8 @@ entries:
     kind: pg.scope
     meta:
       comment: Process-group bus carrying keeper admin events to subscribed user hubs.
+    lifecycle:
+      auto_start: true
 
   - name: notify
     kind: library.lua
@@ -52,6 +54,7 @@ entries:
     lifecycle:
       depends_on:
         - keeper.gov:processes
+        - keeper.events:bus
       auto_start: true
       security:
         actor:
