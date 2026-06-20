@@ -18,6 +18,8 @@ const api = useApi()
 const host = useHost()
 const instance = useWippy()
 const events = useEvents()
+const evSubscribed = events.subscribed
+const evMuted = events.muted
 
 const errorCount = ref(0)
 const warnCount = ref(0)
@@ -53,7 +55,6 @@ const observeItemsStatic: NavItem[] = [
   { path: '/dataflows', name: 'workflow', label: 'Dataflows', icon: 'tabler:git-merge' },
   { path: '/system', name: 'system', label: 'System', icon: 'tabler:activity' },
   { path: '/logs', name: 'logs', label: 'Logs', icon: 'tabler:file-text' },
-  { path: '/activity', name: 'activity', label: 'Activity', icon: 'tabler:broadcast' },
 ]
 
 const statusItemsStatic: NavItem[] = []
@@ -444,6 +445,20 @@ onUnmounted(() => {
       </nav>
 
       <div class="flex items-center gap-1.5 shrink-0">
+        <Button
+          variant="text"
+          class="k-btn-icon !rounded relative"
+          :class="{ 'k-btn-active': currentName === 'activity' }"
+          :title="evMuted ? 'Admin activity — muted' : evSubscribed ? 'Admin activity — live' : 'Admin activity'"
+          @click="navigate('/activity')"
+        >
+          <Icon
+            :icon="evMuted ? 'tabler:broadcast-off' : 'tabler:broadcast'"
+            class="w-4 h-4"
+            :style="{ color: evSubscribed && !evMuted ? 'var(--p-primary-color)' : 'var(--p-text-muted-color)' }"
+          />
+          <span v-if="evSubscribed && !evMuted" class="activity-live" />
+        </Button>
         <AppAgentLauncher
           :agents="publicAgents"
           :open="agentDropOpen"
@@ -472,3 +487,17 @@ onUnmounted(() => {
     />
   </div>
 </template>
+
+<style scoped>
+/* Live indicator on the Activity nav icon — replaces the standalone Activity page. */
+.activity-live {
+  position: absolute; top: 3px; right: 3px;
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--p-primary-color);
+  animation: activity-pulse 1.8s ease-out infinite;
+}
+@keyframes activity-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--p-primary-color) 55%, transparent); }
+  70%, 100% { box-shadow: 0 0 0 4px transparent; }
+}
+</style>
