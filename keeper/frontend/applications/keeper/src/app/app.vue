@@ -24,6 +24,7 @@ const warnCount = ref(0)
 
 let unsubNavigate: (() => void) | null = null
 let unsubLogs: (() => void) | null = null
+let unsubWelcome: (() => void) | null = null
 
 // Log counters update via relay subscription (keeper.logs) — no polling needed
 async function fetchLogCounters() {
@@ -356,17 +357,23 @@ onMounted(() => {
       warnCount.value = counters.warn || 0
     }
   })
+  // Join the admin event bus whenever the realtime hub (re)connects. The relay
+  // user hub is recreated on every reconnect and does not retain group
+  // membership, so re-subscribing on each `welcome` keeps an admin reliably
+  // joined for the whole keeper session. No-op for non-admins (server-gated)
+  // and when muted. The immediate call covers an already-open connection.
+  unsubWelcome = instance.on('welcome', () => events.ensureSubscribed(api, true))
   fetchMe()
   fetchLogCounters()
   fetchAgents()
   discoverPlugins()
-  // Join the admin event bus on visit (no-op for non-admins, server-gated; skipped if muted).
-  events.ensureSubscribed(api)
+  events.ensureSubscribed(api, true)
   document.addEventListener('click', onClickOutside)
   document.addEventListener('keydown', onGlobalKeydown)
 })
 
 onUnmounted(() => {
+  unsubWelcome?.()
   unsubNavigate?.()
   unsubLogs?.()
   document.removeEventListener('click', onClickOutside)
