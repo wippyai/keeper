@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import Button from 'primevue/button'
 import { useApi, useHost, useWippy } from '../composables/useWippy'
+import { useEvents } from '../composables/useEvents'
 import { kindColor, kindIcon } from '../api/registry'
 import { timeAgo } from '../api/sessions'
 import AppNavDropdown, { type NavItem } from './AppNavDropdown.vue'
@@ -16,6 +17,7 @@ const route = useRoute()
 const api = useApi()
 const host = useHost()
 const instance = useWippy()
+const events = useEvents()
 
 const errorCount = ref(0)
 const warnCount = ref(0)
@@ -50,6 +52,7 @@ const observeItemsStatic: NavItem[] = [
   { path: '/dataflows', name: 'workflow', label: 'Dataflows', icon: 'tabler:git-merge' },
   { path: '/system', name: 'system', label: 'System', icon: 'tabler:activity' },
   { path: '/logs', name: 'logs', label: 'Logs', icon: 'tabler:file-text' },
+  { path: '/activity', name: 'activity', label: 'Activity', icon: 'tabler:broadcast' },
 ]
 
 const statusItemsStatic: NavItem[] = []
@@ -357,6 +360,8 @@ onMounted(() => {
   fetchLogCounters()
   fetchAgents()
   discoverPlugins()
+  // Join the admin event bus on visit (no-op for non-admins, server-gated; skipped if muted).
+  events.ensureSubscribed(api)
   document.addEventListener('click', onClickOutside)
   document.addEventListener('keydown', onGlobalKeydown)
 })

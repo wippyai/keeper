@@ -79,6 +79,11 @@ const routes = [
     component: () => import('../pages/logger.vue'),
   },
   {
+    path: '/activity',
+    name: 'activity',
+    component: () => import('../pages/activity.vue'),
+  },
+  {
     path: '/system',
     name: 'system',
     component: () => import('../pages/system.vue'),
