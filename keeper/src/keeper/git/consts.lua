@@ -7,8 +7,7 @@ local consts = {
         COMMANDS = "git.commands",
     },
 
-    RELAY_TARGET = "wippy.central",
-    RELAY_TOPIC  = "keeper.git",
+    -- Realtime events publish via keeper.events:publisher (topic keeper.git).
 
     EVENTS = {
         REBUILD_STARTED       = "git.rebuild.started",

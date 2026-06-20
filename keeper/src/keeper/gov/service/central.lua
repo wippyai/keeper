@@ -3,13 +3,13 @@ local time = require("time")
 local channel = require("channel")
 local logger = require("logger")
 local consts = require("consts")
+local events = require("events")
+local events_consts = require("events_consts")
 
 local log = logger:named("gov.service.central")
 
 local PROCESS_NAME: string = tostring(consts.PROCESS_NAME)
 local PROCESS_HOST: string = tostring(consts.PROCESS_HOST)
-local TOPIC_RELAY: string = tostring(consts.TOPICS.RELAY)
-local TOPIC_VERSION: string = tostring(consts.TOPICS.VERSION)
 local TOPIC_RESPONSE: string = tostring(consts.TOPICS.RESPONSE)
 
 local function response_topic(payload)
@@ -20,7 +20,7 @@ local function response_topic(payload)
 end
 
 local function propagate_version_change(old_version, new_version)
-    process.send(TOPIC_RELAY, TOPIC_VERSION, {
+    events.publish(events_consts.TOPICS.VERSION, {
         old_version = old_version,
         new_version = new_version,
         timestamp = time.now():unix()

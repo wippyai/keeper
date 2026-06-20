@@ -12,9 +12,7 @@ local consts = {
         RESPONSE = "workspace.response",
     },
 
-    -- CQRS: real-time event publishing via wippy relay
-    RELAY_TARGET = "wippy.central",
-    RELAY_TOPIC  = "keeper.changeset",
+    -- Realtime events publish via keeper.events:publisher (topic keeper.changeset).
 
     EVENTS = {
         CREATED    = "workspace.created",

@@ -21,6 +21,8 @@ entries:
       open: keeper.changeset.service:open
       repo: keeper.changeset.persist:repo
       transitions: keeper.changeset.service:transitions
+      events: keeper.events:publisher
+      events_consts: keeper.events:consts
     method: run
     
   # keeper.changeset.service:central.service

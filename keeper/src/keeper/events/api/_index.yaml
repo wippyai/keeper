@@ -1,0 +1,55 @@
+version: "1.0"
+namespace: keeper.events.api
+
+# Inbound adapter: admin-gated REST control for the event bus subscription. The
+# frontend calls these on entering / leaving (or muting) the keeper UI. Both
+# methods live in subscribe.lua and share the admin-gate + hub-lookup helpers.
+
+entries:
+  - name: subscribe
+    kind: function.lua
+    meta:
+      comment: Subscribe the caller's admin hub to the keeper events bus.
+      router: app:api
+    source: file://subscribe.lua
+    method: subscribe
+    modules:
+      - http
+      - security
+    imports:
+      mcp_auth: keeper.mcp.auth:auth
+      events_consts: keeper.events:consts
+    pool:
+      size: 2
+
+  - name: unsubscribe
+    kind: function.lua
+    meta:
+      comment: Unsubscribe the caller's admin hub from the keeper events bus.
+      router: app:api
+    source: file://subscribe.lua
+    method: unsubscribe
+    modules:
+      - http
+      - security
+    imports:
+      mcp_auth: keeper.mcp.auth:auth
+      events_consts: keeper.events:consts
+    pool:
+      size: 2
+
+  - name: subscribe.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: subscribe
+    path: /keeper/events/subscribe
+
+  - name: unsubscribe.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: unsubscribe
+    path: /keeper/events/unsubscribe

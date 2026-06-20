@@ -1,0 +1,19 @@
+version: "1.0"
+namespace: keeper.events.security
+
+# Who may open the keeper events bus. Publishing is keeper's own concern and
+# declared here. The subscriber-side grant (which user scope may join to receive)
+# is the host application's concern and is declared by the app, since the app
+# owns its user security scope.
+
+entries:
+  - name: publish
+    kind: security.policy
+    meta:
+      comment: Keeper governance supervisors may open the events bus to publish.
+    groups:
+      - keeper.gov.service.security:governance
+    policy:
+      resources: keeper.events:bus
+      actions: pg.open
+      effect: allow

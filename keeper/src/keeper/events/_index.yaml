@@ -1,0 +1,35 @@
+version: "1.0"
+namespace: keeper.events
+
+# keeper.events — admin realtime event bus (hexagonal domain).
+#
+# Domain/ports:   consts (vocabulary), publisher (the SDK modules call).
+# Outbound adapter: bus (pg.scope) — the transport the events ride on.
+# Inbound adapter:  keeper.events.api — REST subscribe/unsubscribe (admin-gated).
+# Policy:           keeper.events.security — who may pg.open the bus.
+#
+# Only admin user hubs are ever instructed to join the bus group, so only admins
+# receive events. Publishers (governance supervisors) broadcast; the relay hub
+# fans received broadcasts to the admin's browser tabs.
+
+entries:
+  - name: consts
+    kind: library.lua
+    meta:
+      comment: Event bus vocabulary — pg scope, admin group, clear topics.
+    source: file://consts.lua
+
+  - name: bus
+    kind: pg.scope
+    meta:
+      comment: Process-group bus carrying keeper admin events to subscribed user hubs.
+
+  - name: publisher
+    kind: library.lua
+    meta:
+      comment: Internal SDK keeper modules call to publish an admin event over the bus.
+    source: file://publisher.lua
+    modules:
+      - pg
+    imports:
+      events_consts: keeper.events:consts
