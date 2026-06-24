@@ -27,6 +27,8 @@ entries:
     meta:
       comment: Computed change list — branch vs main via state reader + scratch vs fe_fs via fs_hash
     source: file://diff.lua
+    modules:
+      - sql
     imports:
       consts: keeper.changeset:consts
       fs_hash: keeper.changeset:fs_hash
