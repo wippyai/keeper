@@ -85,6 +85,6 @@ make publish-usage
 
 ## License
 
-Keeper modules are distributed under the Business Source License 1.1. See
+Keeper modules are distributed under the Mozilla Public License 2.0. See
 [LICENSE](LICENSE). The module metadata in `keeper/wippy.yaml` and
-`usage/wippy.yaml` uses the same `BSL-1.1` identifier.
+`usage/wippy.yaml` uses the same `MPL-2.0` identifier.
