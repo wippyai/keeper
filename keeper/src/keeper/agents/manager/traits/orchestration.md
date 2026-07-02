@@ -50,10 +50,10 @@ A delegate entry is `{name, id, rule, context?}`:
 
 ### Model sizing in teams
 
-- Director / Root → class:smart (or larger reasoning model with
+- Director / Root → class:premium (or larger reasoning model with
   thinking_effort 20–40)
-- Coordinator → class:smart, lower thinking_effort
-- Worker → class:coder / class:fast — focused, cheaper, low temp
+- Coordinator → class:premium, lower thinking_effort
+- Worker → class:premium / class:fast — focused, cheaper, low temp
 
 Mixed sizes are intentional. Don't put opus everywhere; cheap models
 do tool-calling fine and the parent does the reasoning.

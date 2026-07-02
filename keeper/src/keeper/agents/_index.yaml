@@ -57,7 +57,7 @@ entries:
       - Never invent entry IDs or assume they exist — verify via explore_state
 
       You execute: set branch → explore → implement → integrate.
-    model: class:coder
+    model: class:premium
     temperature: 0.3
     max_tokens: 16000
     tools:
@@ -207,7 +207,7 @@ entries:
         gut feel.
       A spec that paraphrases-with-confidence is the failure mode we
       pay for in bounces; an extra research call is the cheap insurance.
-    model: class:smart
+    model: class:premium
     max_tokens: 16000
     tools:
       - keeper.task.tools:save_context
@@ -355,7 +355,7 @@ entries:
       - If the spec lists exactly N entries, create exactly N — no bonus test entries,
         no auxiliary helpers.
       - Copy spec payload shapes verbatim when they are given as JSON literals.
-    model: class:coder
+    model: class:premium
     temperature: 0.3
     max_tokens: 16000
     tools:
@@ -407,7 +407,7 @@ entries:
 
       Do not implement directly. The Keeper task pipeline owns the actual
       design/plan/implement/review/integrate/test cycle and rollback behavior.
-    model: class:smart
+    model: class:premium
     temperature: 0.2
     max_tokens: 6000
     tools:
@@ -539,7 +539,7 @@ entries:
       2. Exit — the orchestrator commits; push auto-rebuilds any component whose
          source you touched and reports build status back in the submit response.
       3. Verify the file you wrote is on disk and matches what you intended via fs view BEFORE exiting. The orchestrator does not validate fs writes for you.
-    model: class:coder
+    model: class:premium
     temperature: 0.3
     max_tokens: 16000
     tools:
@@ -688,7 +688,7 @@ entries:
       - status="spec_wrong" — the plan itself cannot be realised; back to design.
       - status="stuck" — retries not converging.
       - status="ask_user" — after calling step_block with the question.
-    model: class:orchestrator
+    model: class:premium
     max_tokens: 16000
     tools:
       - keeper.state.tools:compare
@@ -962,7 +962,7 @@ entries:
       ```
       { "status": "planned", "summary": "2 impl steps, 1 endpoint_probe — BE only" }
       ```
-    model: class:orchestrator
+    model: class:premium
     max_tokens: 16000
     tools:
       - keeper.task.tools:save_context
@@ -1116,7 +1116,7 @@ entries:
       Review → implement is capped at 1. A second round of bugs force-finishes the task — so do
       NOT return bugs for style, missing comments, or subjective taste; only concrete spec
       mismatches. Style nits go in summary but the exit is approved.
-    model: class:orchestrator
+    model: class:premium
     max_tokens: 6000
     tools:
       - keeper.state.tools:get_entries
@@ -1185,7 +1185,7 @@ entries:
       - One verify_api + one review_ui per phase. Do NOT re-delegate the same target set.
       - Never ask verifier to probe unauthenticated paths — test_endpoint runs as authenticated
         actor. "401 without auth" wastes a whole round.
-    model: class:orchestrator
+    model: class:premium
     max_tokens: 6000
     tools:
       - keeper.state.tools:get_entries

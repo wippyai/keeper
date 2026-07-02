@@ -52,7 +52,7 @@ local function define_tests()
             local entry = require_entry(MANAGER_ID, "agent.gen1")
             test.eq(entry.meta.title, "Agent Manager")
             test.is_true(has_class(entry, "public"))
-            test.eq(entry.data.model, "class:smart")
+            test.eq(entry.data.model, "class:premium")
             test.is_true(type(entry.data.prompt) == "string" and #entry.data.prompt > 500)
         end)
 
