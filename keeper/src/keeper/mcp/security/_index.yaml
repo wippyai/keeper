@@ -37,3 +37,38 @@ entries:
       resources: '*'
       actions: '*'
       effect: allow
+
+  # keeper.mcp.security:endpoint_db_access
+  - name: endpoint_db_access
+    kind: security.policy
+    meta:
+      comment: The public Keeper MCP endpoint may open the app database to resolve a bearer token and persist session state.
+    policy:
+      resources: app:db
+      actions:
+        - db.get
+      effect: allow
+
+  # keeper.mcp.security:endpoint_actor_create
+  - name: endpoint_actor_create
+    kind: security.policy
+    meta:
+      comment: The public Keeper MCP endpoint may synthesize the resolved token subject actor and runtime scope.
+    policy:
+      resources: '*'
+      actions:
+        - security.actor.create
+        - security.scope.create
+      effect: allow
+
+  # keeper.mcp.security:endpoint_registry_read
+  - name: endpoint_registry_read
+    kind: security.policy
+    meta:
+      comment: The public Keeper MCP endpoint may read registry entries to build the surfaced tool and trait catalog.
+    policy:
+      resources: '*'
+      actions:
+        - registry.find
+        - registry.get
+      effect: allow
