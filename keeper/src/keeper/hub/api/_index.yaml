@@ -239,3 +239,25 @@ entries:
     method: POST
     func: uninstall_dependency
     path: /keeper/hub/dependencies/uninstall
+
+  # keeper.hub.api:scan_dependency
+  - name: scan_dependency
+    kind: function.lua
+    meta:
+      comment: Agent security scan of a Hub dependency's install graph (per module)
+    source: file://scan_dependency.lua
+    modules:
+      - http
+      - funcs
+    imports:
+      api_http: keeper.hub.api:http
+    method: handler
+
+  # keeper.hub.api:scan_dependency.endpoint
+  - name: scan_dependency.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: scan_dependency
+    path: /keeper/hub/scan

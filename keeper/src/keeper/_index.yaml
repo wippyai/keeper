@@ -151,6 +151,8 @@ entries:
         path: .meta.router
       - entry: keeper.hub.api:uninstall_dependency.endpoint
         path: .meta.router
+      - entry: keeper.hub.api:scan_dependency.endpoint
+        path: .meta.router
       - entry: keeper.git.api:explain
         path: .meta.router
       - entry: keeper.git.api:explain.endpoint
