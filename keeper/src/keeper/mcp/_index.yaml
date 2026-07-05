@@ -45,6 +45,7 @@ entries:
       suite: mcp
     source: file://test.lua
     modules:
+      - hash
       - sql
       - uuid
       - registry
