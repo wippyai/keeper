@@ -239,6 +239,34 @@ local function no_requirements_planner()
     }
 end
 
+-- Records every plan_install call so uninstall-path tests can assert the Hub
+-- planner is never consulted. Returns an error if called.
+local function spy_planner(state)
+    state = state or {}
+    state.calls = state.calls or 0
+    return {
+        plan_install = function(_)
+            state.calls = state.calls + 1
+            return nil, "planner must not be called on the uninstall graph path"
+        end,
+    }
+end
+
+-- Builds an installed ns.dependency entry with a stored resolved-graph meta
+-- (meta.hub.resolved_modules), mirroring what install writes at line ~817.
+local function dep_entry(id, component, module_names)
+    local modules = {}
+    for _, name in ipairs(module_names or {}) do
+        table.insert(modules, { name = name, version = "1.0.0", hash = name .. "-hash" })
+    end
+    return {
+        id = id,
+        kind = "ns.dependency",
+        meta = { hub = { resolved_modules = modules } },
+        data = { component = component, version = ">=v0.0.0" },
+    }
+end
+
 local function fake_catalog(versions_by_component)
     local dependencies_by_component = versions_by_component.__dependencies or {}
     versions_by_component.__dependencies = nil
@@ -361,7 +389,13 @@ local function fixture_entries()
         {
             id = "app.deps:foo",
             kind = "ns.dependency",
-            meta = {},
+            meta = {
+                hub = {
+                    resolved_modules = {
+                        { name = "wippy/foo", version = "1.2.3", hash = "foo-hash" },
+                    },
+                },
+            },
             data = { component = "wippy/foo", version = ">=v1.0.0" },
         },
         {
@@ -442,6 +476,173 @@ local function define_tests()
                 test.eq(#doc.modules, 2)
                 test.eq(doc.modules[1].name, "userspace/scheduler")
                 test.eq(doc.modules[2].name, "wippy/terminal")
+            end)
+        end)
+
+        describe("uninstall graph context (offline, from stored meta)", function()
+            it("derives the uninstall graph from stored meta and keeps modules other dependencies need", function()
+                local alpha = dep_entry("app.deps:alpha", "wippy/alpha",
+                    { "wippy/alpha", "wippy/shared", "wippy/only-alpha" })
+                local beta = dep_entry("app.deps:beta", "wippy/beta",
+                    { "wippy/beta", "wippy/shared" })
+                local spy = {}
+                local svc = hub.new({
+                    registry = fake_registry({ alpha, beta }),
+                    planner = spy_planner(spy),
+                }) :: any
+
+                local remove_graph, keep, err = svc:uninstall_graph_context(alpha)
+
+                test.is_nil(err)
+                local remove_names = {}
+                for _, node in ipairs(remove_graph) do remove_names[node.name] = true end
+                test.is_true(remove_names["wippy/alpha"])
+                test.is_true(remove_names["wippy/shared"])
+                test.is_true(remove_names["wippy/only-alpha"])
+
+                local keep_set = keep :: any
+                test.is_true(keep_set["wippy/shared"])
+                test.is_nil(keep_set["wippy/only-alpha"])
+                test.is_nil(keep_set["wippy/alpha"])
+
+                -- subtraction: shared is kept, only-alpha and alpha are removable
+                local doc = {
+                    modules = {
+                        { name = "wippy/alpha", version = "1.0.0", hash = "a" },
+                        { name = "wippy/shared", version = "1.0.0", hash = "s" },
+                        { name = "wippy/only-alpha", version = "1.0.0", hash = "o" },
+                        { name = "wippy/beta", version = "1.0.0", hash = "b" },
+                    },
+                    replacements = {},
+                }
+                local changes = lockfile.preview_uninstall(doc, "wippy/alpha", remove_graph, keep)
+                local removed = {}
+                for _, row in ipairs(changes.removed) do removed[row.name] = true end
+                test.is_true(removed["wippy/alpha"])
+                test.is_true(removed["wippy/only-alpha"])
+                test.is_nil(removed["wippy/shared"])
+                test.is_nil(removed["wippy/beta"])
+
+                -- offline: the Hub planner is never consulted
+                test.eq(spy.calls, 0)
+            end)
+
+            it("marks a transitive module removable when only the target dependency needs it", function()
+                local alpha = dep_entry("app.deps:alpha", "wippy/alpha",
+                    { "wippy/alpha", "wippy/shared", "wippy/only-alpha" })
+                local spy = {}
+                local svc = hub.new({
+                    registry = fake_registry({ alpha }),
+                    planner = spy_planner(spy),
+                }) :: any
+
+                local remove_graph, keep, err = svc:uninstall_graph_context(alpha)
+
+                test.is_nil(err)
+                local keep_set = keep :: any
+                test.is_nil(keep_set["wippy/shared"])
+                test.is_nil(keep_set["wippy/only-alpha"])
+
+                local doc = {
+                    modules = {
+                        { name = "wippy/alpha", version = "1.0.0", hash = "a" },
+                        { name = "wippy/shared", version = "1.0.0", hash = "s" },
+                        { name = "wippy/only-alpha", version = "1.0.0", hash = "o" },
+                    },
+                    replacements = {},
+                }
+                local changes = lockfile.preview_uninstall(doc, "wippy/alpha", remove_graph, keep)
+                local removed = {}
+                for _, row in ipairs(changes.removed) do removed[row.name] = true end
+                test.is_true(removed["wippy/alpha"])
+                test.is_true(removed["wippy/shared"])
+                test.is_true(removed["wippy/only-alpha"])
+
+                test.eq(spy.calls, 0)
+            end)
+
+            it("returns the stored graph with no keep set when the dependency has only its own module", function()
+                local solo = dep_entry("app.deps:solo", "wippy/solo", { "wippy/solo" })
+                local spy = {}
+                local svc = hub.new({
+                    registry = fake_registry({ solo }),
+                    planner = spy_planner(spy),
+                }) :: any
+
+                local remove_graph, keep, err = svc:uninstall_graph_context(solo)
+
+                test.is_nil(err)
+                test.eq(#remove_graph, 1)
+                test.eq(remove_graph[1].name, "wippy/solo")
+                test.is_nil(next(keep))
+                test.eq(spy.calls, 0)
+            end)
+
+            it("fails loud when the target dependency has no stored resolved-graph meta", function()
+                local legacy = {
+                    id = "app.deps:legacy",
+                    kind = "ns.dependency",
+                    meta = {},
+                    data = { component = "wippy/legacy", version = ">=v0.0.0" },
+                }
+                local spy = {}
+                local svc = hub.new({
+                    registry = fake_registry({ legacy }),
+                    planner = spy_planner(spy),
+                }) :: any
+
+                local remove_graph, keep, err = svc:uninstall_graph_context(legacy)
+
+                test.is_nil(remove_graph)
+                test.not_nil(err)
+                test.eq(err_code(err), "RESOLVED_GRAPH_META_MISSING")
+                test.is_true(string.find(err_message(err), "app.deps:legacy", 1, true) ~= nil)
+                test.eq(spy.calls, 0)
+            end)
+
+            it("fails loud naming another installed dependency that is missing stored meta", function()
+                local alpha = dep_entry("app.deps:alpha", "wippy/alpha",
+                    { "wippy/alpha", "wippy/shared" })
+                local legacy = {
+                    id = "app.deps:legacy",
+                    kind = "ns.dependency",
+                    meta = {},
+                    data = { component = "wippy/legacy", version = ">=v0.0.0" },
+                }
+                local spy = {}
+                local svc = hub.new({
+                    registry = fake_registry({ alpha, legacy }),
+                    planner = spy_planner(spy),
+                }) :: any
+
+                local _, _, err = svc:uninstall_graph_context(alpha)
+
+                test.not_nil(err)
+                test.eq(err_code(err), "RESOLVED_GRAPH_META_MISSING")
+                test.is_true(string.find(err_message(err), "app.deps:legacy", 1, true) ~= nil)
+                test.eq(spy.calls, 0)
+            end)
+
+            it("plan_uninstall surfaces the missing-meta error distinctly from DEPENDENCY_GRAPH_FAILED", function()
+                local legacy = {
+                    id = "app.deps:legacy",
+                    kind = "ns.dependency",
+                    meta = {},
+                    data = { component = "wippy/legacy", version = ">=v0.0.0" },
+                }
+                local spy = {}
+                local svc = hub.new({
+                    registry = fake_registry({ legacy }),
+                    sql = fake_sql({}),
+                    planner = spy_planner(spy),
+                }) :: any
+
+                local plan, err = svc:plan_uninstall({ component = "wippy/legacy" })
+
+                test.is_nil(plan)
+                test.not_nil(err)
+                test.eq(err_code(err), "RESOLVED_GRAPH_META_MISSING")
+                test.eq(spy.calls, 0)
             end)
         end)
 

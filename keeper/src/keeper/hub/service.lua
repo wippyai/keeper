@@ -105,6 +105,7 @@ local ERROR_KIND_BY_CODE = {
     REQUIREMENTS_MISSING = errors.CONFLICT,
     MIGRATIONS_APPLIED = errors.CONFLICT,
     DEPENDENCY_GRAPH_FAILED = errors.CONFLICT,
+    RESOLVED_GRAPH_META_MISSING = errors.CONFLICT,
 }
 
 local function err(code, message, details)
@@ -737,19 +738,6 @@ function Service:plan_install(args)
     return nil, err("INTERNAL", "hub install planner unavailable")
 end
 
-function Service:dependency_graph_for_entry(dep)
-    local summary = M.dependency_summary(dep)
-    local plan, plan_err = self:plan_install({
-        id = summary.id,
-        component = summary.component,
-        version = summary.version,
-        parameters = summary.parameters,
-        migration_policy = "none",
-    })
-    if not plan then return nil, plan_err end
-    return plan.graph or {}, nil
-end
-
 local function graph_module_set(graph)
     local out = {}
     for _, node in ipairs(graph or {}) do
@@ -760,10 +748,36 @@ local function graph_module_set(graph)
     return out
 end
 
+-- Resolved module graph recorded on an installed ns.dependency entry at install
+-- time by lockfile.attach_resolved_graph_meta (meta.hub.resolved_modules).
+-- Returns nil when the entry carries no stored graph.
+local function stored_resolved_graph(entry)
+    local meta = entry and entry.meta
+    local hub_meta = type(meta) == "table" and meta.hub or nil
+    local modules = type(hub_meta) == "table" and hub_meta.resolved_modules or nil
+    if type(modules) ~= "table" then return nil end
+    return modules
+end
+
+local function missing_graph_meta_error(entry)
+    local id = entry and entry.id
+    return err("RESOLVED_GRAPH_META_MISSING",
+        "installed dependency " .. tostring(id) ..
+        " is missing its stored resolved-graph meta (meta.hub.resolved_modules); reinstall it to repair before uninstall",
+        { dependency = M.dependency_summary(entry), entry_id = id })
+end
+
+-- Derives the uninstall graph offline from the resolved-graph meta stored on
+-- ns.dependency entries. The removable set is the target's stored module set
+-- minus the union of every other installed dependency's stored module set; no
+-- Hub re-resolve is performed.
 function Service:uninstall_graph_context(dep)
     local summary = M.dependency_summary(dep)
-    local remove_graph, remove_err = self:dependency_graph_for_entry(dep)
-    if not remove_graph then return {}, {}, remove_err end
+
+    local remove_graph = stored_resolved_graph(dep)
+    if not remove_graph then
+        return nil, nil, missing_graph_meta_error(dep)
+    end
 
     local remove_set = graph_module_set(remove_graph)
     local has_transitive = false
@@ -778,14 +792,16 @@ function Service:uninstall_graph_context(dep)
     end
 
     local deps, deps_err = self:dependency_entries()
-    if not deps then return remove_graph, {}, deps_err end
+    if not deps then return nil, nil, deps_err end
 
     local keep = {}
     for _, other in ipairs(deps) do
         if other.id ~= dep.id then
-            local graph, graph_err = self:dependency_graph_for_entry(other)
-            if not graph then return remove_graph, {}, graph_err end
-            for name in pairs(graph_module_set(graph)) do keep[name] = true end
+            local other_graph = stored_resolved_graph(other)
+            if not other_graph then
+                return nil, nil, missing_graph_meta_error(other)
+            end
+            for name in pairs(graph_module_set(other_graph)) do keep[name] = true end
         end
     end
 
@@ -1006,11 +1022,15 @@ function Service:plan_uninstall(args)
 
     local graph, keep_modules, graph_err = self:uninstall_graph_context(dep)
     if graph_err then
+        local graph_err_summary = error_summary(graph_err)
+        if graph_err_summary and graph_err_summary.code == "RESOLVED_GRAPH_META_MISSING" then
+            return nil, graph_err
+        end
         return nil, err("DEPENDENCY_GRAPH_FAILED",
             "failed to resolve dependency graph for uninstall; refusing to update registry or wippy.lock",
             {
                 dependency = summary,
-                graph_error = error_summary(graph_err),
+                graph_error = graph_err_summary,
             })
     end
 

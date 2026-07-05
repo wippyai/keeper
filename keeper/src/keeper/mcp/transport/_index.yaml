@@ -72,7 +72,14 @@ entries:
     method: handle
     pool:
       size: 4
-    
+    security:
+      actor:
+        id: keeper.mcp.transport:handler
+      policies:
+        - keeper.mcp.security:endpoint_db_access
+        - keeper.mcp.security:endpoint_actor_create
+        - keeper.mcp.security:endpoint_registry_read
+
   # keeper.mcp.transport:handler.endpoint
   - name: handler.endpoint
     kind: http.endpoint
@@ -94,7 +101,14 @@ entries:
     method: handle_get
     pool:
       size: 16
-    
+    security:
+      actor:
+        id: keeper.mcp.transport:handler_get
+      policies:
+        - keeper.mcp.security:endpoint_db_access
+        - keeper.mcp.security:endpoint_actor_create
+        - keeper.mcp.security:endpoint_registry_read
+
   # keeper.mcp.transport:handler_get.endpoint
   - name: handler_get.endpoint
     kind: http.endpoint
