@@ -8,9 +8,6 @@ modules:
     - name: userspace/uploads
       version: 0.5.10
       hash: ed122feee05b275755a6f259bed437632631c543b1b7b88011132db908e421eb
-    - name: userspace/users
-      version: 0.1.5
-      hash: 09ee988bed624dff05e78a1bf71203cdab46833b91b3c6b062a079c968688a80
     - name: wippy/agent
       version: 0.4.7
       hash: 04a73ea8a0d292011f439d9ad18bfca2223b467ceee059451cb6d49596b5a753

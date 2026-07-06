@@ -180,6 +180,35 @@ export interface UninstallPreviewResponse {
   [key: string]: any
 }
 
+export type HubScanStatus = 'clean' | 'warnings' | 'critical' | 'error' | string
+export type HubScanFindingSeverity = 'info' | 'warning' | 'critical' | string
+
+export interface HubScanFinding {
+  severity: HubScanFindingSeverity
+  title: string
+  detail?: string
+  location?: string
+  module?: string
+  version?: string
+}
+
+export interface HubScanModuleResult {
+  module: string
+  version?: string
+  status: HubScanStatus
+  summary: string
+  findings: HubScanFinding[]
+}
+
+export interface HubScanResponse {
+  success: boolean
+  overall_status: HubScanStatus
+  overall_summary: string
+  modules: HubScanModuleResult[]
+  scanned: number
+  total: number
+}
+
 function emptyUninstallPreview(): UninstallPreview {
   return { removed: [], kept: [], kept_under_uncertainty: [], warnings: [] }
 }
@@ -221,6 +250,11 @@ export async function planHubUninstall(api: Api, payload: UninstallPayload): Pro
     kept_under_uncertainty: preview.kept_under_uncertainty || [],
     warnings: preview.warnings || [],
   }
+}
+
+export async function scanHubInstall(api: Api, payload: InstallPayload): Promise<HubScanResponse> {
+  const { data } = await api.post<HubScanResponse>('/api/v1/keeper/hub/scan', payload)
+  return data
 }
 
 export async function listHubMigrations(api: Api, opts: { component?: string; entry_ids?: string[] } = {}): Promise<ListMigrationsResponse> {

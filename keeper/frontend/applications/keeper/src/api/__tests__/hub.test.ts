@@ -3,6 +3,7 @@ import {
   installHubDependency,
   planHubInstall,
   planHubUninstall,
+  scanHubInstall,
   uninstallHubDependency,
   type HubInstallPlanResponse,
   type HubRequirement,
@@ -72,6 +73,28 @@ describe('hub API', () => {
 
     await expect(planHubInstall(api, payload)).resolves.toEqual(plan)
     expect(api.post).toHaveBeenCalledWith('/api/v1/keeper/hub/dependencies/plan', payload)
+  })
+
+  it('runs the pre-install security scan through the hub scan endpoint', async () => {
+    const scan = {
+      success: true,
+      overall_status: 'clean',
+      overall_summary: 'Security review found no issues in scanned modules.',
+      modules: [{
+        module: 'wippy/dummy',
+        version: '0.1.2',
+        status: 'clean',
+        summary: 'Reviewed module; no risky patterns found.',
+        findings: [],
+      }],
+      scanned: 1,
+      total: 1,
+    }
+    const api = { post: vi.fn().mockResolvedValue({ data: scan }) } as any
+    const payload: InstallPayload = { component: 'wippy/dummy', version: '0.1.2' }
+
+    await expect(scanHubInstall(api, payload)).resolves.toEqual(scan)
+    expect(api.post).toHaveBeenCalledWith('/api/v1/keeper/hub/scan', payload)
   })
 
   it('sends uninstall migration policy so applied migrations can be rolled back', async () => {

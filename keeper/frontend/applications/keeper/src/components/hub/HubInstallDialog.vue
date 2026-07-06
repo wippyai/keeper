@@ -3,8 +3,10 @@ import { ref, computed, watch } from 'vue'
 import { Icon } from '@iconify/vue'
 import { useApi } from '../../composables/useWippy'
 import {
-  planHubInstall, installHubDependency, listHubDependencies,
+  planHubInstall, installHubDependency, listHubDependencies, scanHubInstall,
   type HubInstallPlanResponse, type HubPlanRequirement, type InstallPlanNode,
+  type HubScanFinding, type HubScanModuleResult, type HubScanResponse, type HubScanStatus,
+  type InstallPayload,
 } from '../../api/hub'
 import RequirementValueInput from './RequirementValueInput.vue'
 
@@ -28,6 +30,11 @@ const runMigrations = ref(true)
 
 const busy = ref(false)
 const error = ref<string | null>(null)
+const scanLoading = ref(false)
+const scanError = ref<string | null>(null)
+const scanResult = ref<HubScanResponse | null>(null)
+const scanSkipped = ref(false)
+let scanRevision = 0
 
 const plan = ref<HubInstallPlanResponse | null>(null)
 const planLoading = ref(false)
@@ -52,6 +59,7 @@ function reset() {
   runMigrations.value = true
   busy.value = false
   error.value = null
+  resetScanDecision()
   plan.value = null
   planError.value = null
   requirements.value = []
@@ -109,7 +117,9 @@ function transitiveValue(req: HubPlanRequirement): string {
 
 function setParameter(req: HubPlanRequirement, value: string) {
   const key = requirementKey(req)
-  if (key) parameterValues.value[key] = value
+  if (!key) return
+  if (parameterValues.value[key] !== value) resetScanDecision()
+  parameterValues.value[key] = value
 }
 
 function requirementPlaceholder(req: HubPlanRequirement): string {
@@ -125,6 +135,7 @@ function namespacePayload(): string | undefined {
 
 function markNamespaceTouched() {
   dependencyNamespaceTouched.value = true
+  resetScanDecision()
 }
 
 const plannedDependencyId = computed(() => plan.value?.dependency?.id || '')
@@ -143,6 +154,7 @@ function applyPlan(next: HubInstallPlanResponse, previousValues: Record<string, 
 
 async function loadPlan() {
   if (!props.component.trim()) return
+  resetScanDecision()
   planLoading.value = true
   planError.value = null
   const previousValues = { ...parameterValues.value }
@@ -197,6 +209,17 @@ function parametersPayload(): Array<{ name: string; value: string }> | undefined
   return out.length ? out : undefined
 }
 
+function installPayload(): InstallPayload {
+  return {
+    component: props.component.trim(),
+    version: version.value.trim() || undefined,
+    namespace: namespacePayload(),
+    run_migrations: runMigrations.value,
+    migration_policy: runMigrations.value ? 'up' : 'none',
+    parameters: parametersPayload(),
+  }
+}
+
 const missingRequirements = computed<string[]>(() => {
   const missing: string[] = []
   for (const req of rootRequirements.value) {
@@ -205,6 +228,83 @@ const missingRequirements = computed<string[]>(() => {
     if (req.invalid || !(parameterValues.value[key] || '').trim()) missing.push(key)
   }
   return missing
+})
+
+function resetScanDecision() {
+  scanRevision += 1
+  scanLoading.value = false
+  scanError.value = null
+  scanResult.value = null
+  scanSkipped.value = false
+}
+
+async function runSecurityScan() {
+  if (!props.component.trim()) {
+    scanError.value = 'Component required'
+    return
+  }
+  scanLoading.value = true
+  scanError.value = null
+  scanResult.value = null
+  scanSkipped.value = false
+  const revision = scanRevision + 1
+  scanRevision = revision
+  try {
+    const result = await scanHubInstall(api, installPayload())
+    if (revision === scanRevision) scanResult.value = result
+  } catch (e: any) {
+    if (revision !== scanRevision) return
+    const data = e.response?.data
+    scanError.value = data?.error || data?.message || e.message || 'Security review failed'
+  } finally {
+    if (revision === scanRevision) scanLoading.value = false
+  }
+}
+
+function skipSecurityScan() {
+  scanRevision += 1
+  scanLoading.value = false
+  scanError.value = null
+  scanResult.value = null
+  scanSkipped.value = true
+}
+
+const scanDecisionMade = computed(() => scanSkipped.value || !!scanResult.value)
+const installDisabled = computed(() =>
+  busy.value ||
+  planLoading.value ||
+  scanLoading.value ||
+  !scanDecisionMade.value ||
+  missingRequirements.value.length > 0 ||
+  transitiveBlockers.value.length > 0,
+)
+
+function scanStatusLabel(status: HubScanStatus | undefined): string {
+  return (status || 'pending').toString().toUpperCase()
+}
+
+function scanTone(status: HubScanStatus | undefined): string {
+  const s = (status || '').toString().toLowerCase()
+  if (s === 'clean') return 'clean'
+  if (s === 'critical') return 'critical'
+  if (s === 'warnings' || s === 'warning') return 'warnings'
+  if (s === 'error') return 'error'
+  return 'pending'
+}
+
+function findingTone(finding: HubScanFinding): string {
+  return scanTone(finding.severity)
+}
+
+const scanModules = computed<HubScanModuleResult[]>(() => scanResult.value?.modules || [])
+const scanFindings = computed<Array<HubScanFinding & { module_name: string }>>(() => {
+  const out: Array<HubScanFinding & { module_name: string }> = []
+  for (const moduleResult of scanModules.value) {
+    for (const finding of moduleResult.findings || []) {
+      out.push({ ...finding, module_name: moduleResult.module })
+    }
+  }
+  return out
 })
 
 async function submit() {
@@ -225,14 +325,7 @@ async function submit() {
   busy.value = true
   error.value = null
   try {
-    await installHubDependency(api, {
-      component: props.component.trim(),
-      version: version.value.trim() || undefined,
-      namespace: namespacePayload(),
-      run_migrations: runMigrations.value,
-      migration_policy: runMigrations.value ? 'up' : 'none',
-      parameters: parametersPayload(),
-    })
+    await installHubDependency(api, installPayload())
     emit('installed', props.component.trim())
     close()
   } catch (e: any) {
@@ -337,7 +430,7 @@ const planSummary = computed(() => {
         </p>
 
         <label class="form-label">Version</label>
-        <input v-model="version" placeholder="latest" class="form-input mono" @change="loadPlan" />
+        <input v-model="version" placeholder="latest" class="form-input mono" @input="resetScanDecision" @change="loadPlan" />
 
         <label class="form-label mt-3">Dependency namespace</label>
         <input
@@ -460,9 +553,73 @@ const planSummary = computed(() => {
         </div>
 
         <label class="form-check">
-          <input v-model="runMigrations" type="checkbox" />
+          <input v-model="runMigrations" type="checkbox" @change="resetScanDecision" />
           Run migrations after install
         </label>
+
+        <section class="scan-panel">
+          <div class="scan-head">
+            <div class="scan-title">
+              <Icon icon="tabler:shield-check" class="w-3.5 h-3.5" />
+              Security review
+            </div>
+            <span
+              class="scan-badge"
+              :class="scanSkipped ? 'skipped' : scanTone(scanResult?.overall_status)"
+            >
+              {{ scanSkipped ? 'SKIPPED' : scanResult ? scanStatusLabel(scanResult.overall_status) : scanLoading ? 'RUNNING' : 'PENDING' }}
+            </span>
+          </div>
+
+          <div v-if="scanLoading" class="scan-state">
+            <Icon icon="tabler:loader-2" class="w-3.5 h-3.5 animate-spin" />
+            Reviewing {{ component }} before install
+          </div>
+          <div v-else-if="scanResult" class="scan-summary">
+            <div class="scan-summary-line">
+              {{ scanResult.overall_summary }}
+              <span class="mono dim">{{ scanResult.scanned }}/{{ scanResult.total }}</span>
+            </div>
+            <div v-if="scanModules.length" class="scan-modules">
+              <div v-for="mod in scanModules" :key="mod.module" class="scan-module">
+                <span class="mono scan-module-name">{{ mod.module }}</span>
+                <span class="mono dim">{{ mod.version || '' }}</span>
+                <span class="scan-mini-badge" :class="scanTone(mod.status)">{{ scanStatusLabel(mod.status) }}</span>
+              </div>
+            </div>
+            <div v-if="scanFindings.length" class="scan-findings">
+              <div v-for="(finding, i) in scanFindings" :key="i" class="scan-finding" :class="findingTone(finding)">
+                <div class="scan-finding-title">
+                  <span>{{ finding.title }}</span>
+                  <span class="mono dim">{{ finding.module_name }}</span>
+                </div>
+                <div v-if="finding.location" class="mono scan-finding-location">{{ finding.location }}</div>
+                <div v-if="finding.detail" class="scan-finding-detail">{{ finding.detail }}</div>
+              </div>
+            </div>
+          </div>
+          <div v-else-if="scanSkipped" class="scan-state skipped">
+            <Icon icon="tabler:shield-off" class="w-3.5 h-3.5" />
+            Install will continue without a security review.
+          </div>
+          <div v-else class="scan-state">
+            <Icon icon="tabler:shield-question" class="w-3.5 h-3.5" />
+            Choose a security review path before installing.
+          </div>
+
+          <div v-if="scanError" class="mt-2 px-2 py-1.5 rounded text-[11px] bg-danger-500/15 text-danger-500">{{ scanError }}</div>
+
+          <div class="scan-actions">
+            <button class="scan-btn primary" type="button" @click="runSecurityScan" :disabled="scanLoading || busy || planLoading">
+              <Icon :icon="scanLoading ? 'tabler:loader-2' : 'tabler:shield-search'" class="w-3.5 h-3.5" :class="{ 'animate-spin': scanLoading }" />
+              {{ scanResult ? 'Run again' : 'Run scan' }}
+            </button>
+            <button class="scan-btn secondary" type="button" @click="skipSecurityScan" :disabled="scanLoading || busy">
+              <Icon icon="tabler:player-skip-forward" class="w-3.5 h-3.5" />
+              Skip
+            </button>
+          </div>
+        </section>
 
         <div v-if="transitiveBlockers.length" class="mt-2 px-2 py-1.5 rounded text-[11px] bg-danger-500/15 text-danger-500">
           {{ transitiveBlockers.length }} dependency requirement{{ transitiveBlockers.length === 1 ? ' is' : 's are' }} unsatisfied.
@@ -473,7 +630,7 @@ const planSummary = computed(() => {
 
         <div class="flex justify-end gap-2 mt-4">
           <button class="dialog-btn cancel" @click="close" :disabled="busy">Cancel</button>
-          <button class="dialog-btn proceed" @click="submit" :disabled="busy || planLoading || missingRequirements.length > 0 || transitiveBlockers.length > 0">
+          <button class="dialog-btn proceed" @click="submit" :disabled="installDisabled">
             <Icon v-if="busy" icon="tabler:loader-2" class="w-3 h-3 animate-spin" />
             Install
           </button>
@@ -532,6 +689,156 @@ const planSummary = computed(() => {
   margin-top: 12px;
   cursor: pointer;
 }
+
+.scan-panel {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 6px;
+  background: var(--p-surface-0);
+}
+.scan-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-bottom: 8px;
+}
+.scan-title {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700;
+  color: var(--p-text-color);
+}
+.scan-badge,
+.scan-mini-badge {
+  flex-shrink: 0;
+  font-size: 8.5px; font-weight: 800; letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.scan-badge.pending,
+.scan-mini-badge.pending {
+  background: var(--p-surface-100);
+  color: var(--p-text-muted-color);
+}
+.scan-badge.clean,
+.scan-mini-badge.clean {
+  background: color-mix(in srgb, var(--p-green-500) 16%, transparent);
+  color: var(--p-green-500);
+}
+.scan-badge.warnings,
+.scan-mini-badge.warnings,
+.scan-badge.error,
+.scan-mini-badge.error {
+  background: color-mix(in srgb, var(--p-orange-500) 16%, transparent);
+  color: var(--p-orange-500);
+}
+.scan-badge.critical,
+.scan-mini-badge.critical {
+  background: color-mix(in srgb, var(--p-danger-500) 16%, transparent);
+  color: var(--p-danger-500);
+}
+.scan-badge.skipped {
+  background: var(--p-surface-200);
+  color: var(--p-text-muted-color);
+}
+.scan-state {
+  display: flex; align-items: center; gap: 6px;
+  min-height: 24px;
+  font-size: 11px;
+  color: var(--p-text-muted-color);
+}
+.scan-state.skipped { color: var(--p-text-color); }
+.scan-summary {
+  font-size: 11px;
+  color: var(--p-text-color);
+}
+.scan-summary-line {
+  display: flex; justify-content: space-between; gap: 8px;
+  line-height: 1.4;
+}
+.scan-modules {
+  margin-top: 8px;
+  display: grid;
+  gap: 4px;
+}
+.scan-module {
+  display: flex; align-items: center; gap: 6px;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--p-surface-100);
+}
+.scan-module-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--p-text-color);
+}
+.scan-findings {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+.scan-finding {
+  padding: 6px 8px;
+  border: 1px solid var(--p-content-border-color);
+  border-left-width: 3px;
+  border-radius: 5px;
+  background: var(--p-surface-50);
+}
+.scan-finding.warning,
+.scan-finding.warnings,
+.scan-finding.error {
+  border-left-color: var(--p-orange-500);
+}
+.scan-finding.critical {
+  border-left-color: var(--p-danger-500);
+}
+.scan-finding.clean,
+.scan-finding.info,
+.scan-finding.pending {
+  border-left-color: var(--p-text-muted-color);
+}
+.scan-finding-title {
+  display: flex; justify-content: space-between; gap: 8px;
+  color: var(--p-text-color);
+  font-weight: 600;
+}
+.scan-finding-location {
+  margin-top: 2px;
+  color: var(--p-text-muted-color);
+  font-size: 10px;
+}
+.scan-finding-detail {
+  margin-top: 3px;
+  color: var(--p-text-muted-color);
+  line-height: 1.35;
+}
+.scan-actions {
+  display: flex; justify-content: flex-end; gap: 6px;
+  margin-top: 8px;
+}
+.scan-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  min-height: 26px;
+  padding: 4px 9px;
+  font-size: 10px; font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.scan-btn.primary {
+  color: var(--p-info-500);
+  background: color-mix(in srgb, var(--p-info-500) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--p-info-500) 45%, transparent);
+}
+.scan-btn.secondary {
+  color: var(--p-text-muted-color);
+  background: var(--p-surface-100);
+  border: 1px solid var(--p-content-border-color);
+}
+.scan-btn:hover:not(:disabled) { filter: brightness(1.05); }
+.scan-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .ghost-sm {
   padding: 3px 8px; font-size: 10px;
   background: var(--p-surface-100); color: var(--p-text-muted-color);
