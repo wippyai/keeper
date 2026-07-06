@@ -2032,6 +2032,79 @@ local function define_tests()
                     test.eq(out.modules[1].status, "clean")
                 end)
 
+                it("fetches scan artifacts through the planner-resolved version ref", function()
+                    local inspect_refs = {}
+                    local catalog = fake_catalog({
+                        ["wippy/actor"] = {
+                            {
+                                id = "actor-version-row",
+                                version = "v0.4.0",
+                                entry_kinds = { "function.lua" },
+                                inspect = {
+                                    entries = {
+                                        {
+                                            id = "wippy.actor:run",
+                                            kind = "function.lua",
+                                            meta = { module = "wippy/actor", module_version = "v0.4.0" },
+                                            data = { source = "return { handler = function() return true end }" },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    })
+                    local original_inspect = catalog.versions.inspect
+                    catalog.versions.inspect = function(component, ref)
+                        table.insert(inspect_refs, { component = component, ref = ref })
+                        if ref and ref.id then
+                            return nil, "invalid version format"
+                        end
+                        return original_inspect(component, ref)
+                    end
+
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = catalog,
+                        registry = fake_registry({}),
+                        llm = security_scan_llm({}),
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "wippy/actor", version = "0.4.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.success, true)
+                    test.eq(out.overall_status, "clean")
+                    test.eq(out.scanned, 1)
+                    test.eq(out.modules[1].module, "wippy/actor")
+                    test.eq(out.modules[1].status, "clean")
+                    local first_ref = inspect_refs[1] :: any
+                    test.not_nil(first_ref)
+                    test.eq(first_ref.component, "wippy/actor")
+                    test.eq(first_ref.ref.version, "v0.4.0")
+                    test.is_nil(first_ref.ref.id)
+                end)
+
+                it("degrades honestly when a scan artifact is genuinely unavailable", function()
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = fake_catalog({
+                            ["wippy/missing"] = {
+                                { id = "missing-version-row", version = "v1.0.0", entry_kinds = { "function.lua" } },
+                            },
+                        }),
+                        registry = fake_registry({}),
+                        llm = security_scan_llm({}),
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "wippy/missing", version = "1.0.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.success, true)
+                    test.eq(out.overall_status, "warnings")
+                    test.eq(out.modules[1].status, "error")
+                    test.contains(out.modules[1].findings[1].title, "Module artifact unavailable")
+                end)
+
             it("reuses an existing dependency entry for component updates", function()
                 local svc = planner.new({
                     catalog = fake_catalog({

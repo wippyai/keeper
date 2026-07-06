@@ -193,6 +193,35 @@ entries:
                 test.is_true(changed)
                 test.is_true(after:find("kind: ns.dependency", 1, true) ~= nil)
             end)
+
+            it("removes a deleted dependency block while preserving siblings byte-identical", function()
+                local before_prefix = [[version: "1.0"
+namespace: app.deps
+entries:
+  # app.deps:keep
+  - name: keep
+    kind: ns.dependency
+    component: wippy/keep
+    version: v1.0.0]]
+                local target_block = [[  # app.deps:actor
+  - name: actor
+    kind: ns.dependency
+    component: wippy/actor
+    version: v0.4.0]]
+                local before_suffix = [[  # app.deps:tail
+  - name: tail
+    kind: ns.dependency
+    component: wippy/tail
+    version: v2.0.0]]
+                local before = before_prefix .. "\n" .. target_block .. "\n" .. before_suffix
+
+                local after, changed = sync.patch_index_content(before, "app.deps", {}, { actor = true }, {})
+
+                test.is_true(changed)
+                test.is_true(after:find(before_prefix, 1, true) ~= nil)
+                test.is_true(after:find(before_suffix, 1, true) ~= nil)
+                test.is_true(after:find(target_block, 1, true) == nil)
+            end)
         end)
 
         describe("entry_file_path", function()

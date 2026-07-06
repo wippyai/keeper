@@ -128,12 +128,6 @@ local function error_finding(module, version, title, detail, location)
     }
 end
 
-local function inspect_ref(node)
-    if trim(node.version_id) ~= "" then return { id = node.version_id } end
-    if trim(node.version) ~= "" then return { version = node.version } end
-    return nil
-end
-
 local function entry_source(entry)
     if type(entry) ~= "table" then return "" end
     local data = type(entry.data) == "table" and entry.data or {}
@@ -277,12 +271,11 @@ function Scanner:plan(args)
 end
 
 function Scanner:inspect_module(node)
-    if not self.catalog or not self.catalog.versions or not self.catalog.versions.inspect then
-        return nil, "hub artifact inspection API unavailable"
+    local p = self:planner_instance()
+    if not p or type(p.inspect_artifact) ~= "function" then
+        return nil, "hub install planner artifact inspection API unavailable"
     end
-    local ref = inspect_ref(node)
-    if not ref then return nil, "module version reference unavailable" end
-    return self.catalog.versions.inspect(node.module, ref)
+    return p:inspect_artifact(node.module, { version = node.version, id = node.version_id })
 end
 
 function Scanner:review_module(node, artifact)

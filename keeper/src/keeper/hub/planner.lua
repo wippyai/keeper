@@ -804,6 +804,27 @@ function Planner:artifact_requirement_details(component, selected)
     if not has_entry_kind(selected_item, "ns.requirement") then
         return selected, nil
     end
+    local inspected, inspect_err = self:inspect_artifact(component, selected_item)
+    if not inspected then
+        return nil, err("INTERNAL", "hub artifact inspection failed for " .. component .. ": " .. tostring(inspect_err))
+    end
+
+    local merged = shallow_copy(selected_item)
+    merged.requirements = inspected.requirements or {}
+    merged.entry_count = inspected.entry_count or merged.entry_count
+    merged.entry_kinds = inspected.entry_kinds or merged.entry_kinds
+    merged.size_bytes = inspected.size_bytes or merged.size_bytes
+    merged.digest = inspected.digest or merged.digest
+    merged.protected = inspected.protected == true or merged.protected == true
+    return merged, nil
+end
+
+function Planner:inspect_artifact(component, selected)
+    component = trim(component)
+    local selected_item = selected :: VersionItem
+    if component == "" then
+        return nil, err("BAD_REQUEST", "component is required")
+    end
     if not self.catalog or not self.catalog.versions or not self.catalog.versions.inspect then
         return nil, err("INTERNAL", "hub artifact inspection API unavailable for " .. component)
     end
@@ -817,19 +838,7 @@ function Planner:artifact_requirement_details(component, selected)
         return nil, err("INTERNAL", "cannot inspect Hub artifact without version id or version")
     end
 
-    local inspected, inspect_err = self.catalog.versions.inspect(component, ref)
-    if not inspected then
-        return nil, err("INTERNAL", "hub artifact inspection failed for " .. component .. ": " .. tostring(inspect_err))
-    end
-
-    local merged = shallow_copy(selected_item)
-    merged.requirements = inspected.requirements or {}
-    merged.entry_count = inspected.entry_count or merged.entry_count
-    merged.entry_kinds = inspected.entry_kinds or merged.entry_kinds
-    merged.size_bytes = inspected.size_bytes or merged.size_bytes
-    merged.digest = inspected.digest or merged.digest
-    merged.protected = inspected.protected == true or merged.protected == true
-    return merged, nil
+    return self.catalog.versions.inspect(component, ref)
 end
 
 function Planner:dependency_details(component, selected)
