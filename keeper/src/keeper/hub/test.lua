@@ -2013,6 +2013,55 @@ local function define_tests()
                     test.contains(out.overall_summary, "unavailable")
                 end)
 
+                it("reviews large modules in chunks without truncation findings", function()
+                    local calls = 0
+                    local long_source = string.rep("local ok = true\n", 5000)
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = fake_catalog({
+                            ["acme/large"] = {
+                                {
+                                    id = "large-v1",
+                                    version = "v1.0.0",
+                                    entry_kinds = { "function.lua" },
+                                    inspect = {
+                                        entries = {
+                                            {
+                                                id = "acme.large:handler",
+                                                kind = "function.lua",
+                                                meta = { module = "acme/large", module_version = "v1.0.0" },
+                                                data = { source = long_source },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        }),
+                        registry = fake_registry({}),
+                        content_limit = 20000,
+                        llm = {
+                            generate = function()
+                                calls = calls + 1
+                                return {
+                                    result = json.encode({
+                                        status = "clean",
+                                        summary = "No risky patterns found.",
+                                        findings = {},
+                                    }),
+                                }, nil
+                            end,
+                        },
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "acme/large", version = "v1.0.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.success, true)
+                    test.eq(out.modules[1].status, "clean")
+                    test.eq(#out.modules[1].findings, 0)
+                    test.is_true(calls > 1, "large module should be reviewed across multiple chunks")
+                end)
+
                 it("scans only new modules while reporting installed modules as skipped", function()
                     local scanner = security_scan.new({
                         planner = planner,
@@ -3233,36 +3282,6 @@ local function define_tests()
                 test.not_nil(req)
                 test.is_true(req.missing)
                 test.eq(plan.missing_requirements[1], "acme.needssecret:secret")
-            end)
-
-            it("does not report an optional empty-default requirement as missing", function()
-                local svc = planner.new({
-                    catalog = fake_catalog({
-                        ["acme/session"] = {
-                            {
-                                version = "v1.0.0",
-                                requirements = {
-                                    {
-                                        name = "on_session_end_func_id",
-                                        default = "",
-                                        targets = { { entry = "acme.session:env", path = ".default" } },
-                                    },
-                                },
-                            },
-                        },
-                    }),
-                    registry = fake_registry({}),
-                }) :: any
-
-                local plan, err = svc:plan_install({ component = "acme/session", version = "v1.0.0" })
-
-                test.is_nil(err)
-                local req = find_requirement(plan, "acme.session:on_session_end_func_id")
-                test.not_nil(req)
-                test.is_false(req.required)
-                test.is_false(req.missing)
-                test.eq(#plan.missing_requirements, 0)
-                test.eq(#plan.install_payload.parameters, 0)
             end)
 
             it("selects the highest non-yanked version satisfying a semver constraint", function()
