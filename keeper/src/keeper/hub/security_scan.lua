@@ -11,6 +11,56 @@ local M = {}
 local Scanner = {}
 Scanner.__index = Scanner
 
+type ScanNode = {
+    module: string,
+    version: string?,
+    version_id: string?,
+    id: string?,
+    digest: string?,
+    entry_kinds: { string }?,
+    requirements: { unknown }?,
+    dependencies: { unknown }?,
+    installed: boolean?,
+    direct: boolean?,
+}
+type ScanFinding = {
+    module: string?,
+    version: string?,
+    severity: string?,
+    title: string?,
+    detail: string?,
+    location: string?,
+}
+type ScanArtifact = {
+    module: string?,
+    version: string?,
+    digest: string?,
+    metadata: unknown?,
+    resources: { unknown }?,
+    resource_error: unknown?,
+    close_error: unknown?,
+    entries: { unknown }?,
+    artifact: { entries: { unknown }? }?,
+    manifest: { entries: { unknown }? }?,
+}
+type ReviewChunk = {
+    index: number,
+    total: number,
+    entries: { unknown },
+    bytes: number,
+}
+type ScannerDeps = {
+    planner: unknown?,
+    catalog: unknown?,
+    registry: unknown?,
+    llm: unknown?,
+    model: string?,
+    max_tokens: number?,
+    content_limit: number?,
+    max_modules: number?,
+    time_budget_ms: number?,
+}
+
 M.DEFAULT_MODEL = "class:premium"
 M.DEFAULT_MAX_TOKENS = 2000
 M.DEFAULT_CONTENT_LIMIT = 60000
@@ -46,11 +96,11 @@ local SYSTEM_PROMPT = table.concat({
     '{"status":"clean|warnings|critical","summary":"short sentence","findings":[{"severity":"info|warning|critical","title":"short","detail":"optional","location":"entry id or kind"}]}',
 }, "\n")
 
-local function trim(value)
+local function trim(value: unknown): string
     return string.match(tostring(value or ""), "^%s*(.-)%s*$") or ""
 end
 
-local function now_ms()
+local function now_ms(): number
     local ok, value = pcall(function()
         return math.floor(time.now():unix_nano() / 1e6)
     end)
@@ -58,26 +108,26 @@ local function now_ms()
     return 0
 end
 
-local function encode(value)
+local function encode(value: unknown): string
     local ok, result = pcall(function() return json.encode(value) end)
     if ok and result then return tostring(result) end
     return tostring(value or "")
 end
 
-local function decode(text)
+local function decode(text: unknown)
     local ok, result, err = pcall(function() return json.decode(text) end)
-    if ok then return result, err end
-    return nil, result
+    if ok then return result :: unknown, err :: unknown end
+    return nil, result :: unknown
 end
 
-local function normalize_severity(value)
+local function normalize_severity(value: unknown): string
     value = trim(value):lower()
     if value == "critical" then return "critical" end
     if value == "warning" or value == "warn" then return "warning" end
     return "info"
 end
 
-local function status_from_findings(findings)
+local function status_from_findings(findings: { ScanFinding }?): string
     local worst = "clean"
     for _, finding in ipairs(findings or {}) do
         local severity = normalize_severity(tostring(finding.severity or ""))
@@ -87,7 +137,7 @@ local function status_from_findings(findings)
     return worst
 end
 
-local function normalize_status(value, findings)
+local function normalize_status(value: unknown, findings: { ScanFinding }): string
     local from_findings = status_from_findings(findings)
     value = trim(value):lower()
     if value == "critical" then
@@ -100,7 +150,7 @@ local function normalize_status(value, findings)
     return from_findings
 end
 
-local function normalize_finding(raw, module, version, fallback_title)
+local function normalize_finding(raw: unknown, module: string, version: string?, fallback_title: string?): ScanFinding
     raw = type(raw) == "table" and raw or {}
     local title = trim(raw.title)
     if title == "" then title = fallback_title or "Security review finding" end
@@ -117,7 +167,7 @@ local function normalize_finding(raw, module, version, fallback_title)
     return finding
 end
 
-local function error_finding(module, version, title, detail, location)
+local function error_finding(module: string, version: string?, title: string, detail: string, location: string?): ScanFinding
     return {
         module = module,
         version = version,
@@ -128,7 +178,7 @@ local function error_finding(module, version, title, detail, location)
     }
 end
 
-local function entry_source(entry)
+local function entry_source(entry: unknown): string
     if type(entry) ~= "table" then return "" end
     local data = type(entry.data) == "table" and entry.data or {}
     return trim(entry.source) ~= "" and tostring(entry.source)
@@ -138,18 +188,29 @@ local function entry_source(entry)
         or ""
 end
 
-local function entry_payload(entry)
+local function data_without_source(entry: unknown): unknown
+    if type(entry) ~= "table" or type(entry.data) ~= "table" then return type(entry) == "table" and entry.data or nil end
+    local out: { [string]: unknown } = {}
+    for key, value in pairs(entry.data :: { [string]: unknown }) do
+        if key ~= "source" and key ~= "content" then out[key] = value end
+    end
+    return out
+end
+
+local function entry_payload(entry: unknown, source: string?, source_part: unknown?): unknown
     if type(entry) ~= "table" then return entry end
-    return {
+    local out: { [string]: unknown } = {
         id = entry.id,
         kind = entry.kind,
         meta = entry.meta,
-        data = entry.data,
-        source = entry_source(entry),
+        data = data_without_source(entry),
+        source = source or entry_source(entry),
     }
+    if source_part ~= nil then out.source_part = source_part end
+    return out
 end
 
-local function artifact_entries(artifact)
+local function artifact_entries(artifact: ScanArtifact?): { unknown }
     if type(artifact) ~= "table" then return {} end
     if type(artifact.entries) == "table" then return artifact.entries end
     if type(artifact.artifact) == "table" and type(artifact.artifact.entries) == "table" then
@@ -161,39 +222,120 @@ local function artifact_entries(artifact)
     return {}
 end
 
-local function build_content(node, artifact, limit)
-    local payload = {
+local function entry_summary(entry: unknown, source_slice_limit: number): unknown
+    if type(entry) ~= "table" then return entry end
+    local source = entry_source(entry)
+    return {
+        id = entry.id,
+        kind = entry.kind,
+        meta = entry.meta,
+        data = data_without_source(entry),
+        has_source = source ~= "",
+        source_bytes = #source,
+        source_parts = source ~= "" and math.max(1, math.ceil(#source / source_slice_limit)) or 0,
+    }
+end
+
+local function artifact_tree(node: ScanNode, artifact: ScanArtifact, source_slice_limit: number): unknown
+    local entries = {}
+    for _, entry in ipairs(artifact_entries(artifact)) do
+        table.insert(entries, entry_summary(entry, source_slice_limit))
+    end
+    return {
         module = node.module,
-        version = node.version,
-        digest = node.digest,
+        version = node.version or artifact.version,
+        digest = node.digest or artifact.digest,
         entry_kinds = node.entry_kinds or {},
         requirements = node.requirements or {},
         dependencies = node.dependencies or {},
-        entries = {},
+        metadata = artifact.metadata,
+        resources = artifact.resources or {},
+        entries = entries,
     }
-    for _, entry in ipairs(artifact_entries(artifact)) do
-        table.insert(payload.entries, entry_payload(entry))
-    end
-
-    local content = encode(payload)
-    local truncated = false
-    limit = math.floor(tonumber(limit or M.DEFAULT_CONTENT_LIMIT) or M.DEFAULT_CONTENT_LIMIT)
-    if #content > limit then
-        content = string.sub(content, 1, limit)
-        truncated = true
-    end
-    return content, truncated, #payload.entries
 end
 
-local function build_user_prompt(node, content, truncated, entry_count)
+local function source_slice_limit(content_limit: number): number
+    local limit = math.floor(content_limit * 0.60)
+    if limit < 12000 then limit = 12000 end
+    if limit > 50000 then limit = 50000 end
+    return limit
+end
+
+local function review_units(artifact: ScanArtifact, slice_limit: number): { unknown }
+    local units = {}
+    for _, entry in ipairs(artifact_entries(artifact)) do
+        local source = entry_source(entry)
+        if source == "" or #source <= slice_limit then
+            table.insert(units, entry_payload(entry, source, nil))
+        else
+            local total = math.ceil(#source / slice_limit)
+            local index = 1
+            local offset = 1
+            while offset <= #source do
+                local last = math.min(#source, offset + slice_limit - 1)
+                table.insert(units, entry_payload(entry, string.sub(source, offset, last), {
+                    index = index,
+                    total = total,
+                    offset_start = offset,
+                    offset_end = last,
+                    complete_entry_source = false,
+                }))
+                index = index + 1
+                offset = last + 1
+            end
+        end
+    end
+    return units
+end
+
+local function build_review_chunks(artifact: ScanArtifact, content_limit: number): { ReviewChunk }
+    local slice_limit = source_slice_limit(content_limit)
+    local max_chunk_bytes = math.max(16000, math.floor(content_limit * 0.85))
+    local chunks: { ReviewChunk } = {}
+    local current: { unknown } = {}
+    local current_bytes = 0
+
+    for _, unit in ipairs(review_units(artifact, slice_limit)) do
+        local unit_bytes = #encode(unit)
+        if #current > 0 and current_bytes + unit_bytes > max_chunk_bytes then
+            table.insert(chunks, { index = #chunks + 1, total = 0, entries = current, bytes = current_bytes })
+            current = {}
+            current_bytes = 0
+        end
+        table.insert(current, unit)
+        current_bytes = current_bytes + unit_bytes
+    end
+    if #current > 0 or #chunks == 0 then
+        table.insert(chunks, { index = #chunks + 1, total = 0, entries = current, bytes = current_bytes })
+    end
+    for _, chunk in ipairs(chunks) do chunk.total = #chunks end
+    return chunks
+end
+
+local function build_user_prompt(node: ScanNode, tree: unknown, chunk: ReviewChunk, entry_count: number): string
+    local payload = {
+        artifact_tree = tree,
+        review_chunk = {
+            index = chunk.index,
+            total = chunk.total,
+            bytes = chunk.bytes,
+            entries = chunk.entries,
+        },
+    }
     local lines = {
         "Module: " .. tostring(node.module),
         "Version: " .. tostring(node.version or ""),
-        "Entry count included: " .. tostring(entry_count or 0),
-        "Content truncated: " .. (truncated and "yes" or "no"),
+        "Total artifact entries: " .. tostring(entry_count or 0),
+        "Review chunk: " .. tostring(chunk.index) .. " of " .. tostring(chunk.total),
+        "Content truncated: no",
         "",
-        "Module manifest and source JSON:",
-        content,
+        "The artifact_tree is the full module entry/resource tree. The review_chunk",
+        "contains complete source for the entries or source slices assigned to this",
+        "chunk. Other chunks are reviewed separately, so do not report missing content",
+        "only because another chunk is not in this prompt.",
+        "",
+        "Module manifest, tree, and source JSON:",
+        encode(payload),
     }
     return table.concat(lines, "\n")
 end
@@ -240,45 +382,118 @@ local function overall_summary(status, scanned, total, modules)
     return "Security review found no issues in scanned modules."
 end
 
-function M.new(deps)
-    deps = deps or {}
+function M.new(deps: ScannerDeps?)
+    local d: ScannerDeps = deps or {}
     return setmetatable({
-        planner = deps.planner or planner,
-        catalog = deps.catalog or hub_sdk,
-        registry = deps.registry or registry,
-        llm = deps.llm or llm,
-        model = deps.model or M.DEFAULT_MODEL,
-        max_tokens = deps.max_tokens or M.DEFAULT_MAX_TOKENS,
-        content_limit = deps.content_limit or M.DEFAULT_CONTENT_LIMIT,
-        max_modules = deps.max_modules or M.DEFAULT_MAX_MODULES,
-        time_budget_ms = deps.time_budget_ms or M.DEFAULT_TIME_BUDGET_MS,
+        planner = d.planner or planner,
+        catalog = d.catalog or hub_sdk,
+        registry = d.registry or registry,
+        llm = d.llm or llm,
+        model = d.model or M.DEFAULT_MODEL,
+        max_tokens = d.max_tokens or M.DEFAULT_MAX_TOKENS,
+        content_limit = d.content_limit or M.DEFAULT_CONTENT_LIMIT,
+        max_modules = d.max_modules or M.DEFAULT_MAX_MODULES,
+        time_budget_ms = d.time_budget_ms or M.DEFAULT_TIME_BUDGET_MS,
     }, Scanner)
 end
 
-function Scanner:planner_instance()
+function Scanner:planner_instance(): unknown
     if type(self.planner) == "table" and self.planner.new then
         return self.planner.new({ registry = self.registry, catalog = self.catalog })
     end
     return self.planner
 end
 
-function Scanner:plan(args)
+function Scanner:plan(args: unknown)
     local p = self:planner_instance()
     if type(p) == "table" and p.plan_install then
-        return p:plan_install(args)
+        local out, plan_err = p:plan_install(args)
+        return out :: unknown, plan_err :: unknown
     end
     return nil, "hub install planner unavailable"
 end
 
-function Scanner:inspect_module(node)
-    local p = self:planner_instance()
-    if not p or type(p.inspect_artifact) ~= "function" then
-        return nil, "hub install planner artifact inspection API unavailable"
+local function version_ref(node: ScanNode): unknown?
+    if trim(node and node.version) ~= "" then
+        return { version = node.version }
     end
-    return p:inspect_artifact(node.module, { version = node.version, id = node.version_id })
+    if trim(node and node.version_id) ~= "" then
+        return { id = node.version_id }
+    end
+    if trim(node and node.id) ~= "" then
+        return { id = node.id }
+    end
+    return nil
 end
 
-function Scanner:review_module(node, artifact)
+function Scanner:open_module(node: ScanNode): (ScanArtifact?, unknown?)
+    if not self.catalog or not self.catalog.versions or type(self.catalog.versions.open) ~= "function" then
+        return nil, "hub artifact open API unavailable"
+    end
+    local ref = version_ref(node)
+    if not ref then
+        return nil, "cannot open Hub artifact without version id or version"
+    end
+
+    local pkg, open_err = self.catalog.versions.open(node.module, ref)
+    if not pkg then
+        return nil, open_err or "hub artifact open failed"
+    end
+
+    local entries_raw, entries_err = pkg:entries({ include_data = true })
+    local resources_raw, resources_err = pkg:resources()
+    local metadata_raw, metadata_err = pkg:metadata()
+    local close_ok: boolean, close_err: unknown = pcall(function() return pkg:close() end)
+    if not close_ok then close_err = tostring(close_err) end
+
+    if type(entries_raw) ~= "table" then
+        return nil, entries_err or "hub artifact entries unavailable"
+    end
+
+    local artifact: ScanArtifact = {
+        module = node.module,
+        version = trim(pkg.version) ~= "" and tostring(pkg.version) or node.version,
+        digest = trim(pkg.digest) ~= "" and tostring(pkg.digest) or node.digest,
+        metadata = type(metadata_raw) == "table" and (metadata_raw :: unknown) or { error = metadata_err },
+        resources = type(resources_raw) == "table" and (resources_raw :: { unknown }) or {},
+        resource_error = resources_err,
+        close_error = close_err,
+        entries = entries_raw :: { unknown },
+    }
+    return artifact, nil
+end
+
+function Scanner:inspect_module(node: ScanNode): (ScanArtifact?, unknown?)
+    local opened, open_err = self:open_module(node)
+    if opened then return opened, nil end
+
+    local p = self:planner_instance()
+    if not p or type(p.inspect_artifact) ~= "function" then
+        return nil, "hub artifact open failed: " .. tostring(open_err)
+    end
+    local inspected, inspect_err = p:inspect_artifact(node.module, { version = node.version, id = node.version_id })
+    if inspected then return inspected, nil end
+    return nil, "hub artifact open failed: " .. tostring(open_err)
+        .. "; inspect fallback failed: " .. tostring(inspect_err)
+end
+
+local function append_findings(out: { ScanFinding }, seen: { [string]: boolean }, raw_findings: unknown, node: ScanNode)
+    for _, raw in ipairs(type(raw_findings) == "table" and raw_findings or {}) do
+        local item = normalize_finding(raw, node.module, node.version)
+        local key = table.concat({
+            normalize_severity(item.severity),
+            trim(item.title),
+            trim(item.location),
+            trim(item.detail),
+        }, "\n")
+        if not seen[key] then
+            seen[key] = true
+            table.insert(out, item)
+        end
+    end
+end
+
+function Scanner:review_module(node: ScanNode, artifact: ScanArtifact)
     if not self.llm or type(self.llm.generate) ~= "function" then
         return module_result(node, "error", "Security review unavailable.", {
             error_finding(node.module, node.version, "Security review unavailable",
@@ -287,63 +502,82 @@ function Scanner:review_module(node, artifact)
     end
 
     local content_limit = tonumber(self.content_limit or M.DEFAULT_CONTENT_LIMIT) or M.DEFAULT_CONTENT_LIMIT
-    local content, truncated, entry_count = build_content(node, artifact, content_limit)
-    local p = prompt.new()
-    p:add_system(SYSTEM_PROMPT)
-    p:add_user(build_user_prompt(node, content, truncated, entry_count))
+    local slice_limit = source_slice_limit(content_limit)
+    local tree = artifact_tree(node, artifact, slice_limit)
+    local chunks = build_review_chunks(artifact, content_limit)
+    local entry_count = #artifact_entries(artifact)
+    local findings: { ScanFinding } = {}
+    local seen: { [string]: boolean } = {}
+    local summaries: { string } = {}
+    local declared_status = "clean"
 
-    local resp, err = self.llm.generate(p, {
-        model = self.model,
-        max_tokens = self.max_tokens,
-    })
-    if err or not resp or trim(resp.result) == "" then
-        return module_result(node, "error", "Security review unavailable.", {
-            error_finding(node.module, node.version, "Security review unavailable",
-                "The LLM reviewer could not complete for this module: " .. tostring(err or "empty response")),
+    for _, chunk in ipairs(chunks) do
+        local p = prompt.new()
+        p:add_system(SYSTEM_PROMPT)
+        p:add_user(build_user_prompt(node, tree, chunk, entry_count))
+
+        local resp, err = self.llm.generate(p, {
+            model = self.model,
+            max_tokens = self.max_tokens,
         })
+        if err or not resp or trim(resp.result) == "" then
+            return module_result(node, "error", "Security review unavailable.", {
+                error_finding(node.module, node.version, "Security review unavailable",
+                    "The LLM reviewer could not complete chunk " .. tostring(chunk.index) .. " of "
+                        .. tostring(chunk.total) .. " for this module: " .. tostring(err or "empty response"),
+                    node.module),
+            })
+        end
+
+        local decoded, decode_err = decode(resp.result)
+        if type(decoded) ~= "table" then
+            return module_result(node, "error", "Security review response was invalid.", {
+                error_finding(node.module, node.version, "Security review response invalid",
+                    "The LLM reviewer returned non-JSON or malformed JSON for chunk "
+                        .. tostring(chunk.index) .. " of " .. tostring(chunk.total) .. ": "
+                        .. tostring(decode_err or "decode failed"),
+                    node.module),
+            })
+        end
+
+        local decoded_map = decoded :: { [string]: unknown }
+        append_findings(findings, seen, decoded_map.findings, node)
+        local chunk_status = normalize_status(decoded_map.status, findings)
+        if (STATUS_RANK[chunk_status] or 0) > (STATUS_RANK[declared_status] or 0) then
+            declared_status = chunk_status
+        end
+        local summary = trim(decoded_map.summary)
+        if summary ~= "" then table.insert(summaries, summary) end
     end
 
-    local decoded, decode_err = decode(resp.result)
-    if type(decoded) ~= "table" then
-        return module_result(node, "error", "Security review response was invalid.", {
-            error_finding(node.module, node.version, "Security review response invalid",
-                "The LLM reviewer returned non-JSON or malformed JSON: " .. tostring(decode_err or "decode failed")),
-        })
+    local status = normalize_status(declared_status, findings)
+    local summary = ""
+    if #summaries > 0 and status ~= "clean" then
+        summary = summaries[1]
     end
-
-    local findings = {}
-    for _, raw in ipairs(type(decoded.findings) == "table" and decoded.findings or {}) do
-        table.insert(findings, normalize_finding(raw, node.module, node.version))
-    end
-    if truncated then
-        table.insert(findings, error_finding(node.module, node.version,
-            "Module content truncated for scan",
-            "Only the first " .. tostring(self.content_limit) .. " bytes were sent to the LLM reviewer.",
-            tostring(node.module)))
-        findings[#findings].severity = "info"
-    end
-
-    local status = normalize_status(tostring(decoded.status or ""), findings)
-    local summary = trim(decoded.summary)
     if summary == "" then
-        summary = status == "clean" and "No risky patterns found." or "Security review found items to review."
+        summary = status == "clean"
+            and ("Reviewed " .. tostring(entry_count) .. " entries across " .. tostring(#chunks) .. " chunk(s); no risky patterns found.")
+            or ("Reviewed " .. tostring(entry_count) .. " entries across " .. tostring(#chunks) .. " chunk(s); security review found items to review.")
     end
     return module_result(node, status, summary, findings)
 end
 
-function Scanner:scan(args)
-    args = args or {}
+function Scanner:scan(args: unknown): (unknown?, unknown?)
+    local args_map = (type(args) == "table" and args or {}) :: { [string]: unknown }
     local started = now_ms()
 
-    local plan, plan_err = self:plan(args)
+    local plan, plan_err = self:plan(args_map)
     if not plan then return nil, plan_err end
 
     local modules = {}
     local scanned = 0
-    local graph = plan.graph or {}
-    local scan_limit = tonumber(args.max_scan_modules or self.max_modules) or self.max_modules
+    local plan_map = plan :: { [string]: unknown }
+    local graph = (type(plan_map.graph) == "table" and plan_map.graph or {}) :: { unknown }
+    local scan_limit = tonumber(args_map.max_scan_modules or self.max_modules) or self.max_modules
 
-    for _, node in ipairs(graph) do
+    for _, raw_node in ipairs(graph) do
+        local node = raw_node :: ScanNode
         if node.installed == true and node.direct ~= true then
             table.insert(modules, module_result(node, "clean",
                 "Module is already installed locally; existing trusted installation is skipped.", {}))
