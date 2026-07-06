@@ -45,6 +45,22 @@ entries:
       materialize: keeper.state.persist:materialize
       planner: keeper.hub:planner
       step_runner: keeper.develop.integrate.pipeline:step_runner
+
+  # keeper.hub:security_scan
+  - name: security_scan
+    kind: library.lua
+    meta:
+      comment: Read-only Hub module security reviewer for install planning
+    source: file://security_scan.lua
+    modules:
+      - hub
+      - json
+      - registry
+      - time
+    imports:
+      llm: wippy.llm:llm
+      planner: keeper.hub:planner
+      prompt: wippy.llm:prompt
     
   # keeper.hub:test
   - name: test
@@ -54,12 +70,17 @@ entries:
       comment: Hub service unit tests for dependency patches, migration policy, and dry-run behavior
       suite: hub
     source: file://test.lua
+    modules:
+      - http_client
+      - json
     imports:
+      api_test: keeper.tests:api_test
       hub_dependencies_tool: keeper.hub.tools:dependencies
       hub_migrations_tool: keeper.hub.tools:migrations
       hub_service: keeper.hub:service
       lockfile: keeper.hub:lockfile
       planner: keeper.hub:planner
+      security_scan: keeper.hub:security_scan
       test: wippy.test:test
     method: define_tests
     pool:

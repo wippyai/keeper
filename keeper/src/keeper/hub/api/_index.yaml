@@ -189,6 +189,31 @@ entries:
     method: POST
     func: plan_install
     path: /keeper/hub/dependencies/plan
+
+  # keeper.hub.api:scan
+  - name: scan
+    kind: function.lua
+    meta:
+      comment: Run a read-only LLM security review over Hub modules planned for install
+      router: app:api
+    source: file://scan.lua
+    modules:
+      - http
+    imports:
+      api_http: keeper.hub.api:http
+      security_scan: keeper.hub:security_scan
+    method: handler
+    pool:
+      size: 2
+
+  # keeper.hub.api:scan.endpoint
+  - name: scan.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: scan
+    path: /keeper/hub/scan
     
   # keeper.hub.api:run_migrations
   - name: run_migrations

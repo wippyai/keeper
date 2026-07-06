@@ -2,8 +2,12 @@ local test = require("test")
 local hub = require("hub_service")
 local planner = require("planner")
 local lockfile = require("lockfile")
+local security_scan = require("security_scan")
 local hub_dependencies_tool = require("hub_dependencies_tool")
 local hub_migrations_tool = require("hub_migrations_tool")
+local http_client = require("http_client")
+local api_test = require("api_test")
+local json = require("json")
 
 local function fake_registry(entries)
     local by_id = {}
@@ -344,6 +348,96 @@ local function fake_catalog(versions_by_component)
                 return { items = {} }, nil
             end,
         },
+    }
+end
+
+local function security_scan_catalog()
+    return fake_catalog({
+        ["acme/clean"] = {
+            {
+                id = "clean-v1",
+                version = "v1.0.0",
+                entry_kinds = { "function.lua" },
+                inspect = {
+                    entries = {
+                        {
+                            id = "acme.clean:handler",
+                            kind = "function.lua",
+                            meta = { module = "acme/clean", module_version = "v1.0.0" },
+                            data = { method = "handler", source = "return { handler = function() return true end }" },
+                        },
+                    },
+                },
+            },
+        },
+        ["acme/risky"] = {
+            {
+                id = "risky-v1",
+                version = "v1.0.0",
+                entry_kinds = { "function.lua", "http.endpoint" },
+                inspect = {
+                    entries = {
+                        {
+                            id = "acme.risky:run",
+                            kind = "function.lua",
+                            meta = { module = "acme/risky", module_version = "v1.0.0" },
+                            data = { source = "local process = require('process'); process.exec('curl http://evil')" },
+                        },
+                    },
+                },
+            },
+        },
+        ["acme/app"] = {
+            {
+                id = "app-v1",
+                version = "v1.0.0",
+                dependencies = {
+                    { org = "acme", name = "clean", version = "v1.0.0" },
+                    { org = "acme", name = "installed", version = "v1.0.0" },
+                },
+                inspect = {
+                    entries = {
+                        {
+                            id = "acme.app:handler",
+                            kind = "function.lua",
+                            meta = { module = "acme/app", module_version = "v1.0.0" },
+                            data = { source = "return { handler = function() return 'ok' end }" },
+                        },
+                    },
+                },
+            },
+        },
+        ["acme/installed"] = {
+            {
+                id = "installed-v1",
+                version = "v1.0.0",
+                inspect = { entries = {} },
+            },
+        },
+    })
+end
+
+local function security_scan_llm(findings_by_module)
+    return {
+        generate = function()
+            local module = ""
+            for key in pairs(findings_by_module) do
+                module = key
+                break
+            end
+            local findings = findings_by_module[module] or {}
+            local status = #findings > 0 and "warnings" or "clean"
+            for _, finding in ipairs(findings) do
+                if finding.severity == "critical" then status = "critical" end
+            end
+            return {
+                result = json.encode({
+                    status = status,
+                    summary = #findings > 0 and "Review flagged module risk." or "No risky patterns found.",
+                    findings = findings,
+                }),
+            }, nil
+        end,
     }
 end
 
@@ -1830,6 +1924,114 @@ local function define_tests()
         end)
 
         describe("install planner", function()
+                it("returns clean when the reviewer finds no issues", function()
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = security_scan_catalog(),
+                        registry = fake_registry({}),
+                        llm = security_scan_llm({}),
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "acme/clean", version = "v1.0.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.success, true)
+                    test.eq(out.overall_status, "clean")
+                    test.eq(out.scanned, 1)
+                    test.eq(out.total, 1)
+                    test.eq(out.modules[1].status, "clean")
+                    test.eq(#out.modules[1].findings, 0)
+                end)
+
+                it("promotes dangerous reviewer findings to the overall status", function()
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = security_scan_catalog(),
+                        registry = fake_registry({}),
+                        llm = security_scan_llm({
+                            ["acme/risky"] = {
+                                {
+                                    severity = "critical",
+                                    title = "Shell execution reaches the network",
+                                    detail = "The module shells out to curl from runtime code.",
+                                    location = "acme.risky:run",
+                                },
+                            },
+                        }),
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "acme/risky", version = "v1.0.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.overall_status, "critical")
+                    test.eq(out.modules[1].status, "critical")
+                    test.eq(out.modules[1].findings[1].severity, "critical")
+                    test.eq(out.modules[1].findings[1].title, "Shell execution reaches the network")
+                    test.eq(out.modules[1].findings[1].location, "acme.risky:run")
+                end)
+
+                it("reports LLM unavailability as an honest scan error", function()
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = security_scan_catalog(),
+                        registry = fake_registry({}),
+                        llm = {
+                            generate = function()
+                                return nil, "model unavailable"
+                            end,
+                        },
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "acme/clean", version = "v1.0.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.success, true)
+                    test.eq(out.overall_status, "warnings")
+                    test.eq(out.modules[1].status, "error")
+                    test.eq(out.modules[1].findings[1].severity, "warning")
+                    test.contains(out.modules[1].findings[1].title, "Security review unavailable")
+                    test.contains(out.overall_summary, "unavailable")
+                end)
+
+                it("scans only new modules while reporting installed modules as skipped", function()
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = security_scan_catalog(),
+                        registry = fake_registry(installed_module("acme/installed", {})),
+                        llm = security_scan_llm({}),
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "acme/app", version = "v1.0.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.overall_status, "clean")
+                    test.eq(out.total, 3)
+                    test.eq(out.scanned, 2)
+                    local by_module = {}
+                    for _, row in ipairs(out.modules) do by_module[row.module] = row end
+                    test.eq(by_module["acme/app"].status, "clean")
+                    test.eq(by_module["acme/clean"].status, "clean")
+                    test.eq(by_module["acme/installed"].status, "clean")
+                    test.contains(by_module["acme/installed"].summary, "already installed")
+                end)
+
+                it("reviews the target module even when updating an installed component", function()
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = security_scan_catalog(),
+                        registry = fake_registry(installed_module("acme/clean", {})),
+                        llm = security_scan_llm({}),
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "acme/clean", version = "v1.0.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.total, 1)
+                    test.eq(out.scanned, 1)
+                    test.eq(out.modules[1].module, "acme/clean")
+                    test.eq(out.modules[1].status, "clean")
+                end)
+
             it("reuses an existing dependency entry for component updates", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
@@ -4049,6 +4251,18 @@ local function define_tests()
                 test.eq(execution["2"].status, "rolled_back")
                 test.eq(execution["3"].step, "lockfile")
                 test.eq(execution["3"].status, "failed")
+            end)
+        end)
+
+        describe("security scan API", function()
+            it("requires an authenticated admin actor", function()
+                local res, err = http_client.post(api_test.endpoint("/api/keeper/hub/scan"), {
+                    headers = { ["Content-Type"] = "application/json" },
+                    body = json.encode({ component = "acme/clean", version = "v1.0.0" }),
+                })
+
+                test.is_nil(err)
+                test.eq(res.status_code, 401)
             end)
         end)
     end)
