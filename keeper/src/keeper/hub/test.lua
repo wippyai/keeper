@@ -2596,6 +2596,36 @@ local function define_tests()
                 test.eq(plan.missing_requirements[1], "acme.needssecret:secret")
             end)
 
+            it("does not report an optional empty-default requirement as missing", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/session"] = {
+                            {
+                                version = "v1.0.0",
+                                requirements = {
+                                    {
+                                        name = "on_session_end_func_id",
+                                        default = "",
+                                        targets = { { entry = "acme.session:env", path = ".default" } },
+                                    },
+                                },
+                            },
+                        },
+                    }),
+                    registry = fake_registry({}),
+                }) :: any
+
+                local plan, err = svc:plan_install({ component = "acme/session", version = "v1.0.0" })
+
+                test.is_nil(err)
+                local req = find_requirement(plan, "acme.session:on_session_end_func_id")
+                test.not_nil(req)
+                test.is_false(req.required)
+                test.is_false(req.missing)
+                test.eq(#plan.missing_requirements, 0)
+                test.eq(#plan.install_payload.parameters, 0)
+            end)
+
             it("selects the highest non-yanked version satisfying a semver constraint", function()
                 local svc = planner.new({
                     catalog = planner_catalog(),
