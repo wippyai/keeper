@@ -11,7 +11,7 @@ local M = {}
 local Scanner = {}
 Scanner.__index = Scanner
 
-M.DEFAULT_MODEL = "class:smart"
+M.DEFAULT_MODEL = "class:premium"
 M.DEFAULT_MAX_TOKENS = 2000
 M.DEFAULT_CONTENT_LIMIT = 60000
 M.DEFAULT_MAX_MODULES = 40
