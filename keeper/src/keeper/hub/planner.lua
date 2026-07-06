@@ -12,6 +12,7 @@ type HubRequirement = {
     name?: string,
     description?: string,
     default?: string,
+    required?: boolean,
     targets?: { RequirementTarget },
 }
 type HubDependencyRef = {
@@ -557,6 +558,8 @@ local function has_entry_kind(version, kind: string): boolean
 end
 
 local function requirement_required(req): boolean
+    if req.required == false then return false end
+    if req.default ~= nil and trim(req.default) == "" then return false end
     return true
 end
 
