@@ -23,6 +23,7 @@ entries:
     source: file://run.lua
     modules:
       - funcs
+      - time
     imports:
       changeset_repo: keeper.changeset.persist:repo
       fs_flush: keeper.changeset:fs_flush
