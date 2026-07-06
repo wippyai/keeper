@@ -108,6 +108,26 @@ function M.changeset_namespaces(changeset)
     return list
 end
 
+-- Pure: collect distinct valid entry IDs named directly by a changeset and map
+-- each id to its last operation kind.
+function M.changeset_entry_ops(changeset)
+    local seen = {}
+    local ids = {}
+    local ops = {}
+    for _, op in ipairs(changeset or {}) do
+        local entry = op.entry
+        local id = entry and entry.id
+        if type(id) == "string" and id:match("^([^:]+):(.+)$") then
+            if not seen[id] then
+                seen[id] = true
+                table.insert(ids, id)
+            end
+            ops[id] = op.kind
+        end
+    end
+    return ids, ops
+end
+
 -- Get current entries for a set of namespaces from the registry
 local function collect_namespace_entries(ns_set)
     local snapshot, err = registry.snapshot()
@@ -124,6 +144,176 @@ local function collect_namespace_entries(ns_set)
         end
     end
     return filtered
+end
+
+local function collect_entries_by_id(id_set)
+    local snapshot, err = registry.snapshot()
+    if not snapshot then
+        return nil, "Failed to get registry snapshot: " .. (err or "unknown")
+    end
+
+    local all = snapshot:entries()
+    local filtered = {}
+    for _, entry in ipairs(all or {}) do
+        if entry.id and id_set[entry.id] then
+            table.insert(filtered, entry)
+        end
+    end
+    return filtered
+end
+
+local function yaml_entry_for(entry)
+    if type(entry.id) ~= "string" then return nil, nil, nil end
+    local ns, name = string.match(entry.id, "(.+):(.+)")
+    if not ns or not name then return nil, nil, nil end
+
+    local yaml_entry = { name = name, kind = entry.kind }
+    if entry.meta then yaml_entry.meta = entry.meta end
+    if entry.data then
+        for k, v in pairs(entry.data) do
+            yaml_entry[k] = v
+        end
+    end
+    return ns, name, yaml_entry
+end
+
+function M.render_index_entry(namespace, entry)
+    local entry_yaml, entry_err = yaml.encode(entry, {
+        field_order = FIELD_ORDER,
+        sort_unordered = true,
+    })
+    if entry_err or not entry_yaml then
+        return nil, entry_err or "unknown"
+    end
+
+    local label = namespace .. ":" .. tostring(entry.name or "")
+    entry_yaml = "  # " .. label .. "\n" .. "  - " .. entry_yaml:gsub("\n", "\n    ")
+    return entry_yaml:gsub("[\n\r]+$", "")
+end
+
+local function split_lines(content)
+    local lines = {}
+    if type(content) ~= "string" or content == "" then return lines end
+    for line in (content .. "\n"):gmatch("([^\n]*)\n") do
+        table.insert(lines, line)
+    end
+    return lines
+end
+
+local function block_name(lines, entry_line)
+    local raw = lines[entry_line] or ""
+    local name = raw:match("^  %- name:%s*(.-)%s*$")
+    if not name or name == "" then return nil end
+    name = name:gsub('^"(.*)"$', "%1"):gsub("^'(.*)'$", "%1")
+    return name
+end
+
+local function append_block_lines(out, block)
+    for _, line in ipairs(split_lines(block)) do
+        table.insert(out, line)
+    end
+end
+
+local function sorted_names(map)
+    local out = {}
+    for name in pairs(map or {}) do table.insert(out, name) end
+    table.sort(out)
+    return out
+end
+
+-- Pure: patch one namespace _index.yaml at entry-block granularity. Existing
+-- unrelated blocks are copied as bytes/lines from the input; only named
+-- replacement/deletion blocks are touched. `guarded_missing[name]` prevents
+-- appending a block that was not already present, used for non-create
+-- ns.dependency syncs from throwaway registries.
+function M.patch_index_content(existing, namespace, replacements, deletes, guarded_missing)
+    replacements = replacements or {}
+    deletes = deletes or {}
+    guarded_missing = guarded_missing or {}
+
+    local has_existing = type(existing) == "string" and existing ~= ""
+    if not has_existing then
+        local body = {}
+        for _, name in ipairs(sorted_names(replacements)) do
+            if not guarded_missing[name] then
+                append_block_lines(body, replacements[name])
+            end
+        end
+        if #body == 0 then return nil, false end
+
+        local header, enc_err = yaml.encode({ namespace = namespace, version = "1.0" }, {
+            field_order = FIELD_ORDER,
+            sort_unordered = true,
+        })
+        if enc_err or not header then return nil, false, enc_err or "unknown" end
+
+        return header .. "\nentries:\n" .. table.concat(body, "\n"), true
+    end
+
+    local lines = split_lines(existing)
+    local entries_idx = nil
+    for i, line in ipairs(lines) do
+        if line:match("^entries:%s*$") then
+            entries_idx = i
+            break
+        end
+    end
+    if not entries_idx then
+        return M.patch_index_content(nil, namespace, replacements, deletes, guarded_missing)
+    end
+
+    local out = {}
+    for i = 1, entries_idx do table.insert(out, lines[i]) end
+
+    local found = {}
+    local i = entries_idx + 1
+    while i <= #lines do
+        local start = i
+        local entry_line = nil
+
+        if lines[i]:match("^  #") and lines[i + 1] and lines[i + 1]:match("^  %- ") then
+            entry_line = i + 1
+        elseif lines[i]:match("^  %- ") then
+            entry_line = i
+        end
+
+        if not entry_line then
+            table.insert(out, lines[i])
+            i = i + 1
+        else
+            local name = block_name(lines, entry_line)
+            local next_start = entry_line + 1
+            while next_start <= #lines do
+                if lines[next_start]:match("^  %- ") then
+                    break
+                end
+                if lines[next_start]:match("^  #") and lines[next_start + 1] and lines[next_start + 1]:match("^  %- ") then
+                    break
+                end
+                next_start = next_start + 1
+            end
+            local finish = next_start - 1
+
+            if name then found[name] = true end
+            if name and deletes[name] then
+                -- drop the block
+            elseif name and replacements[name] then
+                append_block_lines(out, replacements[name])
+            else
+                for j = start, finish do table.insert(out, lines[j]) end
+            end
+            i = next_start
+        end
+    end
+
+    for _, name in ipairs(sorted_names(replacements)) do
+        if not found[name] and not guarded_missing[name] then
+            append_block_lines(out, replacements[name])
+        end
+    end
+
+    local patched = table.concat(out, "\n")
+    return patched, patched ~= existing
 end
 
 -- Write entries to filesystem grouped by namespace. One _index.yaml per namespace.
@@ -226,6 +416,101 @@ local function write_entries_to_fs(entries, options)
             if should_write_file(fs, index_filepath, content) then
                 fs:write_file(index_filepath, content)
             end
+        end
+    end
+
+    return stats
+end
+
+local function write_changeset_entries_to_fs(entries, changeset, ops_by_id)
+    local fs_id: string = tostring(consts.FILESYSTEM.SOURCE_FS_ID)
+    local base_dir = "."
+
+    local fs = fs_module.get(fs_id)
+    if not fs then
+        return nil, "Failed to get filesystem instance for '" .. fs_id .. "'"
+    end
+
+    if not fs:exists(base_dir) then
+        fs:mkdir(base_dir)
+    end
+
+    local stats = { namespaces = 0, entries = 0, files = 0, files_skipped = 0, index_files = 0 }
+    local namespaces = {}
+
+    local function ns_group(ns)
+        if not namespaces[ns] then
+            namespaces[ns] = { replacements = {}, deletes = {}, guarded_missing = {} }
+            stats.namespaces = stats.namespaces + 1
+        end
+        return namespaces[ns]
+    end
+
+    for _, entry in ipairs(entries or {}) do
+        local ns, name, yaml_entry = yaml_entry_for(entry)
+        if ns and name and consts.is_namespace_managed(ns) then
+            local group = ns_group(ns)
+            local config = M.pick_kind_config(entry.kind, entry.meta and entry.meta.type)
+
+            if config and config.source_field and config.extension then
+                local source_field = config.source_field
+                local extension = config.extension
+                local sv = yaml_entry[source_field]
+
+                if sv and type(sv) == "string" and not sv:match("^file://") then
+                    local dir_path = ensure_directory(fs, base_dir, ns)
+                    local filename = M.append_extension(name, extension)
+                    local file_path = dir_path .. "/" .. filename
+                    if should_write_file(fs, file_path, sv) then
+                        fs:write_file(file_path, tostring(sv))
+                        stats.files = stats.files + 1
+                    else
+                        stats.files_skipped = stats.files_skipped + 1
+                    end
+                    yaml_entry[source_field] = "file://" .. filename
+                end
+            end
+
+            local block, block_err = M.render_index_entry(ns, yaml_entry)
+            if not block then
+                return nil, "Failed to encode entry " .. entry.id .. ": " .. tostring(block_err)
+            end
+
+            group.replacements[name] = block
+            if entry.kind == "ns.dependency" and ops_by_id[entry.id] ~= consts.REGISTRY_OPERATIONS.CREATE then
+                group.guarded_missing[name] = true
+            end
+            stats.entries = stats.entries + 1
+        end
+    end
+
+    for _, op in ipairs(changeset or {}) do
+        if op.kind == consts.REGISTRY_OPERATIONS.DELETE and op.entry and op.entry.id then
+            local ns, name = op.entry.id:match("^([^:]+):(.+)$")
+            if ns and name and consts.is_namespace_managed(ns) then
+                ns_group(ns).deletes[name] = true
+            end
+        end
+    end
+
+    for ns, namespace_data in pairs(namespaces) do
+        local dir_path = M.namespace_dir(base_dir, ns)
+        local index_filepath = dir_path .. "/" .. consts.FILESYSTEM.INDEX_FILENAME
+        local existing = nil
+        if fs:exists(index_filepath) then
+            existing = fs:readfile(index_filepath)
+        end
+
+        local patched, changed, patch_err = M.patch_index_content(
+            existing, ns, namespace_data.replacements,
+            namespace_data.deletes, namespace_data.guarded_missing)
+        if patch_err then
+            return nil, "Failed to patch index for " .. ns .. ": " .. tostring(patch_err)
+        end
+        if changed and patched then
+            ensure_directory(fs, base_dir, ns)
+            fs:write_file(index_filepath, patched)
+            stats.index_files = stats.index_files + 1
         end
     end
 
@@ -352,9 +637,23 @@ end
 
 -- Public: sync namespaces affected by a changeset
 function M.sync_changeset(changeset)
-    local ns_list = M.changeset_namespaces(changeset)
-    local stats, err = M.sync_namespaces(ns_list)
-    if not stats then return nil, err end
+    local ids, ops_by_id = M.changeset_entry_ops(changeset)
+    if #ids == 0 then
+        return { namespaces = 0, entries = 0, files = 0, files_skipped = 0, pruned = 0 }
+    end
+
+    local id_set = {}
+    for _, id in ipairs(ids) do
+        if ops_by_id[id] ~= consts.REGISTRY_OPERATIONS.DELETE then
+            id_set[id] = true
+        end
+    end
+
+    local entries, err = collect_entries_by_id(id_set)
+    if not entries then return nil, err end
+
+    local stats, write_err = write_changeset_entries_to_fs(entries, changeset, (ops_by_id :: any))
+    if not stats then return nil, write_err end
 
     local removed = remove_deleted_files(changeset)
     if removed > 0 then

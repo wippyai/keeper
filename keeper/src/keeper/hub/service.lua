@@ -99,6 +99,7 @@ local ERROR_KIND_BY_CODE = {
     NOT_FOUND = errors.NOT_FOUND,
     CONFLICT = errors.CONFLICT,
     REQUIREMENTS_MISSING = errors.CONFLICT,
+    PRE_APPLY_VALIDATION_FAILED = errors.CONFLICT,
     MIGRATIONS_APPLIED = errors.CONFLICT,
     DEPENDENCY_GRAPH_FAILED = errors.CONFLICT,
     DEPENDENCY_REQUIRED = errors.CONFLICT,
@@ -792,6 +793,129 @@ function Service:publish_dependency_changeset(args)
     }, nil
 end
 
+local function entry_data(entry)
+    if type(entry) ~= "table" then return {} end
+    return type(entry.data) == "table" and entry.data or {}
+end
+
+local function add_entry_refs(out, value)
+    if type(value) == "string" and trim(value) ~= "" then
+        table.insert(out, value)
+    end
+end
+
+local function binding_contract_refs(entry)
+    local refs = {}
+    local data = entry_data(entry)
+    add_entry_refs(refs, data.contract)
+    if type(data.contracts) == "table" then
+        for _, row in ipairs(data.contracts) do
+            if type(row) == "table" then add_entry_refs(refs, row.contract) end
+        end
+    end
+    return refs
+end
+
+local function requirement_target_refs(entry)
+    local refs = {}
+    local data = entry_data(entry)
+    if type(data.targets) == "table" then
+        for _, target in ipairs(data.targets) do
+            if type(target) == "table" then
+                add_entry_refs(refs, target.entry)
+                add_entry_refs(refs, target.entry_id)
+                add_entry_refs(refs, target.target)
+            end
+        end
+    end
+    return refs
+end
+
+function Service:registry_entries_by_id()
+    if not self.registry or not self.registry.find then
+        return nil, err("INTERNAL", "registry.find unavailable")
+    end
+    local entries, find_err = self.registry.find({})
+    if not entries then
+        return nil, err("INTERNAL", "failed to load registry snapshot: " .. tostring(find_err))
+    end
+    local by_id = {}
+    for _, entry in ipairs(entries or {}) do
+        if type(entry) == "table" and type(entry.id) == "string" then
+            by_id[entry.id] = entry
+        end
+    end
+    return by_id, nil
+end
+
+function Service:validate_planned_entries(changeset, planned_entries)
+    local by_id, load_err = self:registry_entries_by_id()
+    if not by_id then return nil, load_err end
+
+    local candidates = {}
+    for _, entry in ipairs(planned_entries or {}) do
+        if type(entry) == "table" and type(entry.id) == "string" then
+            by_id[entry.id] = entry
+            table.insert(candidates, entry)
+        end
+    end
+    for _, op in ipairs(changeset or {}) do
+        local entry = type(op.entry) == "table" and op.entry or nil
+        if entry and type(entry.id) == "string" then
+            if op.kind == self.gov_consts.REGISTRY_OPERATIONS.DELETE then
+                by_id[entry.id] = nil
+            else
+                by_id[entry.id] = entry
+                table.insert(candidates, entry)
+            end
+        end
+    end
+
+    local issues = {}
+    for _, entry in ipairs(candidates) do
+        if entry.kind == "contract.binding" then
+            for _, ref in ipairs(binding_contract_refs(entry)) do
+                if not by_id[ref] then
+                    table.insert(issues, {
+                        entry_id = entry.id,
+                        kind = entry.kind,
+                        field = "contract",
+                        reference = ref,
+                        message = "binding references undefined contract: " .. ref,
+                    })
+                end
+            end
+        elseif entry.kind == "ns.requirement" then
+            for _, ref in ipairs(requirement_target_refs(entry)) do
+                if not by_id[ref] then
+                    table.insert(issues, {
+                        entry_id = entry.id,
+                        kind = entry.kind,
+                        field = "targets.entry",
+                        reference = ref,
+                        message = "requirement target does not resolve: " .. ref,
+                    })
+                end
+            end
+        end
+    end
+
+    if #issues > 0 then
+        local issues_by_entry = {}
+        for _, issue in ipairs(issues) do
+            issues_by_entry[tostring(issue.entry_id or "unknown")] = issue
+        end
+        return nil, err("PRE_APPLY_VALIDATION_FAILED",
+            "Hub install planned entries failed pre-apply validation", {
+                issue_count = #issues,
+                issues = issues,
+                issues_by_entry = issues_by_entry,
+            })
+    end
+
+    return { ok = true, issue_count = 0 }, nil
+end
+
 function Service:restore_registry_version(version, reason)
     if not self.governance or not self.governance.restore_version then
         return nil, err("INTERNAL", "governance.restore_version unavailable")
@@ -965,7 +1089,14 @@ function Service:install_step_dispatch(opts)
     local svc = self
     return function(step)
         local op = step.op
-        if op == "governance_apply" then
+        if op == "pre_apply_validate" then
+            local result, validation_err = svc:validate_planned_entries(
+                step.data.changeset or {}, step.data.planned_entries or {})
+            if not result then
+                return { op = op, label = step.label, error = validation_err }
+            end
+            return { op = op, label = step.label, result = result }
+        elseif op == "governance_apply" then
             local apply_result, apply_err = svc:publish_dependency_changeset({
                 action = step.data.action,
                 entry = step.data.entry,
@@ -1058,6 +1189,10 @@ function Service:install(args, opts)
     local patch, patch_err = M.entry_to_set_patch(entry)
     if not patch then return nil, patch_err end
 
+    local planned_changeset_op, planned_changeset_err = self:dependency_create_or_update_op(entry)
+    if not planned_changeset_op then return nil, planned_changeset_err end
+    local planned_changeset = { planned_changeset_op }
+
     local payload = {
         dependency = M.dependency_summary(entry),
         patches = { patch },
@@ -1098,6 +1233,13 @@ function Service:install(args, opts)
     -- publish; lockfile_commit and migrations_up only appear when they have
     -- work to do.
     local steps = {
+        {
+            op = "pre_apply_validate", label = "validation",
+            data = {
+                changeset = planned_changeset,
+                planned_entries = plan.planned_entries or plan.entries or {},
+            },
+        },
         {
             op = "governance_apply", label = "governance",
             data = {

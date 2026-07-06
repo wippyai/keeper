@@ -3399,6 +3399,125 @@ local function define_tests()
                 test.eq(params[1].value, "app:api.public")
             end)
 
+            it("refuses planned bindings to missing contracts before publish", function()
+                local gov_state = ({}) :: any
+                local svc = hub.new({
+                    registry = fake_registry({}),
+                    planner = {
+                        plan_install = function(args)
+                            local entry, build_err = hub.build_dependency_entry(args)
+                            if not entry then return nil, build_err end
+                            return {
+                                dependency = hub.dependency_summary(entry),
+                                missing_requirements = {},
+                                requirements = {},
+                                install_payload = {
+                                    id = entry.id,
+                                    component = entry.data.component,
+                                    version = entry.data.version,
+                                    parameters = {},
+                                    migration_policy = "none",
+                                },
+                                planned_entries = {
+                                    {
+                                        id = "wippy.bad:driver",
+                                        kind = "contract.binding",
+                                        data = {
+                                            contracts = {
+                                                {
+                                                    contract = "wippy.missing:contract",
+                                                    methods = { run = "wippy.bad:run" },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            }, nil
+                        end,
+                    },
+                    governance = fake_governance(gov_state),
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/bad",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(out)
+                test.not_nil(err)
+                test.eq(err_code(err), "PRE_APPLY_VALIDATION_FAILED")
+                test.eq(gov_state.publish_calls or 0, 0)
+                local details = err_details(err)
+                test.not_nil(details)
+                test.eq(details.issue_count, 1)
+                test.eq(details.issues_by_entry["wippy.bad:driver"].reference, "wippy.missing:contract")
+            end)
+
+            it("allows valid planned bindings and requirement targets before publish", function()
+                local gov_state = ({}) :: any
+                local svc = hub.new({
+                    registry = fake_registry({
+                        { id = "wippy.good:contract", kind = "contract.definition", meta = {}, data = {} },
+                    }),
+                    planner = {
+                        plan_install = function(args)
+                            local entry, build_err = hub.build_dependency_entry(args)
+                            if not entry then return nil, build_err end
+                            return {
+                                dependency = hub.dependency_summary(entry),
+                                missing_requirements = {},
+                                requirements = {},
+                                install_payload = {
+                                    id = entry.id,
+                                    component = entry.data.component,
+                                    version = entry.data.version,
+                                    parameters = {},
+                                    migration_policy = "none",
+                                },
+                                planned_entries = {
+                                    {
+                                        id = "wippy.good:run",
+                                        kind = "function.lua",
+                                        data = { source = "return {}", method = "handler" },
+                                    },
+                                    {
+                                        id = "wippy.good:driver",
+                                        kind = "contract.binding",
+                                        data = {
+                                            contracts = {
+                                                {
+                                                    contract = "wippy.good:contract",
+                                                    methods = { run = "wippy.good:run" },
+                                                },
+                                            },
+                                        },
+                                    },
+                                    {
+                                        id = "wippy.good:router",
+                                        kind = "ns.requirement",
+                                        data = {
+                                            targets = {
+                                                { entry = "wippy.good:run", path = ".meta.router" },
+                                            },
+                                        },
+                                    },
+                                },
+                            }, nil
+                        end,
+                    },
+                    governance = fake_governance(gov_state),
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/good",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(err)
+                test.not_nil(out)
+                test.eq(gov_state.publish_calls, 1)
+            end)
+
             it("snapshots before install migrations and restores on migration failure", function()
                 local sent = {}
                 local gov_state = { current_version = 77 }
@@ -3567,11 +3686,13 @@ local function define_tests()
 
                 test.is_nil(err)
                 test.not_nil(out.execution)
-                test.eq(#out.execution, 2)
-                test.eq(out.execution[1].step, "governance")
+                test.eq(#out.execution, 3)
+                test.eq(out.execution[1].step, "validation")
                 test.eq(out.execution[1].status, "ok")
-                test.eq(out.execution[2].step, "lockfile")
+                test.eq(out.execution[2].step, "governance")
                 test.eq(out.execution[2].status, "ok")
+                test.eq(out.execution[3].step, "lockfile")
+                test.eq(out.execution[3].status, "ok")
             end)
 
             it("marks the successful step rolled_back when install lock persistence fails", function()
@@ -3875,10 +3996,12 @@ local function define_tests()
                 -- ledger rows are keyed by their 1-based position as strings.
                 local execution = details.execution
                 test.not_nil(execution)
-                test.eq(execution["1"].step, "governance")
-                test.eq(execution["1"].status, "rolled_back")
-                test.eq(execution["2"].step, "lockfile")
-                test.eq(execution["2"].status, "failed")
+                test.eq(execution["1"].step, "validation")
+                test.eq(execution["1"].status, "ok")
+                test.eq(execution["2"].step, "governance")
+                test.eq(execution["2"].status, "rolled_back")
+                test.eq(execution["3"].step, "lockfile")
+                test.eq(execution["3"].status, "failed")
             end)
 
             it("attaches the execution ledger to uninstall failure error details", function()

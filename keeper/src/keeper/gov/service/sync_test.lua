@@ -125,6 +125,76 @@ local function define_tests()
             end)
         end)
 
+        describe("changeset_entry_ops", function()
+            it("collects only entry ids directly named by the changeset", function()
+                local ids, ops = sync.changeset_entry_ops({
+                    { kind = "entry.update", entry = { id = "app.alpha:changed" } },
+                    { kind = "entry.create", entry = { id = "app.beta:new" } },
+                    { kind = "entry.update", entry = { id = "app.alpha:changed" } },
+                    { kind = "entry.update", entry = { id = "malformed" } },
+                })
+
+                test.eq(#ids, 2)
+                test.eq(ids[1], "app.alpha:changed")
+                test.eq(ids[2], "app.beta:new")
+                test.eq(ops["app.alpha:changed"], "entry.update")
+                test.eq(ops["app.beta:new"], "entry.create")
+                test.is_nil(ops["app.alpha:sibling"])
+            end)
+        end)
+
+        describe("patch_index_content", function()
+            it("replaces one entry block while preserving untouched siblings byte-identical", function()
+                local sibling_block = [[
+  # app.ns:sibling
+  - name: sibling
+    kind: function.lua
+    # keep this hand-written comment
+    source: file://sibling.lua]]
+                local before = [[version: "1.0"
+namespace: app.ns
+entries:
+  # app.ns:changed
+  - name: changed
+    kind: function.lua
+    source: file://old.lua
+]] .. sibling_block
+
+                local after, changed = sync.patch_index_content(before, "app.ns", {
+                    changed = [[  # app.ns:changed
+  - name: changed
+    kind: function.lua
+    source: file://new.lua]]
+                }, {})
+
+                test.is_true(changed)
+                test.is_true(after:find("source: file://new.lua", 1, true) ~= nil)
+                test.is_true(after:find(sibling_block, 1, true) ~= nil)
+            end)
+
+            it("does not create a new dependency root block for a non-create change", function()
+                local after, changed = sync.patch_index_content(nil, "throwaway.deps", {
+                    root = [[  # throwaway.deps:root
+  - name: root
+    kind: ns.dependency]]
+                }, {}, { root = true })
+
+                test.is_nil(after)
+                test.is_false(changed)
+            end)
+
+            it("allows explicit dependency creates to create a new index", function()
+                local after, changed = sync.patch_index_content(nil, "app.deps", {
+                    root = [[  # app.deps:root
+  - name: root
+    kind: ns.dependency]]
+                }, {}, {})
+
+                test.is_true(changed)
+                test.is_true(after:find("kind: ns.dependency", 1, true) ~= nil)
+            end)
+        end)
+
         describe("entry_file_path", function()
             it("builds a .lua path for function.lua", function()
                 test.eq(
