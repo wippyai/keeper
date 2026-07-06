@@ -277,12 +277,3 @@ entries:
     imports:
       api_http: keeper.hub.api:http
     method: handler
-
-  # keeper.hub.api:scan_dependency.endpoint
-  - name: scan_dependency.endpoint
-    kind: http.endpoint
-    meta:
-      router: app:api
-    method: POST
-    func: scan_dependency
-    path: /keeper/hub/scan
