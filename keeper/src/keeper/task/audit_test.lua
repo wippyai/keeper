@@ -63,8 +63,10 @@ local function define_tests()
 
             local rows, rerr = reader.by_type(tid, "tool_call")
             test.is_nil(rerr)
+            if not rows then error("expected tool_call rows") end
             test.eq(#rows, 1)
             local row = rows[1]
+            if not row then error("expected tool_call row") end
             test.eq(row.type, "tool_call")
             test.eq(row.discriminator, "tree")
             test.eq(row.status, "passed")
@@ -88,7 +90,7 @@ local function define_tests()
             test.eq(err, "schema error: missing method")
 
             local row = reader.latest_of_type(tid, "tool_call")
-            test.not_nil(row)
+            if not row then error("expected tool_call row") end
             test.eq(row.status, "failed")
             test.eq(row.error_message, "schema error: missing method")
 
@@ -108,7 +110,7 @@ local function define_tests()
             test.is_true(string.find(raised_msg, "boom", 1, true) ~= nil)
             -- Row stays at status=running because the update after body never executed.
             local row = reader.latest_of_type(tid, "tool_call")
-            test.not_nil(row)
+            if not row then error("expected tool_call row") end
             test.eq(row.status, "running")
 
             wipe(tid)
@@ -128,7 +130,7 @@ local function define_tests()
             )
 
             local row = reader.latest_of_type(tid, "tool_call")
-            test.not_nil(row)
+            if not row then error("expected tool_call row") end
             test.eq(row.result_summary, "loaded 12 entries")
 
             wipe(tid)
@@ -152,7 +154,7 @@ local function define_tests()
             )
 
             local row = reader.latest_of_type(tid, "tool_call")
-            test.not_nil(row)
+            if not row then error("expected tool_call row") end
             test.eq(row.parent_node_id, parent.node_id)
             test.eq(tonumber(row.depth), 1)
 
@@ -168,7 +170,7 @@ local function define_tests()
             )
 
             local row = reader.latest_of_type(tid, "tool_call")
-            test.not_nil(row)
+            if not row then error("expected tool_call row") end
             test.is_nil(row.parent_node_id)
             test.eq(tonumber(row.depth), 0)
 
@@ -184,7 +186,7 @@ local function define_tests()
             )
 
             local row = reader.latest_of_type(tid, "tool_call")
-            test.not_nil(row)
+            if not row then error("expected tool_call row") end
             test.eq(row.visibility, "debug")
 
             wipe(tid)

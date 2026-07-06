@@ -434,6 +434,7 @@ local function define_tests()
 
                 local latest, err = changeset_repo.latest_baseline(ws.changeset_id)
                 test.is_nil(err, "latest_baseline should succeed")
+                if not latest then error("expected phase spawn baseline") end
                 test.eq(latest.reason, changeset_consts.BASELINE_REASONS.PHASE_SPAWN,
                     "latest baseline should be a phase_spawn row")
             end)

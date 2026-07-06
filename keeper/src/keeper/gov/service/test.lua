@@ -109,6 +109,7 @@ local function define_tests()
             it("normalizes comma-separated managed namespaces", function()
                 local namespaces, err = gov_consts.normalize_managed_namespaces(" app, keeper ,app,userspace.data ")
                 test.is_nil(err)
+                if not namespaces then error("expected namespaces") end
                 test.eq(#namespaces, 3)
                 test.eq(namespaces[1], "app")
                 test.eq(namespaces[2], "keeper")

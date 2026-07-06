@@ -108,7 +108,7 @@ local function define_tests()
             test.is_false(vol:exists(inside), "new file removed from main fs")
 
             local overlay = repo.get_fs_content(ws.changeset_id, rel)
-            test.not_nil(overlay)
+            if not overlay then error("expected overlay row") end
             test.eq(overlay.content, "new-content")
 
             local read_back, read_err = view:read(rel)

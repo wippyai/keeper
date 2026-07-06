@@ -7,7 +7,7 @@ local function define_tests()
     describe("keeper.task.api:status.compute", function()
         it("returns table with version, uptime_seconds, task_count as numbers", function()
             local db = sql.get(consts.DATABASE.RESOURCE_ID)
-            test.not_nil(db)
+            if not db then error("db unavailable") end
             local s, err = status_mod.compute(db)
             db:release()
             test.is_nil(err)

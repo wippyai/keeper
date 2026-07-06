@@ -115,7 +115,7 @@ local function define_tests()
 
             -- Baseline row written
             local baseline, _ = repo.latest_baseline(ws.changeset_id)
-            test.not_nil(baseline)
+            if not baseline then error("expected baseline row") end
             test.eq(baseline.reason, consts.BASELINE_REASONS.OPEN)
             test.eq(baseline.registry_version, ws.baseline_version)
             test.eq(baseline.fs_tree_hash, ws.baseline_fs_hash)

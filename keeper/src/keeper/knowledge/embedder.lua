@@ -33,7 +33,7 @@ local function embed_text(text: string, requested_model: string?): (table?, stri
     local last_err = nil
     for _, model in ipairs(consts.embedding_models(requested_model)) do
         local result, err = llm.embed(text, { model = model, dimensions = consts.EMBED.DIMENSIONS })
-        if result then
+        if type(result) == "table" then
             return result, nil, model
         end
         last_err = err or "no result"

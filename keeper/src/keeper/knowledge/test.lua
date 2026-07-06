@@ -299,7 +299,7 @@ local function define_tests()
                         embedding = json.encode(vector),
                         title = node.title,
                         content_preview = node.content,
-                    })
+                })
                     :run_with(db)
                     :exec()
                 test.is_nil(insert_err)
@@ -309,6 +309,7 @@ local function define_tests()
                     :run_with(db)
                     :exec()
                 test.is_nil(update_err)
+                if not db then error("db unavailable") end
                 db:release()
 
                 local results, search_err = kb_repo.search_by_embedding(vector, { limit = 3 })

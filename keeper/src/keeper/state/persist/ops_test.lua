@@ -12,6 +12,20 @@ local function get_db()
     return sql.get(overlay_consts.DATABASE.RESOURCE_ID)
 end
 
+local function must_db()
+    local db, err = get_db()
+    test.is_nil(err)
+    if not db then error("db unavailable") end
+    return db
+end
+
+local function must_tx(db)
+    local tx, err = db:begin()
+    test.is_nil(err)
+    if not tx then error("tx unavailable") end
+    return tx
+end
+
 local function make_entry_id(suffix)
     return TEST_ENTRY_PREFIX .. ":" .. suffix
 end
@@ -59,12 +73,8 @@ local function define_tests()
             end)
 
             it("returns error when commands is nil", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-                test.not_nil(db)
-
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local result, err = state_ops.execute(tx, nil)
                 test.is_nil(result)
@@ -75,11 +85,8 @@ local function define_tests()
             end)
 
             it("returns error when commands is empty", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local result, err = state_ops.execute(tx, {})
                 test.is_nil(result)
@@ -90,11 +97,8 @@ local function define_tests()
             end)
 
             it("returns error for unknown command type", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local result, err = state_ops.execute(tx, {
                     { type = "nonexistent_command", payload = {} }
@@ -108,11 +112,8 @@ local function define_tests()
             end)
 
             it("returns error for command missing type", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local result, err = state_ops.execute(tx, {
                     { payload = { id = "test:entry" } }
@@ -127,11 +128,8 @@ local function define_tests()
 
         describe("set_entry", function()
             it("creates an entry with definition", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local entry_id = make_entry_id("set_basic_" .. uuid.v4():sub(1, 8))
                 local result, err = state_ops.execute(tx, {
@@ -165,11 +163,8 @@ local function define_tests()
             end)
 
             it("creates an entry with definition and content", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local entry_id = make_entry_id("set_content_" .. uuid.v4():sub(1, 8))
                 local result, err = state_ops.execute(tx, {
@@ -202,11 +197,8 @@ local function define_tests()
             end)
 
             it("creates an entry with attributes", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local entry_id = make_entry_id("set_attrs_" .. uuid.v4():sub(1, 8))
                 local result, err = state_ops.execute(tx, {
@@ -239,11 +231,8 @@ local function define_tests()
             end)
 
             it("replaces entry on re-set", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local entry_id = make_entry_id("set_replace_" .. uuid.v4():sub(1, 8))
 
@@ -253,10 +242,8 @@ local function define_tests()
                 tx:commit()
                 db:release()
 
-                db, db_err = get_db()
-                test.is_nil(db_err)
-                tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                db = must_db()
+                tx = must_tx(db)
 
                 local result, err = state_ops.execute(tx, {
                     make_set_entry_cmd(entry_id, "library.lua", "updated definition", "updated content", TEST_BRANCH)
@@ -283,11 +270,8 @@ local function define_tests()
             end)
 
             it("rejects entry missing required fields", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local result, err = state_ops.execute(tx, {
                     { type = state_ops.COMMAND.SET_ENTRY, payload = { id = "test:x" } }
@@ -302,10 +286,8 @@ local function define_tests()
 
         describe("delete_entry", function()
             it("marks an existing entry as deleted", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local entry_id = make_entry_id("del_" .. uuid.v4():sub(1, 8))
                 state_ops.execute(tx, {
@@ -314,10 +296,8 @@ local function define_tests()
                 tx:commit()
                 db:release()
 
-                db, db_err = get_db()
-                test.is_nil(db_err)
-                tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                db = must_db()
+                tx = must_tx(db)
 
                 local result, err = state_ops.execute(tx, {
                     {
@@ -345,10 +325,8 @@ local function define_tests()
             end)
 
             it("returns error for nonexistent entry", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local result, err = state_ops.execute(tx, {
                     {
@@ -366,10 +344,8 @@ local function define_tests()
 
         describe("set_edge", function()
             it("creates an edge between entries", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local source_id = make_entry_id("edge_src_" .. uuid.v4():sub(1, 8))
                 local target_id = make_entry_id("edge_tgt_" .. uuid.v4():sub(1, 8))
@@ -405,10 +381,8 @@ local function define_tests()
             end)
 
             it("creates an edge with metadata", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local source_id = make_entry_id("emeta_src_" .. uuid.v4():sub(1, 8))
                 local target_id = make_entry_id("emeta_tgt_" .. uuid.v4():sub(1, 8))
@@ -439,10 +413,8 @@ local function define_tests()
             end)
 
             it("rejects edge missing required fields", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local result, err = state_ops.execute(tx, {
                     {
@@ -460,10 +432,8 @@ local function define_tests()
 
         describe("delete_edge", function()
             it("removes an existing edge", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local source_id = make_entry_id("dedge_src_" .. uuid.v4():sub(1, 8))
                 local target_id = make_entry_id("dedge_tgt_" .. uuid.v4():sub(1, 8))
@@ -482,10 +452,8 @@ local function define_tests()
                 tx:commit()
                 db:release()
 
-                db, db_err = get_db()
-                test.is_nil(db_err)
-                tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                db = must_db()
+                tx = must_tx(db)
 
                 local result, err = state_ops.execute(tx, {
                     {
@@ -514,10 +482,8 @@ local function define_tests()
 
         describe("set_attribute", function()
             it("sets an attribute on an entry", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local entry_id = make_entry_id("attr_set_" .. uuid.v4():sub(1, 8))
 
@@ -552,10 +518,8 @@ local function define_tests()
             end)
 
             it("rejects attribute missing required fields", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local result, err = state_ops.execute(tx, {
                     {
@@ -573,10 +537,8 @@ local function define_tests()
 
         describe("delete_attribute", function()
             it("removes an attribute from an entry", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local entry_id = make_entry_id("attr_del_" .. uuid.v4():sub(1, 8))
 
@@ -597,10 +559,8 @@ local function define_tests()
                 tx:commit()
                 db:release()
 
-                db, db_err = get_db()
-                test.is_nil(db_err)
-                tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                db = must_db()
+                tx = must_tx(db)
 
                 local result, err = state_ops.execute(tx, {
                     {
@@ -629,10 +589,8 @@ local function define_tests()
 
         describe("multiple commands", function()
             it("executes multiple commands in a single batch", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local entry_id_1 = make_entry_id("batch1_" .. uuid.v4():sub(1, 8))
                 local entry_id_2 = make_entry_id("batch2_" .. uuid.v4():sub(1, 8))
@@ -670,10 +628,8 @@ local function define_tests()
             end)
 
             it("rolls back all commands when one fails", function()
-                local db, db_err = get_db()
-                test.is_nil(db_err)
-                local tx, tx_err = db:begin()
-                test.is_nil(tx_err)
+                local db = must_db()
+                local tx = must_tx(db)
 
                 local entry_id = make_entry_id("rollback_" .. uuid.v4():sub(1, 8))
 
