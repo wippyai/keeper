@@ -126,8 +126,12 @@ local function define_tests()
 
             it("merges meta when should_merge is true", function()
                 local out = registry_ops.apply_updates(base, { meta = { title = "new" } }, true)
-                test.eq(out.meta.title, "new")
-                test.eq(out.meta.tags[1], "x")
+                local meta = out.meta
+                if not meta then error("expected meta") end
+                local tags = meta.tags :: any
+                if not tags then error("expected merged tags") end
+                test.eq(meta.title, "new")
+                test.eq(tags[1], "x")
             end)
 
             it("replaces meta wholesale when should_merge is false", function()
@@ -171,15 +175,18 @@ local function define_tests()
                 local changeset, err = registry_ops.update_changeset(entry)
                 test.is_nil(err)
                 test.eq(#changeset, 1)
-                test.eq(changeset[1].kind, gov_consts.REGISTRY_OPERATIONS.UPDATE)
-                test.eq(changeset[1].entry.id, "app:test")
-                test.eq(changeset[1].entry.kind, "function.lua")
-                test.eq(changeset[1].entry.meta.comment, "probe")
-                test.eq(changeset[1].entry.data.method, "handler")
-                test.eq(changeset[1].entry.data.source, source)
+                local change = changeset[1]
+                if not change then error("expected changeset entry") end
+                local changed_entry = change.entry :: any
+                test.eq(change.kind, gov_consts.REGISTRY_OPERATIONS.UPDATE)
+                test.eq(changed_entry.id, "app:test")
+                test.eq(changed_entry.kind, "function.lua")
+                test.eq(changed_entry.meta.comment, "probe")
+                test.eq(changed_entry.data.method, "handler")
+                test.eq(changed_entry.data.source, source)
                 test.eq(entry.data.source, source)
-                test.is_nil(changeset[1].entry.definition)
-                test.is_nil(changeset[1].entry.content)
+                test.is_nil(changed_entry.definition)
+                test.is_nil(changed_entry.content)
             end)
 
             it("rejects invalid entries before governance publish", function()

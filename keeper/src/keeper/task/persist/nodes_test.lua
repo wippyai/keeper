@@ -86,9 +86,13 @@ local function define_tests()
             -- children() returns siblings in position order
             local kids, cerr = nodes_reader.children(parent.node_id)
             test.is_nil(cerr)
+            if not kids then error("expected child nodes") end
             test.eq(#kids, 2)
-            test.eq(kids[1].node_id, child1.node_id)
-            test.eq(kids[2].node_id, child2.node_id)
+            local first_kid = kids[1]
+            local second_kid = kids[2]
+            if not first_kid or not second_kid then error("expected two child nodes") end
+            test.eq(first_kid.node_id, child1.node_id)
+            test.eq(second_kid.node_id, child2.node_id)
 
             wipe(task_id)
         end)
@@ -129,7 +133,7 @@ local function define_tests()
             ws:record({ type = "spec", discriminator = "3", status = "active",     title = "v3" })
 
             local current, _ = nodes_reader.latest_of_type(task_id, "spec", { status = "active" })
-            test.not_nil(current)
+            if not current then error("expected active spec node") end
             test.eq(current.discriminator, "3")
             test.eq(current.status, "active")
 
@@ -225,7 +229,7 @@ local function define_tests()
             test.is_nil(uerr)
 
             local reread, _ = nodes_reader.get(row.node_id)
-            test.not_nil(reread)
+            if not reread then error("expected reread node") end
             test.eq(reread.status, "passed")
             test.eq(tonumber(reread.execution_ms), 42)
             test.eq(reread.result_summary, "12 entries returned")

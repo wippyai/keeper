@@ -210,7 +210,7 @@ local function define_tests()
         describe("bounce_cap", function()
             it("returns review->implement cap=1 toward ask_user (convergence ping-pong needs human, not finish-lie)", function()
                 local cap = sm.bounce_cap(P.REVIEW, P.IMPLEMENT)
-                test.not_nil(cap)
+                if not cap then error("expected review->implement cap") end
                 test.eq(cap.cap, 1,
                     "review->implement cap must be 1; increasing lets buggy work loop indefinitely")
                 test.eq(cap.terminal, "ask_user",
@@ -225,14 +225,14 @@ local function define_tests()
 
             it("returns implement->design cap toward abandoned", function()
                 local cap = sm.bounce_cap(P.IMPLEMENT, P.DESIGN)
-                test.not_nil(cap)
+                if not cap then error("expected implement->design cap") end
                 test.eq(cap.cap, 3)
                 test.eq(cap.terminal, P.ABANDONED)
             end)
 
             it("returns implement->review cap toward ask_user (push-loop without convergence pauses for user, not silent fail)", function()
                 local cap = sm.bounce_cap(P.IMPLEMENT, P.REVIEW)
-                test.not_nil(cap)
+                if not cap then error("expected implement->review cap") end
                 test.eq(cap.cap, 5)
                 test.eq(cap.terminal, "ask_user")
             end)

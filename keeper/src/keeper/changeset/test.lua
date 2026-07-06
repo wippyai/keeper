@@ -317,6 +317,7 @@ local function define_tests()
 
             local latest, err2 = repo.latest_baseline(ws.changeset_id)
             test.is_nil(err2)
+            if not latest then error("expected latest baseline") end
             test.eq(latest.registry_version, "17")
             test.eq(latest.fs_tree_hash, "abc123")
             test.eq(latest.reason, consts.BASELINE_REASONS.OPEN)
@@ -376,9 +377,13 @@ local function define_tests()
 
             local changes, err3 = repo.list_changes_for_changeset(ws.changeset_id)
             test.is_nil(err3)
+            if not changes then error("expected changes") end
             test.eq(#changes, 2)
-            test.eq(changes[1].sequence, 1)
-            test.eq(changes[2].sequence, 2)
+            local first_change = changes[1]
+            local second_change = changes[2]
+            if not first_change or not second_change then error("expected two changes") end
+            test.eq(first_change.sequence, 1)
+            test.eq(second_change.sequence, 2)
         end)
 
         it("count_changes returns the total row count for a changeset", function()
@@ -481,11 +486,15 @@ local function define_tests()
 
             local rows, err = repo.list_applied_for_task(task_id)
             test.is_nil(err)
+            if not rows then error("expected applied rows") end
             test.eq(#rows, 2)
-            test.eq(rows[1].target, "merged.ns:a")
-            test.eq(rows[1].category, consts.CATEGORIES.REGISTRY)
-            test.eq(rows[2].target, "frontend/foo.vue")
-            test.eq(rows[2].category, consts.CATEGORIES.FILESYSTEM)
+            local first_row = rows[1]
+            local second_row = rows[2]
+            if not first_row or not second_row then error("expected two applied rows") end
+            test.eq(first_row.target, "merged.ns:a")
+            test.eq(first_row.category, consts.CATEGORIES.REGISTRY)
+            test.eq(second_row.target, "frontend/foo.vue")
+            test.eq(second_row.category, consts.CATEGORIES.FILESYSTEM)
         end)
 
         it("list_applied_for_task rejects missing task_id", function()
@@ -1231,7 +1240,7 @@ local function define_tests()
                 ws.changeset_id, consts.BASELINE_REASONS.PHASE_SPAWN
             )
             test.is_nil(err)
-            test.not_nil(latest)
+            if not latest then error("expected matching baseline") end
             test.eq(latest.registry_version, "3")
             test.eq(latest.reason, consts.BASELINE_REASONS.PHASE_SPAWN)
         end)

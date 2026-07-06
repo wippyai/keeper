@@ -3525,9 +3525,12 @@ local function define_tests()
                     operation = "up",
                 })
                 test.is_nil(err)
+                if not called then error("expected migration handler call") end
+                local called_params = called.params :: any
+                if not called_params then error("expected migration handler params") end
                 test.eq(called.id, hub.MIGRATION_HANDLER_FN)
-                test.eq(called.params.operation, "up")
-                test.eq(called.params.entry_ids[1], "wippy.foo.migrations:001")
+                test.eq(called_params.operation, "up")
+                test.eq(called_params.entry_ids[1], "wippy.foo.migrations:001")
                 test.eq(out.result[1].success, true)
             end)
         end)
