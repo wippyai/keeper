@@ -12,7 +12,7 @@ local log = logger:named("keeper.git.explain")
 
 local M = {}
 
-M.DEFAULT_MODEL = "class:smart"
+M.DEFAULT_MODEL = "class:premium"
 M.DEFAULT_MAX_TOKENS = 1500
 
 local SYSTEM_PROMPT = table.concat({

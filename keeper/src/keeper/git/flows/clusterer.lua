@@ -11,7 +11,7 @@ local log = logger:named("keeper.git.clusterer")
 
 local M = {}
 
-M.DEFAULT_MODEL = "class:smart"
+M.DEFAULT_MODEL = "class:premium"
 M.DEFAULT_MAX_TOKENS = 16000
 -- Per-call ceiling. Above this we ask callers to partition first.
 M.PER_CALL_LIMIT = 250

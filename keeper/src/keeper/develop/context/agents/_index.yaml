@@ -81,7 +81,7 @@ entries:
     
       ## Model class observed
     
-      - target / siblings use: `class:orchestrator` | `class:fast` | `class:nano` | `class:smart`
+      - target / siblings use: `class:premium` | `class:fast` | `class:nano` | `class:premium`
     
       ## Patterns
     
