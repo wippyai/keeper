@@ -36,6 +36,7 @@ entries:
       - sql
       - uuid
       - process
+      - system
       - fs
       - yaml
     imports:

@@ -74,6 +74,26 @@ local function fake_process(sent)
     }
 end
 
+local function fake_system(hosts, processes_by_host)
+    hosts = hosts or {}
+    processes_by_host = processes_by_host or {}
+    return {
+        hosts = {
+            list = function()
+                return hosts, nil
+            end,
+            processes = function(host_id)
+                return processes_by_host[host_id] or {}, nil
+            end,
+        },
+        supervisor = {
+            states = function()
+                return {}, nil
+            end,
+        },
+    }
+end
+
 local function fake_uuid()
     local n = 0
     return {
@@ -3961,13 +3981,391 @@ local function define_tests()
 
                 test.is_nil(err)
                 test.not_nil(out.execution)
-                test.eq(#out.execution, 3)
+                test.eq(#out.execution, 4)
                 test.eq(out.execution[1].step, "validation")
                 test.eq(out.execution[1].status, "ok")
                 test.eq(out.execution[2].step, "governance")
                 test.eq(out.execution[2].status, "ok")
                 test.eq(out.execution[3].step, "lockfile")
                 test.eq(out.execution[3].status, "ok")
+                test.eq(out.execution[4].step, "restart affected services")
+                test.eq(out.execution[4].status, "ok")
+            end)
+
+            it("restarts a running service whose process source is in an installed module namespace", function()
+                local terminations = {}
+                local files = { ["wippy.lock"] = "initial-lock" }
+                local svc = hub.new({
+                    registry = fake_registry({
+                        {
+                            id = "wippy.dummy:worker.service",
+                            kind = "process.service",
+                            meta = {},
+                            data = { process = "worker", host = "keeper.gov:processes" },
+                        },
+                    }),
+                    planner = {
+                        plan_install = function(args)
+                            local entry, build_err = hub.build_dependency_entry(args)
+                            if not entry then return nil, build_err end
+                            return {
+                                dependency = hub.dependency_summary(entry),
+                                graph = {
+                                    { module = "wippy/dummy", version = "0.1.2", digest = "abc123" },
+                                },
+                                missing_requirements = {},
+                                requirements = {},
+                                install_payload = {
+                                    id = entry.id,
+                                    component = entry.data.component,
+                                    version = entry.data.version,
+                                    parameters = {},
+                                    migration_policy = "none",
+                                },
+                                planned_entries = {
+                                    {
+                                        id = "wippy.dummy:worker",
+                                        kind = "process.lua",
+                                        meta = { module = "wippy/dummy", module_version = "0.1.2" },
+                                        data = { source = "return {}", method = "run" },
+                                    },
+                                },
+                            }, nil
+                        end,
+                    },
+                    fs = fake_project_fs(files),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {},
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 12 }),
+                    system = fake_system(
+                        { { id = "keeper.gov:processes" } },
+                        {
+                            ["keeper.gov:processes"] = {
+                                {
+                                    pid = "keeper.gov:processes:pid-1",
+                                    host = "keeper.gov:processes",
+                                    source = "wippy.dummy:worker",
+                                    state = "idle",
+                                },
+                            },
+                        }
+                    ),
+                    process = {
+                        terminate = function(pid)
+                            table.insert(terminations, pid)
+                            return true, nil
+                        end,
+                    },
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/dummy",
+                    version = ">=v0.0.0",
+                })
+
+                test.is_nil(err)
+                test.eq(#terminations, 1)
+                test.eq(terminations[1], "keeper.gov:processes:pid-1")
+                test.not_nil(out.restart)
+                test.eq(out.restart.outcomes[1].service_id, "wippy.dummy:worker.service")
+                test.eq(out.restart.outcomes[1].source, "wippy.dummy:worker")
+                test.eq(out.restart.outcomes[1].mechanism, "respawn")
+                test.eq(out.restart.outcomes[1].status, "restarted")
+            end)
+
+            it("lists affected running services in install dry-run preview", function()
+                local svc = hub.new({
+                    registry = fake_registry({
+                        {
+                            id = "wippy.dummy:worker.service",
+                            kind = "process.service",
+                            meta = {},
+                            data = { process = "wippy.dummy:worker", host = "keeper.gov:processes" },
+                        },
+                    }),
+                    planner = {
+                        plan_install = function(args)
+                            local entry, build_err = hub.build_dependency_entry(args)
+                            if not entry then return nil, build_err end
+                            return {
+                                dependency = hub.dependency_summary(entry),
+                                graph = {},
+                                missing_requirements = {},
+                                requirements = {},
+                                install_payload = {
+                                    id = entry.id,
+                                    component = entry.data.component,
+                                    version = entry.data.version,
+                                    parameters = {},
+                                    migration_policy = "none",
+                                },
+                                planned_entries = {
+                                    { id = "wippy.dummy:worker", kind = "process.lua", data = {} },
+                                },
+                            }, nil
+                        end,
+                    },
+                    system = fake_system(
+                        { { id = "keeper.gov:processes" } },
+                        {
+                            ["keeper.gov:processes"] = {
+                                {
+                                    pid = "keeper.gov:processes:pid-1",
+                                    host = "keeper.gov:processes",
+                                    source = "wippy.dummy:worker",
+                                    state = "idle",
+                                },
+                            },
+                        }
+                    ),
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/dummy",
+                    version = ">=v0.0.0",
+                    dry_run = true,
+                })
+
+                test.is_nil(err)
+                test.is_true(out.dry_run)
+                test.not_nil(out.restart_preview)
+                test.eq(out.restart_preview.services[1].service_id, "wippy.dummy:worker.service")
+                test.eq(out.restart_preview.services[1].source, "wippy.dummy:worker")
+            end)
+
+            it("reports restart failures as warnings without rolling back the published install", function()
+                local files = { ["wippy.lock"] = "initial-lock" }
+                local gov_state = ({ current_version = 12 }) :: any
+                local svc = hub.new({
+                    registry = fake_registry({
+                        {
+                            id = "wippy.dummy:worker.service",
+                            kind = "process.service",
+                            meta = {},
+                            data = { process = "worker", host = "keeper.gov:processes" },
+                        },
+                    }),
+                    planner = {
+                        plan_install = function(args)
+                            local entry, build_err = hub.build_dependency_entry(args)
+                            if not entry then return nil, build_err end
+                            return {
+                                dependency = hub.dependency_summary(entry),
+                                graph = {
+                                    { module = "wippy/dummy", version = "0.1.2", digest = "abc123" },
+                                },
+                                missing_requirements = {},
+                                requirements = {},
+                                install_payload = {
+                                    id = entry.id,
+                                    component = entry.data.component,
+                                    version = entry.data.version,
+                                    parameters = {},
+                                    migration_policy = "none",
+                                },
+                                planned_entries = {
+                                    { id = "wippy.dummy:worker", kind = "process.lua", data = {} },
+                                },
+                            }, nil
+                        end,
+                    },
+                    fs = fake_project_fs(files),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {},
+                        replacements = {},
+                    }),
+                    governance = fake_governance(gov_state),
+                    system = fake_system(
+                        { { id = "keeper.gov:processes" } },
+                        {
+                            ["keeper.gov:processes"] = {
+                                {
+                                    pid = "keeper.gov:processes:pid-1",
+                                    host = "keeper.gov:processes",
+                                    source = "wippy.dummy:worker",
+                                    state = "idle",
+                                },
+                            },
+                        }
+                    ),
+                    process = {
+                        terminate = function()
+                            return nil, "terminate denied"
+                        end,
+                    },
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/dummy",
+                    version = ">=v0.0.0",
+                })
+
+                test.is_nil(err)
+                test.not_nil(out.restart)
+                test.eq(out.restart.outcomes[1].status, "failed")
+                test.contains(out.restart.outcomes[1].error, "terminate denied")
+                test.not_nil(out.warnings)
+                test.contains(out.warnings[1], "failed to restart")
+                test.eq(gov_state.publish_calls, 1)
+                test.is_nil(gov_state.restore_calls)
+            end)
+
+            it("uses the service upgrade signal before respawn when an affected service opts in", function()
+                local sent_upgrade = {}
+                local terminations = {}
+                local files = { ["wippy.lock"] = "initial-lock" }
+                local svc = hub.new({
+                    registry = fake_registry({
+                        {
+                            id = "wippy.dummy:worker.service",
+                            kind = "process.service",
+                            meta = {
+                                upgradable = true,
+                                upgrade_target = "wippy.dummy.worker",
+                                upgrade_topic = "system.upgrade",
+                            },
+                            data = { process = "worker", host = "keeper.gov:processes" },
+                        },
+                    }),
+                    planner = {
+                        plan_install = function(args)
+                            local entry, build_err = hub.build_dependency_entry(args)
+                            if not entry then return nil, build_err end
+                            return {
+                                dependency = hub.dependency_summary(entry),
+                                graph = {
+                                    { module = "wippy/dummy", version = "0.1.2", digest = "abc123" },
+                                },
+                                missing_requirements = {},
+                                requirements = {},
+                                install_payload = {
+                                    id = entry.id,
+                                    component = entry.data.component,
+                                    version = entry.data.version,
+                                    parameters = {},
+                                    migration_policy = "none",
+                                },
+                                planned_entries = {
+                                    { id = "wippy.dummy:worker", kind = "process.lua", data = {} },
+                                },
+                            }, nil
+                        end,
+                    },
+                    fs = fake_project_fs(files),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {},
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 12 }),
+                    system = fake_system(
+                        { { id = "keeper.gov:processes" } },
+                        {
+                            ["keeper.gov:processes"] = {
+                                {
+                                    pid = "keeper.gov:processes:pid-1",
+                                    host = "keeper.gov:processes",
+                                    source = "wippy.dummy:worker",
+                                    state = "idle",
+                                },
+                            },
+                        }
+                    ),
+                    process = {
+                        send = function(target, topic, payload)
+                            table.insert(sent_upgrade, { target = target, topic = topic, payload = payload })
+                            return true, nil
+                        end,
+                        terminate = function(pid)
+                            table.insert(terminations, pid)
+                            return true, nil
+                        end,
+                    },
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/dummy",
+                    version = ">=v0.0.0",
+                })
+
+                test.is_nil(err)
+                test.eq(#sent_upgrade, 1)
+                local first_upgrade = sent_upgrade[1] :: any
+                test.eq(first_upgrade.target, "wippy.dummy.worker")
+                test.eq(first_upgrade.topic, "system.upgrade")
+                test.eq(first_upgrade.payload.process, "wippy.dummy:worker")
+                test.eq(#terminations, 0)
+                test.eq(out.restart.outcomes[1].mechanism, "upgrade")
+                test.eq(out.restart.outcomes[1].status, "upgrade_signaled")
+            end)
+
+            it("restarts a remaining running service whose source namespace is removed by uninstall", function()
+                local terminations = {}
+                local files = { ["wippy.lock"] = "initial-lock" }
+                local svc = hub.new({
+                    registry = fake_registry({
+                        root_dep("app.deps:foo", "wippy/foo"),
+                        {
+                            id = "wippy.foo:worker",
+                            kind = "process.lua",
+                            meta = { module = "wippy/foo", module_version = "1.2.3" },
+                            data = {},
+                        },
+                        {
+                            id = "app.services:foo_worker",
+                            kind = "process.service",
+                            meta = {},
+                            data = { process = "wippy.foo:worker", host = "keeper.gov:processes" },
+                        },
+                    }),
+                    sql = fake_sql({}),
+                    planner = planner,
+                    fs = fake_project_fs(files),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {
+                            { name = "wippy/foo", version = "1.2.3", hash = "foo-hash" },
+                        },
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 30 }),
+                    system = fake_system(
+                        { { id = "keeper.gov:processes" } },
+                        {
+                            ["keeper.gov:processes"] = {
+                                {
+                                    pid = "keeper.gov:processes:pid-9",
+                                    host = "keeper.gov:processes",
+                                    source = "wippy.foo:worker",
+                                    state = "idle",
+                                },
+                            },
+                        }
+                    ),
+                    process = {
+                        terminate = function(pid)
+                            table.insert(terminations, pid)
+                            return true, nil
+                        end,
+                    },
+                }) :: any
+
+                local out, err = svc:uninstall({
+                    component = "wippy/foo",
+                    migration_policy = "leave",
+                })
+
+                test.is_nil(err)
+                test.eq(#terminations, 1)
+                test.eq(terminations[1], "keeper.gov:processes:pid-9")
+                test.eq(out.restart.outcomes[1].service_id, "app.services:foo_worker")
+                test.eq(out.restart.outcomes[1].source, "wippy.foo:worker")
+                test.eq(out.restart.outcomes[1].status, "restarted")
+                test.eq(out.execution[#out.execution].step, "restart affected services")
             end)
 
             it("marks the successful step rolled_back when install lock persistence fails", function()
