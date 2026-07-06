@@ -2,17 +2,43 @@ version: "1.0"
 namespace: keeper.develop.integrate.pipeline
 
 entries:
+  # keeper.develop.integrate.pipeline:step_runner
+  - name: step_runner
+    kind: library.lua
+    meta:
+      comment: Shared declarative step engine. run() executes ordered step descriptors, stops at first failure, and returns the {success, applied_ids, execution:{handlers}} ledger with per-row inverse descriptors. reverse() walks a ledger in reverse and replays each inverse (or the original handler with operation=down). Consumed by pipeline:execute, pipeline:rollback, and keeper.hub:service.
+    source: file://step_runner.lua
+    modules:
+      - funcs
+
+  # keeper.develop.integrate.pipeline:step_runner_test
+  - name: step_runner_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for step_runner — ordering, first-failure stop, ledger shape, inverse recording, reverse replay
+      suite: develop
+    source: file://step_runner_test.lua
+    modules:
+      - funcs
+    imports:
+      step_runner: keeper.develop.integrate.pipeline:step_runner
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+
   # keeper.develop.integrate.pipeline:execute
   - name: execute
     kind: function.lua
     meta:
-      comment: Given pushed entry_ids, groups by matched integration.handler (via discovery:match_handlers) and runs each handler synchronously in meta.order order via funcs.new():call. Returns {success, applied_ids, execution:{handlers}}. Synchronous on purpose — flow builder yields control when called from inside a dataflow, which integrate/run.lua is.
+      comment: Frontend that loads pushed entry_ids, matches integration.handler entries (via discovery:match_handlers) in meta.order order, and delegates the run loop to step_runner. Returns {success, applied_ids, execution:{handlers}}. Synchronous on purpose — flow builder yields control when called from inside a dataflow, which integrate/run.lua is.
     source: file://execute.lua
     modules:
-      - funcs
       - registry
     imports:
       discovery: keeper.develop.integrate.discovery:match_handlers
+      step_runner: keeper.develop.integrate.pipeline:step_runner
     method: handler
 
   # keeper.develop.integrate.pipeline:execute_handler
@@ -80,13 +106,12 @@ entries:
   - name: rollback
     kind: function.lua
     meta:
-      comment: Inverse of pipeline:execute — walks execute's handler results in reverse and runs operation=down per handler group synchronously via funcs.new():call.
+      comment: Inverse of pipeline:execute — delegates to step_runner.reverse, which walks execute's ledger in reverse and replays each row's inverse (or the original handler with operation=down) synchronously via funcs.new():call.
     source: file://rollback.lua
     modules:
       - funcs
-      - registry
     imports:
-      discovery: keeper.develop.integrate.discovery:match_handlers
+      step_runner: keeper.develop.integrate.pipeline:step_runner
     method: handler
 
   # keeper.develop.integrate.pipeline:rollback_test

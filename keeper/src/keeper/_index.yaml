@@ -143,6 +143,10 @@ entries:
         path: .meta.router
       - entry: keeper.hub.api:plan_install.endpoint
         path: .meta.router
+      - entry: keeper.hub.api:scan
+        path: .meta.router
+      - entry: keeper.hub.api:scan.endpoint
+        path: .meta.router
       - entry: keeper.hub.api:run_migrations
         path: .meta.router
       - entry: keeper.hub.api:run_migrations.endpoint

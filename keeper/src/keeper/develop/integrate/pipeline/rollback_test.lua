@@ -82,6 +82,51 @@ local function define_tests()
                 "keeper.develop.integrate.handlers:env_variable_handler")
             test.eq(out.applied_ids[1], "ns.a:VAR_ONE")
         end)
+
+        test.it("replays a recorded inverse instead of the original handler on down", function()
+            -- The original handler_id names a non-integration step; the recorded
+            -- inverse routes the undo to env_variable_handler with operation=up.
+            -- If the inverse were ignored the missing original handler would fail.
+            local out, err = call_rollback({
+                execution = {
+                    {
+                        handler_id = "keeper.hub.steps:governance_apply",
+                        entry_ids  = {},
+                        inverse    = {
+                            handler_id = "keeper.develop.integrate.handlers:env_variable_handler",
+                            operation  = "up",
+                            entry_ids  = { "ns.a:VAR_ONE" },
+                        },
+                    },
+                },
+            })
+            test.is_nil(err)
+            test.not_nil(out)
+            test.is_true(out.success)
+            test.eq(out.execution.handlers[1].handler_id,
+                "keeper.develop.integrate.handlers:env_variable_handler")
+            test.eq(out.applied_ids[1], "ns.a:VAR_ONE")
+        end)
+
+        test.it("defaults a handler_id-less inverse back to the row handler", function()
+            -- An inverse that carries only an operation reuses the row's own
+            -- handler_id, so recording {operation=down} behaves like the plain
+            -- down replay while still travelling the inverse path.
+            local out, err = call_rollback({
+                execution = {
+                    {
+                        handler_id = "keeper.develop.integrate.handlers:env_variable_handler",
+                        entry_ids  = { "ns.a:VAR_ONE" },
+                        inverse    = { operation = "down" },
+                    },
+                },
+            })
+            test.is_nil(err)
+            test.not_nil(out)
+            test.is_true(out.success)
+            test.eq(out.execution.handlers[1].handler_id,
+                "keeper.develop.integrate.handlers:env_variable_handler")
+        end)
     end)
 end
 

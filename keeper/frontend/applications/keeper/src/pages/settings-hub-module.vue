@@ -6,11 +6,11 @@ import Tag from 'primevue/tag'
 import { useApi } from '../composables/useWippy'
 import {
   browseHubModules, listHubVersions, getHubReadme,
-  listHubDependencies, installHubDependency, planHubInstall,
-  type HubDependency, type HubModule, type HubVersion, type HubPlanRequirement, type HubInstallPlanResponse,
+  listHubDependencies,
+  type HubDependency, type HubModule, type HubVersion,
 } from '../api/hub'
 import PageHeader from '../components/shared/PageHeader.vue'
-import RequirementValueInput from '../components/hub/RequirementValueInput.vue'
+import HubInstallDialog from '../components/hub/HubInstallDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -35,18 +35,10 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const expandedVersion = ref<string | null>(null)
 
+// Install dialog logic lives in the shared HubInstallDialog component; the page
+// only tracks whether it is open and the version to preselect.
 const installOpen = ref(false)
 const installVersion = ref('')
-const installRunMigrations = ref(true)
-const installBusy = ref(false)
-const installError = ref<string | null>(null)
-const installPlan = ref<HubInstallPlanResponse | null>(null)
-const installPlanLoading = ref(false)
-const installPlanError = ref<string | null>(null)
-const installRequirements = ref<HubPlanRequirement[]>([])
-const installParameterValues = ref<Record<string, string>>({})
-const installDependencyNamespace = ref('')
-const installDependencyNamespaceTouched = ref(false)
 const successMsg = ref<string | null>(null)
 
 const latestVersion = computed<HubVersion | null>(() => {
@@ -347,139 +339,12 @@ async function load() {
 
 function openInstallDialog(version?: string) {
   installVersion.value = version || latestVersion.value?.version || module_.value?.latest_version || ''
-  installError.value = null
-  installPlan.value = null
-  installPlanError.value = null
-  installRequirements.value = []
-  installParameterValues.value = {}
-  installDependencyNamespace.value = ''
-  installDependencyNamespaceTouched.value = false
-  installRunMigrations.value = true
   installOpen.value = true
-  void loadInstallPlan()
 }
 
-function requirementKey(req: { parameter_name?: string; full_id?: string; name?: string }): string {
-  return (req.parameter_name || req.full_id || req.name || '').trim()
-}
-
-function setInstallParameter(req: HubPlanRequirement, value: string) {
-  const key = requirementKey(req)
-  if (!key) return
-  installParameterValues.value[key] = value
-}
-
-function requirementPlaceholder(req: HubPlanRequirement): string {
-  if (req.expected_kind) return `Enter ${req.expected_kind} id or contract value`
-  return 'Enter registry id or contract value'
-}
-
-function installNamespacePayload(): string | undefined {
-  if (!installDependencyNamespaceTouched.value) return undefined
-  const namespace = installDependencyNamespace.value.trim()
-  return namespace || undefined
-}
-
-function markInstallNamespaceTouched() {
-  installDependencyNamespaceTouched.value = true
-}
-
-function plannedDependencyId(): string {
-  return installPlan.value?.dependency?.id || ''
-}
-
-function applyInstallPlan(plan: HubInstallPlanResponse, previousValues: Record<string, string> = installParameterValues.value) {
-  installPlan.value = plan
-  installRequirements.value = plan.requirements || []
-  const values: Record<string, string> = {}
-  for (const req of installRequirements.value) {
-    const key = requirementKey(req)
-    if (!key) continue
-    values[key] = previousValues[key] ?? req.value ?? ''
-  }
-  installParameterValues.value = values
-}
-
-async function loadInstallPlan() {
-  if (!fullRef.value) return
-  installPlanLoading.value = true
-  installPlanError.value = null
-  const previousValues = { ...installParameterValues.value }
-  const parameters = Object.entries(previousValues)
-    .filter(([, value]) => value.trim() !== '')
-    .map(([name, value]) => ({ name, value }))
-  try {
-    const plan = await planHubInstall(api, {
-      component: fullRef.value,
-      version: installVersion.value.trim() || undefined,
-      namespace: installNamespacePayload(),
-      run_migrations: installRunMigrations.value,
-      migration_policy: installRunMigrations.value ? 'up' : 'none',
-      parameters: parameters.length ? parameters : undefined,
-    })
-    applyInstallPlan(plan, previousValues)
-  } catch (e: any) {
-    installPlan.value = null
-    installRequirements.value = []
-    installParameterValues.value = {}
-    installPlanError.value = e.response?.data?.error || e.response?.data?.message || e.message
-  } finally {
-    installPlanLoading.value = false
-  }
-}
-
-function installParametersPayload(): Array<{ name: string; value: string }> | undefined {
-  const out: Array<{ name: string; value: string }> = []
-  for (const req of installRequirements.value) {
-    const key = requirementKey(req)
-    if (!key) continue
-    const value = (installParameterValues.value[key] || '').trim()
-    if (value && !req.invalid) out.push({ name: key, value })
-  }
-  return out.length ? out : undefined
-}
-
-function missingInstallRequirements(): string[] {
-  const missing: string[] = []
-  for (const req of installRequirements.value) {
-    const key = requirementKey(req)
-    if (!key || (!req.required && !req.missing)) continue
-    if (req.invalid || !(installParameterValues.value[key] || '').trim()) missing.push(key)
-  }
-  return missing
-}
-
-async function submitInstall() {
-  if (!module_.value) return
-  const missing = missingInstallRequirements()
-  if (missing.length) {
-    installError.value = `Configure required parameter${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}`
-    return
-  }
-  installBusy.value = true
-  installError.value = null
-  try {
-    const parameters = installParametersPayload()
-    await installHubDependency(api, {
-      component: fullRef.value,
-      version: installVersion.value.trim() || undefined,
-      namespace: installNamespacePayload(),
-      run_migrations: installRunMigrations.value,
-      migration_policy: installRunMigrations.value ? 'up' : 'none',
-      parameters,
-    })
-    installOpen.value = false
-    flash(`Installed ${fullRef.value}`)
-    installed.value = true
-  } catch (e: any) {
-    const details = e.response?.data?.details
-    if (details?.requirements && details?.install_payload) {
-      applyInstallPlan(details)
-    }
-    installError.value = e.response?.data?.error || e.response?.data?.message || e.message
-  } finally {
-    installBusy.value = false
-  }
+function onInstalled(component: string) {
+  flash(`Installed ${component}`)
+  installed.value = true
 }
 
 function toggleVersion(id: string) {
@@ -857,92 +722,13 @@ onMounted(load)
       </div>
     </div>
 
-    <!-- Install dialog -->
-    <Teleport to="body">
-      <div v-if="installOpen" class="overlay" @click.self="installOpen = false">
-        <div class="dialog">
-          <div class="flex items-center gap-2 mb-3">
-            <Icon icon="tabler:download" class="w-5 h-5 text-info-500" />
-            <span class="text-sm font-semibold" style="color: var(--p-text-color)">Install {{ fullRef }}</span>
-          </div>
-          <p class="text-[11px] mb-3 leading-relaxed" style="color: var(--p-text-muted-color)">
-            Installs this component from the hub and applies its registry entries.
-          </p>
-          <label class="form-label">Version</label>
-          <input v-model="installVersion" placeholder="latest" class="form-input mono" @change="loadInstallPlan" />
-          <label class="form-label mt-3">Dependency namespace</label>
-          <input
-            v-model="installDependencyNamespace"
-            placeholder="auto"
-            class="form-input mono"
-            @input="markInstallNamespaceTouched"
-            @change="loadInstallPlan"
-          />
-          <div class="field-hint">
-            Auto target uses an existing dependency entry or the strongest dependency namespace cluster.
-            <span v-if="plannedDependencyId()" class="mono">{{ plannedDependencyId() }}</span>
-          </div>
-          <div class="mt-2 flex items-center justify-between gap-2 text-[10px]" style="color: var(--p-text-muted-color)">
-            <span v-if="installPlanLoading">Resolving install plan...</span>
-            <span v-else-if="installPlan">{{ installPlan.module_count }} module{{ installPlan.module_count === 1 ? '' : 's' }} · {{ installPlan.requirement_count }} setting{{ installPlan.requirement_count === 1 ? '' : 's' }}</span>
-            <span v-else>Plan resolves transitive requirements before install.</span>
-            <button class="ghost-sm" type="button" @click="loadInstallPlan" :disabled="installPlanLoading">Refresh</button>
-          </div>
-          <div v-if="installPlan?.graph?.length" class="mt-2 mb-2 max-h-24 overflow-auto rounded border p-2" style="border-color: var(--p-content-border-color)">
-            <div v-for="node in installPlan.graph" :key="`${node.module}@${node.version}`" class="flex items-center justify-between gap-2 text-[10px]">
-              <span class="mono truncate" style="color: var(--p-text-color)">{{ node.module }}</span>
-              <span style="color: var(--p-text-muted-color)">{{ node.direct ? 'root' : 'transitive' }} · {{ node.version || node.constraint }}</span>
-            </div>
-          </div>
-          <div v-if="installRequirements.length" class="mt-3 mb-3">
-            <div class="form-label flex items-center gap-1.5">
-              <Icon icon="tabler:list-check" class="w-3.5 h-3.5" />
-              Configuration <span class="dim">({{ installRequirements.length }})</span>
-            </div>
-            <div class="space-y-2">
-              <label v-for="(req, idx) in installRequirements" :key="req.parameter_name || req.name" class="block">
-                <div class="flex items-center gap-2 mb-1">
-                  <span class="mono text-[11px]" style="color: var(--p-text-color)">{{ req.parameter_name || req.name }}</span>
-                  <span v-if="req.transitive" class="text-[9px]" style="color: var(--p-text-muted-color)">transitive</span>
-                  <span v-if="req.required" class="text-[9px]" style="color: var(--p-warn-500)">required</span>
-                  <span v-if="req.invalid" class="text-[9px]" style="color: var(--p-danger-500)">invalid</span>
-                  <span v-if="req.value_source && req.value_source !== 'empty'" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.value_source }}</span>
-                  <span v-if="req.expected_kind" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.expected_kind }}</span>
-                  <span v-if="req.targets?.length" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.targets.length }} target{{ req.targets.length === 1 ? '' : 's' }}</span>
-                </div>
-                <RequirementValueInput
-                  :model-value="installParameterValues[requirementKey(req)] || ''"
-                  :requirement="req"
-                  :placeholder="requirementPlaceholder(req)"
-                  @update:model-value="setInstallParameter(req, $event)"
-                  @commit="loadInstallPlan"
-                />
-                <div v-if="req.default && req.value_source !== 'default'" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">Package default: <span class="mono">{{ req.default }}</span></div>
-                <div v-if="req.invalid_reason" class="mt-1 text-[10px]" style="color: var(--p-danger-500)">{{ req.invalid_reason }}</div>
-                <div v-if="req.module" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">{{ req.module }}{{ req.version ? '@' + req.version : '' }}</div>
-                <div v-if="req.description" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">{{ req.description }}</div>
-              </label>
-            </div>
-          </div>
-          <div v-else-if="installPlan && !installPlanLoading" class="mt-3 mb-3 text-[11px]" style="color: var(--p-text-muted-color)">
-            No configuration required.
-          </div>
-          <label class="form-check">
-            <input v-model="installRunMigrations" type="checkbox" />
-            Run migrations after install
-          </label>
-          <div v-if="installPlanError" class="mt-2 px-2 py-1.5 rounded text-[11px] bg-danger-500/15 text-danger-500">{{ installPlanError }}</div>
-          <div v-if="installError" class="mt-2 px-2 py-1.5 rounded text-[11px] bg-danger-500/15 text-danger-500">{{ installError }}</div>
-          <div class="flex justify-end gap-2 mt-4">
-            <button class="dialog-btn cancel" @click="installOpen = false" :disabled="installBusy">Cancel</button>
-            <button class="dialog-btn proceed" @click="submitInstall" :disabled="installBusy || installPlanLoading || missingInstallRequirements().length > 0">
-              <Icon v-if="installBusy" icon="tabler:loader-2" class="w-3 h-3 animate-spin" />
-              Install
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <!-- Install dialog (shared component) -->
+    <HubInstallDialog
+      v-model="installOpen"
+      :component="fullRef"
+      :initial-version="installVersion"
+      @installed="onInstalled"
+    />
   </div>
 </template>
 

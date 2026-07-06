@@ -6,14 +6,15 @@ import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import { useApi } from '../composables/useWippy'
 import {
-  listHubDependencies, installHubDependency, uninstallHubDependency,
+  listHubDependencies,
   listHubMigrations, runHubMigrations,
-  browseHubModules, listHubVersions, getHubReadme, planHubInstall,
-  type HubDependency, type HubMigration, type HubModule, type HubPlanRequirement, type HubVersion,
-  type HubInstallPlanResponse,
+  browseHubModules, listHubVersions, getHubReadme,
+  type HubMigration, type HubModule, type HubVersion,
+  type DependencyRoot, type ModuleInventoryEntry,
 } from '../api/hub'
 import PageHeader from '../components/shared/PageHeader.vue'
-import RequirementValueInput from '../components/hub/RequirementValueInput.vue'
+import HubInstallDialog from '../components/hub/HubInstallDialog.vue'
+import HubUninstallDialog from '../components/hub/HubUninstallDialog.vue'
 
 const api = useApi()
 const router = useRouter()
@@ -35,7 +36,8 @@ const expandedDep = ref<string | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 const successMsg = ref<string | null>(null)
-const deps = ref<HubDependency[]>([])
+const deps = ref<DependencyRoot[]>([])
+const moduleInventory = ref<ModuleInventoryEntry[]>([])
 const migrations = ref<HubMigration[]>([])
 
 // Browse
@@ -55,24 +57,14 @@ const expandedVersion = ref<string | null>(null)
 const detailVersions = ref<HubVersion[]>([])
 const detailVersionsLoading = ref(false)
 
-// Install / uninstall dialogs
+// Install / uninstall dialogs (logic lives in the shared HubInstallDialog /
+// HubUninstallDialog components; the page only owns which target is open).
 const installOpen = ref(false)
 const installComp = ref('')
 const installVersion = ref('')
-const installRunMigrations = ref(true)
-const installBusy = ref(false)
-const installError = ref<string | null>(null)
-const installPlan = ref<HubInstallPlanResponse | null>(null)
-const installPlanLoading = ref(false)
-const installPlanError = ref<string | null>(null)
-const installRequirements = ref<HubPlanRequirement[]>([])
-const installParameterValues = ref<Record<string, string>>({})
-const installDependencyNamespace = ref('')
-const installDependencyNamespaceTouched = ref(false)
 
-const uninstallTarget = ref<HubDependency | null>(null)
-const uninstallPolicy = ref<'down' | 'leave' | 'block'>('down')
-const uninstallBusy = ref(false)
+const uninstallOpen = ref(false)
+const uninstallTarget = ref<DependencyRoot | null>(null)
 
 let browseTimer: number | null = null
 
@@ -131,122 +123,6 @@ function moduleRef(m: HubModule): string {
   return m.full_name || `${m.org}/${m.name}`
 }
 
-function requirementKey(req: { parameter_name?: string; full_id?: string; name?: string }): string {
-  return (req.parameter_name || req.full_id || req.name || '').trim()
-}
-
-function setInstallParameter(req: HubPlanRequirement, value: string) {
-  const key = requirementKey(req)
-  if (!key) return
-  installParameterValues.value[key] = value
-}
-
-function requirementPlaceholder(req: HubPlanRequirement): string {
-  if (req.expected_kind) return `Enter ${req.expected_kind} id or contract value`
-  return 'Enter registry id or contract value'
-}
-
-function installNamespacePayload(): string | undefined {
-  if (!installDependencyNamespaceTouched.value) return undefined
-  const namespace = installDependencyNamespace.value.trim()
-  return namespace || undefined
-}
-
-function markInstallNamespaceTouched() {
-  installDependencyNamespaceTouched.value = true
-}
-
-function plannedDependencyId(): string {
-  return installPlan.value?.dependency?.id || ''
-}
-
-function applyInstallPlan(plan: HubInstallPlanResponse, previousValues: Record<string, string> = installParameterValues.value) {
-  installPlan.value = plan
-  installRequirements.value = plan.requirements || []
-  const values: Record<string, string> = {}
-  for (const req of installRequirements.value) {
-    const key = requirementKey(req)
-    if (!key) continue
-    values[key] = previousValues[key] ?? req.value ?? ''
-  }
-  installParameterValues.value = values
-}
-
-async function loadInstallPlan() {
-  if (!installComp.value.trim()) return
-  installPlanLoading.value = true
-  installPlanError.value = null
-  const previousValues = { ...installParameterValues.value }
-  const existingParams = Object.entries(previousValues)
-    .filter(([, value]) => value.trim() !== '')
-    .map(([name, value]) => ({ name, value }))
-  try {
-    const plan = await planHubInstall(api, {
-      component: installComp.value.trim(),
-      version: installVersion.value.trim() || undefined,
-      namespace: installNamespacePayload(),
-      run_migrations: installRunMigrations.value,
-      migration_policy: installRunMigrations.value ? 'up' : 'none',
-      parameters: existingParams.length ? existingParams : undefined,
-    })
-    applyInstallPlan(plan, previousValues)
-  } catch (e: any) {
-    installPlan.value = null
-    installRequirements.value = []
-    installParameterValues.value = {}
-    installPlanError.value = e.response?.data?.error || e.response?.data?.message || e.message
-  } finally {
-    installPlanLoading.value = false
-  }
-}
-
-function configureInstallRequirements(m: HubModule, version?: string) {
-  const selected = version
-    ? detailVersions.value.find(v => v.version === version)
-    : latestVersion.value
-  const reqs = (selected?.requirements || [])
-    .filter(r => (r.name || '').trim())
-    .map(r => ({
-      ...r,
-      parameter_name: (r.name || '').trim(),
-      full_id: (r.name || '').trim(),
-      required: true,
-      missing: true,
-      value: '',
-      value_source: 'empty',
-      suggestions: [],
-    } as HubPlanRequirement))
-  const values: Record<string, string> = {}
-  for (const req of reqs) {
-    const key = requirementKey(req)
-    if (key) values[key] = ''
-  }
-  installRequirements.value = reqs
-  installParameterValues.value = values
-}
-
-function installParametersPayload(): Array<{ name: string; value: string }> | undefined {
-  const out: Array<{ name: string; value: string }> = []
-  for (const req of installRequirements.value) {
-    const name = requirementKey(req)
-    if (!name) continue
-    const value = (installParameterValues.value[name] || '').trim()
-    if (value !== '' && !req.invalid) out.push({ name, value })
-  }
-  return out.length ? out : undefined
-}
-
-function missingInstallRequirements(): string[] {
-  const missing: string[] = []
-  for (const req of installRequirements.value) {
-    const name = requirementKey(req)
-    if (!name || (!req.required && !req.missing)) continue
-    const value = (installParameterValues.value[name] || '').trim()
-    if (req.invalid || value === '') missing.push(name)
-  }
-  return missing
-}
-
 const installedSet = computed(() => new Set(deps.value.map(d => d.component || '').filter(Boolean)))
 function isInstalled(m: HubModule): boolean {
   return installedSet.value.has(moduleRef(m))
@@ -277,12 +153,30 @@ const filteredDeps = computed(() => {
   )
 })
 
+// Names that are installed as roots, to exclude them from the transitive list.
+const rootNames = computed(() => new Set(deps.value.map(d => d.component || d.name || '').filter(Boolean)))
+
+// Transitive inventory: modules pulled in beneath a root, never directly
+// requested. Filtered by the same search box as the roots.
+const transitiveModules = computed<ModuleInventoryEntry[]>(() => {
+  const list = moduleInventory.value.filter(m => {
+    const isTransitive = m.transitive === true || (m.is_root === false && !rootNames.value.has(m.name))
+    return isTransitive && !rootNames.value.has(m.name)
+  })
+  const q = installedSearch.value.trim().toLowerCase()
+  const filtered = q
+    ? list.filter(m => m.name.toLowerCase().includes(q) || (m.version || '').toLowerCase().includes(q))
+    : list
+  return [...filtered].sort((a, b) => a.name.localeCompare(b.name))
+})
+
 const stats = computed(() => {
   const installed = deps.value.length
   const totalEntries = deps.value.reduce((s, d) => s + (d.installed_entries_count || 0), 0)
+  const transitive = transitiveModules.value.length
   const applied = migrations.value.filter(m => m.status === 'applied').length
   const pending = migrations.value.filter(m => m.status === 'pending').length
-  return { installed, totalEntries, applied, pending }
+  return { installed, totalEntries, transitive, applied, pending }
 })
 
 const browseMaxPage = computed(() => Math.max(1, Math.ceil(browseTotal.value / browsePageSize)))
@@ -374,7 +268,10 @@ async function loadInstalled() {
   error.value = null
   try {
     const [d, m] = await Promise.allSettled([listHubDependencies(api), listHubMigrations(api)])
-    if (d.status === 'fulfilled' && d.value?.success) deps.value = d.value.dependencies || []
+    if (d.status === 'fulfilled' && d.value?.success) {
+      deps.value = d.value.dependencies || []
+      moduleInventory.value = d.value.modules || []
+    }
     if (m.status === 'fulfilled' && m.value?.success) migrations.value = m.value.migrations || []
   } catch (e: any) {
     error.value = e?.message || 'Failed to load installed dependencies'
@@ -447,71 +344,24 @@ function closeDetail() {
 function installModule(m: HubModule, version?: string) {
   installComp.value = moduleRef(m)
   installVersion.value = version || m.latest_version || ''
-  installRunMigrations.value = true
-  installError.value = null
-  installPlan.value = null
-  installPlanError.value = null
-  installDependencyNamespace.value = ''
-  installDependencyNamespaceTouched.value = false
-  configureInstallRequirements(m, version)
   installOpen.value = true
-  void loadInstallPlan()
 }
 
-async function submitInstall() {
-  if (!installComp.value.trim()) {
-    installError.value = 'Component required'
-    return
-  }
-  const missing = missingInstallRequirements()
-  if (missing.length) {
-    installError.value = `Configure required parameter${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}`
-    return
-  }
-  installBusy.value = true
-  installError.value = null
-  try {
-    const parameters = installParametersPayload()
-    await installHubDependency(api, {
-      component: installComp.value.trim(),
-      version: installVersion.value.trim() || undefined,
-      namespace: installNamespacePayload(),
-      run_migrations: installRunMigrations.value,
-      migration_policy: installRunMigrations.value ? 'up' : 'none',
-      parameters,
-    })
-    installOpen.value = false
-    flash(`Installed ${installComp.value}`)
-    detail.value = null
-    await loadInstalled()
-  } catch (e: any) {
-    const details = e.response?.data?.details
-    if (details?.requirements && details?.install_payload) {
-      applyInstallPlan(details)
-    }
-    installError.value = e.response?.data?.error || e.response?.data?.message || e.message
-  } finally {
-    installBusy.value = false
-  }
+function openUninstall(d: DependencyRoot) {
+  uninstallTarget.value = d
+  uninstallOpen.value = true
 }
 
-async function submitUninstall() {
-  if (!uninstallTarget.value) return
-  uninstallBusy.value = true
-  try {
-    await uninstallHubDependency(api, {
-      id: uninstallTarget.value.id,
-      component: uninstallTarget.value.component,
-      migration_policy: uninstallPolicy.value,
-    })
-    flash(`Uninstalled ${uninstallTarget.value.component}`)
-    uninstallTarget.value = null
-    await loadInstalled()
-  } catch (e: any) {
-    error.value = e.response?.data?.error || e.message
-  } finally {
-    uninstallBusy.value = false
-  }
+async function onInstalled(component: string) {
+  flash(`Installed ${component}`)
+  detail.value = null
+  await loadInstalled()
+}
+
+async function onUninstalled(component: string) {
+  flash(`Uninstalled ${component}`)
+  uninstallTarget.value = null
+  await loadInstalled()
 }
 
 async function applyAllPending() {
@@ -712,60 +562,102 @@ onMounted(() => {
         </div>
         <span class="text-[10px]" style="color: var(--p-text-muted-color)">{{ filteredDeps.length }}<template v-if="filteredDeps.length !== deps.length"> / {{ deps.length }}</template></span>
         <span class="flex-1"></span>
+        <div class="stat-mini"><span class="stat-mini-label">Roots</span> <span>{{ deps.length }}</span></div>
+        <div class="stat-mini"><span class="stat-mini-label">Transitive</span> <span>{{ moduleInventory.filter(m => m.transitive || m.is_root === false).length }}</span></div>
         <div class="stat-mini"><span class="stat-mini-label">Entries</span> <span>{{ stats.totalEntries }}</span></div>
         <div class="stat-mini"><span class="stat-mini-label">Migrations</span> <span class="text-success-500">{{ stats.applied }}</span> · <span :class="stats.pending > 0 ? 'text-warn-500' : ''">{{ stats.pending }}</span></div>
       </div>
 
       <div class="px-5 py-4">
-        <div v-if="filteredDeps.length === 0" class="text-center py-16">
+        <div v-if="filteredDeps.length === 0 && transitiveModules.length === 0" class="text-center py-16">
           <Icon icon="tabler:package-off" class="w-12 h-12 mx-auto opacity-30" style="color: var(--p-text-muted-color)" />
           <p class="mt-2 text-xs" style="color: var(--p-text-muted-color)">{{ installedSearch ? 'No installed components match' : 'No hub dependencies installed yet' }}</p>
           <button class="hero-btn mt-4" @click="tab = 'discover'">
             <Icon icon="tabler:sparkles" class="w-3.5 h-3.5" /> Discover modules
           </button>
         </div>
-        <div v-else class="installed-list">
-          <div v-for="d in filteredDeps" :key="d.id" class="inst-card">
-            <div class="inst-head" @click="toggleDep(d.id)">
-              <div class="inst-icon"><Icon icon="tabler:package" class="w-4 h-4" /></div>
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="inst-name">{{ d.component }}</span>
-                  <span v-if="d.version" class="mod-version">{{ d.version }}</span>
-                  <span v-if="d.installed_entries_count" class="meta-pill" style="background: var(--p-surface-200); color: var(--p-text-muted-color); border: none">
-                    {{ d.installed_entries_count }} entries
-                  </span>
-                  <Tag v-if="d.migrations && d.migrations.filter(m => m.status === 'pending').length" severity="warn" class="!text-[9px] !font-semibold !px-[6px] !py-px !rounded-lg">
-                    {{ d.migrations.filter(m => m.status === 'pending').length }} pending
-                  </Tag>
+        <template v-else>
+          <!-- ROOTS: directly requested, uninstallable -->
+          <div v-if="filteredDeps.length" class="section-head">
+            <Icon icon="tabler:package" class="w-3.5 h-3.5" />
+            Installed roots
+            <span class="section-sub">directly requested — you can uninstall these</span>
+          </div>
+          <div v-if="filteredDeps.length" class="installed-list">
+            <div v-for="d in filteredDeps" :key="d.id" class="inst-card">
+              <div class="inst-head" @click="toggleDep(d.id)">
+                <div class="inst-icon"><Icon icon="tabler:package" class="w-4 h-4" /></div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="inst-name">{{ d.component }}</span>
+                    <span class="role-pill root">ROOT</span>
+                    <span v-if="d.version" class="mod-version">{{ d.version }}</span>
+                    <span v-if="d.source" class="src-pill" :class="d.source === 'local' ? 'local' : 'hub'">{{ d.source }}</span>
+                    <span v-if="(d.used_by_count || d.used_by?.length)" class="usedby-pill" :title="(d.used_by || []).join(', ')">
+                      <Icon icon="tabler:share-2" class="w-2.5 h-2.5" />
+                      used by {{ d.used_by_count ?? d.used_by?.length }}
+                    </span>
+                    <span v-if="d.installed_entries_count" class="meta-pill" style="background: var(--p-surface-200); color: var(--p-text-muted-color); border: none">
+                      {{ d.installed_entries_count }} entries
+                    </span>
+                    <Tag v-if="d.migrations && d.migrations.filter(m => m.status === 'pending').length" severity="warn" class="!text-[9px] !font-semibold !px-[6px] !py-px !rounded-lg">
+                      {{ d.migrations.filter(m => m.status === 'pending').length }} pending
+                    </Tag>
+                  </div>
+                  <div class="mod-org" style="margin-top: 1px">{{ d.id }}</div>
                 </div>
-                <div class="mod-org" style="margin-top: 1px">{{ d.id }}</div>
+                <Button class="k-btn-icon !w-[26px] !h-[26px] !p-0 !rounded-md" @click.stop="openUninstall(d)" title="Uninstall">
+                  <Icon icon="tabler:trash" class="w-3.5 h-3.5 text-danger-500" />
+                </Button>
+                <Icon :icon="expandedDep === d.id ? 'tabler:chevron-up' : 'tabler:chevron-down'" class="w-3.5 h-3.5" style="color: var(--p-text-muted-color)" />
               </div>
-              <Button class="k-btn-icon !w-[26px] !h-[26px] !p-0 !rounded-md" @click.stop="uninstallTarget = d; uninstallPolicy = 'down'" title="Uninstall">
-                <Icon icon="tabler:trash" class="w-3.5 h-3.5 text-danger-500" />
-              </Button>
-              <Icon :icon="expandedDep === d.id ? 'tabler:chevron-up' : 'tabler:chevron-down'" class="w-3.5 h-3.5" style="color: var(--p-text-muted-color)" />
-            </div>
-            <div v-if="expandedDep === d.id" class="inst-body">
-              <div v-if="d.migrations && d.migrations.length" class="dep-section">
-                <div class="dep-sub-label">Migrations</div>
-                <div v-for="m in d.migrations" :key="m.id" class="mig-row">
-                  <span class="font-mono text-[10px] flex-1 truncate" style="color: var(--p-text-color)">{{ m.id }}</span>
-                  <span v-if="m.module_version" class="text-[9px] font-mono" style="color: var(--p-text-muted-color)">{{ m.module_version }}</span>
-                  <span class="status-tag" :class="m.status === 'applied' ? 'applied' : m.status === 'pending' ? 'pending' : 'unknown'">{{ m.status || 'unknown' }}</span>
+              <div v-if="expandedDep === d.id" class="inst-body">
+                <div v-if="d.used_by && d.used_by.length" class="dep-section">
+                  <div class="dep-sub-label">Shared with ({{ d.used_by.length }})</div>
+                  <div class="flex flex-wrap gap-1">
+                    <span v-for="u in d.used_by" :key="u" class="kind-tag mono">{{ u }}</span>
+                  </div>
                 </div>
-              </div>
-              <div v-if="d.entries && d.entries.length" class="dep-section">
-                <div class="dep-sub-label">Entries ({{ d.entries.length }})</div>
-                <div v-for="e in d.entries.slice(0, 50)" :key="e.id" class="entry-row">
-                  <span class="kind-tag">{{ e.kind || e.type || '—' }}</span>
-                  <span class="font-mono text-[10px] truncate" style="color: var(--p-text-color)">{{ e.id }}</span>
+                <div v-if="d.migrations && d.migrations.length" class="dep-section">
+                  <div class="dep-sub-label">Migrations</div>
+                  <div v-for="m in d.migrations" :key="m.id" class="mig-row">
+                    <span class="font-mono text-[10px] flex-1 truncate" style="color: var(--p-text-color)">{{ m.id }}</span>
+                    <span v-if="m.module_version" class="text-[9px] font-mono" style="color: var(--p-text-muted-color)">{{ m.module_version }}</span>
+                    <span class="status-tag" :class="m.status === 'applied' ? 'applied' : m.status === 'pending' ? 'pending' : 'unknown'">{{ m.status || 'unknown' }}</span>
+                  </div>
                 </div>
-                <div v-if="d.entries.length > 50" class="text-[10px] mt-1" style="color: var(--p-text-muted-color)">…and {{ d.entries.length - 50 }} more</div>
+                <div v-if="d.entries && d.entries.length" class="dep-section">
+                  <div class="dep-sub-label">Entries ({{ d.entries.length }})</div>
+                  <div v-for="e in d.entries.slice(0, 50)" :key="e.id" class="entry-row">
+                    <span class="kind-tag">{{ e.kind || e.type || '—' }}</span>
+                    <span class="font-mono text-[10px] truncate" style="color: var(--p-text-color)">{{ e.id }}</span>
+                  </div>
+                  <div v-if="d.entries.length > 50" class="text-[10px] mt-1" style="color: var(--p-text-muted-color)">…and {{ d.entries.length - 50 }} more</div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+
+          <!-- TRANSITIVE: pulled in beneath a root, not directly uninstallable -->
+          <div v-if="transitiveModules.length" class="section-head" style="margin-top: 18px">
+            <Icon icon="tabler:git-branch" class="w-3.5 h-3.5" />
+            Transitive dependencies
+            <span class="section-sub">pulled in by roots — removed automatically when nothing needs them</span>
+          </div>
+          <div v-if="transitiveModules.length" class="trans-list">
+            <div v-for="m in transitiveModules" :key="m.name" class="trans-row">
+              <Icon icon="tabler:corner-down-right" class="w-3.5 h-3.5 shrink-0" style="color: var(--p-text-muted-color); opacity: 0.6" />
+              <span class="trans-name mono">{{ m.name }}</span>
+              <span v-if="m.version" class="mod-version">{{ m.version }}</span>
+              <span v-if="m.source" class="src-pill" :class="m.source === 'local' ? 'local' : 'hub'">{{ m.source }}</span>
+              <span class="role-pill trans">TRANSITIVE</span>
+              <span v-if="(m.used_by_count || m.used_by?.length)" class="usedby-pill ml-auto" :title="(m.used_by || []).join(', ')">
+                <Icon icon="tabler:arrow-up-right" class="w-2.5 h-2.5" />
+                pulled in by {{ m.used_by_count ?? m.used_by?.length }}
+              </span>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -996,125 +888,20 @@ onMounted(() => {
       </div>
     </Teleport>
 
-    <!-- INSTALL DIALOG -->
-    <Teleport to="body">
-      <div v-if="installOpen" class="overlay" @click.self="installOpen = false">
-        <div class="dialog">
-          <div class="flex items-center gap-2 mb-3">
-            <Icon icon="tabler:download" class="w-5 h-5 text-info-500" />
-            <span class="text-sm font-semibold" style="color: var(--p-text-color)">Install {{ installComp }}</span>
-          </div>
-          <p class="text-[11px] mb-3 leading-relaxed" style="color: var(--p-text-muted-color)">
-            Installs a component from the hub and applies its registry entries.
-          </p>
-          <label class="form-label">Version</label>
-          <input v-model="installVersion" placeholder="latest" class="form-input font-mono" @change="loadInstallPlan" />
-          <label class="form-label mt-3">Dependency namespace</label>
-          <input
-            v-model="installDependencyNamespace"
-            placeholder="auto"
-            class="form-input font-mono"
-            @input="markInstallNamespaceTouched"
-            @change="loadInstallPlan"
-          />
-          <div class="field-hint">
-            Auto target uses an existing dependency entry or the strongest dependency namespace cluster.
-            <span v-if="plannedDependencyId()" class="font-mono">{{ plannedDependencyId() }}</span>
-          </div>
-          <div class="mt-2 flex items-center justify-between gap-2 text-[10px]" style="color: var(--p-text-muted-color)">
-            <span v-if="installPlanLoading">Resolving install plan…</span>
-            <span v-else-if="installPlan">{{ installPlan.module_count }} module{{ installPlan.module_count === 1 ? '' : 's' }} · {{ installPlan.requirement_count }} setting{{ installPlan.requirement_count === 1 ? '' : 's' }}</span>
-            <span v-else>Plan resolves transitive requirements before install.</span>
-            <Button severity="secondary" type="button" class="!px-3 !py-1.5" @click="loadInstallPlan" :disabled="installPlanLoading">Refresh</Button>
-          </div>
-          <div v-if="installPlan?.graph?.length" class="mt-2 mb-2 max-h-24 overflow-auto rounded border p-2" style="border-color: var(--p-content-border-color)">
-            <div v-for="node in installPlan.graph" :key="`${node.module}@${node.version}`" class="flex items-center justify-between gap-2 text-[10px]">
-              <span class="font-mono truncate" style="color: var(--p-text-color)">{{ node.module }}</span>
-              <span style="color: var(--p-text-muted-color)">{{ node.direct ? 'root' : 'transitive' }} · {{ node.version || node.constraint }}</span>
-            </div>
-          </div>
-          <div v-if="installRequirements.length" class="mt-3 mb-3">
-            <div class="form-label flex items-center gap-1.5">
-              <Icon icon="tabler:list-check" class="w-3.5 h-3.5" />
-              Configuration <span style="color: var(--p-text-muted-color)">({{ installRequirements.length }})</span>
-            </div>
-            <div class="space-y-2">
-              <label v-for="(req, idx) in installRequirements" :key="req.parameter_name || req.name" class="block">
-                <div class="flex items-center gap-2 mb-1">
-                  <span class="font-mono text-[11px]" style="color: var(--p-text-color)">{{ req.parameter_name || req.name }}</span>
-                  <span v-if="req.transitive" class="text-[9px]" style="color: var(--p-text-muted-color)">transitive</span>
-                  <span v-if="req.required" class="text-[9px]" style="color: var(--p-warn-500)">required</span>
-                  <span v-if="req.invalid" class="text-[9px]" style="color: var(--p-danger-500)">invalid</span>
-                  <span v-if="req.value_source && req.value_source !== 'empty'" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.value_source }}</span>
-                  <span v-if="req.expected_kind" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.expected_kind }}</span>
-                  <span v-if="req.targets?.length" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.targets.length }} target{{ req.targets.length === 1 ? '' : 's' }}</span>
-                </div>
-                <RequirementValueInput
-                  :model-value="installParameterValues[requirementKey(req)] || ''"
-                  :requirement="req"
-                  :placeholder="requirementPlaceholder(req)"
-                  @update:model-value="setInstallParameter(req, $event)"
-                  @commit="loadInstallPlan"
-                />
-                <div v-if="req.default && req.value_source !== 'default'" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">Package default: <span class="font-mono">{{ req.default }}</span></div>
-                <div v-if="req.invalid_reason" class="mt-1 text-[10px]" style="color: var(--p-danger-500)">{{ req.invalid_reason }}</div>
-                <div v-if="req.module" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">{{ req.module }}{{ req.version ? '@' + req.version : '' }}</div>
-                <div v-if="req.description" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">{{ req.description }}</div>
-              </label>
-            </div>
-          </div>
-          <div v-else-if="installPlan && !installPlanLoading" class="mt-3 mb-3 text-[11px]" style="color: var(--p-text-muted-color)">
-            No configuration required.
-          </div>
-          <label class="form-check">
-            <input v-model="installRunMigrations" type="checkbox" />
-            Run migrations after install
-          </label>
-          <div v-if="installPlanError" class="mt-2 px-2 py-1.5 rounded text-[11px] bg-danger-500/15 text-danger-500">{{ installPlanError }}</div>
-          <div v-if="installError" class="mt-2 px-2 py-1.5 rounded text-[11px] bg-danger-500/15 text-danger-500">{{ installError }}</div>
-          <div class="flex justify-end gap-2 mt-4">
-            <button class="dialog-btn cancel" @click="installOpen = false" :disabled="installBusy">Cancel</button>
-            <button class="dialog-btn proceed" @click="submitInstall" :disabled="installBusy || installPlanLoading || missingInstallRequirements().length > 0">
-              <Icon v-if="installBusy" icon="tabler:loader-2" class="w-3 h-3 animate-spin" />
-              Install
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <!-- INSTALL DIALOG (shared component) -->
+    <HubInstallDialog
+      v-model="installOpen"
+      :component="installComp"
+      :initial-version="installVersion"
+      @installed="onInstalled"
+    />
 
-    <!-- UNINSTALL DIALOG -->
-    <Teleport to="body">
-      <div v-if="uninstallTarget" class="overlay" @click.self="uninstallTarget = null">
-        <div class="dialog">
-          <div class="flex items-center gap-2 mb-3">
-            <Icon icon="tabler:trash" class="w-5 h-5 text-danger-500" />
-            <span class="text-sm font-semibold" style="color: var(--p-text-color)">Uninstall {{ uninstallTarget.component }}</span>
-          </div>
-          <p class="text-[11px] mb-3 leading-relaxed" style="color: var(--p-text-muted-color)">
-            Removes <code class="font-mono">{{ uninstallTarget.component }}</code>{{ uninstallTarget.version ? '@' + uninstallTarget.version : '' }} from the registry.
-          </p>
-          <label class="radio-row" v-for="opt in [
-            { value: 'down', label: 'Roll back', desc: 'Run down migrations before removing' },
-            { value: 'leave', label: 'Leave applied', desc: 'Keep migrations (data remains)' },
-            { value: 'block', label: 'Block', desc: 'Refuse if migrations are still applied' },
-          ]" :key="opt.value">
-            <input type="radio" :value="opt.value" v-model="uninstallPolicy" />
-            <span>
-              <span class="font-medium" style="color: var(--p-text-color)">{{ opt.label }}</span>
-              <span class="block text-[10px]" style="color: var(--p-text-muted-color)">{{ opt.desc }}</span>
-            </span>
-          </label>
-          <div class="flex justify-end gap-2 mt-4">
-            <button class="dialog-btn cancel" @click="uninstallTarget = null" :disabled="uninstallBusy">Cancel</button>
-            <button class="dialog-btn danger" @click="submitUninstall" :disabled="uninstallBusy">
-              <Icon v-if="uninstallBusy" icon="tabler:loader-2" class="w-3 h-3 animate-spin" />
-              Uninstall
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <!-- UNINSTALL DIALOG (shared component, shows removal preview) -->
+    <HubUninstallDialog
+      v-model="uninstallOpen"
+      :target="uninstallTarget"
+      @uninstalled="onUninstalled"
+    />
   </div>
 </template>
 
@@ -1427,6 +1214,49 @@ onMounted(() => {
   font-weight: 600;
   margin-right: 2px;
 }
+
+.section-head {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700;
+  color: var(--p-text-color);
+  margin-bottom: 8px;
+}
+.section-sub {
+  font-size: 10px; font-weight: 400;
+  color: var(--p-text-muted-color);
+}
+.role-pill {
+  font-size: 8px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  padding: 1px 5px; border-radius: 3px;
+}
+.role-pill.root { background: color-mix(in srgb, var(--p-primary-color) 16%, transparent); color: var(--p-primary-color); }
+.role-pill.trans { background: var(--p-surface-200); color: var(--p-text-muted-color); }
+.src-pill {
+  font-size: 8.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+  padding: 1px 5px; border-radius: 3px;
+}
+.src-pill.hub { background: color-mix(in srgb, var(--p-info-500) 14%, transparent); color: var(--p-info-500); }
+.src-pill.local { background: color-mix(in srgb, var(--p-warn-500) 14%, transparent); color: var(--p-warn-500); }
+.usedby-pill {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 9px; font-weight: 600;
+  color: var(--p-text-muted-color);
+  background: var(--p-surface-200);
+  padding: 1px 6px; border-radius: 8px;
+}
+.trans-list { display: flex; flex-direction: column; gap: 2px; }
+.trans-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 6px;
+  background: var(--p-surface-50);
+}
+.trans-name {
+  font-size: 11px; color: var(--p-text-color);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mono { font-family: 'JetBrains Mono', monospace; }
 
 .installed-list { display: flex; flex-direction: column; gap: 8px; }
 .inst-card {

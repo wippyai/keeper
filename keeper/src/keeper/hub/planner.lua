@@ -1,6 +1,9 @@
 local registry = require("registry")
 local hub_sdk = require("hub")
 local gov_consts = require("gov_consts")
+local fs = require("fs")
+local yaml = require("yaml")
+local lockfile = require("lockfile")
 
 type ServiceError = unknown
 type Parameter = { name: string, value: string }
@@ -75,11 +78,17 @@ type PlannerDeps = {
     registry: unknown?,
     catalog: unknown?,
     gov: unknown?,
+    fs: unknown?,
+    yaml: unknown?,
+    lockfile: unknown?,
 }
 type PlannerInstance = {
     registry: unknown,
     catalog: unknown,
     gov: unknown,
+    fs: unknown,
+    yaml: unknown,
+    lockfile: unknown,
     version_cache: {[string]: {VersionItem}},
     plan_install: (PlannerInstance, unknown) -> (unknown, unknown?),
 }
@@ -93,6 +102,7 @@ M.DEFAULT_DEP_NAMESPACE = "app.deps"
 M.DEFAULT_VERSION = ">=v0.0.0"
 M.DEFAULT_PLAN_MAX_DEPTH = 10
 M.DEFAULT_PLAN_MAX_MODULES = 200
+M.PROJECT_FS_ID = "keeper.components:project_fs"
 
 local function trim(value: unknown): string
     return string.match(tostring(value or ""), "^%s*(.-)%s*$") or ""
@@ -108,7 +118,20 @@ local ERROR_KIND_BY_CODE = {
     BAD_REQUEST = errors.INVALID,
     NOT_FOUND = errors.NOT_FOUND,
     CONFLICT = errors.CONFLICT,
+    PARAMETER_TARGET_TRANSITIVE = errors.INVALID,
 }
+
+-- Error details survive a string-keyed conversion only: array parts are
+-- dropped when a table crosses into errors.new details. Rows are keyed by
+-- their 1-based position rendered as a string so both the rows and their
+-- order survive to API responses.
+function M.position_keyed(rows)
+    local out = {}
+    for i, row in ipairs(rows or {}) do
+        out[tostring(i)] = row
+    end
+    return out
+end
 
 local function err(code: string, message: string, details: unknown?): unknown
     local d = {}
@@ -585,6 +608,9 @@ function M.new(deps: PlannerDeps?)
         registry = deps.registry or registry,
         catalog = deps.catalog or hub_sdk,
         gov = deps.gov or gov_consts,
+        fs = deps.fs or fs,
+        yaml = deps.yaml or yaml,
+        lockfile = deps.lockfile or lockfile,
         version_cache = {},
     }, Planner) :: PlannerInstance
 end
@@ -600,8 +626,49 @@ end
 function Planner:dependency_entries()
     local rows, rows_err = self:find_entries({ [".kind"] = "ns.dependency" })
     if not rows then return nil, rows_err end
-    table.sort(rows, function(a, b) return tostring(a.id) < tostring(b.id) end)
-    return rows, nil
+    -- Sort a copy: registry.find may hand back a backing slice, and sorting it
+    -- in place mutates registry-owned state shared with later readers.
+    local out = {}
+    for _, entry in ipairs(rows) do table.insert(out, entry) end
+    table.sort(out, function(a, b) return tostring(a.id) < tostring(b.id) end)
+    return out, nil
+end
+
+-- Precomputes the two per-node install-graph flags:
+--   lock_names:   modules already recorded in the current wippy.lock (installed)
+--   shared_names: modules already reachable from an EXISTING deployment root
+--                 other than the one being installed, walking the same offline
+--                 installed edges the closure resolver uses. A node in this set
+--                 is reused (shared) rather than newly added.
+function Planner:install_graph_context(component)
+    local exclude = trim(component)
+
+    local lock_names = {}
+    if self.fs and self.lockfile and self.lockfile.read then
+        local lock_state = self.lockfile.read(self.fs, self.yaml, M.PROJECT_FS_ID, self.lockfile.LOCK_PATH)
+        if type(lock_state) == "table" and type(lock_state.doc) == "table" then
+            for _, row in ipairs((lock_state.doc :: {[string]: unknown}).modules or {}) do
+                local name = trim((row :: {[string]: unknown}).name)
+                if name ~= "" then lock_names[name] = true end
+            end
+        end
+    end
+
+    local shared_names = {}
+    local deps = self:dependency_entries()
+    if deps then
+        local roots = {}
+        for _, dep in ipairs(deps) do
+            local comp = dependency_component(dep)
+            if comp ~= "" and comp ~= exclude then
+                table.insert(roots, comp)
+            end
+        end
+        local keep = self:resolve_dependency_closure({ roots = roots })
+        if keep then shared_names = keep end
+    end
+
+    return { lock_names = lock_names, shared_names = shared_names }
 end
 
 function Planner:existing_dependency_for_component(component)
@@ -740,6 +807,27 @@ function Planner:artifact_requirement_details(component, selected)
     if not has_entry_kind(selected_item, "ns.requirement") then
         return selected, nil
     end
+    local inspected, inspect_err = self:inspect_artifact(component, selected_item)
+    if not inspected then
+        return nil, err("INTERNAL", "hub artifact inspection failed for " .. component .. ": " .. tostring(inspect_err))
+    end
+
+    local merged = shallow_copy(selected_item)
+    merged.requirements = inspected.requirements or {}
+    merged.entry_count = inspected.entry_count or merged.entry_count
+    merged.entry_kinds = inspected.entry_kinds or merged.entry_kinds
+    merged.size_bytes = inspected.size_bytes or merged.size_bytes
+    merged.digest = inspected.digest or merged.digest
+    merged.protected = inspected.protected == true or merged.protected == true
+    return merged, nil
+end
+
+function Planner:inspect_artifact(component, selected)
+    component = trim(component)
+    local selected_item = selected :: VersionItem
+    if component == "" then
+        return nil, err("BAD_REQUEST", "component is required")
+    end
     if not self.catalog or not self.catalog.versions or not self.catalog.versions.inspect then
         return nil, err("INTERNAL", "hub artifact inspection API unavailable for " .. component)
     end
@@ -753,19 +841,7 @@ function Planner:artifact_requirement_details(component, selected)
         return nil, err("INTERNAL", "cannot inspect Hub artifact without version id or version")
     end
 
-    local inspected, inspect_err = self.catalog.versions.inspect(component, ref)
-    if not inspected then
-        return nil, err("INTERNAL", "hub artifact inspection failed for " .. component .. ": " .. tostring(inspect_err))
-    end
-
-    local merged = shallow_copy(selected_item)
-    merged.requirements = inspected.requirements or {}
-    merged.entry_count = inspected.entry_count or merged.entry_count
-    merged.entry_kinds = inspected.entry_kinds or merged.entry_kinds
-    merged.size_bytes = inspected.size_bytes or merged.size_bytes
-    merged.digest = inspected.digest or merged.digest
-    merged.protected = inspected.protected == true or merged.protected == true
-    return merged, nil
+    return self.catalog.versions.inspect(component, ref)
 end
 
 function Planner:dependency_details(component, selected)
@@ -843,38 +919,76 @@ function Planner:select_version(component, constraint)
     return self:version_details(component, selected)
 end
 
-function Planner:resolve_install_graph(component, constraint, opts)
+-- Shared worklist graph walker. Starts from a set of roots and, for each
+-- module, calls expand(ref, constraint, depth, parent, path) which returns a
+-- node to record (or nil) and its child edges as { ref, constraint } items.
+-- Dedup, depth/count limits, and error accumulation are handled here so both
+-- the Hub install graph and the installed-closure resolver share one walk.
+function Planner:walk_graph(roots, expand, opts)
     opts = type(opts) == "table" and (opts :: {[string]: unknown}) or {}
-    local parsed, comp_err = M.parse_component(component)
-    if not parsed then return nil, comp_err end
     local max_depth = tonumber(opts.max_depth or M.DEFAULT_PLAN_MAX_DEPTH) or M.DEFAULT_PLAN_MAX_DEPTH
     local max_modules = tonumber(opts.max_modules or M.DEFAULT_PLAN_MAX_MODULES) or M.DEFAULT_PLAN_MAX_MODULES
     local nodes = {}
     local seen = {}
     local resolution_errors = {}
 
-    local function visit(ref, version_constraint, depth, parent, path)
+    local function visit(ref, constraint, depth, parent, path)
         if #nodes >= max_modules then
-            table.insert(resolution_errors, { module = ref, constraint = version_constraint, message = "maximum module count exceeded" })
+            table.insert(resolution_errors, { module = ref, constraint = constraint, message = "maximum module count exceeded" })
             return
         end
         if depth >= max_depth then
-            table.insert(resolution_errors, { module = ref, constraint = version_constraint, message = "maximum dependency depth exceeded" })
+            table.insert(resolution_errors, { module = ref, constraint = constraint, message = "maximum dependency depth exceeded" })
             return
         end
         if seen[ref] then return end
         seen[ref] = true
 
-        local selected, select_err = self:select_version(ref, version_constraint)
-        if not selected then
+        local node, children, expand_err = expand(ref, constraint, depth, parent, path)
+        if expand_err then
             table.insert(resolution_errors, {
                 module = ref,
-                constraint = version_constraint,
-                message = err_message(select_err, "version resolution failed"),
-                details = err_details(select_err),
+                constraint = constraint,
+                message = err_message(expand_err, "dependency resolution failed"),
+                details = err_details(expand_err),
             })
             return
         end
+        if node then table.insert(nodes, node) end
+
+        for _, child in ipairs(children or {}) do
+            local child_ref = child.ref
+            if child_ref and child_ref ~= "" then
+                visit(child_ref, child.constraint or "", depth + 1, ref, (path or ref) .. " > " .. child_ref)
+            end
+        end
+    end
+
+    for _, root in ipairs(roots or {}) do
+        visit(root.ref, root.constraint or M.DEFAULT_VERSION, 0, nil, root.path or root.ref)
+    end
+
+    if #resolution_errors > 0 then
+        local summaries = {}
+        for _, row in ipairs(resolution_errors) do
+            table.insert(summaries, tostring(row.module) .. " (" .. tostring(row.constraint) .. "): " .. tostring(row.message))
+        end
+        return nil, err("CONFLICT", "dependency resolution failed: " .. table.concat(summaries, "; "),
+            { errors = M.position_keyed(resolution_errors) })
+    end
+    return nodes, nil
+end
+
+function Planner:resolve_install_graph(component, constraint, opts)
+    opts = type(opts) == "table" and (opts :: {[string]: unknown}) or {}
+    local parsed, comp_err = M.parse_component(component)
+    if not parsed then return nil, comp_err end
+
+    local ctx = self:install_graph_context(parsed.component)
+
+    local function expand(ref, version_constraint, depth, parent, path)
+        local selected, select_err = self:select_version(ref, version_constraint)
+        if not selected then return nil, nil, select_err end
         local selected_item = selected :: VersionItem
 
         local ref_parsed = M.parse_component(ref)
@@ -900,22 +1014,221 @@ function Planner:resolve_install_graph(component, constraint, opts)
         node.digest = selected_item.digest
         node.yanked = selected_item.yanked == true
         node.protected = selected_item.protected == true
-        table.insert(nodes, node)
 
+        local installed = ctx.lock_names[ref] == true
+        if not installed then installed = self:module_installed(ref) == true end
+        node.installed = installed
+        node.shared = ctx.shared_names[ref] == true
+
+        local children = {}
         for _, dep in ipairs(selected_item.dependencies or {}) do
             local child_ref = module_ref_from_dep(dep)
             if child_ref then
-                visit(child_ref, dep.version_constraint or dep.version or "", depth + 1, ref, node.path .. " > " .. child_ref)
+                table.insert(children, { ref = child_ref, constraint = dep.version_constraint or dep.version or "" })
             end
+        end
+        return node, children, nil
+    end
+
+    return self:walk_graph(
+        { { ref = parsed.component, constraint = constraint or M.DEFAULT_VERSION, path = parsed.component } },
+        expand,
+        { max_depth = opts.max_depth, max_modules = opts.max_modules }
+    )
+end
+
+-- True when the module has any registry entry stamped with meta.module, i.e. it
+-- is installed locally and its dependency edges live in the registry.
+function Planner:module_installed(component)
+    local rows, rows_err = self:find_entries({ ["meta.module"] = component })
+    if rows_err then return false, rows_err end
+    return rows ~= nil and #rows > 0, nil
+end
+
+-- Child components of a locally installed module, read from its module-owned
+-- ns.dependency entries (meta.module == component -> data.component).
+function Planner:installed_child_components(component)
+    local rows, rows_err = self:find_entries({ ["meta.module"] = component, [".kind"] = "ns.dependency" })
+    if not rows then return nil, rows_err end
+    local out = {}
+    local seen = {}
+    for _, row in ipairs(rows) do
+        local data = row.data or {}
+        local child = trim(data.component)
+        if child ~= "" and not seen[child] then
+            seen[child] = true
+            table.insert(out, { ref = child, constraint = trim(data.version) })
+        end
+    end
+    return out, nil
+end
+
+-- Computes the installed dependency closure of a set of deployment roots by
+-- walking local registry edges only (module-owned ns.dependency entries:
+-- meta.module == component -> data.component). Resolution is fully offline: a
+-- ref with no local installation is treated as a leaf and contributes only its
+-- own name. Uninstall must never re-resolve against the Hub, because brownfield
+-- apps carry roots whose modules are unpublished or never installed (e.g. a
+-- source-declared or stale root); a network re-resolve would fail the whole
+-- prune on those.
+--
+-- Returns (keep, unresolved): keep is the set of module names in the closure;
+-- unresolved is the set of reached refs that have no local installation and thus
+-- unknowable dependency edges. A ref in unresolved is either a harmless phantom
+-- (declared but never installed, absent from wippy.lock) or an installed-elsewhere
+-- module whose edges this registry does not carry. The prune step uses unresolved
+-- against the lock to keep over-prune impossible: a lock module whose need by an
+-- unresolved root cannot be ruled out is never removed.
+--
+-- Soundness contract: this offline closure is correct because governance install
+-- writes each module's complete edge set atomically -- a module's ns.definition
+-- and every module-owned ns.dependency row (meta.module == it) land in ONE
+-- all-or-nothing governance changeset. So an installed module always exposes its
+-- FULL edge set here; a partial edge set (some edges present, one missing) implies
+-- registry corruption, which is out of scope. Where such corruption manifests as a
+-- lock-present but edgeless remaining root it is handled conservatively downstream
+-- (lockfile.preview_uninstall withholds the transitive prune and reports loudly).
+-- The belt-and-suspenders alternative -- persisting each module's resolved edges
+-- in the lock so the prune never reads registry edges -- is deliberately not
+-- implemented while this atomicity invariant holds.
+function Planner:resolve_dependency_closure(args)
+    args = args or {}
+
+    local roots = {}
+    for _, root in ipairs(args.roots or {}) do
+        local component
+        if type(root) == "table" then
+            component = dependency_component(root)
+            if component == "" then component = trim((root :: {[string]: unknown}).component) end
+        else
+            component = trim(root)
+        end
+        if component ~= "" then
+            table.insert(roots, { ref = component })
         end
     end
 
-    visit(parsed.component, constraint or M.DEFAULT_VERSION, 0, nil, parsed.component)
-
-    if #resolution_errors > 0 then
-        return nil, err("CONFLICT", "dependency resolution failed", { errors = resolution_errors })
+    local unresolved = {}
+    local function expand(ref, constraint, depth, parent, path)
+        local installed, inst_err = self:module_installed(ref)
+        if inst_err then return nil, nil, inst_err end
+        if not installed then
+            unresolved[ref] = true
+            return { module = ref }, {}, nil
+        end
+        local children, edges_err = self:installed_child_components(ref)
+        if not children then return nil, nil, edges_err end
+        return { module = ref }, children, nil
     end
-    return nodes, nil
+
+    local nodes, walk_err = self:walk_graph(roots, expand, {
+        max_depth = args.max_depth,
+        max_modules = args.max_modules,
+    })
+    if not nodes then return nil, nil, walk_err end
+
+    local keep = {}
+    for _, node in ipairs(nodes) do keep[node.module] = true end
+    return keep, unresolved, nil
+end
+
+-- Supplied fully-qualified parameters can only configure the root module.
+-- The install pipeline attaches parameters to the root's dependency entry, so
+-- a full id addressing a transitive module's requirement would be recorded but
+-- never applied; refuse it loudly instead of installing into the conflict the
+-- parameter was meant to avoid. Bare names keep their fan-out semantics.
+local function validate_parameter_targets(graph, parameters)
+    local node_by_namespace = {}
+    for _, node in ipairs(graph or {}) do
+        node_by_namespace[tostring(node.namespace)] = node
+    end
+    for _, param in ipairs(parameters or {}) do
+        local ns = string.match(tostring(param.name or ""), "^([^:]+):")
+        local node = ns and node_by_namespace[ns] or nil
+        if node and node.depth > 0 then
+            return err("PARAMETER_TARGET_TRANSITIVE",
+                "parameter " .. tostring(param.name) .. " targets a requirement of the transitive module "
+                    .. tostring(node.module) .. "; parameters apply only to the module being installed. Install "
+                    .. tostring(node.module) .. " as an explicit root with this parameter instead",
+                { parameter = param.name, module = node.module, dependency_path = node.path })
+        end
+    end
+    return nil
+end
+
+-- Whether an already-recorded version constraint admits the resolved version.
+-- Labels and unparseable pins cannot be judged offline and never veto a plan.
+local function constraint_allows(version, constraint)
+    constraint = trim(constraint)
+    if constraint == "" or starts_with(constraint, "@") then return true end
+    if is_semver_constraint(constraint) then return version_satisfies(version, constraint) end
+    local pinned = version_parts(constraint)
+    if not pinned then return true end
+    return compare_versions(version, pinned) == 0
+end
+
+-- Version constraints the registry already records offline: deployment roots
+-- pin their component and installed modules pin their children through
+-- module-owned ns.dependency edges -- the same rows the closure resolver
+-- walks. exclude_component drops the root entry being installed or updated,
+-- whose recorded constraint this plan replaces.
+function Planner:installed_constraints(exclude_component)
+    local rows, rows_err = self:dependency_entries()
+    if not rows then return nil, rows_err end
+    local out = {}
+    for _, entry in ipairs(rows) do
+        local component = dependency_component(entry)
+        local constraint = trim(entry.data and entry.data.version)
+        local owner = trim(entry.meta and entry.meta.module)
+        if component ~= "" and constraint ~= "" then
+            if owner ~= "" then
+                table.insert(out, { component = component, constraint = constraint, required_by = owner, owner = owner })
+            elseif component ~= exclude_component then
+                table.insert(out, { component = component, constraint = constraint, required_by = "root", entry_id = tostring(entry.id) })
+            end
+        end
+    end
+    return out, nil
+end
+
+-- Plan==install fidelity: every resolved module version must satisfy the
+-- constraints existing installed roots and edges already record, because the
+-- install apply enforces them. A mismatch fails the plan with the same
+-- conflict the install would raise. Edges owned by a module that is itself in
+-- the resolved graph do not bind: this install re-resolves that module and
+-- rewrites its edges.
+function Planner:validate_graph_constraints(graph, component)
+    local constraints, constraints_err = self:installed_constraints(component)
+    if not constraints then return constraints_err end
+
+    local node_by_module = {}
+    for _, node in ipairs(graph or {}) do node_by_module[node.module] = node end
+
+    local conflicts = {}
+    local summaries = {}
+    for _, c in ipairs(constraints) do
+        local node = node_by_module[c.component]
+        local owner_in_graph = c.owner ~= nil and node_by_module[c.owner] ~= nil
+        if node and not owner_in_graph and not constraint_allows(node.version, c.constraint) then
+            local resolved_required_by = tostring(node.parent or component)
+            local summary = "conflicting version constraints for " .. c.component .. ": "
+                .. c.constraint .. " (required by " .. c.required_by .. "), "
+                .. node.version .. " (required by " .. resolved_required_by .. ")"
+            table.insert(conflicts, {
+                module = c.component,
+                installed_constraint = c.constraint,
+                required_by = c.required_by,
+                resolved_version = node.version,
+                resolved_required_by = resolved_required_by,
+                message = summary,
+            })
+            table.insert(summaries, summary)
+        end
+    end
+    if #conflicts > 0 then
+        return err("CONFLICT", table.concat(summaries, "; "), { conflicts = M.position_keyed(conflicts) })
+    end
+    return nil
 end
 
 function Planner:existing_parameter_values()
@@ -1204,6 +1517,12 @@ function Planner:plan_install(args)
         max_modules = planned_args.max_modules,
     })
     if not graph then return nil, graph_err end
+
+    local target_err = validate_parameter_targets(graph, data.parameters or {})
+    if target_err then return nil, target_err end
+
+    local constraint_err = self:validate_graph_constraints(graph, data.component)
+    if constraint_err then return nil, constraint_err end
 
     local req_plan, req_err = self:plan_requirements(graph, data.parameters or {})
     if not req_plan then return nil, req_err end

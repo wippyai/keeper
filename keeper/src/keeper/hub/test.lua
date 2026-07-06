@@ -2,8 +2,12 @@ local test = require("test")
 local hub = require("hub_service")
 local planner = require("planner")
 local lockfile = require("lockfile")
+local security_scan = require("security_scan")
 local hub_dependencies_tool = require("hub_dependencies_tool")
 local hub_migrations_tool = require("hub_migrations_tool")
+local http_client = require("http_client")
+local api_test = require("api_test")
+local json = require("json")
 
 local function fake_registry(entries)
     local by_id = {}
@@ -67,6 +71,26 @@ local function fake_process(sent)
             table.insert(sent, { pid = pid, topic = topic, payload = payload })
             return true
         end,
+    }
+end
+
+local function fake_system(hosts, processes_by_host)
+    hosts = hosts or {}
+    processes_by_host = processes_by_host or {}
+    return {
+        hosts = {
+            list = function()
+                return hosts, nil
+            end,
+            processes = function(host_id)
+                return processes_by_host[host_id] or {}, nil
+            end,
+        },
+        supervisor = {
+            states = function()
+                return {}, nil
+            end,
+        },
     }
 end
 
@@ -239,31 +263,48 @@ local function no_requirements_planner()
     }
 end
 
--- Records every plan_install call so uninstall-path tests can assert the Hub
--- planner is never consulted. Returns an error if called.
-local function spy_planner(state)
-    state = state or {}
-    state.calls = state.calls or 0
-    return {
-        plan_install = function(_)
-            state.calls = state.calls + 1
-            return nil, "planner must not be called on the uninstall graph path"
-        end,
+-- Builds the registry entries an installed module contributes: a definition
+-- marker (so the module reads as installed) plus one module-owned ns.dependency
+-- per child component (meta.module == module, data.component == child). This is
+-- the installed dependency-edge shape the closure resolver walks.
+local function installed_module(module, children)
+    local entries = {
+        { id = module .. ":__def", kind = "ns.definition", meta = { module = module }, data = {} },
     }
+    for _, child in ipairs(children or {}) do
+        table.insert(entries, {
+            id = module .. ":dep." .. child,
+            kind = "ns.dependency",
+            meta = { module = module },
+            data = { component = child, version = ">=v0.0.0" },
+        })
+    end
+    return entries
 end
 
--- Builds an installed ns.dependency entry with a stored resolved-graph meta
--- (meta.hub.resolved_modules), mirroring what install writes at line ~817.
-local function dep_entry(id, component, module_names)
-    local modules = {}
-    for _, name in ipairs(module_names or {}) do
-        table.insert(modules, { name = name, version = "1.0.0", hash = name .. "-hash" })
+-- A deployment root ns.dependency entry (meta:{}, no stored resolved graph),
+-- as source-declared baseline roots appear in a brownfield app.
+local function root_dep(id, component)
+    return { id = id, kind = "ns.dependency", meta = {}, data = { component = component, version = ">=v0.0.0" } }
+end
+
+local function concat_entries(...)
+    local out = {}
+    for _, list in ipairs({ ... }) do
+        for _, e in ipairs(list) do table.insert(out, e) end
+    end
+    return out
+end
+
+-- A Hub catalog that fails on any call, asserting the closure resolver never
+-- consults the Hub when every root resolves from local installed edges.
+local function exploding_catalog()
+    local function boom()
+        error("Hub catalog must not be consulted for locally installed roots")
     end
     return {
-        id = id,
-        kind = "ns.dependency",
-        meta = { hub = { resolved_modules = modules } },
-        data = { component = component, version = ">=v0.0.0" },
+        versions = { list = boom, get = boom, inspect = boom },
+        dependencies = { get = boom },
     }
 end
 
@@ -327,6 +368,96 @@ local function fake_catalog(versions_by_component)
                 return { items = {} }, nil
             end,
         },
+    }
+end
+
+local function security_scan_catalog()
+    return fake_catalog({
+        ["acme/clean"] = {
+            {
+                id = "clean-v1",
+                version = "v1.0.0",
+                entry_kinds = { "function.lua" },
+                inspect = {
+                    entries = {
+                        {
+                            id = "acme.clean:handler",
+                            kind = "function.lua",
+                            meta = { module = "acme/clean", module_version = "v1.0.0" },
+                            data = { method = "handler", source = "return { handler = function() return true end }" },
+                        },
+                    },
+                },
+            },
+        },
+        ["acme/risky"] = {
+            {
+                id = "risky-v1",
+                version = "v1.0.0",
+                entry_kinds = { "function.lua", "http.endpoint" },
+                inspect = {
+                    entries = {
+                        {
+                            id = "acme.risky:run",
+                            kind = "function.lua",
+                            meta = { module = "acme/risky", module_version = "v1.0.0" },
+                            data = { source = "local process = require('process'); process.exec('curl http://evil')" },
+                        },
+                    },
+                },
+            },
+        },
+        ["acme/app"] = {
+            {
+                id = "app-v1",
+                version = "v1.0.0",
+                dependencies = {
+                    { org = "acme", name = "clean", version = "v1.0.0" },
+                    { org = "acme", name = "installed", version = "v1.0.0" },
+                },
+                inspect = {
+                    entries = {
+                        {
+                            id = "acme.app:handler",
+                            kind = "function.lua",
+                            meta = { module = "acme/app", module_version = "v1.0.0" },
+                            data = { source = "return { handler = function() return 'ok' end }" },
+                        },
+                    },
+                },
+            },
+        },
+        ["acme/installed"] = {
+            {
+                id = "installed-v1",
+                version = "v1.0.0",
+                inspect = { entries = {} },
+            },
+        },
+    })
+end
+
+local function security_scan_llm(findings_by_module)
+    return {
+        generate = function()
+            local module = ""
+            for key in pairs(findings_by_module) do
+                module = key
+                break
+            end
+            local findings = findings_by_module[module] or {}
+            local status = #findings > 0 and "warnings" or "clean"
+            for _, finding in ipairs(findings) do
+                if finding.severity == "critical" then status = "critical" end
+            end
+            return {
+                result = json.encode({
+                    status = status,
+                    summary = #findings > 0 and "Review flagged module risk." or "No risky patterns found.",
+                    findings = findings,
+                }),
+            }, nil
+        end,
     }
 end
 
@@ -433,11 +564,9 @@ local function define_tests()
                     replacements = {},
                 }
 
-                local changes, err = lockfile.apply_uninstall(doc, "userspace/oauth", {
-                    { module = "userspace/oauth" },
-                    { module = "userspace/scheduler" },
-                    { module = "userspace/component" },
-                }, {})
+                local changes, err = lockfile.apply_uninstall(doc, {
+                    ["wippy/facade"] = true,
+                })
 
                 test.is_nil(err)
                 test.eq(#changes.removed, 3)
@@ -460,11 +589,7 @@ local function define_tests()
                     },
                 }
 
-                local changes, err = lockfile.apply_uninstall(doc, "userspace/oauth", {
-                    { module = "userspace/oauth" },
-                    { module = "userspace/scheduler" },
-                    { name = "wippy/terminal" },
-                }, {
+                local changes, err = lockfile.apply_uninstall(doc, {
                     ["wippy/terminal"] = true,
                 })
 
@@ -479,33 +604,110 @@ local function define_tests()
             end)
         end)
 
-        describe("uninstall graph context (offline, from stored meta)", function()
-            it("derives the uninstall graph from stored meta and keeps modules other dependencies need", function()
-                local alpha = dep_entry("app.deps:alpha", "wippy/alpha",
-                    { "wippy/alpha", "wippy/shared", "wippy/only-alpha" })
-                local beta = dep_entry("app.deps:beta", "wippy/beta",
-                    { "wippy/beta", "wippy/shared" })
-                local spy = {}
-                local svc = hub.new({
-                    registry = fake_registry({ alpha, beta }),
-                    planner = spy_planner(spy),
-                }) :: any
+        describe("dependency closure resolver (installed edges)", function()
+            it("keeps a transitive still required by another remaining root", function()
+                local entries = concat_entries(
+                    installed_module("wippy/alpha", { "wippy/shared", "wippy/only-alpha" }),
+                    installed_module("wippy/beta", { "wippy/shared" }),
+                    installed_module("wippy/shared", {}),
+                    installed_module("wippy/only-alpha", {})
+                )
+                local pl = planner.new({ registry = fake_registry(entries) }) :: any
 
-                local remove_graph, keep, err = svc:uninstall_graph_context(alpha)
+                local keep, _, err = pl:resolve_dependency_closure({
+                    roots = { root_dep("app.deps:beta", "wippy/beta") },
+                    mode = "installed",
+                })
 
                 test.is_nil(err)
-                local remove_names = {}
-                for _, node in ipairs(remove_graph) do remove_names[node.name] = true end
-                test.is_true(remove_names["wippy/alpha"])
-                test.is_true(remove_names["wippy/shared"])
-                test.is_true(remove_names["wippy/only-alpha"])
+                test.is_true(keep["wippy/beta"])
+                test.is_true(keep["wippy/shared"])
+                test.is_nil(keep["wippy/alpha"])
+                test.is_nil(keep["wippy/only-alpha"])
+            end)
 
-                local keep_set = keep :: any
-                test.is_true(keep_set["wippy/shared"])
-                test.is_nil(keep_set["wippy/only-alpha"])
-                test.is_nil(keep_set["wippy/alpha"])
+            it("does not keep a transitive needed only by the removed root", function()
+                local entries = concat_entries(
+                    installed_module("wippy/alpha", { "wippy/shared", "wippy/only-alpha" }),
+                    installed_module("wippy/shared", {}),
+                    installed_module("wippy/only-alpha", {})
+                )
+                local pl = planner.new({ registry = fake_registry(entries) }) :: any
 
-                -- subtraction: shared is kept, only-alpha and alpha are removable
+                -- No remaining roots: uninstalling the only root prunes everything.
+                local keep, _, err = pl:resolve_dependency_closure({ roots = {}, mode = "installed" })
+
+                test.is_nil(err)
+                test.is_nil(next(keep))
+            end)
+
+            it("keeps a diamond transitive reachable from two remaining roots", function()
+                local entries = concat_entries(
+                    installed_module("wippy/alpha", { "wippy/shared" }),
+                    installed_module("wippy/beta", { "wippy/shared" }),
+                    installed_module("wippy/gamma", { "wippy/shared" }),
+                    installed_module("wippy/shared", {})
+                )
+                local pl = planner.new({ registry = fake_registry(entries) }) :: any
+
+                local keep, _, err = pl:resolve_dependency_closure({
+                    roots = {
+                        root_dep("app.deps:beta", "wippy/beta"),
+                        root_dep("app.deps:gamma", "wippy/gamma"),
+                    },
+                    mode = "installed",
+                })
+
+                test.is_nil(err)
+                test.is_true(keep["wippy/shared"])
+                test.is_true(keep["wippy/beta"])
+                test.is_true(keep["wippy/gamma"])
+                test.is_nil(keep["wippy/alpha"])
+            end)
+
+            it("keeps a shared transitive for a baseline root declared with meta:{} (no resolved graph)", function()
+                -- The kickside shape: a baseline root carrying only meta:{} depends
+                -- on a shared transitive that the removed root also uses. Uninstall
+                -- must keep the shared module through the closure, not a stored graph.
+                local entries = concat_entries(
+                    { root_dep("app.deps:baseline", "wippy/baseline"), root_dep("app.deps:actor", "wippy/actor") },
+                    installed_module("wippy/baseline", { "wippy/shared" }),
+                    installed_module("wippy/actor", { "wippy/shared" }),
+                    installed_module("wippy/shared", {})
+                )
+                local svc = hub.new({
+                    registry = fake_registry(entries),
+                    planner = planner,
+                }) :: any
+
+                local keep, _, err = svc:plan_uninstall_closure(
+                    { id = "app.deps:actor", kind = "ns.dependency", meta = {}, data = { component = "wippy/actor" } }
+                )
+
+                test.is_nil(err)
+                test.is_true(keep["wippy/shared"])
+                test.is_true(keep["wippy/baseline"])
+                test.is_nil(keep["wippy/actor"])
+            end)
+
+            it("prunes wippy.lock to the closure, keeping shared and dropping the removed root", function()
+                local entries = concat_entries(
+                    { root_dep("app.deps:alpha", "wippy/alpha"), root_dep("app.deps:beta", "wippy/beta") },
+                    installed_module("wippy/alpha", { "wippy/shared", "wippy/only-alpha" }),
+                    installed_module("wippy/beta", { "wippy/shared" }),
+                    installed_module("wippy/shared", {}),
+                    installed_module("wippy/only-alpha", {})
+                )
+                local svc = hub.new({
+                    registry = fake_registry(entries),
+                    planner = planner,
+                }) :: any
+
+                local keep, unresolved, err = svc:plan_uninstall_closure(
+                    { id = "app.deps:alpha", kind = "ns.dependency", meta = {}, data = { component = "wippy/alpha" } }
+                )
+                test.is_nil(err)
+
                 local doc = {
                     modules = {
                         { name = "wippy/alpha", version = "1.0.0", hash = "a" },
@@ -515,134 +717,146 @@ local function define_tests()
                     },
                     replacements = {},
                 }
-                local changes = lockfile.preview_uninstall(doc, "wippy/alpha", remove_graph, keep)
+                local changes = lockfile.preview_uninstall(doc, keep, unresolved)
                 local removed = {}
                 for _, row in ipairs(changes.removed) do removed[row.name] = true end
                 test.is_true(removed["wippy/alpha"])
                 test.is_true(removed["wippy/only-alpha"])
                 test.is_nil(removed["wippy/shared"])
                 test.is_nil(removed["wippy/beta"])
-
-                -- offline: the Hub planner is never consulted
-                test.eq(spy.calls, 0)
             end)
 
-            it("marks a transitive module removable when only the target dependency needs it", function()
-                local alpha = dep_entry("app.deps:alpha", "wippy/alpha",
-                    { "wippy/alpha", "wippy/shared", "wippy/only-alpha" })
-                local spy = {}
-                local svc = hub.new({
-                    registry = fake_registry({ alpha }),
-                    planner = spy_planner(spy),
-                }) :: any
+            it("keeps a lock module needed only by a remaining root with absent installed edges", function()
+                -- wippy/consumer is a remaining deployment root present in the lock
+                -- but with no installed registry edges (externally or partially
+                -- installed). Its dependency wippy/shared is reachable through no
+                -- other root. Removing wippy/target must not prune wippy/shared,
+                -- whose need by consumer cannot be ruled out, so the lock is left
+                -- intact under this uncertainty.
+                local entries = concat_entries(
+                    {
+                        root_dep("app.deps:target", "wippy/target"),
+                        root_dep("app.deps:consumer", "wippy/consumer"),
+                    },
+                    installed_module("wippy/target", { "wippy/only-target" }),
+                    installed_module("wippy/only-target", {})
+                )
+                local svc = hub.new({ registry = fake_registry(entries), planner = planner }) :: any
 
-                local remove_graph, keep, err = svc:uninstall_graph_context(alpha)
-
+                local keep, unresolved, err = svc:plan_uninstall_closure(
+                    { id = "app.deps:target", kind = "ns.dependency", meta = {}, data = { component = "wippy/target" } }
+                )
                 test.is_nil(err)
-                local keep_set = keep :: any
-                test.is_nil(keep_set["wippy/shared"])
-                test.is_nil(keep_set["wippy/only-alpha"])
+                local unresolved_set = unresolved :: any
+                test.is_true(unresolved_set ~= nil and unresolved_set["wippy/consumer"] == true)
 
                 local doc = {
                     modules = {
-                        { name = "wippy/alpha", version = "1.0.0", hash = "a" },
+                        { name = "wippy/target", version = "1.0.0", hash = "t" },
+                        { name = "wippy/only-target", version = "1.0.0", hash = "o" },
+                        { name = "wippy/consumer", version = "1.0.0", hash = "c" },
                         { name = "wippy/shared", version = "1.0.0", hash = "s" },
-                        { name = "wippy/only-alpha", version = "1.0.0", hash = "o" },
                     },
                     replacements = {},
                 }
-                local changes = lockfile.preview_uninstall(doc, "wippy/alpha", remove_graph, keep)
+                local changes = lockfile.preview_uninstall(doc, keep, unresolved)
                 local removed = {}
                 for _, row in ipairs(changes.removed) do removed[row.name] = true end
-                test.is_true(removed["wippy/alpha"])
-                test.is_true(removed["wippy/shared"])
-                test.is_true(removed["wippy/only-alpha"])
-
-                test.eq(spy.calls, 0)
+                test.is_nil(removed["wippy/shared"])
+                test.is_nil(removed["wippy/consumer"])
+                test.is_true(changes.uncertain)
             end)
 
-            it("returns the stored graph with no keep set when the dependency has only its own module", function()
-                local solo = dep_entry("app.deps:solo", "wippy/solo", { "wippy/solo" })
-                local spy = {}
-                local svc = hub.new({
-                    registry = fake_registry({ solo }),
-                    planner = spy_planner(spy),
-                }) :: any
+            it("a phantom remaining root absent from the lock does not block pruning the removed subtree", function()
+                -- kickside/sessions is a declared root that was never installed (no
+                -- registry entries) and is absent from the lock: a pure phantom. It
+                -- contributes no lock module, so uninstall still prunes the removed
+                -- root's exclusive subtree.
+                local entries = concat_entries(
+                    {
+                        root_dep("app.deps:target", "wippy/target"),
+                        root_dep("app.deps:phantom", "kickside/sessions"),
+                    },
+                    installed_module("wippy/target", { "wippy/only-target" }),
+                    installed_module("wippy/only-target", {})
+                )
+                local svc = hub.new({ registry = fake_registry(entries), planner = planner }) :: any
 
-                local remove_graph, keep, err = svc:uninstall_graph_context(solo)
+                local keep, unresolved, err = svc:plan_uninstall_closure(
+                    { id = "app.deps:target", kind = "ns.dependency", meta = {}, data = { component = "wippy/target" } }
+                )
+                test.is_nil(err)
+                local unresolved_set = unresolved :: any
+                test.is_true(unresolved_set["kickside/sessions"])
+
+                local doc = {
+                    modules = {
+                        { name = "wippy/target", version = "1.0.0", hash = "t" },
+                        { name = "wippy/only-target", version = "1.0.0", hash = "o" },
+                    },
+                    replacements = {},
+                }
+                local changes = lockfile.preview_uninstall(doc, keep, unresolved)
+                local removed = {}
+                for _, row in ipairs(changes.removed) do removed[row.name] = true end
+                test.is_true(removed["wippy/target"])
+                test.is_true(removed["wippy/only-target"])
+                test.is_nil(changes.uncertain)
+            end)
+
+            it("removes the target and its provably-exclusive transitive when no uncertain root exists", function()
+                -- No unresolved root: the closure fully accounts for the remaining
+                -- roots, so a transitive exclusive to the target is provably unneeded
+                -- and removed alongside the target itself.
+                local doc = {
+                    modules = {
+                        { name = "wippy/target", version = "1.0.0", hash = "t" },
+                        { name = "wippy/only-target", version = "1.0.0", hash = "o" },
+                        { name = "wippy/shared", version = "1.0.0", hash = "s" },
+                    },
+                    replacements = {},
+                }
+                local changes = lockfile.preview_uninstall(
+                    doc,
+                    { ["wippy/shared"] = true },
+                    {},
+                    "wippy/target"
+                )
+                local removed = {}
+                for _, row in ipairs(changes.removed) do removed[row.name] = true end
+                test.is_true(removed["wippy/target"])
+                test.is_true(removed["wippy/only-target"])
+                test.is_nil(removed["wippy/shared"])
+                test.is_nil(changes.uncertain)
+            end)
+
+            it("treats a root with recorded edges as complete and flags only dangling edge targets", function()
+                -- Partial-edge invariant: governance install writes a module's
+                -- complete edge set atomically, so a root that exposes ANY edges is
+                -- treated as fully resolved. A recorded edge pointing at a
+                -- non-installed module (a dangling ref) surfaces as unresolved and is
+                -- handled conservatively downstream; a truly missing edge is
+                -- undetectable offline and out of scope (registry corruption). This
+                -- test pins that observable behavior.
+                local entries = concat_entries(
+                    installed_module("wippy/root", { "wippy/installed-child", "wippy/dangling" }),
+                    installed_module("wippy/installed-child", {})
+                )
+                local pl = planner.new({ registry = fake_registry(entries) }) :: any
+
+                local keep, unresolved, err = pl:resolve_dependency_closure({
+                    roots = { root_dep("app.deps:root", "wippy/root") },
+                    mode = "installed",
+                })
 
                 test.is_nil(err)
-                test.eq(#remove_graph, 1)
-                test.eq(remove_graph[1].name, "wippy/solo")
-                test.is_nil(next(keep))
-                test.eq(spy.calls, 0)
-            end)
-
-            it("fails loud when the target dependency has no stored resolved-graph meta", function()
-                local legacy = {
-                    id = "app.deps:legacy",
-                    kind = "ns.dependency",
-                    meta = {},
-                    data = { component = "wippy/legacy", version = ">=v0.0.0" },
-                }
-                local spy = {}
-                local svc = hub.new({
-                    registry = fake_registry({ legacy }),
-                    planner = spy_planner(spy),
-                }) :: any
-
-                local remove_graph, keep, err = svc:uninstall_graph_context(legacy)
-
-                test.is_nil(remove_graph)
-                test.not_nil(err)
-                test.eq(err_code(err), "RESOLVED_GRAPH_META_MISSING")
-                test.is_true(string.find(err_message(err), "app.deps:legacy", 1, true) ~= nil)
-                test.eq(spy.calls, 0)
-            end)
-
-            it("fails loud naming another installed dependency that is missing stored meta", function()
-                local alpha = dep_entry("app.deps:alpha", "wippy/alpha",
-                    { "wippy/alpha", "wippy/shared" })
-                local legacy = {
-                    id = "app.deps:legacy",
-                    kind = "ns.dependency",
-                    meta = {},
-                    data = { component = "wippy/legacy", version = ">=v0.0.0" },
-                }
-                local spy = {}
-                local svc = hub.new({
-                    registry = fake_registry({ alpha, legacy }),
-                    planner = spy_planner(spy),
-                }) :: any
-
-                local _, _, err = svc:uninstall_graph_context(alpha)
-
-                test.not_nil(err)
-                test.eq(err_code(err), "RESOLVED_GRAPH_META_MISSING")
-                test.is_true(string.find(err_message(err), "app.deps:legacy", 1, true) ~= nil)
-                test.eq(spy.calls, 0)
-            end)
-
-            it("plan_uninstall surfaces the missing-meta error distinctly from DEPENDENCY_GRAPH_FAILED", function()
-                local legacy = {
-                    id = "app.deps:legacy",
-                    kind = "ns.dependency",
-                    meta = {},
-                    data = { component = "wippy/legacy", version = ">=v0.0.0" },
-                }
-                local spy = {}
-                local svc = hub.new({
-                    registry = fake_registry({ legacy }),
-                    sql = fake_sql({}),
-                    planner = spy_planner(spy),
-                }) :: any
-
-                local plan, err = svc:plan_uninstall({ component = "wippy/legacy" })
-
-                test.is_nil(plan)
-                test.not_nil(err)
-                test.eq(err_code(err), "RESOLVED_GRAPH_META_MISSING")
-                test.eq(spy.calls, 0)
+                local unresolved_set = unresolved :: any
+                test.is_true(keep["wippy/root"])
+                test.is_nil(unresolved_set["wippy/root"])
+                test.is_true(keep["wippy/installed-child"])
+                test.is_nil(unresolved_set["wippy/installed-child"])
+                test.is_true(keep["wippy/dangling"])
+                test.is_true(unresolved_set["wippy/dangling"])
             end)
         end)
 
@@ -800,6 +1014,107 @@ local function define_tests()
                 test.eq(out.migrations[1].id, "wippy.foo.migrations:001")
                 test.eq(out.migrations[1].status, "applied")
             end)
+
+            it("expands installed modules into roots and transitives with used_by", function()
+                local lock_doc = {
+                    modules = {
+                        { name = "wippy/alpha", version = "1.0.0" },
+                        { name = "wippy/beta", version = "2.0.0" },
+                        { name = "wippy/shared", version = "3.0.0" },
+                        { name = "wippy/only-alpha", version = "4.0.0" },
+                    },
+                    replacements = {},
+                }
+                local svc = hub.new({
+                    registry = fake_registry(concat_entries(
+                        { root_dep("app.deps:alpha", "wippy/alpha") },
+                        { root_dep("app.deps:beta", "wippy/beta") },
+                        installed_module("wippy/alpha", { "wippy/shared", "wippy/only-alpha" }),
+                        installed_module("wippy/beta", { "wippy/shared" }),
+                        installed_module("wippy/shared", {}),
+                        installed_module("wippy/only-alpha", {})
+                    )),
+                    sql = fake_sql({}),
+                    planner = planner,
+                    fs = fake_project_fs({ ["wippy.lock"] = "x" }),
+                    yaml = fake_yaml_for_lock(lock_doc),
+                }) :: any
+
+                local out, err = svc:list_dependencies({})
+                test.is_nil(err)
+                -- explicit roots unchanged: count stays the deployment-root count
+                test.eq(out.count, 2)
+                -- full inventory adds transitive modules
+                test.eq(out.module_count, 4)
+
+                local by = {}
+                for _, m in ipairs(out.modules) do by[m.name] = m end
+
+                test.is_true(by["wippy/alpha"].is_root)
+                test.is_false(by["wippy/alpha"].transitive)
+                test.eq(by["wippy/alpha"].version, "1.0.0")
+                test.eq(by["wippy/alpha"].used_by_count, 0)
+
+                -- shared transitive: pulled by both roots
+                test.is_false(by["wippy/shared"].is_root)
+                test.is_true(by["wippy/shared"].transitive)
+                test.eq(by["wippy/shared"].used_by_count, 2)
+                test.eq(by["wippy/shared"].version, "3.0.0")
+
+                -- transitive needed by exactly one root
+                test.eq(by["wippy/only-alpha"].used_by_count, 1)
+                test.eq(by["wippy/only-alpha"].used_by[1], "wippy/alpha")
+
+                -- roots carry the shared indicator too
+                local alpha_root = out.dependencies[1]
+                test.is_true(alpha_root.is_root)
+                test.not_nil(alpha_root.used_by)
+            end)
+
+            it("returns a stable count on repeated calls without mutating registry slices", function()
+                -- A registry that hands back the SAME backing slice per criteria on
+                -- every call, so any in-place reader mutation corrupts later reads.
+                local base = fake_registry(concat_entries(
+                    { root_dep("app.deps:beta", "wippy/beta") },
+                    { root_dep("app.deps:alpha", "wippy/alpha") },
+                    installed_module("wippy/alpha", { "wippy/zeta", "wippy/aardvark" }),
+                    installed_module("wippy/beta", {}),
+                    installed_module("wippy/zeta", {}),
+                    installed_module("wippy/aardvark", {})
+                ))
+                local cache = {}
+                local function key(criteria)
+                    local parts = {}
+                    for k, v in pairs(criteria or {}) do table.insert(parts, tostring(k) .. "=" .. tostring(v)) end
+                    table.sort(parts)
+                    return table.concat(parts, "&")
+                end
+                local reg = {
+                    find = function(criteria)
+                        local k = key(criteria)
+                        if cache[k] == nil then cache[k] = (base.find(criteria)) end
+                        return cache[k], nil
+                    end,
+                    get = base.get,
+                }
+
+                local svc = hub.new({ registry = reg, sql = fake_sql({}), planner = planner }) :: any
+
+                local first, first_err = svc:list_dependencies({})
+                local second, second_err = svc:list_dependencies({})
+                test.is_nil(first_err)
+                test.is_nil(second_err)
+                test.eq(first.count, 2)
+                -- the defect symptom is count collapsing on a second read
+                test.eq(second.count, first.count)
+                test.eq(second.module_count, first.module_count)
+
+                -- registry-owned slice keeps its insertion order: readers sort copies
+                local slice = cache["meta.module=wippy/alpha"]
+                if not slice then error("expected cached alpha module slice") end
+                test.eq(slice[1].id, "wippy/alpha:__def")
+                test.eq(slice[2].id, "wippy/alpha:dep.wippy/zeta")
+            end)
         end)
 
         describe("install and uninstall plans", function()
@@ -843,7 +1158,7 @@ local function define_tests()
                 test.eq(gov_state.publish_calls, 1)
                 test.eq(gov_state.last_changeset[1].kind, "entry.create")
                 test.eq(gov_state.last_changeset[1].entry.id, "app.deps:dummy")
-                test.eq(gov_state.last_changeset[1].entry.meta.hub.resolved_modules[1].name, "wippy/dummy")
+                test.is_nil(gov_state.last_changeset[1].entry.meta.hub)
                 test.is_nil(gov_state.last_options.branch)
                 test.eq(out.lock.changed, true)
                 test.eq(out.lock.changes.upserted[1].name, "wippy/dummy")
@@ -1023,7 +1338,7 @@ local function define_tests()
                 local svc = hub.new({
                     registry = fake_registry(fixture_entries()),
                     sql = fake_sql({ ["wippy.foo.migrations:001"] = true }),
-                    planner = no_requirements_planner(),
+                    planner = planner,
                 }) :: any
                 local out, err = svc:uninstall({
                     component = "wippy/foo",
@@ -1039,7 +1354,7 @@ local function define_tests()
                 local svc = hub.new({
                     registry = fake_registry(fixture_entries()),
                     sql = fake_sql({ ["wippy.foo.migrations:001"] = true }),
-                    planner = no_requirements_planner(),
+                    planner = planner,
                 }) :: any
                 local out, err = svc:uninstall({
                     component = "wippy/foo",
@@ -1064,7 +1379,7 @@ local function define_tests()
                     registry = fake_registry(fixture_entries()),
                     sql = fake_sql({ ["wippy.foo.migrations:001"] = true }),
                     fs = fake_project_fs({ ["wippy.lock"] = "initial-lock" }),
-                    planner = no_requirements_planner(),
+                    planner = planner,
                     yaml = fake_yaml_for_lock({
                         directories = { modules = ".wippy", src = "./src/app" },
                         modules = {},
@@ -1109,11 +1424,14 @@ local function define_tests()
             it("removes the uninstalled module from wippy.lock after registry apply", function()
                 local files = { ["wippy.lock"] = "initial-lock" }
                 local svc = hub.new({
-                    registry = fake_registry(fixture_entries()),
+                    registry = fake_registry(concat_entries(
+                        { root_dep("app.deps:foo", "wippy/foo"), root_dep("app.deps:kept", "wippy/kept") },
+                        installed_module("wippy/foo", {}),
+                        installed_module("wippy/kept", { "wippy/terminal" }),
+                        installed_module("wippy/terminal", {})
+                    )),
                     sql = fake_sql({}),
-                    planner = graph_planner({
-                        { module = "wippy/foo", version = "1.2.3", digest = "foo-hash" },
-                    }),
+                    planner = planner,
                     fs = fake_project_fs(files),
                     yaml = fake_yaml_for_lock({
                         directories = { modules = ".wippy", src = "./src/app" },
@@ -1152,9 +1470,7 @@ local function define_tests()
                 local svc = hub.new({
                     registry = fake_registry(fixture_entries()),
                     sql = fake_sql({ ["wippy.foo.migrations:001"] = true }),
-                    planner = graph_planner({
-                        { module = "wippy/foo", version = "1.2.3", digest = "foo-hash" },
-                    }),
+                    planner = planner,
                     fs = fake_project_fs({ ["wippy.lock"] = "initial-lock" }, { write_error = "disk full" }),
                     yaml = fake_yaml_for_lock({
                         directories = { modules = ".wippy", src = "./src/app" },
@@ -1199,52 +1515,18 @@ local function define_tests()
                 test.eq(err_details(err).migration_restore.operation, "up")
             end)
 
-            it("does not scan remaining dependency graphs for direct-only uninstall", function()
+            it("resolves an installed uninstall closure without consulting the Hub catalog", function()
                 local files = { ["wippy.lock"] = "initial-lock" }
-                local calls = {}
+                local entries = concat_entries(
+                    { root_dep("app.deps:app", "acme/app"), root_dep("app.deps:other", "acme/other") },
+                    installed_module("acme/app", { "wippy/shared" }),
+                    installed_module("acme/other", {}),
+                    installed_module("wippy/shared", {})
+                )
                 local svc = hub.new({
-                    registry = fake_registry({
-                        {
-                            id = "app.deps:app",
-                            kind = "ns.dependency",
-                            meta = {},
-                            data = { component = "acme/app", version = ">=v1.0.0" },
-                        },
-                        {
-                            id = "app.deps:other",
-                            kind = "ns.dependency",
-                            meta = {},
-                            data = { component = "acme/other", version = ">=v1.0.0" },
-                        },
-                        {
-                            id = "acme.app:dependency.shared",
-                            kind = "ns.dependency",
-                            meta = { module = "acme/app", module_version = "1.0.0" },
-                            data = { component = "wippy/shared", version = ">=v1.0.0" },
-                        },
-                        {
-                            id = "acme.app:definition",
-                            kind = "ns.definition",
-                            meta = { module = "acme/app", module_version = "1.0.0" },
-                            data = {},
-                        },
-                    }),
+                    registry = fake_registry(entries),
                     sql = fake_sql({}),
-                    planner = {
-                        plan_install = function(args)
-                            table.insert(calls, args.component)
-                            if args.component ~= "acme/app" then
-                                return nil, "remaining graph should not be resolved"
-                            end
-                            return {
-                                graph = {
-                                    { module = "acme/app", version = "1.0.0", digest = "app-hash" },
-                                },
-                                missing_requirements = {},
-                                install_payload = args,
-                            }, nil
-                        end,
-                    },
+                    planner = planner.new({ registry = fake_registry(entries), catalog = exploding_catalog() }),
                     fs = fake_project_fs(files),
                     yaml = fake_yaml_for_lock({
                         directories = { modules = ".wippy", src = "./src/app" },
@@ -1272,179 +1554,80 @@ local function define_tests()
                 })
 
                 test.is_nil(err)
-                test.eq(#calls, 1)
                 test.eq(out.lock.changes.removed[1].name, "acme/app")
                 test.eq(files["wippy.lock"], "acme/other@1.0.0#other-hash")
             end)
 
-            it("refuses uninstall when the removed dependency graph cannot be resolved", function()
+            it("treats a non-installed remaining root as a leaf instead of failing the closure", function()
+                -- A brownfield app can carry a deployment root whose module was
+                -- never installed (no registry entries) and is not Hub-resolvable.
+                -- Uninstall must still succeed offline, pruning only the removed
+                -- root's exclusive modules and never consulting the Hub.
                 local files = { ["wippy.lock"] = "initial-lock" }
-                local gov_state = ({ current_version = 38 }) :: any
-                local svc = hub.new({
-                    registry = fake_registry({
-                        {
-                            id = "app.deps:app",
-                            kind = "ns.dependency",
-                            meta = {},
-                            data = { component = "acme/app", version = ">=v1.0.0" },
-                        },
-                        {
-                            id = "acme.app:definition",
-                            kind = "ns.definition",
-                            meta = { module = "acme/app", module_version = "1.0.0" },
-                            data = {},
-                        },
-                    }),
-                    sql = fake_sql({}),
-                    planner = {
-                        plan_install = function()
-                            return nil, "hub resolver unavailable"
-                        end,
+                local entries = concat_entries(
+                    {
+                        root_dep("app.deps:app", "acme/app"),
+                        root_dep("app.deps:other", "acme/other"),
+                        root_dep("app.deps:stale", "vendor/stale"),
                     },
+                    installed_module("acme/app", { "wippy/shared", "wippy/only-app" }),
+                    installed_module("acme/other", { "wippy/shared" }),
+                    installed_module("wippy/shared", {}),
+                    installed_module("wippy/only-app", {})
+                )
+                local svc = hub.new({
+                    registry = fake_registry(entries),
+                    sql = fake_sql({}),
+                    planner = planner.new({ registry = fake_registry(entries), catalog = exploding_catalog() }),
                     fs = fake_project_fs(files),
                     yaml = fake_yaml_for_lock({
                         directories = { modules = ".wippy", src = "./src/app" },
                         modules = {
                             { name = "acme/app", version = "1.0.0", hash = "app-hash" },
-                        },
-                        replacements = {},
-                    }),
-                    governance = fake_governance(gov_state),
-                }) :: any
-
-                local out, err = svc:uninstall({
-                    component = "acme/app",
-                    migration_policy = "leave",
-                })
-
-                test.is_nil(out)
-                test.not_nil(err)
-                test.eq(err_code(err), "DEPENDENCY_GRAPH_FAILED")
-                test.contains(err_message(err), "failed to resolve dependency graph")
-                test.eq(gov_state.publish_calls or 0, 0)
-                test.eq(files["wippy.lock"], "initial-lock")
-            end)
-
-            it("refuses uninstall when a remaining dependency graph cannot be checked", function()
-                local files = { ["wippy.lock"] = "initial-lock" }
-                local calls = {}
-                local gov_state = ({ current_version = 39 }) :: any
-                local svc = hub.new({
-                    registry = fake_registry({
-                        {
-                            id = "app.deps:app",
-                            kind = "ns.dependency",
-                            meta = {},
-                            data = { component = "acme/app", version = ">=v1.0.0" },
-                        },
-                        {
-                            id = "app.deps:other",
-                            kind = "ns.dependency",
-                            meta = {},
-                            data = { component = "acme/other", version = ">=v1.0.0" },
-                        },
-                        {
-                            id = "acme.app:definition",
-                            kind = "ns.definition",
-                            meta = { module = "acme/app", module_version = "1.0.0" },
-                            data = {},
-                        },
-                    }),
-                    sql = fake_sql({}),
-                    planner = {
-                        plan_install = function(args)
-                            table.insert(calls, args.component)
-                            if args.component == "acme/app" then
-                                return {
-                                    graph = {
-                                        { module = "acme/app", version = "1.0.0", digest = "app-hash" },
-                                        { module = "wippy/shared", version = "1.0.0", digest = "shared-hash" },
-                                    },
-                                    missing_requirements = {},
-                                    install_payload = args,
-                                }, nil
-                            end
-                            return nil, "cannot resolve " .. tostring(args.component)
-                        end,
-                    },
-                    fs = fake_project_fs(files),
-                    yaml = fake_yaml_for_lock({
-                        directories = { modules = ".wippy", src = "./src/app" },
-                        modules = {
-                            { name = "acme/app", version = "1.0.0", hash = "app-hash" },
+                            { name = "acme/other", version = "1.0.0", hash = "other-hash" },
                             { name = "wippy/shared", version = "1.0.0", hash = "shared-hash" },
+                            { name = "wippy/only-app", version = "1.0.0", hash = "only-hash" },
                         },
                         replacements = {},
                     }),
-                    governance = fake_governance(gov_state),
+                    governance = fake_governance({ current_version = 39 }),
+                    funcs = {
+                        new = function()
+                            return {
+                                call = function()
+                                    return { ok = true, stage = "push", push = { version = 40 } }, nil
+                                end,
+                            }, nil
+                        end,
+                    },
                 }) :: any
 
                 local out, err = svc:uninstall({
                     component = "acme/app",
                     migration_policy = "leave",
-                    dry_run = true,
                 })
 
-                test.is_nil(out)
-                test.not_nil(err)
-                test.eq(err_code(err), "DEPENDENCY_GRAPH_FAILED")
-                test.eq(calls[1], "acme/app")
-                test.eq(calls[2], "acme/other")
-                test.eq(gov_state.publish_calls or 0, 0)
-                test.eq(files["wippy.lock"], "initial-lock")
+                test.is_nil(err)
+                local removed = {}
+                for _, row in ipairs(out.lock.changes.removed) do removed[row.name] = true end
+                test.is_true(removed["acme/app"])
+                test.is_true(removed["wippy/only-app"])
+                test.is_nil(removed["wippy/shared"])
+                test.eq(files["wippy.lock"], "acme/other@1.0.0#other-hash\nwippy/shared@1.0.0#shared-hash")
             end)
 
-            it("keeps transitive modules still required by another dependency during uninstall", function()
+            it("keeps transitive modules still required by another root during uninstall", function()
                 local files = { ["wippy.lock"] = "initial-lock" }
-                local planner_calls = {}
+                local entries = concat_entries(
+                    { root_dep("app.deps:app", "acme/app"), root_dep("app.deps:other", "acme/other") },
+                    installed_module("acme/app", { "wippy/shared" }),
+                    installed_module("acme/other", { "wippy/shared" }),
+                    installed_module("wippy/shared", {})
+                )
                 local svc = hub.new({
-                    registry = fake_registry({
-                        {
-                            id = "app.deps:app",
-                            kind = "ns.dependency",
-                            meta = {},
-                            data = { component = "acme/app", version = ">=v1.0.0" },
-                        },
-                        {
-                            id = "app.deps:other",
-                            kind = "ns.dependency",
-                            meta = {},
-                            data = { component = "acme/other", version = ">=v1.0.0" },
-                        },
-                        {
-                            id = "acme.app:dependency.shared",
-                            kind = "ns.dependency",
-                            meta = { module = "acme/app", module_version = "1.0.0" },
-                            data = { component = "wippy/shared", version = ">=v1.0.0" },
-                        },
-                        {
-                            id = "acme.app:definition",
-                            kind = "ns.definition",
-                            meta = { module = "acme/app", module_version = "1.0.0" },
-                            data = {},
-                        },
-                    }),
+                    registry = fake_registry(entries),
                     sql = fake_sql({}),
-                    planner = {
-                        plan_install = function(args)
-                            table.insert(planner_calls, args.component)
-                            local graph
-                            if args.component == "acme/app" then
-                                graph = {
-                                    { module = "acme/app", version = "1.0.0", digest = "app-hash" },
-                                    { module = "wippy/shared", version = "1.0.0", digest = "shared-hash" },
-                                }
-                            elseif args.component == "acme/other" then
-                                graph = {
-                                    { module = "acme/other", version = "1.0.0", digest = "other-hash" },
-                                    { module = "wippy/shared", version = "1.0.0", digest = "shared-hash" },
-                                }
-                            else
-                                return nil, "unexpected dependency root: " .. tostring(args.component)
-                            end
-                            return { graph = graph, missing_requirements = {}, install_payload = args }, nil
-                        end,
-                    },
+                    planner = planner.new({ registry = fake_registry(entries), catalog = exploding_catalog() }),
                     fs = fake_project_fs(files),
                     yaml = fake_yaml_for_lock({
                         directories = { modules = ".wippy", src = "./src/app" },
@@ -1476,51 +1659,120 @@ local function define_tests()
                 test.eq(out.lock.changed, true)
                 test.eq(out.lock.changes.removed[1].name, "acme/app")
                 test.eq(files["wippy.lock"], "acme/other@1.0.0#other-hash\nwippy/shared@1.0.0#shared-hash")
-                test.eq(planner_calls[1], "acme/app")
-                test.eq(planner_calls[2], "acme/other")
+            end)
+
+            it("refuses to uninstall a root still required by another installed root", function()
+                local function make_svc()
+                    local entries = concat_entries(
+                        {
+                            root_dep("app.deps:repl", "wippy/repl"),
+                            root_dep("app.deps:docs", "wippy/docs"),
+                            root_dep("app.deps:shared", "wippy/shared"),
+                        },
+                        installed_module("wippy/repl", { "wippy/shared" }),
+                        installed_module("wippy/docs", { "wippy/shared" }),
+                        installed_module("wippy/shared", {})
+                    )
+                    return hub.new({
+                        registry = fake_registry(entries),
+                        sql = fake_sql({}),
+                        planner = planner,
+                        fs = fake_project_fs({ ["wippy.lock"] = "initial-lock" }),
+                        yaml = fake_yaml_for_lock({
+                            directories = { modules = ".wippy", src = "./src/app" },
+                            modules = {
+                                { name = "wippy/repl", version = "1.0.0", hash = "repl-hash" },
+                                { name = "wippy/docs", version = "1.0.0", hash = "docs-hash" },
+                                { name = "wippy/shared", version = "1.0.0", hash = "shared-hash" },
+                            },
+                            replacements = {},
+                        }),
+                        governance = fake_governance({ current_version = 50 }),
+                        funcs = {
+                            new = function()
+                                return {
+                                    call = function()
+                                        return { ok = true, stage = "push", push = { version = 51 } }, nil
+                                    end,
+                                }, nil
+                            end,
+                        },
+                    }) :: any
+                end
+
+                -- dry_run must refuse loudly and list the dependent roots.
+                local dry_out, dry_err = make_svc():uninstall({ component = "wippy/shared", dry_run = true })
+                test.is_nil(dry_out)
+                test.eq(err_code(dry_err), "DEPENDENCY_REQUIRED")
+                local dry_details = err_details(dry_err)
+                test.not_nil(dry_details.required_by)
+                local names = {}
+                for _, n in pairs(dry_details.required_by) do names[n] = true end
+                test.is_true(names["wippy/repl"])
+                test.is_true(names["wippy/docs"])
+
+                -- real mode must refuse identically and never touch the registry/lock.
+                local gov_svc = make_svc()
+                local real_out, real_err = gov_svc:uninstall({ component = "wippy/shared" })
+                test.is_nil(real_out)
+                test.eq(err_code(real_err), "DEPENDENCY_REQUIRED")
+            end)
+
+            it("uninstalls a root that no other root requires even when it has dependents of its own", function()
+                local files = { ["wippy.lock"] = "initial-lock" }
+                local entries = concat_entries(
+                    {
+                        root_dep("app.deps:repl", "wippy/repl"),
+                        root_dep("app.deps:docs", "wippy/docs"),
+                        root_dep("app.deps:shared", "wippy/shared"),
+                    },
+                    installed_module("wippy/repl", { "wippy/shared" }),
+                    installed_module("wippy/docs", { "wippy/shared" }),
+                    installed_module("wippy/shared", {})
+                )
+                local svc = hub.new({
+                    registry = fake_registry(entries),
+                    sql = fake_sql({}),
+                    planner = planner,
+                    fs = fake_project_fs(files),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {
+                            { name = "wippy/repl", version = "1.0.0", hash = "repl-hash" },
+                            { name = "wippy/docs", version = "1.0.0", hash = "docs-hash" },
+                            { name = "wippy/shared", version = "1.0.0", hash = "shared-hash" },
+                        },
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 50 }),
+                    funcs = {
+                        new = function()
+                            return {
+                                call = function()
+                                    return { ok = true, stage = "push", push = { version = 51 } }, nil
+                                end,
+                            }, nil
+                        end,
+                    },
+                }) :: any
+
+                -- wippy/repl is required by no other root; shared stays because docs needs it.
+                local out, err = svc:uninstall({ component = "wippy/repl", migration_policy = "leave" })
+                test.is_nil(err)
+                test.eq(out.lock.changes.removed[1].name, "wippy/repl")
             end)
 
             it("does not keep transitive modules only referenced by the package being removed", function()
                 local files = { ["wippy.lock"] = "initial-lock" }
-                local planner_calls = {}
+                local entries = concat_entries(
+                    { root_dep("app.deps:app", "acme/app") },
+                    installed_module("acme/app", { "wippy/shared" }),
+                    installed_module("wippy/shared", {})
+                )
                 local svc = hub.new({
-                    registry = fake_registry({
-                        {
-                            id = "app.deps:app",
-                            kind = "ns.dependency",
-                            meta = {},
-                            data = { component = "acme/app", version = ">=v1.0.0" },
-                        },
-                        {
-                            id = "acme.app:dependency.shared",
-                            kind = "ns.dependency",
-                            meta = { module = "acme/app", module_version = "1.0.0" },
-                            data = { component = "wippy/shared", version = ">=v1.0.0" },
-                        },
-                        {
-                            id = "acme.app:definition",
-                            kind = "ns.definition",
-                            meta = { module = "acme/app", module_version = "1.0.0" },
-                            data = {},
-                        },
-                    }),
+                    registry = fake_registry(entries),
                     sql = fake_sql({}),
-                    planner = {
-                        plan_install = function(args)
-                            table.insert(planner_calls, args.component)
-                            if args.component ~= "acme/app" then
-                                return nil, "module-owned dependencies must not be scanned as roots"
-                            end
-                            return {
-                                graph = {
-                                    { module = "acme/app", version = "1.0.0", digest = "app-hash" },
-                                    { module = "wippy/shared", version = "1.0.0", digest = "shared-hash" },
-                                },
-                                missing_requirements = {},
-                                install_payload = args,
-                            }, nil
-                        end,
-                    },
+                    planner = planner.new({ registry = fake_registry(entries), catalog = exploding_catalog() }),
                     fs = fake_project_fs(files),
                     yaml = fake_yaml_for_lock({
                         directories = { modules = ".wippy", src = "./src/app" },
@@ -1548,7 +1800,6 @@ local function define_tests()
                 })
 
                 test.is_nil(err)
-                test.eq(#planner_calls, 1)
                 test.eq(out.lock.changed, true)
                 test.eq(#out.lock.changes.removed, 2)
                 test.eq(out.lock.changes.removed[1].name, "acme/app")
@@ -1556,9 +1807,324 @@ local function define_tests()
                 test.eq(files["wippy.lock"], "")
             end)
 
+            it("removes the target root but withholds and reports transitive pruning under an uncertain root", function()
+                -- wippy/consumer is a remaining deployment root present in the lock
+                -- with no installed edges (uncertain). Uninstalling wippy/target must
+                -- still remove wippy/target's own lock row and delete its registry
+                -- root, but withhold pruning of transitives an uncertain root could
+                -- need (wippy/only-target, wippy/shared) and report the withhold
+                -- loudly -- never a silent no-op, never a registry/lock divergence.
+                local files = { ["wippy.lock"] = "initial-lock" }
+                local entries = concat_entries(
+                    {
+                        root_dep("app.deps:target", "wippy/target"),
+                        root_dep("app.deps:consumer", "wippy/consumer"),
+                    },
+                    installed_module("wippy/target", { "wippy/only-target" }),
+                    installed_module("wippy/only-target", {})
+                )
+                local svc = hub.new({
+                    registry = fake_registry(entries),
+                    sql = fake_sql({}),
+                    planner = planner.new({ registry = fake_registry(entries), catalog = exploding_catalog() }),
+                    fs = fake_project_fs(files),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {
+                            { name = "wippy/target", version = "1.0.0", hash = "t" },
+                            { name = "wippy/only-target", version = "1.0.0", hash = "o" },
+                            { name = "wippy/consumer", version = "1.0.0", hash = "c" },
+                            { name = "wippy/shared", version = "1.0.0", hash = "s" },
+                        },
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 50 }),
+                    funcs = {
+                        new = function()
+                            return {
+                                call = function()
+                                    return { ok = true, stage = "push", push = { version = 51 } }, nil
+                                end,
+                            }, nil
+                        end,
+                    },
+                }) :: any
+
+                local out, err = svc:uninstall({
+                    component = "wippy/target",
+                    migration_policy = "leave",
+                })
+
+                test.is_nil(err)
+                test.not_nil(out.apply)
+                test.eq(out.lock.changed, true)
+                test.is_true(out.lock.changes.uncertain)
+                test.eq(out.lock.reason, nil)
+
+                local removed = {}
+                for _, row in ipairs(out.lock.changes.removed) do removed[row.name] = true end
+                test.is_true(removed["wippy/target"])
+                test.is_nil(removed["wippy/only-target"])
+                test.is_nil(removed["wippy/shared"])
+                test.is_nil(removed["wippy/consumer"])
+
+                local kept = {}
+                for _, row in ipairs(out.lock.changes.kept_under_uncertainty) do kept[row.name] = true end
+                test.is_true(kept["wippy/only-target"])
+                test.is_true(kept["wippy/shared"])
+
+                test.is_true(out.uncertain)
+                test.eq(out.uncertain_roots[1], "wippy/consumer")
+                test.not_nil(out.lock_warning)
+
+                test.eq(files["wippy.lock"], "wippy/consumer@1.0.0#c\nwippy/only-target@1.0.0#o\nwippy/shared@1.0.0#s")
+            end)
+
+            it("removes the target root with no warning when an uncertain root withholds nothing", function()
+                -- wippy/consumer is again a remaining deployment root with no
+                -- installed edges (uncertain), but wippy/target has no dependencies
+                -- of its own: the only other lock row is consumer's, and a remaining
+                -- root's own row is always kept regardless of resolution. Nothing is
+                -- withheld under the uncertain root, so this must report no warning.
+                local files = { ["wippy.lock"] = "initial-lock" }
+                local entries = concat_entries(
+                    {
+                        root_dep("app.deps:target", "wippy/target"),
+                        root_dep("app.deps:consumer", "wippy/consumer"),
+                    },
+                    installed_module("wippy/target", {})
+                )
+                local svc = hub.new({
+                    registry = fake_registry(entries),
+                    sql = fake_sql({}),
+                    planner = planner.new({ registry = fake_registry(entries), catalog = exploding_catalog() }),
+                    fs = fake_project_fs(files),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {
+                            { name = "wippy/target", version = "1.0.0", hash = "t" },
+                            { name = "wippy/consumer", version = "1.0.0", hash = "c" },
+                        },
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 50 }),
+                    funcs = {
+                        new = function()
+                            return {
+                                call = function()
+                                    return { ok = true, stage = "push", push = { version = 51 } }, nil
+                                end,
+                            }, nil
+                        end,
+                    },
+                }) :: any
+
+                local out, err = svc:uninstall({
+                    component = "wippy/target",
+                    migration_policy = "leave",
+                })
+
+                test.is_nil(err)
+                test.not_nil(out.apply)
+                test.eq(out.lock.changed, true)
+                test.is_nil(out.lock.changes.uncertain)
+                test.eq(#(out.lock.changes.kept_under_uncertainty or {}), 0)
+
+                local removed = {}
+                for _, row in ipairs(out.lock.changes.removed) do removed[row.name] = true end
+                test.is_true(removed["wippy/target"])
+                test.is_nil(removed["wippy/consumer"])
+
+                test.is_nil(out.uncertain)
+                test.is_nil(out.lock_warning)
+
+                test.eq(files["wippy.lock"], "wippy/consumer@1.0.0#c")
+            end)
+
         end)
 
         describe("install planner", function()
+                it("returns clean when the reviewer finds no issues", function()
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = security_scan_catalog(),
+                        registry = fake_registry({}),
+                        llm = security_scan_llm({}),
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "acme/clean", version = "v1.0.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.success, true)
+                    test.eq(out.overall_status, "clean")
+                    test.eq(out.scanned, 1)
+                    test.eq(out.total, 1)
+                    test.eq(out.modules[1].status, "clean")
+                    test.eq(#out.modules[1].findings, 0)
+                end)
+
+                it("promotes dangerous reviewer findings to the overall status", function()
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = security_scan_catalog(),
+                        registry = fake_registry({}),
+                        llm = security_scan_llm({
+                            ["acme/risky"] = {
+                                {
+                                    severity = "critical",
+                                    title = "Shell execution reaches the network",
+                                    detail = "The module shells out to curl from runtime code.",
+                                    location = "acme.risky:run",
+                                },
+                            },
+                        }),
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "acme/risky", version = "v1.0.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.overall_status, "critical")
+                    test.eq(out.modules[1].status, "critical")
+                    test.eq(out.modules[1].findings[1].severity, "critical")
+                    test.eq(out.modules[1].findings[1].title, "Shell execution reaches the network")
+                    test.eq(out.modules[1].findings[1].location, "acme.risky:run")
+                end)
+
+                it("reports LLM unavailability as an honest scan error", function()
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = security_scan_catalog(),
+                        registry = fake_registry({}),
+                        llm = {
+                            generate = function()
+                                return nil, "model unavailable"
+                            end,
+                        },
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "acme/clean", version = "v1.0.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.success, true)
+                    test.eq(out.overall_status, "warnings")
+                    test.eq(out.modules[1].status, "error")
+                    test.eq(out.modules[1].findings[1].severity, "warning")
+                    test.contains(out.modules[1].findings[1].title, "Security review unavailable")
+                    test.contains(out.overall_summary, "unavailable")
+                end)
+
+                it("scans only new modules while reporting installed modules as skipped", function()
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = security_scan_catalog(),
+                        registry = fake_registry(installed_module("acme/installed", {})),
+                        llm = security_scan_llm({}),
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "acme/app", version = "v1.0.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.overall_status, "clean")
+                    test.eq(out.total, 3)
+                    test.eq(out.scanned, 2)
+                    local by_module = {}
+                    for _, row in ipairs(out.modules) do by_module[row.module] = row end
+                    test.eq(by_module["acme/app"].status, "clean")
+                    test.eq(by_module["acme/clean"].status, "clean")
+                    test.eq(by_module["acme/installed"].status, "clean")
+                    test.contains(by_module["acme/installed"].summary, "already installed")
+                end)
+
+                it("reviews the target module even when updating an installed component", function()
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = security_scan_catalog(),
+                        registry = fake_registry(installed_module("acme/clean", {})),
+                        llm = security_scan_llm({}),
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "acme/clean", version = "v1.0.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.total, 1)
+                    test.eq(out.scanned, 1)
+                    test.eq(out.modules[1].module, "acme/clean")
+                    test.eq(out.modules[1].status, "clean")
+                end)
+
+                it("fetches scan artifacts through the planner-resolved version ref", function()
+                    local inspect_refs = {}
+                    local catalog = fake_catalog({
+                        ["wippy/actor"] = {
+                            {
+                                id = "actor-version-row",
+                                version = "v0.4.0",
+                                entry_kinds = { "function.lua" },
+                                inspect = {
+                                    entries = {
+                                        {
+                                            id = "wippy.actor:run",
+                                            kind = "function.lua",
+                                            meta = { module = "wippy/actor", module_version = "v0.4.0" },
+                                            data = { source = "return { handler = function() return true end }" },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    })
+                    local original_inspect = catalog.versions.inspect
+                    catalog.versions.inspect = function(component, ref)
+                        table.insert(inspect_refs, { component = component, ref = ref })
+                        if ref and ref.id then
+                            return nil, "invalid version format"
+                        end
+                        return original_inspect(component, ref)
+                    end
+
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = catalog,
+                        registry = fake_registry({}),
+                        llm = security_scan_llm({}),
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "wippy/actor", version = "0.4.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.success, true)
+                    test.eq(out.overall_status, "clean")
+                    test.eq(out.scanned, 1)
+                    test.eq(out.modules[1].module, "wippy/actor")
+                    test.eq(out.modules[1].status, "clean")
+                    local first_ref = inspect_refs[1] :: any
+                    test.not_nil(first_ref)
+                    test.eq(first_ref.component, "wippy/actor")
+                    test.eq(first_ref.ref.version, "v0.4.0")
+                    test.is_nil(first_ref.ref.id)
+                end)
+
+                it("degrades honestly when a scan artifact is genuinely unavailable", function()
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = fake_catalog({
+                            ["wippy/missing"] = {
+                                { id = "missing-version-row", version = "v1.0.0", entry_kinds = { "function.lua" } },
+                            },
+                        }),
+                        registry = fake_registry({}),
+                        llm = security_scan_llm({}),
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "wippy/missing", version = "1.0.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.success, true)
+                    test.eq(out.overall_status, "warnings")
+                    test.eq(out.modules[1].status, "error")
+                    test.contains(out.modules[1].findings[1].title, "Module artifact unavailable")
+                end)
+
             it("reuses an existing dependency entry for component updates", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
@@ -2252,7 +2818,7 @@ local function define_tests()
                 test.eq(plan.missing_requirements[1], "wippy.bootloader:env_storage")
             end)
 
-            it("preserves explicitly supplied transitive full-id parameters", function()
+            it("rejects supplied full-id parameters that target a transitive module", function()
                 local full_id = "wippy.bootloader" .. ":env_storage"
                 local file_store = "app.env" .. ":file"
                 local svc = planner.new({
@@ -2263,7 +2829,7 @@ local function define_tests()
                     }),
                 }) :: any
 
-                local plan, err = svc:plan_install({
+                local plan, plan_err = svc:plan_install({
                     component = "acme/app",
                     version = "v1.0.0",
                     parameters = {
@@ -2271,14 +2837,87 @@ local function define_tests()
                     },
                 })
 
-                test.is_nil(err)
-                local req = find_requirement(plan, full_id)
+                test.is_nil(plan)
+                test.eq(err_code(plan_err), "PARAMETER_TARGET_TRANSITIVE")
+                test.contains(err_message(plan_err), "wippy/bootloader")
+                test.contains(err_message(plan_err), "explicit root")
+                local details = err_details(plan_err)
+                test.eq(details.parameter, full_id)
+                test.eq(details.module, "wippy/bootloader")
+            end)
+
+            it("rejects install when a supplied parameter targets a transitive module", function()
+                local governance_state = {}
+                local real = planner.new({
+                    catalog = planner_catalog(),
+                    registry = fake_registry({
+                        { id = "app.env:store", kind = "env.storage.router", meta = {}, data = {} },
+                    }),
+                }) :: any
+                local svc = hub.new({
+                    registry = fake_registry({}),
+                    planner = { new = function() return real end },
+                    governance = fake_governance(governance_state),
+                    fs = fake_project_fs({ ["wippy.lock"] = "x" }),
+                    yaml = fake_yaml_for_lock({ modules = {}, replacements = {} }),
+                }) :: any
+
+                local out, install_err = svc:install({
+                    component = "acme/app",
+                    version = "v1.0.0",
+                    parameters = {
+                        { name = "wippy.bootloader:env_storage", value = "app.env:store" },
+                    },
+                }, { actor_id = "admin-1" })
+
+                test.is_nil(out)
+                test.eq(err_code(install_err), "PARAMETER_TARGET_TRANSITIVE")
+                test.contains(err_message(install_err), "wippy/bootloader")
+                test.is_nil(governance_state.publish_calls)
+            end)
+
+            it("accepts supplied full-id parameters for the root module's own requirement", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/app"] = {
+                            {
+                                version = "v1.0.0",
+                                dependencies = {
+                                    { org = "wippy", name = "bootloader", version = "v0.1.0" },
+                                },
+                                requirements = {
+                                    {
+                                        name = "router",
+                                        targets = { { entry = "acme.app:service", path = ".router" } },
+                                    },
+                                },
+                            },
+                        },
+                        ["wippy/bootloader"] = {
+                            { version = "v0.1.0", requirements = {} },
+                        },
+                    }),
+                    registry = fake_registry({
+                        { id = "app:api", kind = "http.router", meta = {}, data = {} },
+                    }),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({
+                    component = "acme/app",
+                    version = "v1.0.0",
+                    parameters = {
+                        { name = "acme.app:router", value = "app:api" },
+                    },
+                })
+
+                test.is_nil(plan_err)
+                local req = find_requirement(plan, "acme.app:router")
                 test.not_nil(req)
-                test.eq(req.value, file_store)
+                test.eq(req.value, "app:api")
                 test.eq(req.value_source, "provided")
-                local param = find_parameter(plan.install_payload.parameters, full_id)
+                local param = find_parameter(plan.install_payload.parameters, "acme.app:router")
                 test.not_nil(param)
-                test.eq(param.value, file_store)
+                test.eq(param.value, "app:api")
             end)
 
             it("does not apply bare supplied names to transitive requirements", function()
@@ -2656,6 +3295,177 @@ local function define_tests()
                 test.eq(graph[1].module, "acme/a")
                 test.eq(graph[2].module, "acme/b")
             end)
+
+            it("flags installed and shared modules in the install graph", function()
+                local lock_doc = {
+                    modules = {
+                        { name = "wippy/other", version = "1.0.0" },
+                        { name = "wippy/shared", version = "1.0.0" },
+                    },
+                    replacements = {},
+                }
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/app"] = {
+                            {
+                                version = "v1.0.0",
+                                dependencies = {
+                                    { org = "wippy", name = "shared", version = "v1.0.0" },
+                                    { org = "wippy", name = "brandnew", version = "v1.0.0" },
+                                },
+                            },
+                        },
+                        ["wippy/shared"] = { { version = "v1.0.0" } },
+                        ["wippy/brandnew"] = { { version = "v1.0.0" } },
+                    }),
+                    registry = fake_registry(concat_entries(
+                        { root_dep("app.deps:other", "wippy/other") },
+                        installed_module("wippy/other", { "wippy/shared" }),
+                        installed_module("wippy/shared", {})
+                    )),
+                    fs = fake_project_fs({ ["wippy.lock"] = "x" }),
+                    yaml = fake_yaml_for_lock(lock_doc),
+                }) :: any
+
+                local graph, err = svc:resolve_install_graph("acme/app", "v1.0.0", {})
+                test.is_nil(err)
+
+                local nodes = {}
+                for _, node in ipairs(graph) do nodes[node.module] = node end
+
+                -- shared transitive: already in the lock AND reused by another root
+                test.is_true(nodes["wippy/shared"].installed)
+                test.is_true(nodes["wippy/shared"].shared)
+
+                -- brand-new transitive: neither installed nor shared
+                test.is_false(nodes["wippy/brandnew"].installed)
+                test.is_false(nodes["wippy/brandnew"].shared)
+
+                -- the module being installed is itself neither installed nor shared
+                test.is_false(nodes["acme/app"].installed)
+                test.is_false(nodes["acme/app"].shared)
+            end)
+            it("surfaces resolution error details naming the unresolvable component", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({}),
+                    registry = fake_registry({}),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({
+                    component = "acme/ghost",
+                    version = ">=v1.0.0",
+                })
+
+                test.is_nil(plan)
+                test.eq(err_code(plan_err), "CONFLICT")
+                test.contains(err_message(plan_err), "acme/ghost")
+                local details = err_details(plan_err)
+                test.not_nil(details)
+                -- Error details survive a string-keyed conversion only, so the
+                -- resolution errors are keyed by 1-based position as strings.
+                local resolution = details.errors
+                test.not_nil(resolution)
+                test.not_nil(resolution["1"])
+                test.eq(resolution["1"].module, "acme/ghost")
+                test.eq(resolution["1"].constraint, ">=v1.0.0")
+                test.contains(tostring(resolution["1"].message), "no versions available")
+            end)
+
+            it("fails the plan when a resolved version conflicts with an installed root constraint", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["kickside/demo"] = {
+                            {
+                                version = "0.1.0",
+                                dependencies = {
+                                    { org = "kickside", name = "component", version_constraint = "0.1.8" },
+                                },
+                            },
+                        },
+                        ["kickside/component"] = {
+                            { version = "0.1.2" },
+                            { version = "0.1.8" },
+                        },
+                    }),
+                    registry = fake_registry({
+                        {
+                            id = "app.deps:component",
+                            kind = "ns.dependency",
+                            meta = {},
+                            data = { component = "kickside/component", version = "0.1.2" },
+                        },
+                    }),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({
+                    component = "kickside/demo",
+                    version = "0.1.0",
+                })
+
+                test.is_nil(plan)
+                test.eq(err_code(plan_err), "CONFLICT")
+                test.contains(err_message(plan_err), "conflicting version constraints for kickside/component")
+                test.contains(err_message(plan_err), "0.1.2 (required by root)")
+                test.contains(err_message(plan_err), "0.1.8 (required by kickside/demo)")
+                local details = err_details(plan_err)
+                test.not_nil(details.conflicts)
+                test.eq(details.conflicts["1"].module, "kickside/component")
+                test.eq(details.conflicts["1"].installed_constraint, "0.1.2")
+                test.eq(details.conflicts["1"].resolved_version, "0.1.8")
+            end)
+
+            it("plans a compatible version against installed root constraints with correct flags", function()
+                local lock_doc = {
+                    modules = {
+                        { name = "kickside/component", version = "0.1.8" },
+                    },
+                    replacements = {},
+                }
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["kickside/demo"] = {
+                            {
+                                version = "0.1.0",
+                                dependencies = {
+                                    { org = "kickside", name = "component", version_constraint = "^0.1.0" },
+                                },
+                            },
+                        },
+                        ["kickside/component"] = {
+                            { version = "0.1.2" },
+                            { version = "0.1.8" },
+                        },
+                    }),
+                    registry = fake_registry(concat_entries(
+                        {
+                            {
+                                id = "app.deps:component",
+                                kind = "ns.dependency",
+                                meta = {},
+                                data = { component = "kickside/component", version = "^0.1.0" },
+                            },
+                        },
+                        installed_module("kickside/component", {})
+                    )),
+                    fs = fake_project_fs({ ["wippy.lock"] = "x" }),
+                    yaml = fake_yaml_for_lock(lock_doc),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({
+                    component = "kickside/demo",
+                    version = "0.1.0",
+                })
+
+                test.is_nil(plan_err)
+                local nodes = {}
+                for _, node in ipairs(plan.graph) do nodes[node.module] = node end
+                test.eq(nodes["kickside/component"].version, "0.1.8")
+                test.is_true(nodes["kickside/component"].installed)
+                test.is_true(nodes["kickside/component"].shared)
+                test.is_false(nodes["kickside/demo"].installed)
+                test.is_false(nodes["kickside/demo"].shared)
+            end)
+
         end)
 
         describe("migration execution", function()
@@ -2914,6 +3724,125 @@ local function define_tests()
                 test.eq(params[1].value, "app:api.public")
             end)
 
+            it("refuses planned bindings to missing contracts before publish", function()
+                local gov_state = ({}) :: any
+                local svc = hub.new({
+                    registry = fake_registry({}),
+                    planner = {
+                        plan_install = function(args)
+                            local entry, build_err = hub.build_dependency_entry(args)
+                            if not entry then return nil, build_err end
+                            return {
+                                dependency = hub.dependency_summary(entry),
+                                missing_requirements = {},
+                                requirements = {},
+                                install_payload = {
+                                    id = entry.id,
+                                    component = entry.data.component,
+                                    version = entry.data.version,
+                                    parameters = {},
+                                    migration_policy = "none",
+                                },
+                                planned_entries = {
+                                    {
+                                        id = "wippy.bad:driver",
+                                        kind = "contract.binding",
+                                        data = {
+                                            contracts = {
+                                                {
+                                                    contract = "wippy.missing:contract",
+                                                    methods = { run = "wippy.bad:run" },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            }, nil
+                        end,
+                    },
+                    governance = fake_governance(gov_state),
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/bad",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(out)
+                test.not_nil(err)
+                test.eq(err_code(err), "PRE_APPLY_VALIDATION_FAILED")
+                test.eq(gov_state.publish_calls or 0, 0)
+                local details = err_details(err)
+                test.not_nil(details)
+                test.eq(details.issue_count, 1)
+                test.eq(details.issues_by_entry["wippy.bad:driver"].reference, "wippy.missing:contract")
+            end)
+
+            it("allows valid planned bindings and requirement targets before publish", function()
+                local gov_state = ({}) :: any
+                local svc = hub.new({
+                    registry = fake_registry({
+                        { id = "wippy.good:contract", kind = "contract.definition", meta = {}, data = {} },
+                    }),
+                    planner = {
+                        plan_install = function(args)
+                            local entry, build_err = hub.build_dependency_entry(args)
+                            if not entry then return nil, build_err end
+                            return {
+                                dependency = hub.dependency_summary(entry),
+                                missing_requirements = {},
+                                requirements = {},
+                                install_payload = {
+                                    id = entry.id,
+                                    component = entry.data.component,
+                                    version = entry.data.version,
+                                    parameters = {},
+                                    migration_policy = "none",
+                                },
+                                planned_entries = {
+                                    {
+                                        id = "wippy.good:run",
+                                        kind = "function.lua",
+                                        data = { source = "return {}", method = "handler" },
+                                    },
+                                    {
+                                        id = "wippy.good:driver",
+                                        kind = "contract.binding",
+                                        data = {
+                                            contracts = {
+                                                {
+                                                    contract = "wippy.good:contract",
+                                                    methods = { run = "wippy.good:run" },
+                                                },
+                                            },
+                                        },
+                                    },
+                                    {
+                                        id = "wippy.good:router",
+                                        kind = "ns.requirement",
+                                        data = {
+                                            targets = {
+                                                { entry = "wippy.good:run", path = ".meta.router" },
+                                            },
+                                        },
+                                    },
+                                },
+                            }, nil
+                        end,
+                    },
+                    governance = fake_governance(gov_state),
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/good",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(err)
+                test.not_nil(out)
+                test.eq(gov_state.publish_calls, 1)
+            end)
+
             it("snapshots before install migrations and restores on migration failure", function()
                 local sent = {}
                 local gov_state = { current_version = 77 }
@@ -3040,6 +3969,801 @@ local function define_tests()
                 test.eq(err_code(err), "REQUIREMENTS_MISSING")
                 test.eq(err_details(err).missing_requirements_count, 1)
                 test.eq(err_details(err).missing_requirements_by_id["wippy.dummy:router"], true)
+            end)
+        end)
+
+        describe("install and uninstall execution ledger", function()
+            local function last_event(sent, event)
+                local found
+                for _, item in ipairs(sent) do
+                    if item.payload and item.payload.event == event then found = item.payload end
+                end
+                return found
+            end
+
+            local function step_by_name(execution, name)
+                for _, row in ipairs(execution or {}) do
+                    if row.step == name then return row end
+                end
+                return nil
+            end
+
+            it("returns an ordered ok ledger on a successful install", function()
+                local files = { ["wippy.lock"] = "initial-lock" }
+                local svc = hub.new({
+                    planner = graph_planner({
+                        { module = "wippy/dummy", version = "0.1.2", digest = "abc123" },
+                    }),
+                    fs = fake_project_fs(files),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {},
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 12 }),
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/dummy",
+                    version = ">=v0.0.0",
+                    parameters = { ["wippy.dummy:router"] = "app:api" },
+                })
+
+                test.is_nil(err)
+                test.not_nil(out.execution)
+                test.eq(#out.execution, 4)
+                test.eq(out.execution[1].step, "validation")
+                test.eq(out.execution[1].status, "ok")
+                test.eq(out.execution[2].step, "governance")
+                test.eq(out.execution[2].status, "ok")
+                test.eq(out.execution[3].step, "lockfile")
+                test.eq(out.execution[3].status, "ok")
+                test.eq(out.execution[4].step, "restart affected services")
+                test.eq(out.execution[4].status, "ok")
+            end)
+
+            it("restarts a running service whose process source is in an installed module namespace", function()
+                local terminations = {}
+                local files = { ["wippy.lock"] = "initial-lock" }
+                local svc = hub.new({
+                    registry = fake_registry({
+                        {
+                            id = "wippy.dummy:worker.service",
+                            kind = "process.service",
+                            meta = {},
+                            data = { process = "worker", host = "keeper.gov:processes" },
+                        },
+                    }),
+                    planner = {
+                        plan_install = function(args)
+                            local entry, build_err = hub.build_dependency_entry(args)
+                            if not entry then return nil, build_err end
+                            return {
+                                dependency = hub.dependency_summary(entry),
+                                graph = {
+                                    { module = "wippy/dummy", version = "0.1.2", digest = "abc123" },
+                                },
+                                missing_requirements = {},
+                                requirements = {},
+                                install_payload = {
+                                    id = entry.id,
+                                    component = entry.data.component,
+                                    version = entry.data.version,
+                                    parameters = {},
+                                    migration_policy = "none",
+                                },
+                                planned_entries = {
+                                    {
+                                        id = "wippy.dummy:worker",
+                                        kind = "process.lua",
+                                        meta = { module = "wippy/dummy", module_version = "0.1.2" },
+                                        data = { source = "return {}", method = "run" },
+                                    },
+                                },
+                            }, nil
+                        end,
+                    },
+                    fs = fake_project_fs(files),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {},
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 12 }),
+                    system = fake_system(
+                        { { id = "keeper.gov:processes" } },
+                        {
+                            ["keeper.gov:processes"] = {
+                                {
+                                    pid = "keeper.gov:processes:pid-1",
+                                    host = "keeper.gov:processes",
+                                    source = "wippy.dummy:worker",
+                                    state = "idle",
+                                },
+                            },
+                        }
+                    ),
+                    process = {
+                        terminate = function(pid)
+                            table.insert(terminations, pid)
+                            return true, nil
+                        end,
+                    },
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/dummy",
+                    version = ">=v0.0.0",
+                })
+
+                test.is_nil(err)
+                test.eq(#terminations, 1)
+                test.eq(terminations[1], "keeper.gov:processes:pid-1")
+                test.not_nil(out.restart)
+                test.eq(out.restart.outcomes[1].service_id, "wippy.dummy:worker.service")
+                test.eq(out.restart.outcomes[1].source, "wippy.dummy:worker")
+                test.eq(out.restart.outcomes[1].mechanism, "respawn")
+                test.eq(out.restart.outcomes[1].status, "restarted")
+            end)
+
+            it("lists affected running services in install dry-run preview", function()
+                local svc = hub.new({
+                    registry = fake_registry({
+                        {
+                            id = "wippy.dummy:worker.service",
+                            kind = "process.service",
+                            meta = {},
+                            data = { process = "wippy.dummy:worker", host = "keeper.gov:processes" },
+                        },
+                    }),
+                    planner = {
+                        plan_install = function(args)
+                            local entry, build_err = hub.build_dependency_entry(args)
+                            if not entry then return nil, build_err end
+                            return {
+                                dependency = hub.dependency_summary(entry),
+                                graph = {},
+                                missing_requirements = {},
+                                requirements = {},
+                                install_payload = {
+                                    id = entry.id,
+                                    component = entry.data.component,
+                                    version = entry.data.version,
+                                    parameters = {},
+                                    migration_policy = "none",
+                                },
+                                planned_entries = {
+                                    { id = "wippy.dummy:worker", kind = "process.lua", data = {} },
+                                },
+                            }, nil
+                        end,
+                    },
+                    system = fake_system(
+                        { { id = "keeper.gov:processes" } },
+                        {
+                            ["keeper.gov:processes"] = {
+                                {
+                                    pid = "keeper.gov:processes:pid-1",
+                                    host = "keeper.gov:processes",
+                                    source = "wippy.dummy:worker",
+                                    state = "idle",
+                                },
+                            },
+                        }
+                    ),
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/dummy",
+                    version = ">=v0.0.0",
+                    dry_run = true,
+                })
+
+                test.is_nil(err)
+                test.is_true(out.dry_run)
+                test.not_nil(out.restart_preview)
+                test.eq(out.restart_preview.services[1].service_id, "wippy.dummy:worker.service")
+                test.eq(out.restart_preview.services[1].source, "wippy.dummy:worker")
+            end)
+
+            it("reports restart failures as warnings without rolling back the published install", function()
+                local files = { ["wippy.lock"] = "initial-lock" }
+                local gov_state = ({ current_version = 12 }) :: any
+                local svc = hub.new({
+                    registry = fake_registry({
+                        {
+                            id = "wippy.dummy:worker.service",
+                            kind = "process.service",
+                            meta = {},
+                            data = { process = "worker", host = "keeper.gov:processes" },
+                        },
+                    }),
+                    planner = {
+                        plan_install = function(args)
+                            local entry, build_err = hub.build_dependency_entry(args)
+                            if not entry then return nil, build_err end
+                            return {
+                                dependency = hub.dependency_summary(entry),
+                                graph = {
+                                    { module = "wippy/dummy", version = "0.1.2", digest = "abc123" },
+                                },
+                                missing_requirements = {},
+                                requirements = {},
+                                install_payload = {
+                                    id = entry.id,
+                                    component = entry.data.component,
+                                    version = entry.data.version,
+                                    parameters = {},
+                                    migration_policy = "none",
+                                },
+                                planned_entries = {
+                                    { id = "wippy.dummy:worker", kind = "process.lua", data = {} },
+                                },
+                            }, nil
+                        end,
+                    },
+                    fs = fake_project_fs(files),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {},
+                        replacements = {},
+                    }),
+                    governance = fake_governance(gov_state),
+                    system = fake_system(
+                        { { id = "keeper.gov:processes" } },
+                        {
+                            ["keeper.gov:processes"] = {
+                                {
+                                    pid = "keeper.gov:processes:pid-1",
+                                    host = "keeper.gov:processes",
+                                    source = "wippy.dummy:worker",
+                                    state = "idle",
+                                },
+                            },
+                        }
+                    ),
+                    process = {
+                        terminate = function()
+                            return nil, "terminate denied"
+                        end,
+                    },
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/dummy",
+                    version = ">=v0.0.0",
+                })
+
+                test.is_nil(err)
+                test.not_nil(out.restart)
+                test.eq(out.restart.outcomes[1].status, "failed")
+                test.contains(out.restart.outcomes[1].error, "terminate denied")
+                test.not_nil(out.warnings)
+                test.contains(out.warnings[1], "failed to restart")
+                test.eq(gov_state.publish_calls, 1)
+                test.is_nil(gov_state.restore_calls)
+            end)
+
+            it("uses the service upgrade signal before respawn when an affected service opts in", function()
+                local sent_upgrade = {}
+                local terminations = {}
+                local files = { ["wippy.lock"] = "initial-lock" }
+                local svc = hub.new({
+                    registry = fake_registry({
+                        {
+                            id = "wippy.dummy:worker.service",
+                            kind = "process.service",
+                            meta = {
+                                upgradable = true,
+                                upgrade_target = "wippy.dummy.worker",
+                                upgrade_topic = "system.upgrade",
+                            },
+                            data = { process = "worker", host = "keeper.gov:processes" },
+                        },
+                    }),
+                    planner = {
+                        plan_install = function(args)
+                            local entry, build_err = hub.build_dependency_entry(args)
+                            if not entry then return nil, build_err end
+                            return {
+                                dependency = hub.dependency_summary(entry),
+                                graph = {
+                                    { module = "wippy/dummy", version = "0.1.2", digest = "abc123" },
+                                },
+                                missing_requirements = {},
+                                requirements = {},
+                                install_payload = {
+                                    id = entry.id,
+                                    component = entry.data.component,
+                                    version = entry.data.version,
+                                    parameters = {},
+                                    migration_policy = "none",
+                                },
+                                planned_entries = {
+                                    { id = "wippy.dummy:worker", kind = "process.lua", data = {} },
+                                },
+                            }, nil
+                        end,
+                    },
+                    fs = fake_project_fs(files),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {},
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 12 }),
+                    system = fake_system(
+                        { { id = "keeper.gov:processes" } },
+                        {
+                            ["keeper.gov:processes"] = {
+                                {
+                                    pid = "keeper.gov:processes:pid-1",
+                                    host = "keeper.gov:processes",
+                                    source = "wippy.dummy:worker",
+                                    state = "idle",
+                                },
+                            },
+                        }
+                    ),
+                    process = {
+                        send = function(target, topic, payload)
+                            table.insert(sent_upgrade, { target = target, topic = topic, payload = payload })
+                            return true, nil
+                        end,
+                        terminate = function(pid)
+                            table.insert(terminations, pid)
+                            return true, nil
+                        end,
+                    },
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/dummy",
+                    version = ">=v0.0.0",
+                })
+
+                test.is_nil(err)
+                test.eq(#sent_upgrade, 1)
+                local first_upgrade = sent_upgrade[1] :: any
+                test.eq(first_upgrade.target, "wippy.dummy.worker")
+                test.eq(first_upgrade.topic, "system.upgrade")
+                test.eq(first_upgrade.payload.process, "wippy.dummy:worker")
+                test.eq(#terminations, 0)
+                test.eq(out.restart.outcomes[1].mechanism, "upgrade")
+                test.eq(out.restart.outcomes[1].status, "upgrade_signaled")
+            end)
+
+            it("restarts a remaining running service whose source namespace is removed by uninstall", function()
+                local terminations = {}
+                local files = { ["wippy.lock"] = "initial-lock" }
+                local svc = hub.new({
+                    registry = fake_registry({
+                        root_dep("app.deps:foo", "wippy/foo"),
+                        {
+                            id = "wippy.foo:worker",
+                            kind = "process.lua",
+                            meta = { module = "wippy/foo", module_version = "1.2.3" },
+                            data = {},
+                        },
+                        {
+                            id = "app.services:foo_worker",
+                            kind = "process.service",
+                            meta = {},
+                            data = { process = "wippy.foo:worker", host = "keeper.gov:processes" },
+                        },
+                    }),
+                    sql = fake_sql({}),
+                    planner = planner,
+                    fs = fake_project_fs(files),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {
+                            { name = "wippy/foo", version = "1.2.3", hash = "foo-hash" },
+                        },
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 30 }),
+                    system = fake_system(
+                        { { id = "keeper.gov:processes" } },
+                        {
+                            ["keeper.gov:processes"] = {
+                                {
+                                    pid = "keeper.gov:processes:pid-9",
+                                    host = "keeper.gov:processes",
+                                    source = "wippy.foo:worker",
+                                    state = "idle",
+                                },
+                            },
+                        }
+                    ),
+                    process = {
+                        terminate = function(pid)
+                            table.insert(terminations, pid)
+                            return true, nil
+                        end,
+                    },
+                }) :: any
+
+                local out, err = svc:uninstall({
+                    component = "wippy/foo",
+                    migration_policy = "leave",
+                })
+
+                test.is_nil(err)
+                test.eq(#terminations, 1)
+                test.eq(terminations[1], "keeper.gov:processes:pid-9")
+                test.eq(out.restart.outcomes[1].service_id, "app.services:foo_worker")
+                test.eq(out.restart.outcomes[1].source, "wippy.foo:worker")
+                test.eq(out.restart.outcomes[1].status, "restarted")
+                test.eq(out.execution[#out.execution].step, "restart affected services")
+            end)
+
+            it("marks the successful step rolled_back when install lock persistence fails", function()
+                local sent = {}
+                local files = { ["wippy.lock"] = "initial-lock" }
+                local svc = hub.new({
+                    planner = graph_planner({
+                        { module = "wippy/dummy", version = "0.1.2", digest = "abc123" },
+                    }),
+                    fs = fake_project_fs(files, { write_error = "disk full" }),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {},
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 21 }),
+                    process = fake_process(sent),
+                    uuid = fake_uuid(),
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/dummy",
+                    version = ">=v0.0.0",
+                    parameters = { ["wippy.dummy:router"] = "app:api" },
+                }, { actor_id = "admin-1" })
+
+                test.is_nil(out)
+                test.eq(err_code(err), "LOCK_UPDATE_FAILED")
+
+                local failed = last_event(sent, hub.EVENTS.INSTALL_FAILED)
+                test.not_nil(failed)
+                local execution = failed.data.execution
+                test.not_nil(execution)
+                local gov = step_by_name(execution, "governance")
+                local lock = step_by_name(execution, "lockfile")
+                test.eq(gov.status, "rolled_back")
+                test.eq(gov.inverse, "restore_registry_version")
+                test.eq(lock.status, "failed")
+            end)
+
+            it("returns an ordered ok ledger on a successful uninstall", function()
+                local files = { ["wippy.lock"] = "initial-lock" }
+                local svc = hub.new({
+                    registry = fake_registry(concat_entries(
+                        { root_dep("app.deps:foo", "wippy/foo"), root_dep("app.deps:kept", "wippy/kept") },
+                        installed_module("wippy/foo", {}),
+                        installed_module("wippy/kept", { "wippy/terminal" }),
+                        installed_module("wippy/terminal", {})
+                    )),
+                    sql = fake_sql({}),
+                    planner = planner,
+                    fs = fake_project_fs(files),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {
+                            { name = "wippy/foo", version = "1.2.3", hash = "foo-hash" },
+                            { name = "wippy/terminal", version = "0.4.3", hash = "terminal-hash" },
+                        },
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 30 }),
+                    funcs = {
+                        new = function()
+                            return {
+                                call = function()
+                                    return { ok = true, stage = "push", push = { version = 31 } }, nil
+                                end,
+                            }, nil
+                        end,
+                    },
+                }) :: any
+
+                local out, err = svc:uninstall({
+                    component = "wippy/foo",
+                    migration_policy = "leave",
+                })
+
+                test.is_nil(err)
+                test.not_nil(out.execution)
+                test.eq(out.execution[1].step, "governance")
+                test.eq(out.execution[1].status, "ok")
+                test.eq(out.execution[2].step, "lockfile")
+                test.eq(out.execution[2].status, "ok")
+            end)
+
+            it("marks migrations and governance rolled_back when uninstall lock update fails", function()
+                local sent = {}
+                local svc = hub.new({
+                    registry = fake_registry(fixture_entries()),
+                    sql = fake_sql({ ["wippy.foo.migrations:001"] = true }),
+                    planner = planner,
+                    fs = fake_project_fs({ ["wippy.lock"] = "initial-lock" }, { write_error = "disk full" }),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {
+                            { name = "wippy/foo", version = "1.2.3", hash = "foo-hash" },
+                        },
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 41 }),
+                    process = fake_process(sent),
+                    uuid = fake_uuid(),
+                    funcs = {
+                        new = function()
+                            return {
+                                call = function(_, id, params)
+                                    if id == hub.MIGRATION_HANDLER_FN then
+                                        return { ok = true, operation = params.operation }, nil
+                                    end
+                                    return nil, "unexpected call"
+                                end,
+                            }, nil
+                        end,
+                    },
+                }) :: any
+
+                local out, err = svc:uninstall({
+                    component = "wippy/foo",
+                    migration_policy = "down",
+                }, { actor_id = "admin-1" })
+
+                test.is_nil(out)
+                test.eq(err_code(err), "LOCK_UPDATE_FAILED")
+
+                local failed = last_event(sent, hub.EVENTS.UNINSTALL_FAILED)
+                test.not_nil(failed)
+                local execution = failed.data.execution
+                test.not_nil(execution)
+                test.eq(step_by_name(execution, "migrations").status, "rolled_back")
+                test.eq(step_by_name(execution, "migrations").inverse, "migrations_up_restore")
+                test.eq(step_by_name(execution, "governance").status, "rolled_back")
+                test.eq(step_by_name(execution, "governance").inverse, "restore_registry_version")
+                test.eq(step_by_name(execution, "lockfile").status, "failed")
+            end)
+
+            local function migration_failure_deps(gov_state, order, sent)
+                local gov = fake_governance(gov_state)
+                local base_restore = gov.restore_version
+                gov.restore_version = function(version, reason)
+                    table.insert(order, "registry_restore")
+                    return base_restore(version, reason)
+                end
+                local spy_lockfile = setmetatable({
+                    restore = function(path, update)
+                        table.insert(order, "lock_restore")
+                        return lockfile.restore(path, update)
+                    end,
+                }, { __index = lockfile }) :: any
+                return {
+                    registry = fake_registry(fixture_entries()),
+                    sql = fake_sql({}),
+                    planner = graph_planner({
+                        { module = "wippy/foo", version = "1.2.3", digest = "foo-digest" },
+                    }),
+                    fs = fake_project_fs({ ["wippy.lock"] = "initial-lock" }),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {},
+                        replacements = {},
+                    }),
+                    governance = gov,
+                    lockfile = spy_lockfile,
+                    process = fake_process(sent),
+                    uuid = fake_uuid(),
+                    funcs = {
+                        new = function()
+                            return {
+                                call = function(_, id)
+                                    if id == hub.MIGRATION_HANDLER_FN then
+                                        return nil, "migration boom"
+                                    end
+                                    return nil, "unexpected call"
+                                end,
+                            }, nil
+                        end,
+                    },
+                }
+            end
+
+            it("restores the registry before the lock when install migrations fail", function()
+                local order = {}
+                local svc = hub.new(migration_failure_deps({ current_version = 55 }, order, {})) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/foo",
+                    version = ">=v1.0.0",
+                    run_migrations = true,
+                }, { actor_id = "admin-1" })
+
+                test.is_nil(out)
+                test.eq(err_code(err), "MIGRATIONS_FAILED")
+                test.eq(#order, 2)
+                test.eq(order[1], "registry_restore")
+                test.eq(order[2], "lock_restore")
+            end)
+
+            it("marks the step rollback_failed when the install registry restore fails", function()
+                local order = {}
+                local sent = {}
+                local svc = hub.new(migration_failure_deps(
+                    { current_version = 55, restore_error = "registry offline" }, order, sent)) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/foo",
+                    version = ">=v1.0.0",
+                    run_migrations = true,
+                }, { actor_id = "admin-1" })
+
+                test.is_nil(out)
+                test.eq(err_code(err), "ROLLBACK_FAILED")
+                test.eq(order[1], "registry_restore")
+                test.eq(order[2], "lock_restore")
+
+                local failed = last_event(sent, hub.EVENTS.INSTALL_FAILED)
+                test.not_nil(failed)
+                local execution = failed.data.execution
+                test.not_nil(execution)
+                test.eq(step_by_name(execution, "governance").status, "rollback_failed")
+                test.eq(step_by_name(execution, "governance").inverse, "restore_registry_version")
+                test.eq(step_by_name(execution, "lockfile").status, "rolled_back")
+                test.eq(step_by_name(execution, "migrations").status, "failed")
+            end)
+
+            it("projects skipped inverses as not rolled back when the uninstall registry restore fails", function()
+                local sent = {}
+                local svc = hub.new({
+                    registry = fake_registry(fixture_entries()),
+                    sql = fake_sql({ ["wippy.foo.migrations:001"] = true }),
+                    planner = planner,
+                    fs = fake_project_fs({ ["wippy.lock"] = "initial-lock" }, { write_error = "disk full" }),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {
+                            { name = "wippy/foo", version = "1.2.3", hash = "foo-hash" },
+                        },
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 41, restore_error = "registry offline" }),
+                    process = fake_process(sent),
+                    uuid = fake_uuid(),
+                    funcs = {
+                        new = function()
+                            return {
+                                call = function(_, id, params)
+                                    if id == hub.MIGRATION_HANDLER_FN then
+                                        return { ok = true, operation = params.operation }, nil
+                                    end
+                                    return nil, "unexpected call"
+                                end,
+                            }, nil
+                        end,
+                    },
+                }) :: any
+
+                local out, err = svc:uninstall({
+                    component = "wippy/foo",
+                    migration_policy = "down",
+                }, { actor_id = "admin-1" })
+
+                test.is_nil(out)
+                test.eq(err_code(err), "ROLLBACK_FAILED")
+
+                local failed = last_event(sent, hub.EVENTS.UNINSTALL_FAILED)
+                test.not_nil(failed)
+                local execution = failed.data.execution
+                test.not_nil(execution)
+                test.eq(step_by_name(execution, "governance").status, "rollback_failed")
+                test.eq(step_by_name(execution, "governance").inverse, "restore_registry_version")
+                test.eq(step_by_name(execution, "migrations").status, "ok")
+                test.is_nil(step_by_name(execution, "migrations").inverse)
+                test.eq(step_by_name(execution, "lockfile").status, "failed")
+            end)
+
+            it("attaches the execution ledger to install failure error details", function()
+                local files = { ["wippy.lock"] = "initial-lock" }
+                local svc = hub.new({
+                    planner = graph_planner({
+                        { module = "wippy/dummy", version = "0.1.2", digest = "abc123" },
+                    }),
+                    fs = fake_project_fs(files, { write_error = "disk full" }),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {},
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 21 }),
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/dummy",
+                    version = ">=v0.0.0",
+                    parameters = { ["wippy.dummy:router"] = "app:api" },
+                }, { actor_id = "admin-1" })
+
+                test.is_nil(out)
+                test.eq(err_code(err), "LOCK_UPDATE_FAILED")
+                local details = err_details(err)
+                test.not_nil(details.lock_error)
+                test.eq(details.baseline_version, 21)
+                -- Error details survive a string-keyed conversion only, so the
+                -- ledger rows are keyed by their 1-based position as strings.
+                local execution = details.execution
+                test.not_nil(execution)
+                test.eq(execution["1"].step, "validation")
+                test.eq(execution["1"].status, "ok")
+                test.eq(execution["2"].step, "governance")
+                test.eq(execution["2"].status, "rolled_back")
+                test.eq(execution["3"].step, "lockfile")
+                test.eq(execution["3"].status, "failed")
+            end)
+
+            it("attaches the execution ledger to uninstall failure error details", function()
+                local svc = hub.new({
+                    registry = fake_registry(fixture_entries()),
+                    sql = fake_sql({ ["wippy.foo.migrations:001"] = true }),
+                    planner = planner,
+                    fs = fake_project_fs({ ["wippy.lock"] = "initial-lock" }, { write_error = "disk full" }),
+                    yaml = fake_yaml_for_lock({
+                        directories = { modules = ".wippy", src = "./src/app" },
+                        modules = {
+                            { name = "wippy/foo", version = "1.2.3", hash = "foo-hash" },
+                        },
+                        replacements = {},
+                    }),
+                    governance = fake_governance({ current_version = 41 }),
+                    funcs = {
+                        new = function()
+                            return {
+                                call = function(_, id, params)
+                                    if id == hub.MIGRATION_HANDLER_FN then
+                                        return { ok = true, operation = params.operation }, nil
+                                    end
+                                    return nil, "unexpected call"
+                                end,
+                            }, nil
+                        end,
+                    },
+                }) :: any
+
+                local out, err = svc:uninstall({
+                    component = "wippy/foo",
+                    migration_policy = "down",
+                }, { actor_id = "admin-1" })
+
+                test.is_nil(out)
+                test.eq(err_code(err), "LOCK_UPDATE_FAILED")
+                local details = err_details(err)
+                test.not_nil(details.lock_error)
+                local execution = details.execution
+                test.not_nil(execution)
+                test.eq(execution["1"].step, "migrations")
+                test.eq(execution["1"].status, "rolled_back")
+                test.eq(execution["2"].step, "governance")
+                test.eq(execution["2"].status, "rolled_back")
+                test.eq(execution["3"].step, "lockfile")
+                test.eq(execution["3"].status, "failed")
+            end)
+        end)
+
+        describe("security scan API", function()
+            it("requires an authenticated admin actor", function()
+                local res, err = http_client.post(api_test.endpoint("/api/keeper/hub/scan"), {
+                    headers = { ["Content-Type"] = "application/json" },
+                    body = json.encode({ component = "acme/clean", version = "v1.0.0" }),
+                })
+
+                test.is_nil(err)
+                test.eq(res.status_code, 401)
             end)
         end)
     end)

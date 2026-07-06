@@ -1,4 +1,4 @@
-.PHONY: lint lint-keeper lint-usage build build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend build-usage-frontend clean-static dev dev-keeper dev-keeper-git dev-wippy-monaco dev-usage smoke publish-dry-run publish-keeper-dry-run publish-usage-dry-run publish publish-keeper publish-usage
+.PHONY: lint lint-keeper lint-usage test build build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend build-usage-frontend clean-static dev dev-keeper dev-keeper-git dev-wippy-monaco dev-usage smoke publish-dry-run publish-keeper-dry-run publish-usage-dry-run publish publish-keeper publish-usage
 
 WIPPY ?= wippy
 
@@ -6,6 +6,12 @@ KEEPER_VERSION ?= 0.5.23
 USAGE_VERSION ?= 0.1.1
 
 lint: lint-keeper lint-usage
+
+# Run the keeper Lua test suites via the keeper-test harness. Defaults to the
+# hub suite; pass SUITES to target others, e.g.
+#   make test SUITES="keeper.develop.integrate.pipeline:step_runner_test"
+test:
+	WIPPY=$(WIPPY) ./test.sh $(SUITES)
 
 lint-keeper:
 	cd keeper && $(WIPPY) lint --ns 'keeper,keeper.*' --summary --limit 200 --no-color

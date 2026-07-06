@@ -36,12 +36,6 @@ local function err(code, message, details)
     })
 end
 
-local function shallow_copy(src)
-    local out = {}
-    for k, v in pairs(src or {}) do out[k] = v end
-    return out
-end
-
 local function module_digest(row)
     local value = row and (row.digest or row.hash)
     if value == nil then return "" end
@@ -169,36 +163,89 @@ function M.apply_install(lock_doc, graph)
     return changes, nil
 end
 
-function M.preview_uninstall(lock_doc, component, graph, keep_modules)
+-- Prunes wippy.lock to the closure of the remaining deployment roots.
+--
+-- target_module is the component being explicitly uninstalled (R). Its own lock
+-- row is always removed, regardless of uncertainty: an explicit uninstall of R
+-- deletes R's registry root, so leaving R in the lock would be a silent
+-- registry/lock divergence. This mirrors standard package managers, where
+-- uninstalling R removes R even if something else might still want it.
+--
+-- keep_modules is the set of modules provably still reachable from a RESOLVED
+-- remaining root. unresolved_modules is the set of remaining roots reached during
+-- closure resolution that have no local installed edges, so their dependency set
+-- is unknowable. When such a root is present in the lock it is "uncertain": its
+-- potential dependencies span the whole lock and cannot be ruled out. Under that
+-- uncertainty only the transitive pruning is withheld -- a non-keep transitive
+-- that an uncertain root could need is kept (over-keep, never over-prune) and
+-- reported in kept_under_uncertainty. R itself is still removed. With no
+-- uncertain root, a non-keep transitive is provably exclusive to R and removed.
+-- Replacement modules are always protected and reported as skipped.
+--
+-- Soundness contract (offline closure): the closure is correct because governance
+-- install writes each module's complete edge set (its ns.definition plus every
+-- module-owned ns.dependency row, meta.module == it) in ONE atomic changeset. A
+-- partial edge set (some edges present, one missing) therefore implies registry
+-- corruption, which is out of scope; where such corruption surfaces as a
+-- lock-present, edgeless remaining root it is handled conservatively here
+-- (withhold the transitive prune + report loudly). The belt-and-suspenders
+-- alternative -- storing each module's resolved edge set in the lock so the prune
+-- never depends on registry edges -- is intentionally not implemented while the
+-- atomicity invariant holds.
+function M.preview_uninstall(lock_doc, keep_modules, unresolved_modules, target_module)
     lock_doc.modules = lock_doc.modules or {}
     keep_modules = keep_modules or {}
+    unresolved_modules = unresolved_modules or {}
+    target_module = trim(target_module)
     local replacements = replacement_set(lock_doc)
-    local remove_set = {}
-    component = trim(component)
-    if component ~= "" then remove_set[component] = true end
-    for _, node in ipairs(graph or {}) do
-        local name = trim(node.module or node.name)
-        if name ~= "" then remove_set[name] = true end
+
+    local uncertain_seen = {}
+    local uncertain_modules = {}
+    for _, row in ipairs(lock_doc.modules or {}) do
+        local name = trim(row.name)
+        if name ~= "" and name ~= target_module and unresolved_modules[name] and not uncertain_seen[name] then
+            uncertain_seen[name] = true
+            table.insert(uncertain_modules, name)
+        end
     end
+    local uncertain_root_present = #uncertain_modules > 0
+    table.sort(uncertain_modules)
 
     local removed = {}
     local skipped_replacements = {}
+    local kept_under_uncertainty = {}
     for _, row in ipairs(lock_doc.modules or {}) do
         local name = trim(row.name)
-        if remove_set[name] and not keep_modules[name] then
-            if replacements[name] then
-                table.insert(skipped_replacements, { name = name })
-            else
+        if name ~= "" then
+            if name == target_module and not replacements[name] then
                 table.insert(removed, { name = name, version = row.version, hash = row.hash })
+            elseif not keep_modules[name] then
+                if replacements[name] then
+                    table.insert(skipped_replacements, { name = name })
+                elseif uncertain_root_present then
+                    table.insert(kept_under_uncertainty, { name = name, version = row.version, hash = row.hash })
+                else
+                    table.insert(removed, { name = name, version = row.version, hash = row.hash })
+                end
             end
         end
     end
 
-    return { removed = removed, skipped_replacements = skipped_replacements }, nil
+    -- The uncertain/warning surface is keyed to an ACTUAL withheld prune, not
+    -- to the mere presence of an uncertain root: an uncertain root whose
+    -- transitives are all otherwise exclusive to target_module withholds
+    -- nothing, so there is nothing to report.
+    local changes = { removed = removed, skipped_replacements = skipped_replacements }
+    if #kept_under_uncertainty > 0 then
+        changes.uncertain = true
+        changes.uncertain_modules = uncertain_modules
+        changes.kept_under_uncertainty = kept_under_uncertainty
+    end
+    return changes, nil
 end
 
-function M.apply_uninstall(lock_doc, component, graph, keep_modules)
-    local changes, changes_err = M.preview_uninstall(lock_doc, component, graph, keep_modules)
+function M.apply_uninstall(lock_doc, keep_modules, unresolved_modules, target_module)
+    local changes, changes_err = M.preview_uninstall(lock_doc, keep_modules, unresolved_modules, target_module)
     if not changes then return nil, changes_err end
 
     local remove = {}
@@ -213,32 +260,13 @@ function M.apply_uninstall(lock_doc, component, graph, keep_modules)
     return changes, nil
 end
 
-function M.resolved_graph_meta(graph)
-    local modules, modules_err = graph_modules(graph)
-    if not modules then return nil, modules_err end
-    table.sort(modules, function(a, b) return tostring(a.name) < tostring(b.name) end)
-    return modules, nil
-end
-
-function M.attach_resolved_graph_meta(args, graph)
-    local modules, modules_err = M.resolved_graph_meta(graph)
-    if not modules then return nil, modules_err end
-    if #modules == 0 then return args, nil end
-
-    local meta = shallow_copy(args.meta or {})
-    local hub_meta = shallow_copy(meta.hub or {})
-    hub_meta.resolved_modules = modules
-    meta.hub = hub_meta
-    args.meta = meta
-    return args, nil
-end
-
 function M.summary(path, update)
     if not update then return nil end
     return {
         changed = update.changed == true,
         operation = update.operation,
         reason = update.reason,
+        uncertain = update.uncertain == true or (update.changes and update.changes.uncertain == true) or nil,
         path = path or M.LOCK_PATH,
         changes = update.changes,
     }
@@ -342,17 +370,26 @@ function M.prepare_uninstall(fs_mod, yaml_mod, fs_id, path, plan)
     local state, read_err = M.read(fs_mod, yaml_mod, fs_id, path)
     if not state then return nil, read_err end
 
-    local component = plan and plan.dependency and plan.dependency.component
     local changes, changes_err = M.apply_uninstall(
         state.doc,
-        component,
-        plan and plan.graph or {},
-        plan and plan.keep_modules or {}
+        plan and plan.keep_modules or {},
+        plan and plan.unresolved_modules or {},
+        plan and plan.target_module or nil
     )
     if not changes then return nil, changes_err end
 
     local changed = #(changes.removed or {}) > 0
     if not changed then
+        -- Withheld transitive pruning under uncertainty is not "already absent":
+        -- report it honestly so a skipped prune is never mistaken for a no-op.
+        if changes.uncertain then
+            return {
+                changed = false,
+                reason = "withheld_uncertain",
+                uncertain = true,
+                changes = changes,
+            }, nil
+        end
         return {
             changed = false,
             reason = "already_absent",
@@ -368,6 +405,7 @@ function M.prepare_uninstall(fs_mod, yaml_mod, fs_id, path, plan)
         operation = "uninstall",
         state = state,
         content = next_content,
+        uncertain = changes.uncertain == true,
         changes = changes,
     }, nil
 end
@@ -382,6 +420,7 @@ function M.commit(path, update)
         changed = true,
         operation = update.operation,
         path = write_result.path,
+        uncertain = update.uncertain == true or (update.changes and update.changes.uncertain == true) or nil,
         changes = update.changes,
     }, nil
 end

@@ -4,12 +4,14 @@ local funcs = require("funcs")
 local sql = require("sql")
 local uuid = require("uuid")
 local process = require("process")
+local system = require("system")
 local fs = require("fs")
 local yaml = require("yaml")
 local planner = require("planner")
 local governance = require("governance")
 local gov_consts = require("gov_consts")
 local lockfile = require("lockfile")
+local step_runner = require("step_runner")
 
 local M = {}
 
@@ -23,6 +25,7 @@ type ServiceDeps = {
     sql: unknown?,
     uuid: unknown?,
     process: unknown?,
+    system: unknown?,
     fs: unknown?,
     yaml: unknown?,
     planner: unknown?,
@@ -38,6 +41,7 @@ type HubService = {
     sql: unknown,
     uuid: unknown,
     process: unknown,
+    system: unknown,
     fs: unknown,
     yaml: unknown,
     planner: unknown,
@@ -71,11 +75,6 @@ M.EVENTS = {
     MIGRATIONS_FAILED = "hub.migrations.failed",
 }
 
-type GraphNode = {
-    module: string?,
-    name: string?,
-}
-
 local function trim(value: unknown): string
     return string.match(tostring(value or ""), "^%s*(.-)%s*$") or ""
 end
@@ -103,9 +102,10 @@ local ERROR_KIND_BY_CODE = {
     NOT_FOUND = errors.NOT_FOUND,
     CONFLICT = errors.CONFLICT,
     REQUIREMENTS_MISSING = errors.CONFLICT,
+    PRE_APPLY_VALIDATION_FAILED = errors.CONFLICT,
     MIGRATIONS_APPLIED = errors.CONFLICT,
     DEPENDENCY_GRAPH_FAILED = errors.CONFLICT,
-    RESOLVED_GRAPH_META_MISSING = errors.CONFLICT,
+    DEPENDENCY_REQUIRED = errors.CONFLICT,
 }
 
 local function err(code, message, details)
@@ -344,6 +344,7 @@ function M.new(deps: ServiceDeps?)
         sql = deps.sql or sql,
         uuid = deps.uuid or uuid,
         process = deps.process or process,
+        system = deps.system or system,
         fs = deps.fs or fs,
         yaml = deps.yaml or yaml,
         planner = deps.planner or planner,
@@ -453,8 +454,12 @@ end
 function Service:module_entries(component)
     local rows, rows_err = self:find_entries({ ["meta.module"] = component })
     if not rows then return nil, rows_err end
-    table.sort(rows, function(a, b) return tostring(a.id) < tostring(b.id) end)
-    return rows, nil
+    -- Sort a copy: registry.find may return a backing slice shared with later
+    -- readers, so never reorder it in place.
+    local out = {}
+    for _, entry in ipairs(rows) do table.insert(out, entry) end
+    table.sort(out, function(a, b) return tostring(a.id) < tostring(b.id) end)
+    return out, nil
 end
 
 function Service:migration_status(entry)
@@ -536,6 +541,92 @@ function Service:migration_rows(args)
     return out, nil
 end
 
+-- Builds the full installed-module inventory (roots plus every transitive
+-- reached through installed edges). Each entry carries roots-vs-transitive
+-- provenance and used_by: the deployment roots whose dependency closure includes
+-- the module. used_by is the shared indicator -- a module needed by more than one
+-- root is reused, not exclusive. Versions and local-replacement provenance come
+-- from wippy.lock, the authoritative installed set.
+function Service:installed_module_inventory(deps)
+    local lock_versions = {}
+    local replacements = {}
+    local lock_state = self:read_lock()
+    if type(lock_state) == "table" and type(lock_state.doc) == "table" then
+        for _, row in ipairs(lock_state.doc.modules or {}) do
+            local name = trim(row.name)
+            if name ~= "" then lock_versions[name] = tostring(row.version or "") end
+        end
+        for _, rep in ipairs(lock_state.doc.replacements or {}) do
+            local from = trim(rep.from)
+            if from ~= "" then replacements[from] = trim(rep.to) end
+        end
+    end
+
+    local by_name = {}
+    local order = {}
+    local function ensure(name)
+        local m = by_name[name]
+        if not m then
+            m = { name = name, version = lock_versions[name] or "", is_root = false, transitive = true, used_by = {}, used_by_count = 0, __seen = {} }
+            local rep = replacements[name]
+            if rep and rep ~= "" then
+                m.source = "local"
+                m.source_path = rep
+            else
+                m.source = "hub"
+            end
+            by_name[name] = m
+            table.insert(order, name)
+        end
+        return m
+    end
+
+    for name in pairs(lock_versions) do ensure(name) end
+
+    local instance
+    if type(self.planner) == "table" and self.planner.new then
+        instance = self.planner.new({ registry = self.registry })
+    end
+
+    for _, dep in ipairs(deps or {}) do
+        local comp = trim(dep.data and dep.data.component)
+        if comp ~= "" then
+            local root = ensure(comp)
+            root.is_root = true
+            root.transitive = false
+            local keep
+            if instance then
+                keep = instance:resolve_dependency_closure({ roots = { dep }, mode = "installed" })
+            else
+                keep = self:resolve_dependency_closure({ dep })
+            end
+            for member in pairs(keep or {}) do
+                if member ~= comp then
+                    local m = ensure(member)
+                    if not m.__seen[comp] then
+                        m.__seen[comp] = true
+                        table.insert(m.used_by, comp)
+                    end
+                end
+            end
+        end
+    end
+
+    table.sort(order)
+    local modules = {}
+    for _, name in ipairs(order) do
+        local m = by_name[name]
+        if not m then
+            error("installed module inventory lost row for " .. tostring(name))
+        end
+        table.sort(m.used_by)
+        m.used_by_count = #m.used_by
+        m.__seen = nil
+        table.insert(modules, m)
+    end
+    return modules, by_name
+end
+
 function Service:list_dependencies(args)
     args = args or {}
     local deps, deps_err = self:dependency_entries()
@@ -575,13 +666,32 @@ function Service:list_dependencies(args)
             end
             summary.installed_entries_count = #entries
             summary.installed = #entries > 0
+            summary.is_root = true
             if args.include_entries ~= false then summary.entries = entries end
             if args.include_migrations ~= false then summary.migrations = migrations end
             table.insert(out, summary)
         end
     end
 
-    return { dependencies = out, count = #out }, nil
+    -- Full roots-plus-transitive inventory so the UI can render dependency trees.
+    -- Skipped only when the caller opted out with modules=false.
+    local modules = {}
+    if args.include_modules ~= false then
+        local inventory, by_name = self:installed_module_inventory(deps)
+        modules = inventory
+        for _, summary in ipairs(out) do
+            local m = by_name[summary.component]
+            if m then
+                summary.used_by = m.used_by
+                summary.used_by_count = m.used_by_count
+            else
+                summary.used_by = {}
+                summary.used_by_count = 0
+            end
+        end
+    end
+
+    return { dependencies = out, count = #out, modules = modules, module_count = #modules }, nil
 end
 
 function Service:call_func(id, params)
@@ -687,6 +797,129 @@ function Service:publish_dependency_changeset(args)
     }, nil
 end
 
+local function entry_data(entry)
+    if type(entry) ~= "table" then return {} end
+    return type(entry.data) == "table" and entry.data or {}
+end
+
+local function add_entry_refs(out, value)
+    if type(value) == "string" and trim(value) ~= "" then
+        table.insert(out, value)
+    end
+end
+
+local function binding_contract_refs(entry)
+    local refs = {}
+    local data = entry_data(entry)
+    add_entry_refs(refs, data.contract)
+    if type(data.contracts) == "table" then
+        for _, row in ipairs(data.contracts) do
+            if type(row) == "table" then add_entry_refs(refs, row.contract) end
+        end
+    end
+    return refs
+end
+
+local function requirement_target_refs(entry)
+    local refs = {}
+    local data = entry_data(entry)
+    if type(data.targets) == "table" then
+        for _, target in ipairs(data.targets) do
+            if type(target) == "table" then
+                add_entry_refs(refs, target.entry)
+                add_entry_refs(refs, target.entry_id)
+                add_entry_refs(refs, target.target)
+            end
+        end
+    end
+    return refs
+end
+
+function Service:registry_entries_by_id()
+    if not self.registry or not self.registry.find then
+        return nil, err("INTERNAL", "registry.find unavailable")
+    end
+    local entries, find_err = self.registry.find({})
+    if not entries then
+        return nil, err("INTERNAL", "failed to load registry snapshot: " .. tostring(find_err))
+    end
+    local by_id = {}
+    for _, entry in ipairs(entries or {}) do
+        if type(entry) == "table" and type(entry.id) == "string" then
+            by_id[entry.id] = entry
+        end
+    end
+    return by_id, nil
+end
+
+function Service:validate_planned_entries(changeset, planned_entries)
+    local by_id, load_err = self:registry_entries_by_id()
+    if not by_id then return nil, load_err end
+
+    local candidates = {}
+    for _, entry in ipairs(planned_entries or {}) do
+        if type(entry) == "table" and type(entry.id) == "string" then
+            by_id[entry.id] = entry
+            table.insert(candidates, entry)
+        end
+    end
+    for _, op in ipairs(changeset or {}) do
+        local entry = type(op.entry) == "table" and op.entry or nil
+        if entry and type(entry.id) == "string" then
+            if op.kind == self.gov_consts.REGISTRY_OPERATIONS.DELETE then
+                by_id[entry.id] = nil
+            else
+                by_id[entry.id] = entry
+                table.insert(candidates, entry)
+            end
+        end
+    end
+
+    local issues = {}
+    for _, entry in ipairs(candidates) do
+        if entry.kind == "contract.binding" then
+            for _, ref in ipairs(binding_contract_refs(entry)) do
+                if not by_id[ref] then
+                    table.insert(issues, {
+                        entry_id = entry.id,
+                        kind = entry.kind,
+                        field = "contract",
+                        reference = ref,
+                        message = "binding references undefined contract: " .. ref,
+                    })
+                end
+            end
+        elseif entry.kind == "ns.requirement" then
+            for _, ref in ipairs(requirement_target_refs(entry)) do
+                if not by_id[ref] then
+                    table.insert(issues, {
+                        entry_id = entry.id,
+                        kind = entry.kind,
+                        field = "targets.entry",
+                        reference = ref,
+                        message = "requirement target does not resolve: " .. ref,
+                    })
+                end
+            end
+        end
+    end
+
+    if #issues > 0 then
+        local issues_by_entry = {}
+        for _, issue in ipairs(issues) do
+            issues_by_entry[tostring(issue.entry_id or "unknown")] = issue
+        end
+        return nil, err("PRE_APPLY_VALIDATION_FAILED",
+            "Hub install planned entries failed pre-apply validation", {
+                issue_count = #issues,
+                issues = issues,
+                issues_by_entry = issues_by_entry,
+            })
+    end
+
+    return { ok = true, issue_count = 0 }, nil
+end
+
 function Service:restore_registry_version(version, reason)
     if not self.governance or not self.governance.restore_version then
         return nil, err("INTERNAL", "governance.restore_version unavailable")
@@ -738,74 +971,468 @@ function Service:plan_install(args)
     return nil, err("INTERNAL", "hub install planner unavailable")
 end
 
-local function graph_module_set(graph)
+-- Resolves the dependency closure of every deployment root except dep. Returns
+-- (keep_modules, unresolved_modules): keep_modules is the set of module names
+-- still reachable once dep is removed; unresolved_modules is the set of remaining
+-- roots reached with no local installed edges. lockfile.prepare_uninstall prunes
+-- wippy.lock to keep_modules. The target (dep) is always removed from the lock.
+-- When an unresolved root is present in the lock, only the transitive pruning is
+-- withheld -- a module such a root could still depend on is kept and reported
+-- loudly (never removed under uncertainty), while dep itself is still removed.
+function Service:plan_uninstall_closure(dep)
+    local deps, deps_err = self:dependency_entries()
+    if not deps then return nil, nil, deps_err end
+
+    local remaining = {}
+    for _, other in ipairs(deps) do
+        if other.id ~= dep.id then table.insert(remaining, other) end
+    end
+
+    return self:resolve_dependency_closure(remaining)
+end
+
+function Service:resolve_dependency_closure(remaining)
+    local p = self.planner
+    local closure_args = { roots = remaining, mode = "installed" }
+    if type(p) == "table" and p.new then
+        local instance = p.new({ registry = self.registry })
+        return instance:resolve_dependency_closure(closure_args)
+    end
+    if type(p) == "table" and p.resolve_dependency_closure then
+        return p:resolve_dependency_closure(closure_args)
+    end
+    return nil, nil, err("INTERNAL", "hub uninstall closure resolver unavailable")
+end
+
+-- Step/ledger helpers shared by install and uninstall. The install/uninstall
+-- flows build an explicit ordered step list, run it through step_runner, and on
+-- failure reverse the successful prefix through step_runner.reverse. Each step's
+-- inverse implementation is the corresponding restore_* method, invoked by a
+-- service-bound rollback dispatcher so the injected governance/lockfile/funcs
+-- dependencies (and the atomic single publish/commit) are honoured.
+
+function Service:ledger_result(ledger, op)
+    for _, row in ipairs(ledger.execution.handlers or {}) do
+        if row.op == op then return row.result end
+    end
+    return nil
+end
+
+function Service:find_rollback_row(rollback_ledger, op)
+    for _, row in ipairs(rollback_ledger.execution.handlers or {}) do
+        if row.op == op then return row end
+    end
+    return nil
+end
+
+-- Ordered operator-facing step trace: each forward step is ok or failed, and a
+-- forward step whose inverse ran during rollback is marked rolled_back with the
+-- inverse operation that undid it. An inverse that itself failed marks the step
+-- rollback_failed — the step still stands; a skipped inverse leaves the step ok.
+function Service:project_ledger(ledger, rollback_ledger)
+    local undone = {}
+    if rollback_ledger then
+        for _, row in ipairs(rollback_ledger.execution.handlers or {}) do
+            if row.forward_label and row.skipped ~= true then
+                undone[row.forward_label] = { op = row.op, failed = row.error ~= nil }
+            end
+        end
+    end
     local out = {}
-    for _, node in ipairs(graph or {}) do
-        local graph_node = node :: GraphNode
-        local name = trim(graph_node.module or graph_node.name)
-        if name ~= "" then out[name] = true end
+    for _, row in ipairs(ledger.execution.handlers or {}) do
+        local label = row.label or row.op
+        local inverse = undone[label]
+        local status
+        if row.error ~= nil then
+            status = "failed"
+        elseif inverse and inverse.failed then
+            status = "rollback_failed"
+        elseif inverse then
+            status = "rolled_back"
+        else
+            status = "ok"
+        end
+        local item = { step = label, status = status }
+        if status == "rolled_back" or status == "rollback_failed" then
+            item.inverse = inverse.op
+        end
+        table.insert(out, item)
     end
     return out
 end
 
--- Resolved module graph recorded on an installed ns.dependency entry at install
--- time by lockfile.attach_resolved_graph_meta (meta.hub.resolved_modules).
--- Returns nil when the entry carries no stored graph.
-local function stored_resolved_graph(entry)
-    local meta = entry and entry.meta
-    local hub_meta = type(meta) == "table" and meta.hub or nil
-    local modules = type(hub_meta) == "table" and hub_meta.resolved_modules or nil
-    if type(modules) ~= "table" then return nil end
-    return modules
+-- Error details travel through a string-keyed conversion that keeps only
+-- string table keys, so the projected ledger is attached keyed by its 1-based
+-- position rendered as a string; rows keep the shape events carry and the
+-- order is recoverable from the numeric keys.
+local function execution_details(execution)
+    return planner.position_keyed(execution)
 end
 
-local function missing_graph_meta_error(entry)
-    local id = entry and entry.id
-    return err("RESOLVED_GRAPH_META_MISSING",
-        "installed dependency " .. tostring(id) ..
-        " is missing its stored resolved-graph meta (meta.hub.resolved_modules); reinstall it to repair before uninstall",
-        { dependency = M.dependency_summary(entry), entry_id = id })
-end
-
--- Derives the uninstall graph offline from the resolved-graph meta stored on
--- ns.dependency entries. The removable set is the target's stored module set
--- minus the union of every other installed dependency's stored module set; no
--- Hub re-resolve is performed.
-function Service:uninstall_graph_context(dep)
-    local summary = M.dependency_summary(dep)
-
-    local remove_graph = stored_resolved_graph(dep)
-    if not remove_graph then
-        return nil, nil, missing_graph_meta_error(dep)
-    end
-
-    local remove_set = graph_module_set(remove_graph)
-    local has_transitive = false
-    for name in pairs(remove_set) do
-        if name ~= summary.component then
-            has_transitive = true
-            break
+-- Hub compensation ordering: the registry restore is the critical invariant, so
+-- rows whose inverse restores a registry version run first during rollback; the
+-- remaining inverses keep the generic LIFO order. step_runner.reverse stays a
+-- plain reverse walk — the ordering lives here by moving registry-restoring
+-- rows to the tail of the list it walks.
+local function registry_restore_first(execution)
+    local ordered = {}
+    local registry_rows = {}
+    for _, row in ipairs(execution.handlers or {}) do
+        local inv = row.inverse
+        if type(inv) == "table" and inv.op == "restore_registry_version" then
+            table.insert(registry_rows, row)
+        else
+            table.insert(ordered, row)
         end
     end
-    if not has_transitive then
-        return remove_graph, {}, nil
+    for _, row in ipairs(registry_rows) do table.insert(ordered, row) end
+    return ordered
+end
+
+local function entry_namespace(id)
+    return tostring(id or ""):match("^([^:]+):")
+end
+
+local function namespace_from_component(component)
+    local parsed = M.parse_component(component)
+    if not parsed then return nil end
+    return parsed.org .. "." .. parsed.module
+end
+
+local function qualify_entry_id(id, default_ns)
+    id = trim(id)
+    if id == "" then return nil end
+    if string.find(id, ":", 1, true) then return id end
+    default_ns = trim(default_ns)
+    if default_ns == "" then return id end
+    return default_ns .. ":" .. id
+end
+
+local function sorted_keys(set)
+    local out = {}
+    for key in pairs(set or {}) do table.insert(out, key) end
+    table.sort(out)
+    return out
+end
+
+local function add_restart_warning(warnings, message)
+    if trim(message) ~= "" then table.insert(warnings, tostring(message)) end
+end
+
+local function add_namespaces_from_entries(namespaces, entries)
+    for _, entry in ipairs(entries or {}) do
+        local ns = entry_namespace(entry and entry.id)
+        if ns and ns ~= "" then namespaces[ns] = true end
+    end
+end
+
+local function add_namespaces_from_changeset(namespaces, changeset)
+    for _, op in ipairs(changeset or {}) do
+        local entry = type(op) == "table" and op.entry or nil
+        local ns = entry_namespace(entry and entry.id)
+        if ns and ns ~= "" then namespaces[ns] = true end
+    end
+end
+
+local function add_namespaces_from_graph(namespaces, graph)
+    for _, node in ipairs(graph or {}) do
+        local ns = trim(node and node.namespace)
+        if ns == "" then ns = namespace_from_component(node and node.module) end
+        if ns and ns ~= "" then namespaces[ns] = true end
+    end
+end
+
+function Service:restart_namespaces(data)
+    data = data or {}
+    local namespaces = {}
+    add_namespaces_from_entries(namespaces, data.entries)
+    add_namespaces_from_changeset(namespaces, data.changeset)
+    add_namespaces_from_graph(namespaces, data.graph)
+    return namespaces
+end
+
+function Service:list_running_processes()
+    local sys = self.system
+    if not sys or not sys.hosts or not sys.hosts.list or not sys.hosts.processes then
+        return nil, "system.hosts inspector unavailable"
     end
 
-    local deps, deps_err = self:dependency_entries()
-    if not deps then return nil, nil, deps_err end
+    local hosts, hosts_err = sys.hosts.list()
+    if not hosts then return nil, "system.hosts.list: " .. tostring(hosts_err) end
 
-    local keep = {}
-    for _, other in ipairs(deps) do
-        if other.id ~= dep.id then
-            local other_graph = stored_resolved_graph(other)
-            if not other_graph then
-                return nil, nil, missing_graph_meta_error(other)
+    local out = {}
+    for _, host in ipairs(hosts or {}) do
+        local host_id = tostring(host.id or "")
+        if host_id ~= "" then
+            local procs, procs_err = sys.hosts.processes(host_id)
+            if not procs then
+                return nil, "system.hosts.processes(" .. host_id .. "): " .. tostring(procs_err)
             end
-            for name in pairs(graph_module_set(other_graph)) do keep[name] = true end
+            for _, proc_row in ipairs(procs or {}) do
+                table.insert(out, proc_row)
+            end
         end
     end
 
-    return remove_graph, keep, nil
+    return out, nil
+end
+
+function Service:process_service_entries()
+    if not self.registry or not self.registry.find then
+        return nil, "registry.find unavailable"
+    end
+    local services, find_err = self.registry.find({ [".kind"] = "process.service" })
+    if not services then return nil, "registry.find process.service: " .. tostring(find_err) end
+    return services or {}, nil
+end
+
+function Service:restart_preview(data)
+    local namespaces = self:restart_namespaces(data)
+    local preview = {
+        namespaces = sorted_keys(namespaces),
+        services = {},
+        warnings = {},
+    }
+    if #preview.namespaces == 0 then return preview end
+
+    local services, svc_err = self:process_service_entries()
+    if not services then
+        add_restart_warning(preview.warnings, svc_err)
+        return preview
+    end
+
+    local processes, proc_err = self:list_running_processes()
+    if not processes then
+        add_restart_warning(preview.warnings, proc_err)
+        return preview
+    end
+
+    local by_source = {}
+    for _, proc_row in ipairs(processes or {}) do
+        local source = trim(proc_row.source)
+        if source ~= "" then
+            by_source[source] = by_source[source] or {}
+            table.insert(by_source[source], proc_row)
+        end
+    end
+
+    local seen = {}
+    for _, svc in ipairs(services or {}) do
+        local service_id = trim(svc.id)
+        local service_ns = entry_namespace(service_id) or ""
+        local svc_data = type(svc.data) == "table" and svc.data or svc
+        local source = qualify_entry_id(tostring(svc_data.process or ""), service_ns)
+        local source_ns = entry_namespace(source)
+        if source and source_ns and namespaces[source_ns] then
+            for _, proc_row in ipairs(by_source[source] or {}) do
+                local pid = trim(proc_row.pid)
+                local key = service_id .. "\n" .. pid
+                if pid ~= "" and not seen[key] then
+                    seen[key] = true
+                    local meta = type(svc.meta) == "table" and svc.meta or {}
+                    local target = type(meta.upgrade_target) == "string" and trim(meta.upgrade_target) or ""
+                    local upgradable = meta.upgradable == true and target ~= ""
+                    table.insert(preview.services, {
+                        service_id = service_id,
+                        source = source,
+                        pid = pid,
+                        host = tostring(proc_row.host or svc_data.host or ""),
+                        state = tostring(proc_row.state or ""),
+                        mechanism = upgradable and "upgrade" or "respawn",
+                        upgrade_target = upgradable and target or nil,
+                        upgrade_topic = upgradable and (meta.upgrade_topic or "system.upgrade") or nil,
+                    })
+                end
+            end
+        end
+    end
+
+    table.sort(preview.services, function(a, b)
+        if a.service_id ~= b.service_id then return a.service_id < b.service_id end
+        return tostring(a.pid) < tostring(b.pid)
+    end)
+
+    return preview
+end
+
+function Service:signal_service_upgrade(row)
+    if not self.process or not self.process.send then
+        return false, "process.send unavailable"
+    end
+    local target = row.upgrade_target
+    if trim(target) == "" then
+        return false, "upgrade target unavailable"
+    end
+    local topic = trim(row.upgrade_topic) ~= "" and row.upgrade_topic or "system.upgrade"
+    local ok, send_err = self.process.send(target, topic, {
+        reason = "module.update",
+        process = row.source,
+        service = row.service_id,
+        deadline = "30s",
+    })
+    if not ok then
+        return false, send_err and tostring(send_err) or "process.send returned false"
+    end
+    return true, nil
+end
+
+function Service:terminate_for_respawn(row)
+    if not self.process or not self.process.terminate then
+        return false, "process.terminate unavailable"
+    end
+    local ok, terminate_err = self.process.terminate(row.pid)
+    if terminate_err then return false, tostring(terminate_err) end
+    if ok == false or ok == nil then return false, "process.terminate returned false" end
+    return true, nil
+end
+
+function Service:restart_affected_services(data)
+    local preview = self:restart_preview(data)
+    local result = {
+        ok = true,
+        namespaces = preview.namespaces,
+        outcomes = {},
+        warnings = {},
+        errors = {},
+    }
+    for _, warning in ipairs(preview.warnings or {}) do
+        add_restart_warning(result.warnings, warning)
+        table.insert(result.errors, warning)
+    end
+
+    for _, row in ipairs(preview.services or {}) do
+        local outcome = shallow_copy(row)
+        if row.mechanism == "upgrade" then
+            local upgrade_ok, upgrade_err = self:signal_service_upgrade(row)
+            if upgrade_ok then
+                outcome.status = "upgrade_signaled"
+            else
+                outcome.upgrade_error = upgrade_err
+                local respawn_ok, respawn_err = self:terminate_for_respawn(row)
+                outcome.mechanism = "respawn"
+                if respawn_ok then
+                    outcome.status = "restarted"
+                    outcome.warning = "upgrade signal failed; respawned instead: " .. tostring(upgrade_err)
+                    add_restart_warning(result.warnings,
+                        "upgrade signal failed for " .. row.service_id .. "; respawned instead: " .. tostring(upgrade_err))
+                else
+                    outcome.status = "failed"
+                    outcome.error = "upgrade signal failed: " .. tostring(upgrade_err)
+                        .. "; respawn failed: " .. tostring(respawn_err)
+                end
+            end
+        else
+            local restart_ok, restart_err = self:terminate_for_respawn(row)
+            if restart_ok then
+                outcome.status = "restarted"
+            else
+                outcome.status = "failed"
+                outcome.error = restart_err
+            end
+        end
+
+        if outcome.status == "failed" then
+            local msg = "failed to restart " .. tostring(row.service_id) .. " (" .. tostring(row.pid) .. "): "
+                .. tostring(outcome.error)
+            add_restart_warning(result.warnings, msg)
+            table.insert(result.errors, msg)
+        end
+        table.insert(result.outcomes, outcome)
+    end
+
+    result.service_count = #result.outcomes
+    result.warning_count = #result.warnings
+    result.error_count = #result.errors
+    return result, nil
+end
+
+function Service:append_restart_warnings(payload, restart_result)
+    if not restart_result or #(restart_result.warnings or {}) == 0 then return end
+    payload.warnings = payload.warnings or {}
+    for _, warning in ipairs(restart_result.warnings or {}) do
+        table.insert(payload.warnings, warning)
+    end
+end
+
+function Service:install_step_dispatch(opts)
+    local svc = self
+    return function(step)
+        local op = step.op
+        if op == "pre_apply_validate" then
+            local result, validation_err = svc:validate_planned_entries(
+                step.data.changeset or {}, step.data.planned_entries or {})
+            if not result then
+                return { op = op, label = step.label, error = validation_err }
+            end
+            return { op = op, label = step.label, result = result }
+        elseif op == "governance_apply" then
+            local apply_result, apply_err = svc:publish_dependency_changeset({
+                action = step.data.action,
+                entry = step.data.entry,
+                actor_id = opts.actor_id,
+                message = step.data.message,
+            })
+            if not apply_result then
+                return { op = op, label = step.label, error = apply_err }
+            end
+            return {
+                op = op, label = step.label, result = apply_result,
+                inverse = { op = "restore_registry_version", data = {
+                    version = step.data.baseline_version,
+                    reason = "hub install rollback for " .. tostring(step.data.entry.data.component),
+                } },
+            }
+        elseif op == "lockfile_commit" then
+            local lock_result, write_err = svc:commit_lock_update(step.data.lock_update)
+            if not lock_result then
+                return { op = op, label = step.label, error = write_err }
+            end
+            return {
+                op = op, label = step.label, result = lock_result,
+                inverse = { op = "restore_lock_update", data = { lock_update = step.data.lock_update } },
+            }
+        elseif op == "migrations_up" then
+            local migration_result, migration_err = svc:run_migrations({
+                component = step.data.component,
+                operation = "up",
+            }, opts)
+            if not migration_result then
+                return { op = op, label = step.label, error = migration_err }
+            end
+            return {
+                op = op, label = step.label, result = migration_result,
+                inverse = { op = "migrations_down", data = { entry_ids = migration_result.entry_ids or {} } },
+            }
+        elseif op == "restart_affected_services" then
+            local restart_result = svc:restart_affected_services(step.data)
+            return {
+                op = op, label = step.label, result = restart_result,
+                inverse = { op = "restart_affected_services_noop" },
+            }
+        end
+        return { op = op, label = step.label, error = err("INTERNAL", "unknown install step: " .. tostring(op)) }
+    end
+end
+
+-- Install rollback dispatcher: install compensations are unconditional
+-- (restore registry + restore lock), matching the original best-effort flow.
+function Service:install_rollback_dispatch()
+    local svc = self
+    return function(row)
+        local inv = row.inverse
+        if type(inv) ~= "table" then return nil end
+        local wrapped = { op = inv.op, forward_label = row.label }
+        if inv.op == "restore_registry_version" then
+            local r, e = svc:restore_registry_version(inv.data.version, inv.data.reason)
+            wrapped.result, wrapped.error = r, e
+        elseif inv.op == "restore_lock_update" then
+            local r, e = svc:restore_lock_update(inv.data.lock_update)
+            wrapped.result, wrapped.error = r, e
+        else
+            return nil
+        end
+        return wrapped
+    end
 end
 
 function Service:install(args, opts)
@@ -830,15 +1457,16 @@ function Service:install(args, opts)
     planned.version = install_payload.version or planned.version
     planned.parameters = install_payload.parameters or planned.parameters
     planned.migration_policy = install_payload.migration_policy or planned.migration_policy
-    local planned_with_meta, meta_err = self.lockfile.attach_resolved_graph_meta(planned, plan.graph)
-    if not planned_with_meta then return nil, meta_err end
-    planned = planned_with_meta
 
     local entry, entry_err = M.build_dependency_entry(planned)
     if not entry then return nil, entry_err end
 
     local patch, patch_err = M.entry_to_set_patch(entry)
     if not patch then return nil, patch_err end
+
+    local planned_changeset_op, planned_changeset_err = self:dependency_create_or_update_op(entry)
+    if not planned_changeset_op then return nil, planned_changeset_err end
+    local planned_changeset = { planned_changeset_op }
 
     local payload = {
         dependency = M.dependency_summary(entry),
@@ -851,6 +1479,16 @@ function Service:install(args, opts)
     if not lock_update then return nil, lock_err end
     payload.lock = self.lockfile.summary(M.LOCK_PATH, lock_update)
 
+    local restart_data = {
+        action = "install",
+        entries = plan.planned_entries or plan.entries or {},
+        changeset = planned_changeset,
+        graph = plan.graph or {},
+    }
+    payload.restart_preview = self:restart_preview(restart_data)
+
+    -- Plan and guards are complete. The dry-run short-circuit is the hard
+    -- boundary before any step runs — dry_run reaches zero steps.
     if args.dry_run == true then
         payload.dry_run = true
         return payload, nil
@@ -874,120 +1512,167 @@ function Service:install(args, opts)
         migration_policy = payload.migration_policy,
     })
 
-    local apply_result, apply_err = self:publish_dependency_changeset({
-        action = "install",
-        entry = entry,
-        actor_id = opts.actor_id,
-        message = "hub install " .. entry.id .. " " .. entry.data.component .. " " .. entry.data.version,
+    -- Build the ordered install steps. governance_apply is the one atomic
+    -- publish; lockfile_commit and migrations_up only appear when they have
+    -- work to do.
+    local steps = {
+        {
+            op = "pre_apply_validate", label = "validation",
+            data = {
+                changeset = planned_changeset,
+                planned_entries = plan.planned_entries or plan.entries or {},
+            },
+        },
+        {
+            op = "governance_apply", label = "governance",
+            data = {
+                action = "install",
+                entry = entry,
+                message = "hub install " .. entry.id .. " " .. entry.data.component .. " " .. entry.data.version,
+                baseline_version = baseline_version,
+            },
+        },
+    }
+    if lock_update.changed == true then
+        table.insert(steps, { op = "lockfile_commit", label = "lockfile", data = { lock_update = lock_update } })
+    end
+    if policy == "up" then
+        table.insert(steps, { op = "migrations_up", label = "migrations", data = { component = entry.data.component } })
+    end
+    table.insert(steps, {
+        op = "restart_affected_services",
+        label = "restart affected services",
+        data = restart_data,
     })
-    if not apply_result then
-        self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FAILED, operation_id, {
-            dependency = payload.dependency,
-            error = error_summary(apply_err),
-        })
-        return nil, apply_err
+
+    local ledger = step_runner.run(steps, { execute = self:install_step_dispatch(opts) })
+
+    if not ledger.success then
+        return self:install_failure(ledger, payload, {
+            operation_id = operation_id,
+            baseline_version = baseline_version,
+        }, opts)
+    end
+
+    -- Lift the step results into the payload for API back-compat.
+    local apply_result, migration_result, restart_result
+    for _, row in ipairs(ledger.execution.handlers) do
+        if row.op == "governance_apply" then apply_result = row.result
+        elseif row.op == "lockfile_commit" then payload.lock = row.result
+        elseif row.op == "migrations_up" then migration_result = row.result
+        elseif row.op == "restart_affected_services" then restart_result = row.result end
     end
     payload.apply = apply_result
-
-    if lock_update.changed == true then
-        local lock_result, write_err = self:commit_lock_update(lock_update)
-        if not lock_result then
-            local restore_result, restore_err = self:restore_registry_version(
-                baseline_version,
-                "hub install lock update failed for " .. tostring(entry.data.component)
-            )
-            payload.rollback = restore_result
-            payload.rollback_error = error_summary(restore_err)
-
-            local failure_err
-            if restore_result then
-                failure_err = err("LOCK_UPDATE_FAILED",
-                    "dependency installed but wippy.lock update failed; registry restored to baseline",
-                    {
-                        lock_error = error_summary(write_err),
-                        baseline_version = baseline_version,
-                        rollback = restore_result,
-                        apply = apply_result,
-                    })
-            else
-                failure_err = err("ROLLBACK_FAILED",
-                    "dependency installed, wippy.lock update failed, and registry rollback failed",
-                    {
-                        lock_error = error_summary(write_err),
-                        baseline_version = baseline_version,
-                        rollback_error = error_summary(restore_err),
-                        apply = apply_result,
-                    })
-            end
-            self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FAILED, operation_id, {
-                dependency = payload.dependency,
-                error = error_summary(failure_err),
-                rollback = restore_result,
-                rollback_error = error_summary(restore_err),
-            })
-            return nil, failure_err
-        end
-        payload.lock = lock_result
-    end
-
-    if policy == "up" then
-        local migration_result, migration_err = self:run_migrations({
-            component = entry.data.component,
-            operation = "up",
-        }, opts)
-        if not migration_result then
-            local restore_result, restore_err = self:restore_registry_version(
-                baseline_version,
-                "hub install migration failed for " .. tostring(entry.data.component)
-            )
-            local lock_restore_result, lock_restore_err = self:restore_lock_update(lock_update)
-            payload.rollback = restore_result
-            payload.rollback_error = error_summary(restore_err)
-            payload.lock_rollback = lock_restore_result
-            payload.lock_rollback_error = error_summary(lock_restore_err)
-
-            local failure_err
-            if restore_result then
-                failure_err = err("MIGRATIONS_FAILED",
-                    "migrations failed after dependency install; registry restored to baseline",
-                    {
-                        migration_error = error_summary(migration_err),
-                        baseline_version = baseline_version,
-                        rollback = restore_result,
-                        lock_rollback = lock_restore_result,
-                        lock_rollback_error = error_summary(lock_restore_err),
-                        apply = apply_result,
-                    })
-            else
-                failure_err = err("ROLLBACK_FAILED",
-                    "migrations failed after dependency install and registry rollback failed",
-                    {
-                        migration_error = error_summary(migration_err),
-                        baseline_version = baseline_version,
-                        rollback_error = error_summary(restore_err),
-                        lock_rollback = lock_restore_result,
-                        lock_rollback_error = error_summary(lock_restore_err),
-                        apply = apply_result,
-                    })
-            end
-            self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FAILED, operation_id, {
-                dependency = payload.dependency,
-                error = error_summary(failure_err),
-                rollback = restore_result,
-                rollback_error = error_summary(restore_err),
-            })
-            return nil, failure_err
-        end
-        payload.migrations = migration_result
-    end
+    payload.migrations = migration_result
+    payload.restart = restart_result
+    self:append_restart_warnings(payload, restart_result)
+    payload.execution = self:project_ledger(ledger, nil)
 
     self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FINISHED, operation_id, {
         dependency = payload.dependency,
         apply = apply_result,
-        migrations = payload.migrations,
+        migrations = migration_result,
+        restart = restart_result,
+        warnings = (payload :: any).warnings,
+        execution = payload.execution,
     })
 
     return payload, nil
+end
+
+function Service:install_failure(ledger, payload, ctx, opts)
+    local rows = ledger.execution.handlers
+    local failed = rows[#rows]
+    local failed_op = failed and failed.op
+    local failed_err = failed and failed.error
+
+    -- The publish itself failing needs no compensation: nothing was applied.
+    if failed_op == "governance_apply" then
+        payload.execution = self:project_ledger(ledger, nil)
+        self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FAILED, ctx.operation_id, {
+            dependency = payload.dependency,
+            error = error_summary(failed_err),
+            execution = payload.execution,
+        })
+        return nil, failed_err
+    end
+
+    local rollback_ledger = step_runner.reverse(registry_restore_first(ledger.execution),
+        { execute = self:install_rollback_dispatch() })
+    local restore = self:find_rollback_row(rollback_ledger, "restore_registry_version")
+    local lock_restore = self:find_rollback_row(rollback_ledger, "restore_lock_update")
+
+    payload.rollback = restore and restore.result or nil
+    payload.rollback_error = restore and error_summary(restore.error) or nil
+    if lock_restore then
+        payload.lock_rollback = lock_restore.result
+        payload.lock_rollback_error = error_summary(lock_restore.error)
+    end
+    payload.execution = self:project_ledger(ledger, rollback_ledger)
+
+    local restore_ok = restore ~= nil and restore.result ~= nil and restore.error == nil
+    local apply_result = self:ledger_result(ledger, "governance_apply")
+    local failure_err
+    if failed_op == "lockfile_commit" then
+        if restore_ok then
+            failure_err = err("LOCK_UPDATE_FAILED",
+                "dependency installed but wippy.lock update failed; registry restored to baseline",
+                {
+                    lock_error = error_summary(failed_err),
+                    baseline_version = ctx.baseline_version,
+                    rollback = payload.rollback,
+                    apply = apply_result,
+                    execution = execution_details(payload.execution),
+                })
+        else
+            failure_err = err("ROLLBACK_FAILED",
+                "dependency installed, wippy.lock update failed, and registry rollback failed",
+                {
+                    lock_error = error_summary(failed_err),
+                    baseline_version = ctx.baseline_version,
+                    rollback_error = payload.rollback_error,
+                    apply = apply_result,
+                    execution = execution_details(payload.execution),
+                })
+        end
+    elseif failed_op == "migrations_up" then
+        if restore_ok then
+            failure_err = err("MIGRATIONS_FAILED",
+                "migrations failed after dependency install; registry restored to baseline",
+                {
+                    migration_error = error_summary(failed_err),
+                    baseline_version = ctx.baseline_version,
+                    rollback = payload.rollback,
+                    lock_rollback = payload.lock_rollback,
+                    lock_rollback_error = payload.lock_rollback_error,
+                    apply = apply_result,
+                    execution = execution_details(payload.execution),
+                })
+        else
+            failure_err = err("ROLLBACK_FAILED",
+                "migrations failed after dependency install and registry rollback failed",
+                {
+                    migration_error = error_summary(failed_err),
+                    baseline_version = ctx.baseline_version,
+                    rollback_error = payload.rollback_error,
+                    lock_rollback = payload.lock_rollback,
+                    lock_rollback_error = payload.lock_rollback_error,
+                    apply = apply_result,
+                    execution = execution_details(payload.execution),
+                })
+        end
+    else
+        failure_err = failed_err or err("INTERNAL", "hub install failed")
+    end
+
+    self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FAILED, ctx.operation_id, {
+        dependency = payload.dependency,
+        error = error_summary(failure_err),
+        rollback = payload.rollback,
+        rollback_error = payload.rollback_error,
+        execution = payload.execution,
+    })
+    return nil, failure_err
 end
 
 function Service:plan_uninstall(args)
@@ -996,6 +1681,36 @@ function Service:plan_uninstall(args)
     if not dep then return nil, dep_err end
 
     local summary = M.dependency_summary(dep)
+
+    -- Refuse to uninstall a root that another installed root still requires. The
+    -- installed-closure inventory names, per module, the deployment roots whose
+    -- dependency closure reaches it (used_by); a non-empty used_by for the target
+    -- means removing it would break those roots. This is the same derivation the
+    -- list API reports, and it runs before any registry/lock mutation, so the
+    -- target's own row is never removed until the check passes.
+    local all_deps, all_err = self:dependency_entries()
+    if not all_deps then return nil, all_err end
+    local _, inventory_by_name = self:installed_module_inventory(all_deps)
+    local target_inventory = inventory_by_name and inventory_by_name[summary.component]
+    if target_inventory and #(target_inventory.used_by or {}) > 0 then
+        local required_by = {}
+        for _, root in ipairs(target_inventory.used_by) do table.insert(required_by, root) end
+        table.sort(required_by)
+        -- Error details drop numeric-keyed arrays crossing the errors boundary, so
+        -- the dependent roots travel as a string-keyed positional map (recover the
+        -- list with pairs / Object.values) alongside the human-readable summary.
+        local required_by_detail = {}
+        for i, root in ipairs(required_by) do required_by_detail[tostring(i)] = root end
+        return nil, err("DEPENDENCY_REQUIRED",
+            "cannot uninstall " .. tostring(summary.component)
+            .. "; still required by " .. table.concat(required_by, ", "),
+            {
+                dependency = summary,
+                required_by = required_by_detail,
+                required_by_text = table.concat(required_by, ", "),
+            })
+    end
+
     local module_entries, module_err = self:module_entries(summary.component)
     if not module_entries then return nil, module_err end
 
@@ -1020,17 +1735,13 @@ function Service:plan_uninstall(args)
         end
     end
 
-    local graph, keep_modules, graph_err = self:uninstall_graph_context(dep)
-    if graph_err then
-        local graph_err_summary = error_summary(graph_err)
-        if graph_err_summary and graph_err_summary.code == "RESOLVED_GRAPH_META_MISSING" then
-            return nil, graph_err
-        end
+    local keep_modules, unresolved_modules, keep_err = self:plan_uninstall_closure(dep)
+    if not keep_modules then
         return nil, err("DEPENDENCY_GRAPH_FAILED",
             "failed to resolve dependency graph for uninstall; refusing to update registry or wippy.lock",
             {
                 dependency = summary,
-                graph_error = graph_err_summary,
+                graph_error = error_summary(keep_err),
             })
     end
 
@@ -1041,11 +1752,153 @@ function Service:plan_uninstall(args)
         migrations = migrations,
         applied_migrations = applied,
         applied_migrations_count = #applied,
-        graph = graph,
         keep_modules = keep_modules,
-        graph_error = error_summary(graph_err),
+        unresolved_modules = unresolved_modules,
+        target_module = summary.component,
         patch = { target = "entry", id = dep.id, op = "delete" },
     }, nil
+end
+
+-- Projects the raw lock diff into a UI-ready uninstall preview: what is removed,
+-- what transitive dependencies of the target are retained because a remaining
+-- root still needs them, what is withheld under uncertainty, and any warnings.
+-- The UI consumes this directly instead of diffing lock internals.
+function Service:build_uninstall_preview(plan, lock_changes)
+    lock_changes = lock_changes or {}
+    local target = trim(plan.target_module)
+
+    local lock_versions = {}
+    local lock_state = self:read_lock()
+    if type(lock_state) == "table" and type(lock_state.doc) == "table" then
+        for _, row in ipairs(lock_state.doc.modules or {}) do
+            local name = trim(row.name)
+            if name ~= "" then lock_versions[name] = tostring(row.version or "") end
+        end
+    end
+
+    local function project(rows)
+        local out = {}
+        for _, row in ipairs(rows or {}) do
+            local name = trim(row.name)
+            table.insert(out, { name = name, version = tostring(row.version or lock_versions[name] or "") })
+        end
+        return out
+    end
+
+    local kept = {}
+    local target_keep = self:resolve_dependency_closure({ target })
+    if target_keep then
+        local keep_modules = plan.keep_modules or {}
+        local names = {}
+        for name in pairs(target_keep) do
+            if name ~= target and keep_modules[name] then table.insert(names, name) end
+        end
+        table.sort(names)
+        for _, name in ipairs(names) do
+            table.insert(kept, { name = name, version = lock_versions[name] or "" })
+        end
+    end
+
+    return {
+        removed = project(lock_changes.removed),
+        kept = kept,
+        kept_under_uncertainty = project(lock_changes.kept_under_uncertainty),
+        warnings = {},
+    }
+end
+
+-- Uninstall step dispatcher. migrations_down runs before the registry delete so
+-- the down migration can be restored if a later step fails.
+function Service:uninstall_step_dispatch(opts)
+    local svc = self
+    return function(step)
+        local op = step.op
+        if op == "migrations_down" then
+            local migration_result, migration_err = svc:run_migrations({
+                entry_ids = step.data.entry_ids,
+                operation = "down",
+            }, opts)
+            if not migration_result then
+                return { op = op, label = step.label, error = migration_err }
+            end
+            return {
+                op = op, label = step.label, result = migration_result,
+                inverse = { op = "migrations_up_restore", data = { entry_ids = step.data.entry_ids } },
+            }
+        elseif op == "governance_apply" then
+            local apply_result, apply_err = svc:publish_dependency_changeset({
+                action = "uninstall",
+                id = step.data.id,
+                actor_id = opts.actor_id,
+                message = step.data.message,
+            })
+            if not apply_result then
+                return { op = op, label = step.label, error = apply_err }
+            end
+            return {
+                op = op, label = step.label, result = apply_result,
+                inverse = { op = "restore_registry_version", data = {
+                    version = step.data.baseline_version,
+                    reason = "hub uninstall rollback for " .. tostring(step.data.id),
+                } },
+            }
+        elseif op == "lockfile_prune" then
+            local lock_result, write_err = svc:commit_lock_update(step.data.lock_update)
+            if not lock_result then
+                return { op = op, label = step.label, error = write_err }
+            end
+            return {
+                op = op, label = step.label, result = lock_result,
+                inverse = { op = "restore_lock_update", data = { lock_update = step.data.lock_update } },
+            }
+        elseif op == "restart_affected_services" then
+            local restart_result = svc:restart_affected_services(step.data)
+            return {
+                op = op, label = step.label, result = restart_result,
+                inverse = { op = "restart_affected_services_noop" },
+            }
+        end
+        return { op = op, label = step.label, error = err("INTERNAL", "unknown uninstall step: " .. tostring(op)) }
+    end
+end
+
+-- Uninstall rollback dispatcher. Unlike install, the down-migration re-apply is
+-- only attempted when the registry restore succeeded — the original conservative
+-- ordering. That policy lives here (hub domain knowledge); step_runner.reverse
+-- stays a generic reverse walk. migration restore outcomes are stitched onto the
+-- payload so the failure mapper can report them.
+function Service:uninstall_rollback_dispatch(opts, payload)
+    local svc = self
+    local registry_restored = true
+    return function(row)
+        local inv = row.inverse
+        if type(inv) ~= "table" then return nil end
+        local wrapped = { op = inv.op, forward_label = row.label }
+        if inv.op == "restore_registry_version" then
+            local r, e = svc:restore_registry_version(inv.data.version, inv.data.reason)
+            registry_restored = (r ~= nil and e == nil)
+            wrapped.result, wrapped.error = r, e
+        elseif inv.op == "restore_lock_update" then
+            local r, e = svc:restore_lock_update(inv.data.lock_update)
+            wrapped.result, wrapped.error = r, e
+        elseif inv.op == "migrations_up_restore" then
+            if not registry_restored then
+                wrapped.skipped = true
+                return wrapped
+            end
+            local r, e = svc:run_migrations({
+                entry_ids = inv.data.entry_ids,
+                operation = "up",
+                only_pending = false,
+            }, opts)
+            payload.migration_restore = r
+            payload.migration_restore_error = error_summary(e)
+            wrapped.result, wrapped.error = r, e
+        else
+            return nil
+        end
+        return wrapped
+    end
 end
 
 function Service:uninstall(args, opts)
@@ -1073,22 +1926,38 @@ function Service:uninstall(args, opts)
         patches = { plan.patch },
     }
 
-    local down_migration_ids
-    local function restore_down_migrations()
-        if not down_migration_ids or #down_migration_ids == 0 then return nil, nil end
-        local restore_result, restore_err = self:run_migrations({
-            entry_ids = down_migration_ids,
-            operation = "up",
-            only_pending = false,
-        }, opts)
-        payload.migration_restore = restore_result
-        payload.migration_restore_error = error_summary(restore_err)
-        return restore_result, restore_err
-    end
-
     local lock_update, lock_err = self:prepare_uninstall_lock_update(plan)
     if not lock_update then return nil, lock_err end
     payload.lock = self.lockfile.summary(M.LOCK_PATH, lock_update)
+
+    -- Surface a withheld transitive prune loudly: a still-needed module of an
+    -- unresolved remaining root was kept, so this is never a silent no-op.
+    local lock_changes = lock_update.changes or {}
+    if lock_changes.uncertain == true then
+        local kept_names = {}
+        for _, row in ipairs(lock_changes.kept_under_uncertainty or {}) do
+            table.insert(kept_names, tostring(row.name))
+        end
+        payload.uncertain = true
+        payload.uncertain_roots = lock_changes.uncertain_modules or {}
+        payload.kept_under_uncertainty = kept_names
+        payload.lock_warning = "wippy.lock pruning withheld for modules that may still be required by unresolved roots ["
+            .. table.concat(lock_changes.uncertain_modules or {}, ", ") .. "]: kept " .. table.concat(kept_names, ", ")
+    end
+
+    local preview = self:build_uninstall_preview(plan, lock_changes)
+    if payload.lock_warning then table.insert(preview.warnings, payload.lock_warning) end
+    if plan.applied_migrations_count > 0 and policy == "leave" then
+        table.insert(preview.warnings, "applied migrations will remain in the database after uninstall")
+    end
+    payload.preview = preview
+
+    local restart_data = {
+        action = "uninstall",
+        entries = plan.entries or {},
+        graph = {},
+    }
+    payload.restart_preview = self:restart_preview(restart_data)
 
     if args.dry_run == true then
         payload.dry_run = true
@@ -1114,109 +1983,143 @@ function Service:uninstall(args, opts)
         payload.baseline_version = baseline_version
     end
 
+    -- Build the ordered uninstall steps. The down migration (policy=down) runs
+    -- before the registry delete; the lockfile prune runs last.
+    local steps = {}
     if plan.applied_migrations_count > 0 and policy == "down" then
         local ids = {}
         for _, row in ipairs(plan.applied_migrations) do table.insert(ids, row.id) end
-        down_migration_ids = ids
-        local migration_result, migration_err = self:run_migrations({
-            entry_ids = ids,
-            operation = "down",
-        }, opts)
-        if not migration_result then
-            self:emit_operation(opts.actor_id, M.EVENTS.UNINSTALL_FAILED, operation_id, {
-                dependency = payload.dependency,
-                error = error_summary(migration_err),
-            })
-            return nil, migration_err
-        end
-        payload.migrations = migration_result
+        table.insert(steps, { op = "migrations_down", label = "migrations", data = { entry_ids = ids } })
     elseif plan.applied_migrations_count > 0 and policy == "leave" then
         payload.warning = "applied migrations were left in place"
     end
-
-    local apply_result, apply_err = self:publish_dependency_changeset({
-        action = "uninstall",
-        id = plan.dependency.id,
-        actor_id = opts.actor_id,
-        message = "hub uninstall " .. tostring(plan.dependency.id),
+    table.insert(steps, {
+        op = "governance_apply", label = "governance",
+        data = {
+            id = plan.dependency.id,
+            message = "hub uninstall " .. tostring(plan.dependency.id),
+            baseline_version = baseline_version,
+        },
     })
-    if not apply_result then
-        local migration_restore_result, migration_restore_err = restore_down_migrations()
-        local failure_err = err("UNINSTALL_APPLY_FAILED",
-            "dependency migrations were rolled back but registry uninstall failed",
-            {
-                apply_error = error_summary(apply_err),
-                migration_restore = migration_restore_result,
-                migration_restore_error = error_summary(migration_restore_err),
-            })
-        self:emit_operation(opts.actor_id, M.EVENTS.UNINSTALL_FAILED, operation_id, {
-            dependency = payload.dependency,
-            error = error_summary(failure_err),
-            migration_restore = migration_restore_result,
-            migration_restore_error = error_summary(migration_restore_err),
-        })
-        return nil, failure_err
+    if lock_update.changed == true then
+        table.insert(steps, { op = "lockfile_prune", label = "lockfile", data = { lock_update = lock_update } })
+    end
+    table.insert(steps, {
+        op = "restart_affected_services",
+        label = "restart affected services",
+        data = restart_data,
+    })
+
+    local ledger = step_runner.run(steps, { execute = self:uninstall_step_dispatch(opts) })
+
+    if not ledger.success then
+        return self:uninstall_failure(ledger, payload, {
+            operation_id = operation_id,
+            baseline_version = baseline_version,
+        }, opts)
+    end
+
+    local apply_result, migration_result, restart_result
+    for _, row in ipairs(ledger.execution.handlers) do
+        if row.op == "governance_apply" then apply_result = row.result
+        elseif row.op == "lockfile_prune" then payload.lock = row.result
+        elseif row.op == "migrations_down" then migration_result = row.result
+        elseif row.op == "restart_affected_services" then restart_result = row.result end
     end
     payload.apply = apply_result
-
-    if lock_update.changed == true then
-        local lock_result, write_err = self:commit_lock_update(lock_update)
-        if not lock_result then
-            local restore_result, restore_err = self:restore_registry_version(
-                baseline_version,
-                "hub uninstall lock update failed for " .. tostring(plan.dependency.component)
-            )
-            payload.rollback = restore_result
-            payload.rollback_error = error_summary(restore_err)
-
-            local migration_restore_result, migration_restore_err
-            if restore_result then
-                migration_restore_result, migration_restore_err = restore_down_migrations()
-            end
-
-            local failure_err
-            if restore_result then
-                failure_err = err("LOCK_UPDATE_FAILED",
-                    "dependency uninstalled but wippy.lock update failed; registry restored to baseline",
-                    {
-                        lock_error = error_summary(write_err),
-                        baseline_version = baseline_version,
-                        rollback = restore_result,
-                        migration_restore = migration_restore_result,
-                        migration_restore_error = error_summary(migration_restore_err),
-                        apply = apply_result,
-                    })
-            else
-                failure_err = err("ROLLBACK_FAILED",
-                    "dependency uninstalled, wippy.lock update failed, and registry rollback failed",
-                    {
-                        lock_error = error_summary(write_err),
-                        baseline_version = baseline_version,
-                        rollback_error = error_summary(restore_err),
-                        apply = apply_result,
-                    })
-            end
-            self:emit_operation(opts.actor_id, M.EVENTS.UNINSTALL_FAILED, operation_id, {
-                dependency = payload.dependency,
-                error = error_summary(failure_err),
-                rollback = restore_result,
-                rollback_error = error_summary(restore_err),
-                migration_restore = migration_restore_result,
-                migration_restore_error = error_summary(migration_restore_err),
-            })
-            return nil, failure_err
-        end
-        payload.lock = lock_result
-    end
+    payload.migrations = migration_result
+    payload.restart = restart_result
+    self:append_restart_warnings(payload, restart_result)
+    payload.execution = self:project_ledger(ledger, nil)
 
     self:emit_operation(opts.actor_id, M.EVENTS.UNINSTALL_FINISHED, operation_id, {
         dependency = payload.dependency,
         apply = apply_result,
-        migrations = payload.migrations,
+        migrations = migration_result,
         warning = payload.warning,
+        restart = restart_result,
+        warnings = (payload :: any).warnings,
+        execution = payload.execution,
     })
 
     return payload, nil
+end
+
+function Service:uninstall_failure(ledger, payload, ctx, opts)
+    local rows = ledger.execution.handlers
+    local failed = rows[#rows]
+    local failed_op = failed and failed.op
+    local failed_err = failed and failed.error
+
+    -- The down migration failing first applied nothing to compensate for.
+    if failed_op == "migrations_down" then
+        payload.execution = self:project_ledger(ledger, nil)
+        self:emit_operation(opts.actor_id, M.EVENTS.UNINSTALL_FAILED, ctx.operation_id, {
+            dependency = payload.dependency,
+            error = error_summary(failed_err),
+            execution = payload.execution,
+        })
+        return nil, failed_err
+    end
+
+    local rollback_ledger = step_runner.reverse(registry_restore_first(ledger.execution),
+        { execute = self:uninstall_rollback_dispatch(opts, payload) })
+    local restore = self:find_rollback_row(rollback_ledger, "restore_registry_version")
+
+    payload.rollback = restore and restore.result or nil
+    payload.rollback_error = restore and error_summary(restore.error) or nil
+    payload.execution = self:project_ledger(ledger, rollback_ledger)
+
+    local apply_result = self:ledger_result(ledger, "governance_apply")
+    local failure_err
+    if failed_op == "governance_apply" then
+        failure_err = err("UNINSTALL_APPLY_FAILED",
+            "dependency migrations were rolled back but registry uninstall failed",
+            {
+                apply_error = error_summary(failed_err),
+                migration_restore = payload.migration_restore,
+                migration_restore_error = payload.migration_restore_error,
+                execution = execution_details(payload.execution),
+            })
+    elseif failed_op == "lockfile_prune" then
+        local restore_ok = restore ~= nil and restore.result ~= nil and restore.error == nil
+        if restore_ok then
+            failure_err = err("LOCK_UPDATE_FAILED",
+                "dependency uninstalled but wippy.lock update failed; registry restored to baseline",
+                {
+                    lock_error = error_summary(failed_err),
+                    baseline_version = ctx.baseline_version,
+                    rollback = payload.rollback,
+                    migration_restore = payload.migration_restore,
+                    migration_restore_error = payload.migration_restore_error,
+                    apply = apply_result,
+                    execution = execution_details(payload.execution),
+                })
+        else
+            failure_err = err("ROLLBACK_FAILED",
+                "dependency uninstalled, wippy.lock update failed, and registry rollback failed",
+                {
+                    lock_error = error_summary(failed_err),
+                    baseline_version = ctx.baseline_version,
+                    rollback_error = payload.rollback_error,
+                    apply = apply_result,
+                    execution = execution_details(payload.execution),
+                })
+        end
+    else
+        failure_err = failed_err or err("INTERNAL", "hub uninstall failed")
+    end
+
+    self:emit_operation(opts.actor_id, M.EVENTS.UNINSTALL_FAILED, ctx.operation_id, {
+        dependency = payload.dependency,
+        error = error_summary(failure_err),
+        rollback = payload.rollback,
+        rollback_error = payload.rollback_error,
+        migration_restore = payload.migration_restore,
+        migration_restore_error = payload.migration_restore_error,
+        execution = payload.execution,
+    })
+    return nil, failure_err
 end
 
 function Service:run_migrations(args, opts)
