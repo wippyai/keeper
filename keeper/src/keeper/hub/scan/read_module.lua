@@ -1,49 +1,11 @@
 local hub = require("hub")
+local registry = require("registry")
 
-type EntryId = { ns?: string, name?: string }
-type EntryMeta = { comment?: string }
-type EntryData = { source?: string }
-type VersionEntry = {
-    id?: EntryId,
-    kind?: string,
-    meta?: EntryMeta,
-    data?: EntryData,
-}
-type VersionEntries = {
-    items?: { VersionEntry },
-    version?: string,
-}
-
-type EntriesOpts = { include_data?: boolean, kind?: string }
-type HubVersionsExt = { entries: (string, string, EntriesOpts?) -> (VersionEntries?, unknown?) }
-type HubExt = { versions: HubVersionsExt }
-
-type ReadArgs = {
-    module?: string,
-    version?: string,
-    namespace?: string,
-    names?: { string },
-}
-type ReadEntry = {
-    id: string,
-    kind?: string,
-    comment?: string,
-    source: string,
-}
-type ReadResult = {
-    module: string,
-    version: string,
-    namespace: string,
-    entries: { ReadEntry },
-}
-
-local hub_ext = hub :: HubExt
-
-local function trim(s: unknown): string
+local function trim(s)
     return (tostring(s or ""):gsub("^%s*(.-)%s*$", "%1"))
 end
 
-local function handler(args: ReadArgs?): (ReadResult?, string?)
+local function handler(args)
     args = args or {}
     local module = trim(args.module)
     local version = trim(args.version)
@@ -52,27 +14,30 @@ local function handler(args: ReadArgs?): (ReadResult?, string?)
     local namespace = trim(args.namespace)
     if namespace == "" then return nil, "namespace is required (use list_module_namespaces first)" end
 
-    local name_set: {[string]: boolean}? = nil
+    local name_set = nil
     if type(args.names) == "table" and #args.names > 0 then
         name_set = {}
         for _, n in ipairs(args.names) do name_set[tostring(n)] = true end
     end
 
-    local res, err = hub_ext.versions.entries(module, version, {
-        include_data = true,
-    })
-    if not res then
-        return nil, "failed to read source for " .. module .. "@" .. version .. ": " .. tostring(err)
+    local pkg, err = hub.versions.open(module, version)
+    if not pkg then
+        return nil, "failed to open " .. module .. "@" .. version .. ": " .. tostring(err)
+    end
+    local resolved_version = pkg.version or version
+    local entries, eerr = pkg:entries({ include_data = true })
+    pkg:close()
+    if not entries then
+        return nil, "failed to read entries for " .. module .. "@" .. version .. ": " .. tostring(eerr)
     end
 
-    local out: { ReadEntry } = {}
-    for _, item in ipairs(res.items or {}) do
-        local id = item.id or {}
-        local name = tostring(id.name or "")
-        if tostring(id.ns or "") == namespace and (not name_set or name_set[name]) then
+    local out = {}
+    for _, item in ipairs(entries) do
+        local id = registry.parse_id(item.id)
+        if id.ns == namespace and (not name_set or name_set[id.name]) then
             local data = item.data or {}
             out[#out + 1] = {
-                id = namespace .. ":" .. name,
+                id = item.id,
                 kind = item.kind,
                 comment = item.meta and item.meta.comment or nil,
                 source = type(data.source) == "string" and data.source or "",
@@ -86,7 +51,7 @@ local function handler(args: ReadArgs?): (ReadResult?, string?)
 
     return {
         module = module,
-        version = res.version or version,
+        version = resolved_version,
         namespace = namespace,
         entries = out,
     }

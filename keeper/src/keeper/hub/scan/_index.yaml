@@ -23,6 +23,7 @@ entries:
     source: file://list_module.lua
     modules:
       - hub
+      - registry
     method: handler
 
   # keeper.hub.scan:read_module
@@ -48,6 +49,7 @@ entries:
     source: file://read_module.lua
     modules:
       - hub
+      - registry
     method: handler
 
   # keeper.hub.scan:module_scanner

@@ -1,93 +1,55 @@
 local hub = require("hub")
+local registry = require("registry")
 
-type EntryId = { ns?: string, name?: string }
-type EntryMeta = { comment?: string }
-type VersionEntry = {
-    id?: EntryId,
-    kind?: string,
-    meta?: EntryMeta,
-}
-type VersionEntries = {
-    items?: { VersionEntry },
-    total?: number,
-    version?: string,
-    digest?: string,
-    cache_path?: string,
-}
-
-type EntriesOpts = { include_data?: boolean, kind?: string }
-type HubVersionsExt = { entries: (string, string, EntriesOpts?) -> (VersionEntries?, unknown?) }
-type HubExt = { versions: HubVersionsExt }
-
-type ListArgs = { module?: string, version?: string }
-type EntrySummary = {
-    id: string,
-    name: string,
-    kind?: string,
-    comment?: string,
-}
-type NamespaceGroup = {
-    namespace: string,
-    entries: { EntrySummary },
-}
-type ListResult = {
-    module: string,
-    version: string,
-    digest?: string,
-    total?: number,
-    namespaces: { NamespaceGroup },
-}
-
-local hub_ext = hub :: HubExt
-
-local function trim(s: unknown): string
+local function trim(s)
     return (tostring(s or ""):gsub("^%s*(.-)%s*$", "%1"))
 end
 
-local function handler(args: ListArgs?): (ListResult?, string?)
+local function handler(args)
     args = args or {}
     local module = trim(args.module)
     local version = trim(args.version)
     if module == "" then return nil, "module is required (org/name)" end
     if version == "" then return nil, "version is required" end
 
-    local res, err = hub_ext.versions.entries(module, version, {
-        include_data = false,
-    })
-    if not res then
-        return nil, "failed to list source for " .. module .. "@" .. version .. ": " .. tostring(err)
+    local pkg, err = hub.versions.open(module, version)
+    if not pkg then
+        return nil, "failed to open " .. module .. "@" .. version .. ": " .. tostring(err)
+    end
+    local resolved_version = pkg.version or version
+    local digest = pkg.digest
+    local entries, eerr = pkg:entries({ include_data = false })
+    pkg:close()
+    if not entries then
+        return nil, "failed to list entries for " .. module .. "@" .. version .. ": " .. tostring(eerr)
     end
 
-    local by_ns: {[string]: NamespaceGroup} = {}
-    local order: { string } = {}
-    for _, item in ipairs(res.items or {}) do
-        local id = item.id or {}
-        local ns = tostring(id.ns or "")
-        local g = by_ns[ns]
+    local by_ns = {}
+    local order = {}
+    for _, item in ipairs(entries) do
+        local id = registry.parse_id(item.id)
+        local g = by_ns[id.ns]
         if not g then
-            g = { namespace = ns, entries = {} }
-            by_ns[ns] = g
-            order[#order + 1] = ns
+            g = { namespace = id.ns, entries = {} }
+            by_ns[id.ns] = g
+            order[#order + 1] = id.ns
         end
         g.entries[#g.entries + 1] = {
-            id = ns .. ":" .. tostring(id.name or ""),
-            name = tostring(id.name or ""),
+            id = item.id,
+            name = id.name,
             kind = item.kind,
             comment = item.meta and item.meta.comment or nil,
         }
     end
     table.sort(order)
-    local namespaces: { NamespaceGroup } = {}
-    for _, ns in ipairs(order) do
-        local g = by_ns[ns]
-        if g then namespaces[#namespaces + 1] = g end
-    end
+    local namespaces = {}
+    for _, ns in ipairs(order) do namespaces[#namespaces + 1] = by_ns[ns] end
 
     return {
         module = module,
-        version = res.version or version,
-        digest = res.digest,
-        total = res.total,
+        version = resolved_version,
+        digest = digest,
+        total = #entries,
         namespaces = namespaces,
     }
 end
