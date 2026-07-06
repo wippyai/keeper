@@ -11,8 +11,11 @@ entries:
     modules:
       - registry
       - hub
+      - fs
+      - yaml
     imports:
       gov_consts: keeper.gov:consts
+      lockfile: keeper.hub:lockfile
 
   # keeper.hub:lockfile
   - name: lockfile
@@ -41,6 +44,7 @@ entries:
       lockfile: keeper.hub:lockfile
       materialize: keeper.state.persist:materialize
       planner: keeper.hub:planner
+      step_runner: keeper.develop.integrate.pipeline:step_runner
     
   # keeper.hub:test
   - name: test
