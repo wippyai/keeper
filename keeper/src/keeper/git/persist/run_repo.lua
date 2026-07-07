@@ -1,12 +1,18 @@
 local sql = require("sql")
 local json = require("json")
 local consts = require("git_consts")
+local schema = require("schema")
 
 local M = {}
 
 local function db()
     local db, err = sql.get("keeper.state:db")
     if err then error("git: failed to open keeper.state:db: " .. err) end
+    local _, schema_err = schema.ensure(db)
+    if schema_err then
+        db:release()
+        error("git: failed to ensure keeper_git_runs schema: " .. schema_err)
+    end
     return db
 end
 

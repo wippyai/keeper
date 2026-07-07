@@ -3,6 +3,7 @@ local json = require("json")
 local time = require("time")
 local hash = require("hash")
 local consts = require("overlay_consts")
+local schema = require("schema")
 
 local state_ops = {}
 
@@ -397,6 +398,12 @@ function state_ops.apply_commands(commands)
     local db, err = sql.get(consts.DATABASE.RESOURCE_ID)
     if err then
         return nil, consts.ERRORS.DB_CONNECTION_FAILED .. ": " .. err
+    end
+
+    local _, schema_err = schema.ensure(db)
+    if schema_err then
+        db:release()
+        return nil, consts.ERRORS.DB_OPERATION_FAILED .. ": " .. schema_err
     end
 
     local tx, tx_err = db:begin()

@@ -2,6 +2,29 @@ version: "1.0"
 namespace: keeper.state.persist
 
 entries:
+  # keeper.state.persist:schema
+  - name: schema
+    kind: library.lua
+    meta:
+      comment: Idempotent keeper.state:db schema bootstrap shared by migrations and first-use guards
+    source: file://schema.lua
+    method: schema
+
+  # keeper.state.persist:schema_test
+  - name: schema_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for state schema bootstrap and FTS fallback
+      suite: state
+    source: file://schema_test.lua
+    imports:
+      schema: keeper.state.persist:schema
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+
   # keeper.state.persist:materialize
   - name: materialize
     kind: library.lua
@@ -46,6 +69,7 @@ entries:
       - hash
     imports:
       overlay_consts: keeper.state:consts
+      schema: keeper.state.persist:schema
     method: state_ops
     
   # keeper.state.persist:ops_test
@@ -80,6 +104,7 @@ entries:
       - json
     imports:
       overlay_consts: keeper.state:consts
+      schema: keeper.state.persist:schema
     method: state_reader
     
   # keeper.state.persist:reasoning_flag_test
