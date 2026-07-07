@@ -1,6 +1,7 @@
 local sql = require("sql")
 local json = require("json")
 local consts = require("overlay_consts")
+local schema = require("schema")
 
 local state_reader = {}
 local methods = {}
@@ -46,6 +47,11 @@ local function get_db()
     local db, err = sql.get(consts.DATABASE.RESOURCE_ID)
     if err then
         return nil, consts.ERRORS.DB_CONNECTION_FAILED .. ": " .. err
+    end
+    local _, schema_err = schema.ensure(db)
+    if schema_err then
+        db:release()
+        return nil, consts.ERRORS.DB_OPERATION_FAILED .. ": " .. schema_err
     end
     return db, nil
 end
