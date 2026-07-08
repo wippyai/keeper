@@ -318,6 +318,7 @@ local function requirements_from_entries(entries)
                     id = id,
                     namespace = entry_namespace(id),
                     name = name,
+                    meta = meta,
                     description = data.description or meta.description or meta.comment,
                     default = data.default,
                     targets = data.targets or {},

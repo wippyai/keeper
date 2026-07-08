@@ -2471,6 +2471,57 @@ local function define_tests()
                 test.not_nil(find_parameter(plan.install_payload.parameters, "kickside.models.security:user_security_scope"))
             end)
 
+            it("preserves inspected requirement metadata for typed value suggestions", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/secure"] = {
+                            {
+                                version = "v1.0.0",
+                                entry_kinds = { "ns.requirement" },
+                                inspect = {
+                                    entries = {
+                                        {
+                                            id = "acme.secure.security:user_security_scope",
+                                            kind = "ns.requirement",
+                                            meta = {
+                                                value_kind = "security.scope",
+                                                comment = "Application security group that may reach secure endpoints.",
+                                            },
+                                            data = {
+                                                targets = {
+                                                    { entry = "acme.secure.security:endpoint_access", path = ".groups +=" },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    }),
+                    registry = fake_registry({
+                        {
+                            id = "app.security:user",
+                            kind = "security.scope",
+                            meta = { title = "User" },
+                            data = {},
+                        },
+                    }),
+                }) :: any
+
+                local plan, err = svc:plan_install({
+                    component = "acme/secure",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(err)
+                local req = find_requirement(plan, "acme.secure.security:user_security_scope")
+                test.not_nil(req)
+                test.eq(req.expected_kind, "security.scope")
+                test.eq(req.description, "Application security group that may reach secure endpoints.")
+                test.eq(req.suggestions[1].value, "app.security:user")
+                test.eq(req.suggestions[1].kind, "security.scope")
+            end)
+
             it("lets explicit update parameters override inherited dependency parameters", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
