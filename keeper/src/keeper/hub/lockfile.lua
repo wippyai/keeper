@@ -192,10 +192,11 @@ end
 -- alternative -- storing each module's resolved edge set in the lock so the prune
 -- never depends on registry edges -- is intentionally not implemented while the
 -- atomicity invariant holds.
-function M.preview_uninstall(lock_doc, keep_modules, unresolved_modules, target_module)
+function M.preview_uninstall(lock_doc, keep_modules, unresolved_modules, target_module, target_modules)
     lock_doc.modules = lock_doc.modules or {}
     keep_modules = keep_modules or {}
     unresolved_modules = unresolved_modules or {}
+    target_modules = target_modules or nil
     target_module = trim(target_module)
     local replacements = replacement_set(lock_doc)
 
@@ -211,6 +212,18 @@ function M.preview_uninstall(lock_doc, keep_modules, unresolved_modules, target_
     local uncertain_root_present = #uncertain_modules > 0
     table.sort(uncertain_modules)
 
+    local unmanaged_baseline_present = false
+    if target_modules ~= nil then
+        for _, row in ipairs(lock_doc.modules or {}) do
+            local name = trim(row.name)
+            if name ~= "" and name ~= target_module and not target_modules[name] and not keep_modules[name] then
+                unmanaged_baseline_present = true
+                break
+            end
+        end
+    end
+    local withhold_transitive_prune = uncertain_root_present or unmanaged_baseline_present
+
     local removed = {}
     local skipped_replacements = {}
     local kept_under_uncertainty = {}
@@ -219,10 +232,10 @@ function M.preview_uninstall(lock_doc, keep_modules, unresolved_modules, target_
         if name ~= "" then
             if name == target_module and not replacements[name] then
                 table.insert(removed, { name = name, version = row.version, hash = row.hash })
-            elseif not keep_modules[name] then
+            elseif (target_modules == nil or target_modules[name]) and not keep_modules[name] then
                 if replacements[name] then
                     table.insert(skipped_replacements, { name = name })
-                elseif uncertain_root_present then
+                elseif withhold_transitive_prune then
                     table.insert(kept_under_uncertainty, { name = name, version = row.version, hash = row.hash })
                 else
                     table.insert(removed, { name = name, version = row.version, hash = row.hash })
@@ -244,8 +257,8 @@ function M.preview_uninstall(lock_doc, keep_modules, unresolved_modules, target_
     return changes, nil
 end
 
-function M.apply_uninstall(lock_doc, keep_modules, unresolved_modules, target_module)
-    local changes, changes_err = M.preview_uninstall(lock_doc, keep_modules, unresolved_modules, target_module)
+function M.apply_uninstall(lock_doc, keep_modules, unresolved_modules, target_module, target_modules)
+    local changes, changes_err = M.preview_uninstall(lock_doc, keep_modules, unresolved_modules, target_module, target_modules)
     if not changes then return nil, changes_err end
 
     local remove = {}
@@ -379,7 +392,8 @@ function M.prepare_uninstall(fs_mod, yaml_mod, fs_id, path, plan)
         state.doc,
         plan and plan.keep_modules or {},
         plan and plan.unresolved_modules or {},
-        plan and plan.target_module or nil
+        plan and plan.target_module or nil,
+        plan and plan.target_modules or nil
     )
     if not changes then return nil, changes_err end
 

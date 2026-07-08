@@ -665,6 +665,8 @@ local REQUIREMENT_VALUE_KIND_BY_NAME = {
 }
 
 local function requirement_value_kind(req): string?
+    local explicit = trim(req and req.meta and req.meta.value_kind)
+    if explicit ~= "" then return explicit end
     for _, target in ipairs((req and req.targets) or {}) do
         local path = trim(target.path)
         local kind = REQUIREMENT_VALUE_KIND_BY_TARGET_PATH[path]
@@ -1452,6 +1454,55 @@ function Planner:plan_requirements(graph, supplied_parameters)
     local function registry_values_for_kind(kind)
         kind = trim(kind)
         if kind == "" then return {}, nil end
+        if kind == "security.scope" then
+            local out = {}
+            local seen = {}
+            local descriptors = {}
+            local descriptor_rows, descriptor_err = self:find_entries({ [".kind"] = "registry.entry" })
+            if not descriptor_rows then return nil, descriptor_err end
+            for _, row in ipairs(descriptor_rows or {}) do
+                local meta = type(row.meta) == "table" and row.meta or {}
+                local data = type(row.data) == "table" and row.data or {}
+                local role_id = trim(data.role_id)
+                if meta.type == "kickside.security.role" and role_id ~= "" then
+                    descriptors[role_id] = {
+                        label = trim(meta.title),
+                        description = trim(meta.comment),
+                    }
+                end
+            end
+
+            local function add(value, actual_kind, label, description)
+                value = trim(value)
+                if value == "" or seen[value] then return end
+                seen[value] = true
+                table.insert(out, {
+                    value = value,
+                    kind = actual_kind or kind,
+                    label = trim(label) ~= "" and trim(label) or value,
+                    description = trim(description),
+                })
+            end
+
+            local scope_rows, scope_err = self:find_entries({ [".kind"] = "security.scope" })
+            if not scope_rows then return nil, scope_err end
+            for _, row in ipairs(scope_rows or {}) do
+                local meta = type(row.meta) == "table" and row.meta or {}
+                add(row.id, row.kind or kind, meta.title, meta.comment)
+            end
+
+            local policy_rows, policy_err = self:find_entries({ [".kind"] = "security.policy" })
+            if not policy_rows then return nil, policy_err end
+            for _, row in ipairs(policy_rows or {}) do
+                local data = type(row.data) == "table" and row.data or {}
+                for _, group in ipairs(data.groups or {}) do
+                    local desc = descriptors[trim(group)] or {}
+                    add(group, kind, desc.label, desc.description)
+                end
+            end
+            table.sort(out, function(a, b) return tostring(a.value) < tostring(b.value) end)
+            return out, nil
+        end
         local criteria = KIND_PREFIX_SEARCH[kind] == true and {} or { [".kind"] = kind }
         local rows, rows_err = self:find_entries(criteria)
         if not rows then return nil, rows_err end
@@ -1477,7 +1528,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
         return out
     end
 
-    local function add_suggestion(suggestions, seen, value, label, source, dependency_id, kind)
+    local function add_suggestion(suggestions, seen, value, label, source, dependency_id, kind, description)
         value = trim(value)
         if value == "" or seen[value] then return end
         seen[value] = true
@@ -1487,6 +1538,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
             source = source,
             dependency_id = dependency_id,
             kind = kind,
+            description = trim(description),
         })
     end
 
@@ -1576,10 +1628,11 @@ function Planner:plan_requirements(graph, supplied_parameters)
                         suggestions,
                         suggestion_seen,
                         candidate.value,
-                        candidate.value,
+                        candidate.label or candidate.value,
                         "registry",
                         nil,
-                        candidate.kind
+                        candidate.kind,
+                        candidate.description
                     )
                 end
 
@@ -1651,7 +1704,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
     local parameters = {}
     for _, row in ipairs(out) do
         if row.missing then table.insert(missing, row.parameter_name) end
-        if trim(row.value) ~= "" and row.invalid ~= true then
+        if row.transitive ~= true and trim(row.value) ~= "" and row.invalid ~= true then
             table.insert(parameters, { name = row.parameter_name, value = row.value })
         end
     end

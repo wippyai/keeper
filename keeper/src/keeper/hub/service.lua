@@ -1780,6 +1780,12 @@ function Service:plan_uninstall(args)
                 graph_error = error_summary(keep_err),
             })
     end
+    local target_modules, target_unresolved = self:resolve_dependency_closure({ dep })
+    if not target_modules then
+        target_modules = { [summary.component] = true }
+    elseif target_unresolved and target_unresolved[summary.component] then
+        target_modules[summary.component] = true
+    end
 
     return {
         dependency = summary,
@@ -1790,6 +1796,7 @@ function Service:plan_uninstall(args)
         applied_migrations_count = #applied,
         keep_modules = keep_modules,
         unresolved_modules = unresolved_modules,
+        target_modules = target_modules,
         target_module = summary.component,
         patch = { target = "entry", id = dep.id, op = "delete" },
     }, nil

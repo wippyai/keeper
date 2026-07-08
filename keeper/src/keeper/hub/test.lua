@@ -648,6 +648,37 @@ local function define_tests()
                 test.eq(doc.modules[1].name, "userspace/scheduler")
                 test.eq(doc.modules[2].name, "wippy/terminal")
             end)
+
+            it("does not prune unmanaged published-app baseline modules", function()
+                local doc = {
+                    modules = {
+                        { name = "kickside/kickside", version = "0.1.56", hash = "app-hash" },
+                        { name = "spiralscout/stat-analysis", version = "0.1.2", hash = "stat-hash" },
+                        { name = "wippy/migration", version = "0.3.17", hash = "migration-hash" },
+                    },
+                    replacements = {},
+                }
+
+                local changes, err = lockfile.apply_uninstall(
+                    doc,
+                    {},
+                    {},
+                    "spiralscout/stat-analysis",
+                    {
+                        ["spiralscout/stat-analysis"] = true,
+                        ["wippy/migration"] = true,
+                    }
+                )
+
+                test.is_nil(err)
+                test.eq(#changes.removed, 1)
+                test.eq(changes.removed[1].name, "spiralscout/stat-analysis")
+                test.eq(#changes.kept_under_uncertainty, 1)
+                test.eq(changes.kept_under_uncertainty[1].name, "wippy/migration")
+                test.eq(#doc.modules, 2)
+                test.eq(doc.modules[1].name, "kickside/kickside")
+                test.eq(doc.modules[2].name, "wippy/migration")
+            end)
         end)
 
         describe("dependency closure resolver (installed edges)", function()
@@ -3367,8 +3398,7 @@ local function define_tests()
                 test.is_false(req.missing)
 
                 local param = find_parameter(plan.install_payload.parameters, "wippy.bootloader:env_storage")
-                test.not_nil(param)
-                test.eq(param.value, "app.env:store")
+                test.is_nil(param)
             end)
 
             it("does not reuse bare existing parameters from other components", function()
