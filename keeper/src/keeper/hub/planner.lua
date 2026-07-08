@@ -867,9 +867,6 @@ function Planner:inspect_artifact(component, selected)
     if component == "" then
         return nil, err("BAD_REQUEST", "component is required")
     end
-    if not self.catalog or not self.catalog.versions or not self.catalog.versions.inspect then
-        return nil, err("INTERNAL", "hub artifact inspection API unavailable for " .. component)
-    end
 
     local ref
     if trim(selected_item.version) ~= "" then
@@ -880,6 +877,32 @@ function Planner:inspect_artifact(component, selected)
         return nil, err("INTERNAL", "cannot inspect Hub artifact without version id or version")
     end
 
+    if self.catalog and self.catalog.versions and type(self.catalog.versions.open) == "function" then
+        local pkg, open_err = self.catalog.versions.open(component, ref)
+        if pkg then
+            local entries, entries_err = pkg:entries({ include_data = true })
+            local close_ok, close_err = pcall(function() return pkg:close() end)
+            if not close_ok then close_err = tostring(close_err) end
+            if type(entries) == "table" then
+                return {
+                    entries = entries,
+                    entry_count = #entries,
+                    version = trim(pkg.version) ~= "" and tostring(pkg.version) or selected_item.version,
+                    digest = trim(pkg.digest) ~= "" and tostring(pkg.digest) or selected_item.digest,
+                    close_error = close_err,
+                }, nil
+            end
+            if not self.catalog.versions.inspect then
+                return nil, entries_err or open_err or "hub artifact entries unavailable"
+            end
+        elseif not self.catalog.versions.inspect then
+            return nil, open_err or "hub artifact open failed"
+        end
+    end
+
+    if not self.catalog or not self.catalog.versions or not self.catalog.versions.inspect then
+        return nil, err("INTERNAL", "hub artifact inspection API unavailable for " .. component)
+    end
     return self.catalog.versions.inspect(component, ref)
 end
 

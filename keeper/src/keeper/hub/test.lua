@@ -352,6 +352,29 @@ local function fake_catalog(versions_by_component)
                 end
                 return nil, "not found"
             end,
+            open = function(component, opts)
+                local items = versions_by_component[component] or {}
+                local id = opts and opts.id or ""
+                local version = opts and opts.version or ""
+                local label = opts and opts.label or ""
+                for _, item in ipairs(items) do
+                    if (id ~= "" and item.id == id) or
+                        (version ~= "" and item.version == version) or
+                        (label ~= "" and (item.version == label or item.label == label)) then
+                        local artifact = item.open or item.inspect
+                        if not artifact then return nil, "artifact unavailable" end
+                        return {
+                            version = item.version,
+                            digest = item.digest,
+                            entries = function(_, _)
+                                return artifact.entries or {}, nil
+                            end,
+                            close = function() return true end,
+                        }, nil
+                    end
+                end
+                return nil, "not found"
+            end,
         },
         dependencies = {
             get = function(component, version)
