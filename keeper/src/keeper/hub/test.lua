@@ -1001,6 +1001,42 @@ local function define_tests()
                 test.eq(out.dependencies[1].id, "app.deps:foo")
             end)
 
+            it("collapses stale duplicate deployment rows before listing dependencies", function()
+                local entries = {
+                    {
+                        id = "app.deps:bootloader",
+                        kind = "ns.dependency",
+                        meta = {},
+                        data = { component = "wippy/bootloader", version = "*" },
+                    },
+                    {
+                        id = "app.deps:bootloader",
+                        kind = "ns.dependency",
+                        meta = {},
+                        data = { component = "wippy/bootloader", version = "0.3.12" },
+                    },
+                    {
+                        id = "wippy.bootloader:lib",
+                        kind = "library.lua",
+                        meta = { module = "wippy/bootloader", module_version = "0.3.13" },
+                        data = {},
+                    },
+                }
+                local svc = hub.new({
+                    registry = fake_registry(entries),
+                    sql = fake_sql({}),
+                    planner = no_requirements_planner(),
+                }) :: any
+
+                local out, err = svc:list_dependencies({})
+
+                test.is_nil(err)
+                test.eq(out.count, 1)
+                test.eq(out.dependencies[1].id, "app.deps:bootloader")
+                test.eq(out.dependencies[1].component, "wippy/bootloader")
+                test.eq(out.dependencies[1].version, "*")
+            end)
+
             it("does not resolve module-owned dependencies as install roots", function()
                 local entries = fixture_entries()
                 table.insert(entries, {

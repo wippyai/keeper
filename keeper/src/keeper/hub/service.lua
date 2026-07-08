@@ -97,6 +97,38 @@ local function is_module_owned_dependency(entry)
     return entry and entry.meta and trim(entry.meta.module) ~= ""
 end
 
+local function dependency_component(entry): string
+    local data = entry and entry.data or {}
+    return trim(data.component)
+end
+
+local function dependency_constraint(entry): string
+    local data = entry and entry.data or {}
+    return trim(data.version)
+end
+
+local function constraint_rank(constraint: string): number
+    constraint = trim(constraint)
+    if constraint == "" then return 0 end
+    if constraint == "*" or constraint == ">=v0.0.0" or constraint == ">=0.0.0" then return 4 end
+    if string.match(constraint, "^%s*[~^<>=]") then return 3 end
+    if string.match(constraint, "^v?%d+%.%d+%.%d+$") then return 2 end
+    return 1
+end
+
+local function prefer_dependency_entry(current, candidate)
+    if not current then return candidate end
+    local current_component = dependency_component(current)
+    local candidate_component = dependency_component(candidate)
+    if current_component == "" and candidate_component ~= "" then return candidate end
+    if current_component ~= candidate_component then return current end
+
+    local current_rank = constraint_rank(dependency_constraint(current))
+    local candidate_rank = constraint_rank(dependency_constraint(candidate))
+    if candidate_rank > current_rank then return candidate end
+    return current
+end
+
 local ERROR_KIND_BY_CODE = {
     BAD_REQUEST = errors.INVALID,
     NOT_FOUND = errors.NOT_FOUND,
@@ -416,10 +448,14 @@ function Service:dependency_entries()
         -- roots; otherwise uninstall can keep dependencies required only by the
         -- package being removed.
         if not is_module_owned_dependency(entry) then
-            table.insert(deploy_deps, entry)
+            local id = tostring(entry and entry.id or "")
+            if id ~= "" then
+                deploy_deps[id] = prefer_dependency_entry(deploy_deps[id], entry)
+            end
         end
     end
-    rows = deploy_deps
+    rows = {}
+    for _, entry in pairs(deploy_deps) do table.insert(rows, entry) end
     table.sort(rows, function(a, b) return tostring(a.id) < tostring(b.id) end)
     return rows, nil
 end
