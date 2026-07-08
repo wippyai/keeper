@@ -270,6 +270,38 @@ local function entry_namespace(id: unknown): string?
     return tostring(id or ""):match("^([^:]+):")
 end
 
+local function entry_name(id: unknown): string?
+    return tostring(id or ""):match("^[^:]+:(.+)$")
+end
+
+local function requirements_from_entries(entries)
+    local out = {}
+    for _, entry in ipairs(entries or {}) do
+        if type(entry) == "table" and entry.kind == "ns.requirement" then
+            local id = trim(entry.id)
+            local data = type(entry.data) == "table" and entry.data or entry
+            local meta = shallow_copy(type(data.meta) == "table" and data.meta or {})
+            for key, value in pairs(type(entry.meta) == "table" and entry.meta or {}) do
+                meta[key] = value
+            end
+            local name = trim(data.name)
+            if name == "" then name = trim(entry_name(id)) end
+            if name ~= "" then
+                table.insert(out, {
+                    id = id,
+                    namespace = entry_namespace(id),
+                    name = name,
+                    meta = meta,
+                    description = data.description or meta.description or meta.comment,
+                    default = data.default,
+                    targets = data.targets or {},
+                })
+            end
+        end
+    end
+    return out
+end
+
 local function dependency_component(entry): string
     local data = entry and entry.data or {}
     return trim(data.component)
@@ -582,6 +614,8 @@ local REQUIREMENT_VALUE_KIND_BY_NAME = {
 }
 
 local function requirement_value_kind(req): string?
+    local explicit = trim(req and req.meta and req.meta.value_kind)
+    if explicit ~= "" then return explicit end
     for _, target in ipairs((req and req.targets) or {}) do
         local path = trim(target.path)
         local kind = REQUIREMENT_VALUE_KIND_BY_TARGET_PATH[path]
@@ -813,7 +847,12 @@ function Planner:artifact_requirement_details(component, selected)
     end
 
     local merged = shallow_copy(selected_item)
-    merged.requirements = inspected.requirements or {}
+    local entry_requirements = requirements_from_entries(inspected.entries)
+    if #entry_requirements > 0 then
+        merged.requirements = entry_requirements
+    else
+        merged.requirements = inspected.requirements or {}
+    end
     merged.entry_count = inspected.entry_count or merged.entry_count
     merged.entry_kinds = inspected.entry_kinds or merged.entry_kinds
     merged.size_bytes = inspected.size_bytes or merged.size_bytes
@@ -1291,6 +1330,52 @@ function Planner:plan_requirements(graph, supplied_parameters)
     local function registry_values_for_kind(kind)
         kind = trim(kind)
         if kind == "" then return {}, nil end
+        if kind == "security.scope" then
+            local out = {}
+            local seen = {}
+
+            local function add(value, actual_kind, label, description)
+                value = trim(value)
+                if value == "" or seen[value] then return end
+                seen[value] = true
+                table.insert(out, {
+                    value = value,
+                    kind = actual_kind or kind,
+                    label = trim(label) ~= "" and trim(label) or value,
+                    description = trim(description),
+                })
+            end
+
+            local scope_rows, scope_err = self:find_entries({ [".kind"] = "security.scope" })
+            if not scope_rows then return nil, scope_err end
+            for _, row in ipairs(scope_rows or {}) do
+                local meta = type(row.meta) == "table" and row.meta or {}
+                add(row.id, row.kind or kind, meta.title, meta.comment or meta.description)
+            end
+
+            local policy_rows, policy_err = self:find_entries({ [".kind"] = "security.policy" })
+            if not policy_rows then return nil, policy_err end
+            for _, row in ipairs(policy_rows or {}) do
+                local data = type(row.data) == "table" and row.data or row
+                for _, group in ipairs(type(data.groups) == "table" and data.groups or {}) do
+                    add(group, kind)
+                end
+            end
+
+            local descriptor_rows, descriptor_err = self:find_entries({ [".kind"] = "registry.entry" })
+            if not descriptor_rows then return nil, descriptor_err end
+            for _, row in ipairs(descriptor_rows or {}) do
+                local meta = type(row.meta) == "table" and row.meta or {}
+                local data = type(row.data) == "table" and row.data or row
+                if trim(meta.type) == "kickside.security.role" then
+                    add(data.role_id, kind, meta.title, meta.comment or meta.description)
+                end
+            end
+
+            table.sort(out, function(a, b) return tostring(a.value) < tostring(b.value) end)
+            return out, nil
+        end
+
         local criteria = KIND_PREFIX_SEARCH[kind] == true and {} or { [".kind"] = kind }
         local rows, rows_err = self:find_entries(criteria)
         if not rows then return nil, rows_err end
@@ -1316,7 +1401,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
         return out
     end
 
-    local function add_suggestion(suggestions, seen, value, label, source, dependency_id, kind)
+    local function add_suggestion(suggestions, seen, value, label, source, dependency_id, kind, description)
         value = trim(value)
         if value == "" or seen[value] then return end
         seen[value] = true
@@ -1326,6 +1411,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
             source = source,
             dependency_id = dependency_id,
             kind = kind,
+            description = trim(description),
         })
     end
 
@@ -1414,10 +1500,11 @@ function Planner:plan_requirements(graph, supplied_parameters)
                         suggestions,
                         suggestion_seen,
                         candidate.value,
-                        candidate.value,
+                        candidate.label or candidate.value,
                         "registry",
                         nil,
-                        candidate.kind
+                        candidate.kind,
+                        candidate.description
                     )
                 end
 

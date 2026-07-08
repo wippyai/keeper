@@ -2203,6 +2203,64 @@ local function define_tests()
                 test.eq(plan.install_payload.namespace, "app.plugins")
             end)
 
+            it("preserves inspected requirement metadata for declared security scope suggestions", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/secure"] = {
+                            {
+                                version = "v1.0.0",
+                                entry_kinds = { "ns.requirement" },
+                                inspect = {
+                                    entries = {
+                                        {
+                                            id = "acme.secure.security:user_security_scope",
+                                            kind = "ns.requirement",
+                                            data = {
+                                                meta = {
+                                                    value_kind = "security.scope",
+                                                    comment = "Application security group that may reach secure endpoints.",
+                                                },
+                                                targets = {
+                                                    { entry = "acme.secure.security:endpoint_access", path = ".groups +=" },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    }),
+                    registry = fake_registry({
+                        {
+                            id = "app.security:role_user",
+                            kind = "registry.entry",
+                            meta = {
+                                type = "kickside.security.role",
+                                title = "User",
+                                comment = "Standard signed-in member.",
+                            },
+                            data = {
+                                role_id = "app.security:user",
+                            },
+                        },
+                    }),
+                }) :: any
+
+                local plan, err = svc:plan_install({
+                    component = "acme/secure",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(err)
+                local req = find_requirement(plan, "acme.secure.security:user_security_scope")
+                test.not_nil(req)
+                test.eq(req.expected_kind, "security.scope")
+                test.eq(req.description, "Application security group that may reach secure endpoints.")
+                test.eq(req.suggestions[1].value, "app.security:user")
+                test.eq(req.suggestions[1].label, "User")
+                test.eq(req.suggestions[1].kind, "security.scope")
+            end)
+
             it("places new dependencies in the strongest existing dependency namespace cluster", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
