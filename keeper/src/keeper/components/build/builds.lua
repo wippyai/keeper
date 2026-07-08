@@ -26,26 +26,26 @@ local M = {}
 
 local RELAY_TOPIC = "keeper.builds"
 
-local function publish(event, data)
+local function publish(event: string, data: any): ()
     notify.publish(RELAY_TOPIC, { event = event, data = data })
 end
 
-local function get_db()
+local function get_db(): (any?, string?)
     local db, err = sql.get(consts.db_id())
     if not db then return nil, "database unavailable: " .. (err or "unknown") end
     return db
 end
 
-local function now_seconds()
+local function now_seconds(): number
     return os.time()
 end
 
-local function is_postgres(db)
+local function is_postgres(db: any): boolean
     local ok, t = pcall(function() return db:type() end)
     return ok and t == sql.type.POSTGRES
 end
 
-local function resolve_component(component_id)
+local function resolve_component(component_id: string): (any?, string?)
     local desc, err = scanner.get(component_id)
     if not desc then return nil, err or "component not found" end
     if not desc.editable then
@@ -57,7 +57,7 @@ local function resolve_component(component_id)
     return desc
 end
 
-local function prune_old(db, component_id)
+local function prune_old(db: any, component_id: string): ()
     -- Retention: keep last N per component.
     local res = sql.builder.select("build_id")
         :from("keeper_fe_builds")
@@ -80,7 +80,7 @@ end
 --   trigger       = "user" | "agent" | "session"   (default "user")
 --   triggered_by  = actor id string (optional)
 --   session_id    = session id if build is session-scoped (optional)
-function M.start(component_id, opts)
+function M.start(component_id: string, opts: any?): (string?, string?)
     if type(component_id) ~= "string" or component_id == "" then
         return nil, "component_id required"
     end
@@ -156,13 +156,13 @@ function M.start(component_id, opts)
     })
     if not pid then
         M.finish(build_id, consts.BUILD_STATUS.FAILED, nil, "failed to spawn runner: " .. (perr or "unknown"))
-        return nil, perr
+        return nil, tostring(perr or "unknown")
     end
 
     return build_id
 end
 
-function M.get(build_id)
+function M.get(build_id: string): (any?, string?)
     if not build_id then return nil, "build_id required" end
     local db, err = get_db()
     if not db then return nil, err end
@@ -175,7 +175,7 @@ function M.get(build_id)
     return rows[1]
 end
 
-function M.get_with_lines(build_id, since_seq)
+function M.get_with_lines(build_id: string, since_seq: any?): (any?, string?)
     local build, err = M.get(build_id)
     if not build then return nil, err end
     local db, derr = get_db()
@@ -201,7 +201,7 @@ function M.get_with_lines(build_id, since_seq)
     return build
 end
 
-function M.list(component_id, limit)
+function M.list(component_id: string?, limit: any?): ({ any }?, string?)
     local db, err = get_db()
     if not db then return nil, err end
     limit = limit or 50
@@ -225,7 +225,7 @@ function M.list(component_id, limit)
     return rows or {}
 end
 
-function M.append_line(build_id, stream, text)
+function M.append_line(build_id: string, stream: string?, text: any): (boolean?, string?)
     if not build_id or not text then return nil, "missing args" end
     stream = stream or consts.BUILD_STREAM.STDOUT
     local db, err = get_db()
@@ -259,7 +259,7 @@ function M.append_line(build_id, stream, text)
     return true
 end
 
-function M.mark_running(build_id)
+function M.mark_running(build_id: string): ()
     local db = get_db()
     if not db then return end
     sql.builder.update("keeper_fe_builds")
@@ -271,7 +271,7 @@ function M.mark_running(build_id)
     publish("build.started", { build_id = build_id })
 end
 
-function M.tail_stderr(build_id, limit)
+function M.tail_stderr(build_id: string, limit: any?): string?
     local db = get_db()
     if not db then return nil end
     limit = tonumber(limit) or 5
@@ -293,7 +293,7 @@ end
 
 -- npm/vite emit errors on stdout; only fall back here when stderr is empty so
 -- the column still shows the last useful diagnostic lines the agent can act on.
-function M.tail_output(build_id, limit)
+function M.tail_output(build_id: string, limit: any?): string?
     local db = get_db()
     if not db then return nil end
     limit = tonumber(limit) or 5
@@ -313,7 +313,7 @@ function M.tail_output(build_id, limit)
     return table.concat(lines, "\n")
 end
 
-function M.finish(build_id, status, exit_code, err_text)
+function M.finish(build_id: string, status: string, exit_code: any?, err_text: any?): ()
     local db = get_db()
     if not db then return end
     local build, _ = M.get(build_id)
@@ -345,7 +345,7 @@ function M.finish(build_id, status, exit_code, err_text)
     publish("build.finished", { build_id = build_id, status = status, component_id = build.component_id })
 end
 
-function M.cancel(build_id)
+function M.cancel(build_id: string): (boolean?, string?)
     local db = get_db()
     if not db then return end
     local build, _ = M.get(build_id)

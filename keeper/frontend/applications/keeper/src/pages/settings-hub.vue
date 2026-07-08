@@ -9,6 +9,7 @@ import {
   listHubDependencies,
   listHubMigrations, runHubMigrations,
   browseHubModules, listHubVersions, getHubReadme,
+  planHubInstall, installHubDependency,
   type HubMigration, type HubModule, type HubVersion,
   type DependencyRoot, type ModuleInventoryEntry,
 } from '../api/hub'
@@ -39,6 +40,18 @@ const successMsg = ref<string | null>(null)
 const deps = ref<DependencyRoot[]>([])
 const moduleInventory = ref<ModuleInventoryEntry[]>([])
 const migrations = ref<HubMigration[]>([])
+
+type UpdateStatus = 'available' | 'current' | 'planning' | 'updating' | 'updated' | 'blocked' | 'failed'
+interface UpdateInfo {
+  component: string
+  currentVersion: string
+  latestVersion: string
+  status: UpdateStatus
+  message?: string
+}
+const updateScan = ref<Record<string, UpdateInfo>>({})
+const scanLoading = ref(false)
+const updateAllRunning = ref(false)
 
 // Browse
 const browseQuery = ref('')
@@ -126,6 +139,79 @@ function moduleRef(m: HubModule): string {
 const installedSet = computed(() => new Set(deps.value.map(d => d.component || '').filter(Boolean)))
 function isInstalled(m: HubModule): boolean {
   return installedSet.value.has(moduleRef(m))
+}
+
+const inventoryByName = computed(() => {
+  const out = new Map<string, ModuleInventoryEntry>()
+  for (const m of moduleInventory.value) out.set(m.name, m)
+  return out
+})
+
+function installedVersion(d: DependencyRoot): string {
+  const component = d.component || d.name || ''
+  return inventoryByName.value.get(component)?.version || d.version || ''
+}
+
+function updateInfoForComponent(component?: string): UpdateInfo | null {
+  if (!component) return null
+  return updateScan.value[component] || null
+}
+
+function updateInfoForDep(d: DependencyRoot): UpdateInfo | null {
+  return updateInfoForComponent(d.component || d.name)
+}
+
+function updateInfoForModule(m: HubModule): UpdateInfo | null {
+  return updateInfoForComponent(moduleRef(m))
+}
+
+function versionParts(v: string): number[] {
+  const cleaned = String(v || '').trim().replace(/^[^\d]*/, '')
+  const match = cleaned.match(/\d+(?:\.\d+)*/)
+  return (match?.[0] || '').split('.').filter(Boolean).map(n => Number(n))
+}
+
+function compareVersions(a: string, b: string): number {
+  const aa = versionParts(a)
+  const bb = versionParts(b)
+  const n = Math.max(aa.length, bb.length)
+  for (let i = 0; i < n; i++) {
+    const av = aa[i] || 0
+    const bv = bb[i] || 0
+    if (av !== bv) return av > bv ? 1 : -1
+  }
+  return String(a || '').localeCompare(String(b || ''))
+}
+
+function isNewerVersion(latest?: string, current?: string): boolean {
+  if (!latest || !current || latest === current) return false
+  return compareVersions(latest, current) > 0
+}
+
+const availableUpdates = computed(() => deps.value.filter(d => updateInfoForDep(d)?.status === 'available'))
+
+function updateLabel(info: UpdateInfo | null): string {
+  if (!info) return ''
+  if (info.status === 'available') return `${info.currentVersion || '?'} -> ${info.latestVersion || '?'}`
+  if (info.status === 'planning') return 'planning'
+  if (info.status === 'updating') return 'updating'
+  if (info.status === 'updated') return 'updated'
+  if (info.status === 'blocked') return 'blocked'
+  if (info.status === 'failed') return 'failed'
+  return ''
+}
+
+function updateIcon(info: UpdateInfo | null): string {
+  if (!info) return 'tabler:download'
+  if (info.status === 'planning' || info.status === 'updating') return 'tabler:loader-2'
+  if (info.status === 'updated') return 'tabler:check'
+  if (info.status === 'blocked') return 'tabler:lock'
+  if (info.status === 'failed') return 'tabler:alert-circle'
+  return 'tabler:arrow-up'
+}
+
+function updateBusy(info: UpdateInfo | null): boolean {
+  return info?.status === 'planning' || info?.status === 'updating'
 }
 
 // Featured: top 6 by downloads on page 1, only when no search
@@ -374,6 +460,118 @@ async function applyAllPending() {
   }
 }
 
+function setUpdateInfo(component: string, patch: Partial<UpdateInfo>) {
+  const current = updateScan.value[component]
+  updateScan.value = {
+    ...updateScan.value,
+    [component]: {
+      component,
+      currentVersion: patch.currentVersion ?? current?.currentVersion ?? '',
+      latestVersion: patch.latestVersion ?? current?.latestVersion ?? '',
+      status: patch.status ?? current?.status ?? 'current',
+      message: patch.message,
+    },
+  }
+}
+
+async function scanUpdates() {
+  scanLoading.value = true
+  error.value = null
+  const next: Record<string, UpdateInfo> = {}
+  updateScan.value = next
+  let available = 0
+  let failed = 0
+  try {
+    for (const d of deps.value) {
+      const component = d.component || d.name || ''
+      if (!component || d.source === 'local') continue
+      const currentVersion = installedVersion(d)
+      try {
+        const versions = await listHubVersions(api, component, { page_size: 10 })
+        const latest = (versions.items || []).find(v => v.is_latest) || (versions.items || [])[0]
+        const latestVersion = latest?.version || ''
+        const status: UpdateStatus = isNewerVersion(latestVersion, currentVersion) ? 'available' : 'current'
+        if (status === 'available') available++
+        next[component] = { component, currentVersion, latestVersion, status }
+        updateScan.value = { ...next }
+      } catch (e: any) {
+        failed++
+        next[component] = {
+          component,
+          currentVersion,
+          latestVersion: '',
+          status: 'failed',
+          message: e.response?.data?.error || e.message || 'Version scan failed',
+        }
+        updateScan.value = { ...next }
+      }
+    }
+    flash(`Found ${available} update${available === 1 ? '' : 's'}${failed ? `, ${failed} failed` : ''}`)
+  } finally {
+    scanLoading.value = false
+  }
+}
+
+async function updateDependency(d: DependencyRoot) {
+  const component = d.component || d.name || ''
+  if (!component) return false
+  let info = updateInfoForDep(d)
+  if (!info || info.status === 'failed') {
+    await scanUpdates()
+    info = updateInfoForDep(d)
+  }
+  if (!info?.latestVersion || !isNewerVersion(info.latestVersion, installedVersion(d))) return true
+  try {
+    setUpdateInfo(component, { status: 'planning', message: undefined })
+    const plan = await planHubInstall(api, {
+      component,
+      version: info.latestVersion,
+      migration_policy: 'up',
+      run_migrations: true,
+    })
+    const missing = plan.missing_requirements || []
+    if (missing.length) {
+      setUpdateInfo(component, {
+        status: 'blocked',
+        message: `Missing ${missing.join(', ')}`,
+      })
+      return false
+    }
+    setUpdateInfo(component, { status: 'updating' })
+    await installHubDependency(api, {
+      ...(plan.install_payload || { component, version: info.latestVersion }),
+      component,
+      version: info.latestVersion,
+      migration_policy: 'up',
+      run_migrations: true,
+    })
+    setUpdateInfo(component, { status: 'updated', currentVersion: info.latestVersion, message: undefined })
+    return true
+  } catch (e: any) {
+    setUpdateInfo(component, {
+      status: 'failed',
+      message: e.response?.data?.error || e.message || 'Update failed',
+    })
+    return false
+  }
+}
+
+async function updateAllAvailable() {
+  if (!availableUpdates.value.length || updateAllRunning.value) return
+  updateAllRunning.value = true
+  error.value = null
+  let updated = 0
+  try {
+    for (const d of availableUpdates.value) {
+      if (await updateDependency(d)) updated++
+    }
+    flash(`Updated ${updated} component${updated === 1 ? '' : 's'}`)
+    await loadInstalled()
+  } finally {
+    updateAllRunning.value = false
+  }
+}
+
 function openHub() {
   try { window.parent.open(HUB_URL, '_blank', 'noopener') } catch { window.open(HUB_URL, '_blank', 'noopener') }
 }
@@ -493,6 +691,7 @@ onMounted(() => {
                   <div class="flex items-center gap-1.5 flex-wrap">
                     <span class="feat-name">{{ m.display_name || m.name }}</span>
                     <Tag v-if="isInstalled(m)" severity="success" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">installed</Tag>
+                    <Tag v-if="updateInfoForModule(m)?.status === 'available'" severity="warn" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">update</Tag>
                     <Tag v-if="m.deprecated" severity="warn" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">deprecated</Tag>
                   </div>
                   <div class="feat-org">{{ m.full_name || (m.org + '/' + m.name) }}</div>
@@ -527,6 +726,7 @@ onMounted(() => {
                     <span class="mod-name">{{ m.display_name || m.name }}</span>
                     <span class="mod-version">{{ m.latest_version || '—' }}</span>
                     <Tag v-if="isInstalled(m)" severity="success" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">installed</Tag>
+                    <Tag v-if="updateInfoForModule(m)?.status === 'available'" severity="warn" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">update</Tag>
                     <Tag v-if="m.deprecated" severity="warn" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">deprecated</Tag>
                   </div>
                   <div class="mod-org">{{ m.full_name || (m.org + '/' + m.name) }}</div>
@@ -562,6 +762,15 @@ onMounted(() => {
         </div>
         <span class="text-[10px]" style="color: var(--p-text-muted-color)">{{ filteredDeps.length }}<template v-if="filteredDeps.length !== deps.length"> / {{ deps.length }}</template></span>
         <span class="flex-1"></span>
+        <button class="update-action" :disabled="scanLoading || updateAllRunning || !deps.length" @click="scanUpdates">
+          <Icon :icon="scanLoading ? 'tabler:loader-2' : 'tabler:refresh-dot'" class="w-3.5 h-3.5" :class="{ 'animate-spin': scanLoading }" />
+          Scan updates
+        </button>
+        <button class="update-action primary" :disabled="updateAllRunning || !availableUpdates.length" @click="updateAllAvailable">
+          <Icon :icon="updateAllRunning ? 'tabler:loader-2' : 'tabler:download'" class="w-3.5 h-3.5" :class="{ 'animate-spin': updateAllRunning }" />
+          Update all
+          <span v-if="availableUpdates.length" class="update-count">{{ availableUpdates.length }}</span>
+        </button>
         <div class="stat-mini"><span class="stat-mini-label">Roots</span> <span>{{ deps.length }}</span></div>
         <div class="stat-mini"><span class="stat-mini-label">Transitive</span> <span>{{ moduleInventory.filter(m => m.transitive || m.is_root === false).length }}</span></div>
         <div class="stat-mini"><span class="stat-mini-label">Entries</span> <span>{{ stats.totalEntries }}</span></div>
@@ -584,7 +793,7 @@ onMounted(() => {
             <span class="section-sub">directly requested — you can uninstall these</span>
           </div>
           <div v-if="filteredDeps.length" class="installed-list">
-            <div v-for="d in filteredDeps" :key="d.id" class="inst-card">
+            <div v-for="d in filteredDeps" :key="d.id" class="inst-card" :class="{ 'has-update': updateInfoForDep(d)?.status === 'available' }">
               <div class="inst-head" @click="toggleDep(d.id)">
                 <div class="inst-icon"><Icon icon="tabler:package" class="w-4 h-4" /></div>
                 <div class="flex-1 min-w-0">
@@ -600,18 +809,48 @@ onMounted(() => {
                     <span v-if="d.installed_entries_count" class="meta-pill" style="background: var(--p-surface-200); color: var(--p-text-muted-color); border: none">
                       {{ d.installed_entries_count }} entries
                     </span>
+                    <span
+                      v-if="updateInfoForDep(d) && updateInfoForDep(d)?.status !== 'current'"
+                      class="update-pill"
+                      :class="updateInfoForDep(d)?.status"
+                      :title="updateInfoForDep(d)?.message || ''"
+                    >
+                      <Icon
+                        :icon="updateIcon(updateInfoForDep(d))"
+                        class="w-3 h-3"
+                        :class="{ 'animate-spin': updateBusy(updateInfoForDep(d)) }"
+                      />
+                      {{ updateLabel(updateInfoForDep(d)) }}
+                    </span>
                     <Tag v-if="d.migrations && d.migrations.filter(m => m.status === 'pending').length" severity="warn" class="!text-[9px] !font-semibold !px-[6px] !py-px !rounded-lg">
                       {{ d.migrations.filter(m => m.status === 'pending').length }} pending
                     </Tag>
                   </div>
                   <div class="mod-org" style="margin-top: 1px">{{ d.id }}</div>
                 </div>
+                <Button
+                  v-if="updateInfoForDep(d)?.status === 'available' || updateBusy(updateInfoForDep(d))"
+                  class="k-btn-icon !w-[26px] !h-[26px] !p-0 !rounded-md"
+                  :disabled="updateBusy(updateInfoForDep(d)) || updateAllRunning"
+                  @click.stop="updateDependency(d)"
+                  title="Update"
+                >
+                  <Icon
+                    :icon="updateIcon(updateInfoForDep(d))"
+                    class="w-3.5 h-3.5 text-warn-500"
+                    :class="{ 'animate-spin': updateBusy(updateInfoForDep(d)) }"
+                  />
+                </Button>
                 <Button class="k-btn-icon !w-[26px] !h-[26px] !p-0 !rounded-md" @click.stop="openUninstall(d)" title="Uninstall">
                   <Icon icon="tabler:trash" class="w-3.5 h-3.5 text-danger-500" />
                 </Button>
                 <Icon :icon="expandedDep === d.id ? 'tabler:chevron-up' : 'tabler:chevron-down'" class="w-3.5 h-3.5" style="color: var(--p-text-muted-color)" />
               </div>
               <div v-if="expandedDep === d.id" class="inst-body">
+                <div v-if="updateInfoForDep(d)?.message" class="dep-section">
+                  <div class="dep-sub-label">Update status</div>
+                  <div class="update-message">{{ updateInfoForDep(d)?.message }}</div>
+                </div>
                 <div v-if="d.used_by && d.used_by.length" class="dep-section">
                   <div class="dep-sub-label">Shared with ({{ d.used_by.length }})</div>
                   <div class="flex flex-wrap gap-1">
@@ -671,6 +910,7 @@ onMounted(() => {
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="drawer-name">{{ detail.display_name || detail.name }}</span>
                 <Tag v-if="isInstalled(detail)" severity="success" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">installed</Tag>
+                <Tag v-if="updateInfoForModule(detail)?.status === 'available'" severity="warn" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">update</Tag>
                 <Tag v-if="detail.deprecated" severity="warn" class="!text-[9px] !font-bold !uppercase !tracking-wide !px-[6px] !py-px !rounded-[3px]">deprecated</Tag>
               </div>
               <div class="drawer-org">{{ detail.full_name || (detail.org + '/' + detail.name) }}</div>
@@ -1214,6 +1454,40 @@ onMounted(() => {
   font-weight: 600;
   margin-right: 2px;
 }
+.update-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--p-content-border-color);
+  background: var(--p-content-background);
+  color: var(--p-text-color);
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.update-action:hover:not(:disabled) { background: var(--p-surface-100); }
+.update-action.primary {
+  background: color-mix(in srgb, var(--p-warn-500) 12%, transparent);
+  border-color: color-mix(in srgb, var(--p-warn-500) 30%, transparent);
+  color: var(--p-warn-500);
+}
+.update-action:disabled { opacity: 0.45; cursor: not-allowed; }
+.update-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--p-warn-500);
+  color: white;
+  font-size: 9px;
+  font-weight: 800;
+}
 
 .section-head {
   display: flex; align-items: center; gap: 6px;
@@ -1265,6 +1539,10 @@ onMounted(() => {
   border-radius: 8px;
   overflow: hidden;
 }
+.inst-card.has-update {
+  border-color: color-mix(in srgb, var(--p-warn-500) 36%, var(--p-content-border-color));
+  background: color-mix(in srgb, var(--p-warn-500) 4%, var(--p-surface-50));
+}
 .inst-head {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 14px;
@@ -1286,6 +1564,38 @@ onMounted(() => {
 .inst-body {
   padding: 0 14px 12px 58px;
   background: var(--p-surface-100);
+}
+.update-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--p-surface-200);
+  color: var(--p-text-muted-color);
+}
+.update-pill.available,
+.update-pill.planning,
+.update-pill.updating {
+  background: color-mix(in srgb, var(--p-warn-500) 15%, transparent);
+  color: var(--p-warn-500);
+}
+.update-pill.updated {
+  background: color-mix(in srgb, var(--p-success-500) 14%, transparent);
+  color: var(--p-success-500);
+}
+.update-pill.blocked,
+.update-pill.failed {
+  background: color-mix(in srgb, var(--p-danger-500) 14%, transparent);
+  color: var(--p-danger-500);
+}
+.update-message {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--p-danger-500);
+  word-break: break-word;
 }
 .dep-section { margin-top: 8px; }
 .dep-sub-label {

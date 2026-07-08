@@ -188,7 +188,18 @@ entries:
     directory: ..
     base: project
     mode: "0755"
-    
+
+  # keeper.components:repo_fs
+  - name: repo_fs
+    kind: fs.directory
+    meta:
+      comment: Read-only workspace root (../..) for modules two hops out
+      description: Resolves lock replacement targets like ../../providers/* and ../../chestor/* whose sources sit above the monorepo dir. Used by the registry-driven scanner to locate component source packages.
+    auto_init: false
+    directory: ../..
+    base: project
+    mode: "0755"
+
   # keeper.components:staging_fs
   - name: staging_fs
     kind: fs.directory

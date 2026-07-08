@@ -9,6 +9,8 @@ type ServiceError = unknown
 type Parameter = { name: string, value: string }
 type RequirementTarget = { entry?: string, path?: string }
 type HubRequirement = {
+    id?: string,
+    namespace?: string,
     name?: string,
     description?: string,
     default?: string,
@@ -269,9 +271,71 @@ local function entry_namespace(id: unknown): string?
     return tostring(id or ""):match("^([^:]+):")
 end
 
+local function entry_name(id: unknown): string?
+    return tostring(id or ""):match("^[^:]+:(.+)$")
+end
+
+local function requirement_identity_missing(req): boolean
+    if type(req) ~= "table" then return true end
+    if trim((req :: any).namespace) ~= "" then return false end
+    if entry_namespace((req :: any).id) then return false end
+    return true
+end
+
+local function requirements_need_identity(requirements): boolean
+    for _, req in ipairs(requirements or {}) do
+        if requirement_identity_missing(req) then return true end
+    end
+    return false
+end
+
+local function requirement_namespace(req, node): string
+    local explicit_ns = trim(req and req.namespace)
+    if explicit_ns ~= "" then return explicit_ns end
+    local id_ns = entry_namespace(req and req.id)
+    if id_ns and id_ns ~= "" then return id_ns end
+    for _, target in ipairs((req and req.targets) or {}) do
+        local path = trim(target.path)
+        if path == ".groups +=" or path == "groups +=" then
+            local ns = entry_namespace(target.entry)
+            if ns and ns ~= "" then return ns end
+        end
+    end
+    return tostring(node.namespace or M.module_namespace(node.module) or node.module)
+end
+
+local function requirements_from_entries(entries)
+    local out = {}
+    for _, entry in ipairs(entries or {}) do
+        if type(entry) == "table" and entry.kind == "ns.requirement" then
+            local id = trim(entry.id)
+            local data = type(entry.data) == "table" and entry.data or entry
+            local meta = type(entry.meta) == "table" and entry.meta or {}
+            local name = trim(data.name)
+            if name == "" then name = trim(entry_name(id)) end
+            if name ~= "" then
+                table.insert(out, {
+                    id = id,
+                    namespace = entry_namespace(id),
+                    name = name,
+                    description = data.description or meta.description or meta.comment,
+                    default = data.default,
+                    targets = data.targets or {},
+                })
+            end
+        end
+    end
+    return out
+end
+
 local function dependency_component(entry): string
     local data = entry and entry.data or {}
     return trim(data.component)
+end
+
+local function dependency_constraint(entry): string
+    local data = entry and entry.data or {}
+    return trim(data.version)
 end
 
 local function namespace_score(namespace: string, count: number): number
@@ -540,6 +604,28 @@ local function version_satisfies(version, constraint): boolean
     return true
 end
 
+local function constraint_rank(constraint: string): number
+    constraint = trim(constraint)
+    if constraint == "" then return 0 end
+    if constraint == "*" or constraint == ">=v0.0.0" or constraint == ">=0.0.0" then return 4 end
+    if is_semver_constraint(constraint) then return 3 end
+    if version_parts(constraint) then return 2 end
+    return 1
+end
+
+local function prefer_dependency_entry(current, candidate)
+    if not current then return candidate end
+    local current_component = dependency_component(current)
+    local candidate_component = dependency_component(candidate)
+    if current_component == "" and candidate_component ~= "" then return candidate end
+    if current_component ~= candidate_component then return current end
+
+    local current_rank = constraint_rank(dependency_constraint(current))
+    local candidate_rank = constraint_rank(dependency_constraint(candidate))
+    if candidate_rank > current_rank then return candidate end
+    return current
+end
+
 local function module_ref_from_dep(dep: unknown): string?
     if type(dep) ~= "table" then return nil end
     local dep_map = dep :: {[string]: unknown}
@@ -623,10 +709,19 @@ end
 function Planner:dependency_entries()
     local rows, rows_err = self:find_entries({ [".kind"] = "ns.dependency" })
     if not rows then return nil, rows_err end
-    -- Sort a copy: registry.find may hand back a backing slice, and sorting it
-    -- in place mutates registry-owned state shared with later readers.
+    -- Sort a canonicalized copy: registry.find may hand back a backing slice,
+    -- and stale overlay/source duplicates for the same id must not create false
+    -- exact pins. If duplicate rows name the same component, keep the broadest
+    -- declaration; explicit exact pins still apply when they are the only row.
+    local by_id = {}
+    for _, entry in ipairs(rows) do
+        local id = tostring(entry and entry.id or "")
+        if id ~= "" then
+            by_id[id] = prefer_dependency_entry(by_id[id], entry)
+        end
+    end
     local out = {}
-    for _, entry in ipairs(rows) do table.insert(out, entry) end
+    for _, entry in pairs(by_id) do table.insert(out, entry) end
     table.sort(out, function(a, b) return tostring(a.id) < tostring(b.id) end)
     return out, nil
 end
@@ -678,6 +773,58 @@ function Planner:existing_dependency_for_component(component)
         end
     end
     return nil, nil
+end
+
+function Planner:existing_dependency_by_id(id)
+    id = trim(id)
+    if id == "" then return nil, nil end
+    local dep, get_err = self.registry.get(id)
+    if get_err then
+        return nil, err("INTERNAL", "registry.get failed for dependency " .. id .. ": " .. tostring(get_err))
+    end
+    if not dep or dep.kind ~= "ns.dependency" then return nil, nil end
+    return dep, nil
+end
+
+local function merge_parameters(base, override)
+    local merged = {}
+    local order = {}
+
+    local function put(param)
+        if type(param) ~= "table" then return end
+        local name = trim(param.name)
+        if name == "" then return end
+        if merged[name] == nil then table.insert(order, name) end
+        merged[name] = tostring(param.value or "")
+    end
+
+    for _, param in ipairs(base or {}) do put(param) end
+    for _, param in ipairs(override or {}) do put(param) end
+
+    local out = {}
+    for _, name in ipairs(order) do
+        table.insert(out, { name = name, value = merged[name] })
+    end
+    return out
+end
+
+function Planner:inherit_existing_parameters(args): (unknown?, unknown?)
+    local out = shallow_copy(args or {})
+    local explicit, param_err = M.normalize_parameters(out.parameters)
+    if not explicit then return nil, param_err end
+
+    local existing, existing_err = self:existing_dependency_by_id(out.id)
+    if existing_err then return nil, existing_err end
+    if not existing then return out, nil end
+
+    local parsed, comp_err = M.parse_component(out.component)
+    if not parsed then return nil, comp_err end
+    if dependency_component(existing) ~= parsed.component then return out, nil end
+
+    local existing_params, existing_param_err = M.normalize_parameters((existing.data or {}).parameters)
+    if not existing_params then return nil, existing_param_err end
+    out.parameters = merge_parameters(existing_params, explicit)
+    return out, nil
 end
 
 function Planner:preferred_dependency_namespace(): (string?, unknown?)
@@ -798,7 +945,7 @@ end
 function Planner:artifact_requirement_details(component, selected)
     if not selected then return selected, nil end
     local selected_item = selected :: VersionItem
-    if #(selected_item.requirements or {}) > 0 then
+    if #(selected_item.requirements or {}) > 0 and not requirements_need_identity(selected_item.requirements) then
         return selected, nil
     end
     if not has_entry_kind(selected_item, "ns.requirement") then
@@ -810,7 +957,12 @@ function Planner:artifact_requirement_details(component, selected)
     end
 
     local merged = shallow_copy(selected_item)
-    merged.requirements = inspected.requirements or {}
+    local entry_requirements = requirements_from_entries(inspected.entries)
+    if #entry_requirements > 0 then
+        merged.requirements = entry_requirements
+    else
+        merged.requirements = inspected.requirements or selected_item.requirements or {}
+    end
     merged.entry_count = inspected.entry_count or merged.entry_count
     merged.entry_kinds = inspected.entry_kinds or merged.entry_kinds
     merged.size_bytes = inspected.size_bytes or merged.size_bytes
@@ -1138,6 +1290,9 @@ local function validate_parameter_targets(graph, parameters)
     local node_by_namespace = {}
     for _, node in ipairs(graph or {}) do
         node_by_namespace[tostring(node.namespace)] = node
+        for _, req in ipairs(node.requirements or {}) do
+            node_by_namespace[requirement_namespace(req, node)] = node
+        end
     end
     for _, param in ipairs(parameters or {}) do
         local ns = string.match(tostring(param.name or ""), "^([^:]+):")
@@ -1252,12 +1407,21 @@ end
 function Planner:plan_requirements(graph, supplied_parameters)
     supplied_parameters = supplied_parameters or {}
 
-    local function find_supplied(full_id, name, direct)
+    local function find_supplied(full_id, module_full_id, name, direct)
         for _, param in ipairs(supplied_parameters) do
             local param_name = trim(param.name)
             if param_name == full_id then
                 return tostring(param.value or ""), "provided"
             end
+        end
+        for _, param in ipairs(supplied_parameters) do
+            local param_name = trim(param.name)
+            if direct and module_full_id ~= "" and param_name == module_full_id then
+                return tostring(param.value or ""), "provided_module"
+            end
+        end
+        for _, param in ipairs(supplied_parameters) do
+            local param_name = trim(param.name)
             if direct and param_name == name then
                 return tostring(param.value or ""), "provided_bare"
             end
@@ -1334,8 +1498,9 @@ function Planner:plan_requirements(graph, supplied_parameters)
         for _, req in ipairs(node.requirements or {}) do
             local name = trim(req.name)
             if name ~= "" then
-                local full_id = tostring(node.namespace or M.module_namespace(node.module) or node.module) .. ":" .. name
-                local value, source = find_supplied(full_id, name, node.direct)
+                local full_id = requirement_namespace(req, node) .. ":" .. name
+                local module_full_id = tostring(node.namespace or M.module_namespace(node.module) or node.module) .. ":" .. name
+                local value, source = find_supplied(full_id, module_full_id, name, node.direct)
                 local suggestions = {}
                 local suggestion_seen = {}
                 local expected_kind = requirement_value_kind(req)

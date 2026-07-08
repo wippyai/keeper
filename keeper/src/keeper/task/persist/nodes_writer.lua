@@ -37,22 +37,22 @@ type NodeRow = {
 }
 
 type TaskNodeHandle = {
-    add: (TaskNodeHandle, {[string]: unknown}) -> (NodeRow, string?),
-    open: (TaskNodeHandle, {[string]: unknown}) -> (TaskNodeHandle, string?, NodeRow),
+    add: (TaskNodeHandle, any) -> (NodeRow?, string?),
+    open: (TaskNodeHandle, any) -> (TaskNodeHandle?, string?, NodeRow?),
 }
 
 type TaskNodeWorkspace = {
     task_id: string,
-    record: (TaskNodeWorkspace, {[string]: unknown}) -> (NodeRow, string?),
+    record: (TaskNodeWorkspace, any) -> (NodeRow?, string?),
     node: (TaskNodeWorkspace, string?) -> TaskNodeHandle,
-    update: (TaskNodeWorkspace, string, {[string]: unknown}) -> (unknown?, string?),
+    update: (TaskNodeWorkspace, string, any) -> (unknown?, string?),
 }
 
 -- CQRS event publish. Best-effort broadcast over the admin events bus on the
 -- keeper.task topic so subscribed admins (FE relay, dataflow listeners) can react
 -- to node creates/updates without polling. Failures are swallowed —
 -- persistence must not depend on the bus being up.
-local function publish(event, data)
+local function publish(event: any, data: any): ()
     pcall(function()
         notify.publish(task_consts.TOPIC, { event = event, data = data })
     end)
@@ -62,23 +62,23 @@ end
 -- Low-level helpers
 -- ---------------------------------------------------------------------------
 
-local function get_db()
+local function get_db(): (any?, string?)
     local db, err = sql.get(task_consts.DATABASE.RESOURCE_ID)
     if err then return nil, "task_nodes_writer db: " .. tostring(err) end
     return db, nil
 end
 
-local function now_ms()
+local function now_ms(): number
     return math.floor(time.now():unix_nano() / 1e6)
 end
 
-local function new_id()
+local function new_id(): (string?, string?)
     local id, err = uuid.v7()
     if err then return nil, "uuid: " .. tostring(err) end
     return id, nil
 end
 
-local function encode_metadata(meta)
+local function encode_metadata(meta: any): (string?, string?)
     if meta == nil then return "{}", nil end
     if type(meta) == "string" then return meta, nil end
     local s, err = json.encode(meta)
@@ -90,7 +90,7 @@ end
 -- Path / position resolution
 -- ---------------------------------------------------------------------------
 
-local function resolve_parent(tx, parent_node_id)
+local function resolve_parent(tx: any, parent_node_id: any): (any?, string?)
     if not parent_node_id or parent_node_id == "" then
         return { path = "/", depth = 0 }, nil
     end
@@ -108,7 +108,7 @@ local function resolve_parent(tx, parent_node_id)
     return { path = new_path, depth = parent_depth + 1 }, nil
 end
 
-local function next_position(tx, task_id, parent_node_id)
+local function next_position(tx: any, task_id: any, parent_node_id: any): number
     local q, params
     if parent_node_id and parent_node_id ~= "" then
         q = "SELECT COALESCE(MAX(position), -1) + 1 AS pos FROM keeper_task_nodes WHERE task_id = ? AND parent_node_id = ?"
@@ -122,7 +122,7 @@ local function next_position(tx, task_id, parent_node_id)
     return tonumber(rows[1].pos) or 0
 end
 
-local function next_seq(tx, task_id)
+local function next_seq(tx: any, task_id: any): number
     local rows, _ = tx:query(
         "SELECT COALESCE(MAX(seq), 0) + 1 AS s FROM keeper_task_nodes WHERE task_id = ?",
         { task_id }
@@ -146,7 +146,7 @@ end
 --   agent_id, dataflow_id, changeset_id (optional)
 --   execution_ms, error_message, result_summary (optional)
 --   metadata (table, optional)
-local function insert_node(spec)
+local function insert_node(spec: any): (NodeRow?, string?)
     if not spec or not spec.task_id or spec.task_id == "" then
         return nil, "task_id required"
     end
@@ -154,12 +154,15 @@ local function insert_node(spec)
         return nil, "type required"
     end
 
+    local task_id = tostring(spec.task_id)
+    local parent_node_id = spec.parent_node_id and tostring(spec.parent_node_id) or nil
     local node_id = spec.node_id
     if not node_id or node_id == "" then
         local id, id_err = new_id()
         if id_err then return nil, id_err end
         node_id = id
     end
+    node_id = tostring(node_id)
 
     local meta_str, meta_err = encode_metadata(spec.metadata)
     if meta_err then return nil, meta_err end
@@ -170,15 +173,15 @@ local function insert_node(spec)
     local tx, txerr = db:begin()
     if txerr then db:release(); return nil, "begin: " .. tostring(txerr) end
 
-    local rollback = function(msg)
+    local rollback = function(msg: string): (NodeRow?, string?)
         tx:rollback(); db:release()
         return nil, msg
     end
 
-    local parent_info, perr = resolve_parent(tx, spec.parent_node_id)
+    local parent_info, perr = resolve_parent(tx, parent_node_id)
     if perr then return rollback(perr) end
-    local position = next_position(tx, spec.task_id, spec.parent_node_id)
-    local seq = next_seq(tx, spec.task_id)
+    local position = next_position(tx, task_id, parent_node_id)
+    local seq = next_seq(tx, task_id)
     local ts = now_ms()
 
     local _, ierr = tx:execute([[
@@ -193,7 +196,7 @@ local function insert_node(spec)
             seq, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
-        node_id, spec.task_id, spec.parent_node_id, parent_info.path, parent_info.depth, position,
+        node_id, task_id, parent_node_id, parent_info.path, parent_info.depth, position,
         spec.type, spec.discriminator,
         spec.title or "", spec.content, spec.content_type or "text/plain",
         spec.status, spec.visibility or "user",
@@ -210,8 +213,8 @@ local function insert_node(spec)
 
     publish(task_consts.EVENTS.NODE_CREATED, {
         node_id        = node_id,
-        task_id        = spec.task_id,
-        parent_node_id = spec.parent_node_id,
+        task_id        = task_id,
+        parent_node_id = parent_node_id,
         type           = spec.type,
         discriminator  = spec.discriminator,
         status         = spec.status,
@@ -220,19 +223,19 @@ local function insert_node(spec)
 
     return {
         node_id = node_id,
-        task_id = spec.task_id,
-        parent_node_id = spec.parent_node_id,
+        task_id = task_id,
+        parent_node_id = parent_node_id,
         path = parent_info.path,
         depth = parent_info.depth,
         position = position,
         seq = seq,
         created_at = ts,
-    }, nil
+    } :: NodeRow, nil
 end
 
 -- Update subset of fields on an existing node. Useful for turning
 -- status=running into status=passed|failed after a tool body returns.
-local function update_node(node_id, fields)
+local function update_node(node_id: any, fields: any): (any?, string?)
     if not node_id or node_id == "" then return nil, "node_id required" end
     if not fields or next(fields) == nil then return nil, "no fields to update" end
 
@@ -307,17 +310,17 @@ end
 
 -- task_writer.record(spec) -> {node_id, …}, err
 --   Thin wrapper when the caller already has task_id.
-function M.record(spec)
+function M.record(spec: any): (NodeRow?, string?)
     return insert_node(spec)
 end
 
 -- task_writer.update(node_id, fields) -> {node_id}, err
-function M.update(node_id, fields)
+function M.update(node_id: any, fields: any): (any?, string?)
     return update_node(node_id, fields)
 end
 
 -- task_writer.for_task(task_id) -> workspace handle with fluent node ops
-function M.for_task(task_id)
+function M.for_task(task_id: string): (TaskNodeWorkspace?, string?)
     if not task_id or task_id == "" then
         return nil, "task_id required"
     end
@@ -327,35 +330,37 @@ function M.for_task(task_id)
     }
 
     -- ws:record(spec)  — spec gets task_id stamped in automatically
-    function ws:record(spec)
+    function ws:record(spec: any): (NodeRow?, string?)
         spec = spec or {}
         spec.task_id = task_id
         return insert_node(spec)
     end
 
     -- ws:node(parent_node_id) -> node handle rooted at parent
-    function ws:node(parent_node_id)
+    function ws:node(parent_node_id: string?): TaskNodeHandle
         local node = {
             task_id = task_id,
             parent_node_id = parent_node_id,
         }
-        function node:add(spec)
+        function node:add(spec: any): (NodeRow?, string?)
             spec = spec or {}
             spec.task_id = task_id
             spec.parent_node_id = parent_node_id
-            return insert_node(spec)
+            local row, err = insert_node(spec)
+            if not row then return nil, err end
+            return row :: NodeRow, nil
         end
         -- Chain: returns a node handle rooted at the just-inserted child.
-        function node:open(spec)
+        function node:open(spec: any): (TaskNodeHandle?, string?, NodeRow?)
             local row, err = node:add(spec)
             if err then return nil, err end
-            return ws:node(row.node_id), nil, row
+            return ws:node(row.node_id) :: TaskNodeHandle, nil, row
         end
-        return node
+        return node :: TaskNodeHandle
     end
 
     -- ws:update(node_id, fields)
-    function ws:update(node_id, fields)
+    function ws:update(node_id: any, fields: any): (any?, string?)
         return update_node(node_id, fields)
     end
 

@@ -35,19 +35,6 @@ entries:
       server: gateway
     prefix: /api
 
-  - name: dep.userspace.users
-    kind: ns.dependency
-    meta:
-      description: Userspace user tables and default admin seed for Keeper tests
-    component: userspace/users
-    parameters:
-      - name: env_storage
-        value: app.env:store
-      - name: public_router
-        value: app:api.public
-      - name: router
-        value: app:api
-
   - name: dep.userspace.uploads
     kind: ns.dependency
     meta:

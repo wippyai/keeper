@@ -18,6 +18,9 @@ local consts = {
         STAGING_FS_ID = "keeper.components:staging_fs",
         -- Read-only sibling repos (..) used to resolve linked origin sources
         SIBLINGS_FS_ID = "keeper.components:siblings_fs",
+        -- Read-only workspace root (../..) reaching modules two hops out
+        -- (e.g. ../../providers, ../../chestor) referenced by lock replacements.
+        REPO_FS_ID = "keeper.components:repo_fs",
     },
 
     -- Paths (all relative to the project root / project_fs)

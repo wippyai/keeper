@@ -1,6 +1,6 @@
 organization: keeper
 module: keeper
-version: 0.5.33
+version: 0.5.37
 description: Keeper control plane for Wippy development, governance, agents, tasks, MCP, and runtime operations
 license: BSL-1.1
 repository: https://github.com/wippyai/keeper
@@ -18,3 +18,16 @@ embed:
   - "ui_static_fs"
   - "git_static_fs"
   - "wippy_monaco_static_fs"
+exclude:
+  - "frontend/applications/**/node_modules/**"
+  - "frontend/applications/**/node_modules:**"
+  - "frontend/web-components/**/node_modules/**"
+  - "frontend/web-components/**/node_modules:**"
+  - "plugins/*/frontend/applications/**/node_modules/**"
+  - "plugins/*/frontend/applications/**/node_modules:**"
+  - "frontend/applications/**/coverage/**"
+  - "frontend/applications/**/coverage:**"
+  - "frontend/web-components/**/coverage/**"
+  - "frontend/web-components/**/coverage:**"
+  - "plugins/*/frontend/applications/**/coverage/**"
+  - "plugins/*/frontend/applications/**/coverage:**"

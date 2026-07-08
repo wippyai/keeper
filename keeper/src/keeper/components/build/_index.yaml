@@ -44,6 +44,7 @@ entries:
       - json
       - fs
       - yaml
+      - registry
     imports:
       consts: keeper.components:consts
     

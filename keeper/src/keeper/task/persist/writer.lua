@@ -17,9 +17,9 @@ local builder_mt = { __index = builder_methods }
 
 type TaskBuilder = {
     _commands: {unknown},
-    _task_id: string,
+    _task_id: any,
     update_task: (TaskBuilder, {[string]: unknown}) -> TaskBuilder,
-    execute: (TaskBuilder) -> ({task_id: string, results: {unknown}, changes_made: boolean}?, string?),
+    execute: (TaskBuilder) -> ({task_id: any, results: {unknown}, changes_made: boolean}?, string?),
 }
 
 local CMD = {
@@ -27,38 +27,38 @@ local CMD = {
     UPDATE_TASK = "update_task",
 }
 
-local function get_db()
+local function get_db(): (any?, string?)
     local db, err = sql.get(consts.DATABASE.RESOURCE_ID)
     if err then return nil, consts.ERRORS.DB_ERROR .. ": " .. tostring(err) end
     return db, nil
 end
 
-local function now()
+local function now(): string
     return time.now():format("2006-01-02T15:04:05Z")
 end
 
-local function new_id()
+local function new_id(): (string?, string?)
     local id, err = uuid.v7()
-    if err then return nil, err end
+    if err then return nil, tostring(err) end
     return id, nil
 end
 
-local function encode_metadata(metadata)
+local function encode_metadata(metadata: any): (string?, string?)
     if not metadata then return nil end
     local encoded, err = json.encode(metadata)
     if err then return nil, "metadata encode: " .. tostring(err) end
     return encoded, nil
 end
 
-local function publish(event, data)
+local function publish(event: any, data: any): ()
     pcall(function()
         notify.publish(consts.TOPIC, { event = event, data = data })
     end)
 end
 
-local handlers = {}
+local handlers: { [string]: (any, any) -> (any?, string?) } = {}
 
-handlers[CMD.CREATE_TASK] = function(tx, cmd)
+handlers[CMD.CREATE_TASK] = function(tx: any, cmd: any): (any?, string?)
     local p = cmd.payload
     local task_id = p.task_id or new_id()
     if not task_id then return nil, "uuid generation failed" end
@@ -86,7 +86,7 @@ handlers[CMD.CREATE_TASK] = function(tx, cmd)
     }
 end
 
-handlers[CMD.UPDATE_TASK] = function(tx, cmd)
+handlers[CMD.UPDATE_TASK] = function(tx: any, cmd: any): (any?, string?)
     local p = cmd.payload
     local sets, params = { "updated_at = ?" }, { now() }
 
@@ -136,7 +136,7 @@ handlers[CMD.UPDATE_TASK] = function(tx, cmd)
     }
 end
 
-function task_writer.create_task(spec)
+function task_writer.create_task(spec: any): TaskBuilder
     if not spec or not spec.title or spec.title == "" then
         error("title is required for create_task")
     end
@@ -160,23 +160,23 @@ function task_writer.create_task(spec)
     return b :: TaskBuilder
 end
 
-function task_writer.for_task(task_id)
+function task_writer.for_task(task_id: any): TaskBuilder
     return setmetatable({
         _commands = {},
         _task_id  = task_id,
     }, builder_mt) :: TaskBuilder
 end
 
-function builder_methods:update_task(updates)
+function builder_methods:update_task(updates: any): TaskBuilder
     updates.task_id = self._task_id
     table.insert(self._commands, {
         type    = CMD.UPDATE_TASK,
         payload = updates,
     })
-    return self
+    return self :: TaskBuilder
 end
 
-function builder_methods:execute()
+function builder_methods:execute(): ({ task_id: any, results: { unknown }, changes_made: boolean }?, string?)
     if #self._commands == 0 then
         return { task_id = self._task_id, results = {}, changes_made = false }
     end

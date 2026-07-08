@@ -553,6 +553,52 @@ end
 local function define_tests()
     describe("keeper.hub service", function()
         describe("lockfile uninstall semantics", function()
+            it("omits empty optional sequence fields when encoding wippy.lock", function()
+                local captured
+                local yaml_mod = {
+                    encode = function(doc)
+                        captured = doc
+                        return "encoded-lock", nil
+                    end,
+                }
+
+                local content, encode_err = lockfile.encode(yaml_mod, {
+                    directories = { modules = ".wippy", src = "." },
+                    modules = {
+                        { name = "wippy/dummy", version = "0.1.0", hash = "abc" },
+                    },
+                    replacements = {},
+                })
+
+                test.is_nil(encode_err)
+                test.eq(content, "encoded-lock")
+                test.is_nil(captured.replacements)
+                test.eq(#captured.modules, 1)
+            end)
+
+            it("preserves non-empty replacement sequences when encoding wippy.lock", function()
+                local captured
+                local yaml_mod = {
+                    encode = function(doc)
+                        captured = doc
+                        return "encoded-lock", nil
+                    end,
+                }
+
+                local _, encode_err = lockfile.encode(yaml_mod, {
+                    directories = { modules = ".wippy", src = "." },
+                    modules = {},
+                    replacements = {
+                        { from = "wippy/local", to = "../local" },
+                    },
+                })
+
+                test.is_nil(encode_err)
+                test.is_nil(captured.modules)
+                test.eq(#captured.replacements, 1)
+                test.eq(captured.replacements[1].from, "wippy/local")
+            end)
+
             it("removes root and resolved transitive modules when nothing else keeps them", function()
                 local doc = {
                     modules = {
@@ -2013,6 +2059,82 @@ local function define_tests()
                     test.contains(out.overall_summary, "unavailable")
                 end)
 
+                it("accepts reviewer JSON wrapped in a markdown code fence", function()
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = security_scan_catalog(),
+                        registry = fake_registry({}),
+                        llm = {
+                            generate = function()
+                                return {
+                                    result = "```json\n" .. json.encode({
+                                        status = "clean",
+                                        summary = "No risky patterns found.",
+                                        findings = {},
+                                    }) .. "\n```",
+                                }, nil
+                            end,
+                        },
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "acme/clean", version = "v1.0.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.success, true)
+                    test.eq(out.overall_status, "clean")
+                    test.eq(out.modules[1].status, "clean")
+                    test.eq(#out.modules[1].findings, 0)
+                end)
+
+                it("reviews large modules in chunks without truncation findings", function()
+                    local calls = 0
+                    local long_source = string.rep("local ok = true\n", 5000)
+                    local scanner = security_scan.new({
+                        planner = planner,
+                        catalog = fake_catalog({
+                            ["acme/large"] = {
+                                {
+                                    id = "large-v1",
+                                    version = "v1.0.0",
+                                    entry_kinds = { "function.lua" },
+                                    inspect = {
+                                        entries = {
+                                            {
+                                                id = "acme.large:handler",
+                                                kind = "function.lua",
+                                                meta = { module = "acme/large", module_version = "v1.0.0" },
+                                                data = { source = long_source },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        }),
+                        registry = fake_registry({}),
+                        content_limit = 20000,
+                        llm = {
+                            generate = function()
+                                calls = calls + 1
+                                return {
+                                    result = json.encode({
+                                        status = "clean",
+                                        summary = "No risky patterns found.",
+                                        findings = {},
+                                    }),
+                                }, nil
+                            end,
+                        },
+                    }) :: any
+
+                    local out, err = scanner:scan({ component = "acme/large", version = "v1.0.0" })
+
+                    test.is_nil(err)
+                    test.eq(out.success, true)
+                    test.eq(out.modules[1].status, "clean")
+                    test.eq(#out.modules[1].findings, 0)
+                    test.is_true(calls > 1, "large module should be reviewed across multiple chunks")
+                end)
+
                 it("scans only new modules while reporting installed modules as skipped", function()
                     local scanner = security_scan.new({
                         planner = planner,
@@ -2152,6 +2274,242 @@ local function define_tests()
                 test.eq(plan.dependency.namespace, "app.plugins")
                 test.eq(plan.install_payload.id, "app.plugins:dummy_runtime")
                 test.eq(plan.install_payload.namespace, "app.plugins")
+            end)
+
+            it("carries forward existing dependency parameters when updating an installed component", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["kickside/models"] = {
+                            {
+                                version = "v0.1.14",
+                                requirements = {
+                                    {
+                                        name = "user_security_scope",
+                                        description = "Application security group that may reach model endpoints.",
+                                        targets = {
+                                            {
+                                                entry = "kickside.models.security:models_endpoint_access",
+                                                path = ".groups +=",
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    }),
+                    registry = fake_registry({
+                        {
+                            id = "app.deps:kickside_models",
+                            kind = "ns.dependency",
+                            meta = {},
+                            data = {
+                                component = "kickside/models",
+                                version = ">=v0.1.0",
+                                parameters = {
+                                    { name = "user_security_scope", value = "app.security:user" },
+                                },
+                            },
+                        },
+                    }),
+                }) :: any
+
+                local plan, err = svc:plan_install({
+                    component = "kickside/models",
+                    version = "v0.1.14",
+                })
+
+                test.is_nil(err)
+                test.eq(plan.dependency.id, "app.deps:kickside_models")
+                test.eq(#plan.missing_requirements, 0)
+                local req = find_requirement(plan, "kickside.models.security:user_security_scope")
+                test.not_nil(req)
+                test.eq(req.value, "app.security:user")
+                test.eq(req.value_source, "existing_bare")
+                local bare_param = find_parameter(plan.dependency.parameters, "user_security_scope")
+                test.is_nil(bare_param)
+                local planned_param = find_parameter(plan.install_payload.parameters, "kickside.models.security:user_security_scope")
+                test.not_nil(planned_param)
+                test.eq(planned_param.value, "app.security:user")
+            end)
+
+            it("uses inspected requirement entry namespaces instead of child target namespaces", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["kickside/models"] = {
+                            {
+                                version = "v0.1.14",
+                                entry_kinds = { "ns.requirement" },
+                                requirements = {
+                                    {
+                                        name = "target_db",
+                                        default = "app:db",
+                                        targets = {
+                                            { entry = "kickside.models.migrations:01_models_schema", path = ".meta.target_db" },
+                                            { entry = "kickside.models:db_config", path = ".meta.db_id" },
+                                        },
+                                    },
+                                },
+                                inspect = {
+                                    entries = {
+                                        {
+                                            id = "kickside.models:target_db",
+                                            kind = "ns.requirement",
+                                            meta = { description = "SQL database resource." },
+                                            data = {
+                                                default = "app:db",
+                                                targets = {
+                                                    { entry = "kickside.models.migrations:01_models_schema", path = ".meta.target_db" },
+                                                    { entry = "kickside.models:db_config", path = ".meta.db_id" },
+                                                },
+                                            },
+                                        },
+                                        {
+                                            id = "kickside.models.security:user_security_scope",
+                                            kind = "ns.requirement",
+                                            data = {
+                                                targets = {
+                                                    { entry = "kickside.models.security:models_endpoint_access", path = ".groups +=" },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    }),
+                    registry = fake_registry({
+                        {
+                            id = "app.deps:kickside_models",
+                            kind = "ns.dependency",
+                            data = {
+                                component = "kickside/models",
+                                parameters = {
+                                    { name = "target_db", value = "app:db" },
+                                    { name = "user_security_scope", value = "app.security:user" },
+                                },
+                            },
+                        },
+                    }),
+                }) :: any
+
+                local plan, err = svc:plan_install({
+                    component = "kickside/models",
+                    version = "v0.1.14",
+                })
+
+                test.is_nil(err)
+                test.not_nil(find_requirement(plan, "kickside.models:target_db"))
+                test.not_nil(find_requirement(plan, "kickside.models.security:user_security_scope"))
+                test.not_nil(find_parameter(plan.install_payload.parameters, "kickside.models:target_db"))
+                test.not_nil(find_parameter(plan.install_payload.parameters, "kickside.models.security:user_security_scope"))
+            end)
+
+            it("lets explicit update parameters override inherited dependency parameters", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["kickside/models"] = {
+                            {
+                                version = "v0.1.14",
+                                requirements = {
+                                    {
+                                        name = "user_security_scope",
+                                        targets = {
+                                            {
+                                                entry = "kickside.models.security:models_endpoint_access",
+                                                path = ".groups +=",
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    }),
+                    registry = fake_registry({
+                        {
+                            id = "app.deps:kickside_models",
+                            kind = "ns.dependency",
+                            meta = {},
+                            data = {
+                                component = "kickside/models",
+                                version = ">=v0.1.0",
+                                parameters = {
+                                    { name = "user_security_scope", value = "app.security:user" },
+                                },
+                            },
+                        },
+                    }),
+                }) :: any
+
+                local plan, err = svc:plan_install({
+                    component = "kickside/models",
+                    version = "v0.1.14",
+                    parameters = {
+                        { name = "kickside.models.security:user_security_scope", value = "tenant.security:members" },
+                    },
+                })
+
+                test.is_nil(err)
+                local req = find_requirement(plan, "kickside.models.security:user_security_scope")
+                test.not_nil(req)
+                test.eq(req.value, "tenant.security:members")
+                test.eq(req.value_source, "provided")
+                local param = find_parameter(plan.install_payload.parameters, "kickside.models.security:user_security_scope")
+                test.not_nil(param)
+                test.eq(param.value, "tenant.security:members")
+            end)
+
+            it("normalizes direct module-scoped update parameters to requirement namespaces", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["kickside/models"] = {
+                            {
+                                version = "v0.1.14",
+                                requirements = {
+                                    {
+                                        name = "user_security_scope",
+                                        targets = {
+                                            {
+                                                entry = "kickside.models.security:models_endpoint_access",
+                                                path = ".groups +=",
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    }),
+                    registry = fake_registry({
+                        {
+                            id = "app.deps:kickside_models",
+                            kind = "ns.dependency",
+                            meta = {},
+                            data = {
+                                component = "kickside/models",
+                                version = ">=v0.1.0",
+                                parameters = {
+                                    { name = "user_security_scope", value = "app.security:user" },
+                                },
+                            },
+                        },
+                    }),
+                }) :: any
+
+                local plan, err = svc:plan_install({
+                    component = "kickside/models",
+                    version = "v0.1.14",
+                    parameters = {
+                        { name = "kickside.models:user_security_scope", value = "tenant.security:members" },
+                    },
+                })
+
+                test.is_nil(err)
+                local req = find_requirement(plan, "kickside.models.security:user_security_scope")
+                test.not_nil(req)
+                test.eq(req.value, "tenant.security:members")
+                test.eq(req.value_source, "provided_module")
+                local param = find_parameter(plan.install_payload.parameters, "kickside.models.security:user_security_scope")
+                test.not_nil(param)
+                test.eq(param.value, "tenant.security:members")
             end)
 
             it("places new dependencies in the strongest existing dependency namespace cluster", function()
@@ -3382,6 +3740,57 @@ local function define_tests()
                 test.eq(details.conflicts["1"].module, "kickside/component")
                 test.eq(details.conflicts["1"].installed_constraint, "0.1.2")
                 test.eq(details.conflicts["1"].resolved_version, "0.1.8")
+            end)
+
+            it("does not let stale duplicate exact rows override an unbounded root dependency", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["spiralscout/pim"] = {
+                            {
+                                version = "0.1.0",
+                                dependencies = {
+                                    { org = "wippy", name = "migration", version_constraint = "0.3.17" },
+                                },
+                            },
+                        },
+                        ["wippy/migration"] = {
+                            {
+                                version = "0.3.17",
+                                dependencies = {
+                                    { org = "wippy", name = "bootloader", version_constraint = "0.3.13" },
+                                },
+                            },
+                        },
+                        ["wippy/bootloader"] = {
+                            { version = "0.3.12" },
+                            { version = "0.3.13" },
+                        },
+                    }),
+                    registry = fake_registry({
+                        {
+                            id = "app.deps:bootloader",
+                            kind = "ns.dependency",
+                            meta = {},
+                            data = { component = "wippy/bootloader", version = "*" },
+                        },
+                        {
+                            id = "app.deps:bootloader",
+                            kind = "ns.dependency",
+                            meta = {},
+                            data = { component = "wippy/bootloader", version = "0.3.12" },
+                        },
+                    }),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({
+                    component = "spiralscout/pim",
+                    version = "0.1.0",
+                })
+
+                test.is_nil(plan_err)
+                local nodes = {}
+                for _, node in ipairs(plan.graph) do nodes[node.module] = node end
+                test.eq(nodes["wippy/bootloader"].version, "0.3.13")
             end)
 
             it("plans a compatible version against installed root constraints with correct flags", function()

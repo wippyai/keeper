@@ -308,7 +308,12 @@ end
 
 function M.encode(yaml_mod, lock_doc, path)
     path = path or M.LOCK_PATH
-    local encoded, encode_err = yaml_mod.encode(lock_doc, {
+    local doc = {}
+    for k, v in pairs(lock_doc or {}) do doc[k] = v end
+    if type(doc.modules) == "table" and #doc.modules == 0 then doc.modules = nil end
+    if type(doc.replacements) == "table" and #doc.replacements == 0 then doc.replacements = nil end
+
+    local encoded, encode_err = yaml_mod.encode(doc, {
         field_order = { "directories", "modules", "replacements", "name", "version", "hash", "from", "to" },
         sort_unordered = true,
     })

@@ -8,10 +8,26 @@
 local fs = require("fs")
 local json = require("json")
 local yaml = require("yaml")
+local registry = require("registry")
 
 local consts = require("consts")
 
 local M = {}
+
+-- Registry meta.type -> scanner kind. These are the registered UI surfaces the
+-- registry is authoritative about; the scanner links each back to its source
+-- package so it stays editable/buildable. No path is assumed: source location
+-- comes from the lock replacement map, never a fixed folder.
+local REGISTRY_KINDS = {
+    ["view.component"] = "widget",
+    ["view.page"]      = "app",
+}
+
+-- Subdirectories searched (in order) under a module root for its FE source
+-- package. The first directory holding a wippy-component package.json wins.
+-- The module root itself is searched first, then conventional UI subdirs, then
+-- any immediate child directory — so a relocated package is still found.
+local PKG_SEARCH_HINTS = { "", "/ui", "/frontend", "/web" }
 
 local MODULE_OWNED_APP_SLUGS = {
     ["keeper/keeper"] = { keeper = true },
@@ -393,6 +409,209 @@ local function describe_component(vol, rel_dir, kind_hint)
     return desc
 end
 
+-- Parse wippy.lock replacements into { [module_name] = to_path }. This is the
+-- module manifest the runtime itself uses to locate modules; the scanner reuses
+-- it so source locations are never hardcoded.
+local function lock_replacements(vol)
+    local out = {}
+    if not vol or not vol:exists("wippy.lock") then return out end
+    local content = vol:readfile("wippy.lock")
+    if type(content) ~= "string" or content == "" then return out end
+    local ok, decoded = pcall(yaml.decode, content)
+    if not ok or type(decoded) ~= "table" then return out end
+    local reps = decoded.replacements or decoded.replace
+    if type(reps) ~= "table" then return out end
+    for _, r in ipairs(reps) do
+        if type(r) == "table" and type(r.from) == "string" and type(r.to) == "string" then
+            out[r.from] = r.to
+        end
+    end
+    return out
+end
+
+-- Namespace prefix a module owns. Module names are org/name(/...); the runtime
+-- namespace replaces '/' with '.' and '-' with '_', matching registry id ns.
+local function module_ns_prefix(module_name)
+    return (module_name:gsub("/", "."):gsub("%-", "_"))
+end
+
+-- Resolve a lock 'to:' path (relative to the project root) to a readable volume
+-- plus the path within it. One parent hop lands in the monorepo dir
+-- (siblings_fs); two hops in the workspace root (repo_fs). Returns vol, rel.
+local function resolve_source(to_path)
+    if type(to_path) ~= "string" or to_path == "" then return nil end
+    local hops, p = 0, to_path
+    while p:sub(1, 3) == "../" do hops = hops + 1; p = p:sub(4) end
+    if p == "" or p:find("%.%.") then return nil end
+    local vol_id = hops <= 1 and consts.FS.SIBLINGS_FS_ID or consts.FS.REPO_FS_ID
+    local vol = fs.get(vol_id)
+    if not vol then return nil end
+    return vol, p
+end
+
+-- Find the FE source package inside a module: the first directory holding a
+-- package.json with the wippy-component spec. Returns (pkg_dir, suffix, pkg)
+-- where suffix is the package dir relative to the module root.
+local function find_module_pkg(vol, mod_rel)
+    if not vol:exists(mod_rel) or not vol:isdir(mod_rel) then return nil end
+    local function try(dir, suffix)
+        local pkg_path = dir .. "/package.json"
+        if not vol:exists(pkg_path) then return nil end
+        local content = vol:readfile(pkg_path)
+        if not content then return nil end
+        local ok, pkg = pcall(json.decode, content)
+        if ok and type(pkg) == "table" and pkg.specification == consts.COMPONENT_SPEC then
+            return dir, suffix, pkg
+        end
+        return nil
+    end
+    for _, hint in ipairs(PKG_SEARCH_HINTS) do
+        local dir = hint == "" and mod_rel or (mod_rel .. hint)
+        local d, s, pkg = try(dir, hint)
+        if d then return d, s, pkg end
+    end
+    for entry in vol:readdir(mod_rel) do
+        if entry.type == "directory" and not consts.SOURCE_SKIP_DIRS[entry.name] then
+            local d, s, pkg = try(mod_rel .. "/" .. entry.name, "/" .. entry.name)
+            if d then return d, s, pkg end
+        end
+    end
+    return nil
+end
+
+-- Build a descriptor for one module that registers UI surfaces, linking it to
+-- its on-disk source package (editable) when resolvable, otherwise read-only.
+function M.describe_registry_module(rec)
+    local m = rec.module
+    local desc = {
+        id = m.name,
+        kind = rec.kind,
+        module = m.name,
+        -- Always a non-empty string: the UI derives a basename via path:split("/").
+        -- Read-only (source-less) modules keep the lock target dir; editable ones
+        -- override this below with the resolved package path.
+        path = m.to or m.name,
+        title = m.name:match("[^/]+$") or m.name,
+        description = "",
+        version = nil,
+        tag_name = rec.tags[1] and rec.tags[1].tag_name,
+        tags = rec.tags,
+        registered = #rec.tags,
+        toolchain = "",
+        scripts = {},
+        out_dir = nil,
+        peer_deps = {},
+        dependencies = {},
+        editable = false,
+        link_kind = "registry",
+        is_main_app = false,
+        built = false,
+        size_bytes = 0,
+        last_built = 0,
+        source_bytes = 0,
+        source_mtime = 0,
+        docs = {},
+        readme_path = nil,
+        thumbnail_url = "",
+        origin = nil,
+    }
+
+    local vol, mod_rel = resolve_source(m.to)
+    if vol then
+        local pkg_dir, suffix, pkg = find_module_pkg(vol, mod_rel)
+        if pkg_dir and pkg then
+            local w = pkg.wippy or {}
+            local s = w.scripts or {}
+            desc.editable = true
+            desc.link_kind = "module"
+            desc.id = pkg.name or m.name
+            desc.title = w.title or pkg.title or pkg.name or desc.title
+            desc.description = pkg.description or w.description or ""
+            desc.version = pkg.version
+            desc.tag_name = w.tagName or desc.tag_name
+            desc.props_schema = w.props
+            desc.toolchain = w.toolchain or consts.DEFAULT_TOOLCHAIN
+            desc.scripts = { build = s.build, test = s.test, dev = s.dev }
+            desc.peer_deps = pkg.peerDependencies or {}
+            desc.dependencies = pkg.dependencies or {}
+            desc.out_dir = w.outDir
+            -- component_path handed to the build runner: project-root relative,
+            -- ../-aware, so docker mounts the right tree and vite self-places.
+            desc.path = m.to .. suffix
+            desc.source_bytes = count_dir_bytes(vol, pkg_dir, consts.SOURCE_SKIP_DIRS)
+            desc.source_mtime = newest_mtime(vol, pkg_dir, consts.SOURCE_SKIP_DIRS)
+            for _, name in ipairs({ "README.md", "readme.md", "Readme.md" }) do
+                local p = pkg_dir .. "/" .. name
+                if vol:exists(p) then desc.readme_path = p; break end
+            end
+        end
+    end
+    return desc
+end
+
+-- Discover every registered UI surface (view.component / view.page) from the
+-- registry and link each owning module to its source package. The registry is
+-- the source of truth for what exists; the lock map locates the source.
+function M.scan_registry(project)
+    local out = { app = {}, widget = {} }
+    local reps = lock_replacements(project)
+
+    local mods = {}
+    for name, to_path in pairs(reps) do
+        table.insert(mods, { name = name, to = to_path, ns = module_ns_prefix(name) })
+    end
+    -- Longest namespace prefix wins, so a sub-module is preferred over its parent.
+    table.sort(mods, function(a, b) return #a.ns > #b.ns end)
+
+    local function owner_of(ns)
+        for _, m in ipairs(mods) do
+            if ns == m.ns or ns:sub(1, #m.ns + 1) == (m.ns .. ".") then return m end
+        end
+        return nil
+    end
+
+    local by_module = {}
+    -- Attribute an entry to its owning module. The runtime stamps meta.module
+    -- (org/mod) on every entry — authoritative, no naming convention. Fall back
+    -- to namespace-prefix matching only when that stamp is absent. Source is
+    -- resolvable only for modules carried by a lock replacement (our locals);
+    -- this also keeps the host app (no replacement) out of the registry list.
+    local function attribute(e, kind)
+        local mod_name = e.meta and e.meta.module
+        if type(mod_name) ~= "string" or mod_name == "" then
+            local pok, parts = pcall(registry.parse_id, e.id)
+            local ns = (pok and parts) and parts.ns or ""
+            local m = owner_of(ns)
+            mod_name = m and m.name or nil
+        end
+        local to = mod_name and reps[mod_name] or nil
+        if not mod_name or not to then return end
+        local rec = by_module[mod_name]
+        if not rec then
+            rec = { module = { name = mod_name, to = to }, kind = kind, tags = {} }
+            by_module[mod_name] = rec
+        end
+        table.insert(rec.tags, {
+            id = e.id,
+            tag_name = e.meta and e.meta.tag_name,
+            title = e.meta and (e.meta.title or e.meta.name),
+            icon = e.meta and e.meta.icon,
+        })
+    end
+    for meta_type, kind in pairs(REGISTRY_KINDS) do
+        local ok, found = pcall(registry.find, { ["meta.type"] = meta_type })
+        if ok and type(found) == "table" then
+            for _, e in ipairs(found) do attribute(e, kind) end
+        end
+    end
+
+    for _, rec in pairs(by_module) do
+        local desc = M.describe_registry_module(rec)
+        if desc then table.insert(out[rec.kind], desc) end
+    end
+    return out
+end
+
 -- Scan all components and kit docs. Returns a structured result.
 function M.scan()
     local vol, err = get_fs()
@@ -467,6 +686,20 @@ function M.scan()
             local desc = describe_prebuilt(vol, consts.PATHS.VENDORED_WC_ROOT .. "/" .. name, "widget")
             if desc then table.insert(result.widgets, desc) end
         end
+    end
+
+    -- Registry-driven discovery: every registered UI surface across the whole
+    -- registry, linked back to its module source. Filesystem-found components
+    -- (the host app, keeper) take precedence and are not duplicated.
+    local reg = M.scan_registry(vol)
+    local seen_ids = {}
+    for _, c in ipairs(result.applications) do seen_ids[c.id] = true end
+    for _, c in ipairs(result.widgets) do seen_ids[c.id] = true end
+    for _, c in ipairs(reg.app) do
+        if not seen_ids[c.id] then table.insert(result.applications, c); seen_ids[c.id] = true end
+    end
+    for _, c in ipairs(reg.widget) do
+        if not seen_ids[c.id] then table.insert(result.widgets, c); seen_ids[c.id] = true end
     end
 
     local function rank(c)

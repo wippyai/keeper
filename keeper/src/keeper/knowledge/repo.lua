@@ -12,56 +12,79 @@ local M = {}
 M.TYPE = consts.NODE_TYPE
 M.SOURCE = consts.SOURCE
 
-local function get_db()
+type KnowledgeNode = {
+    id: string,
+    kb_id: any?,
+    parent_id: any?,
+    workspace_id: any?,
+    node_type: any?,
+    title: any?,
+    content: any?,
+    source: any?,
+    summary: any?,
+    scope_namespace: any?,
+    scope_kind: any?,
+    scope_meta_type: any?,
+    confidence: any?,
+    embedded: boolean?,
+    refs: any?,
+    metadata: any?,
+    distance: any?,
+    created_at: any?,
+    updated_at: any?,
+}
+
+local function get_db(): any
     local db_id = consts.db_id()
     local db, err = sql.get(db_id)
     if not db then error("database " .. db_id .. " is not available: " .. tostring(err or "unknown")) end
     return db
 end
 
-local function now_iso()
+local function now_iso(): string
     return time.now():format("2006-01-02T15:04:05Z")
 end
 
-local function publish(event, data)
+local function publish(event: any, data: any): ()
     pcall(function()
         notify.publish(consts.TOPIC, { event = event, data = data })
     end)
 end
 
-local function parse_json_field(val, default)
+local function parse_json_field(val: any, default: any): any
     if not val or val == "" then return default end
+    if type(val) ~= "string" then return default end
     local result, err = json.decode(val)
     if err then return default end
     return result
 end
 
-local function db_type(db)
+local function db_type(db: any): string
     local ok, t = pcall(function() return db:type() end)
-    if ok then return t end
+    if ok then return tostring(t) end
     return ""
 end
 
-local function is_postgres(db)
+local function is_postgres(db: any): boolean
     return db_type(db) == sql.type.POSTGRES
 end
 
-local function nil_to_null(v)
+local function nil_to_null(v: any): any
     if v == nil then return sql.NULL end
     return v
 end
 
-local function truthy(v)
+local function truthy(v: any): boolean
     return v == true or v == 1 or v == "1"
 end
 
-local function query_one(builder, db)
+local function query_one(builder: any, db: any): (any?, any?)
     local rows, err = builder:limit(1):run_with(db):query()
     if err or not rows or #rows == 0 then return nil, err end
     return rows[1], nil
 end
 
-local function decode_embedding(value)
+local function decode_embedding(value: any): any?
     if type(value) == "table" then return value end
     if type(value) ~= "string" or value == "" then return nil end
     local decoded, err = json.decode(value)
@@ -69,7 +92,7 @@ local function decode_embedding(value)
     return decoded
 end
 
-local function cosine_distance(a, b)
+local function cosine_distance(a: any, b: any): number?
     a = decode_embedding(a)
     b = decode_embedding(b)
     if not a or not b then return nil end
@@ -88,13 +111,13 @@ local function cosine_distance(a, b)
     return 1 - (dot / (math.sqrt(norm_a) * math.sqrt(norm_b)))
 end
 
-local function compare_distance(a, b)
+local function compare_distance(a: any, b: any): boolean
     return (a.distance or math.huge) < (b.distance or math.huge)
 end
 
 -- KB operations
 
-function M.create_kb(params)
+function M.create_kb(params: any): (any?, string?)
     if not params.name or params.name == "" then return nil, "KB name is required" end
     local db = get_db()
     local id = uuid.v4()
@@ -117,7 +140,7 @@ function M.create_kb(params)
     return kb
 end
 
-function M.list_kbs()
+function M.list_kbs(): ({ any }?, string?)
     local db = get_db()
     local rows, err = db:query([[
         SELECT k.*, COUNT(n.id) as node_count
@@ -140,26 +163,26 @@ function M.list_kbs()
     return kbs
 end
 
-function M.get_kb(id)
+function M.get_kb(id: any): any?
     local db = get_db()
     local row = query_one(sql.builder.select("*"):from("keeper_kbs"):where("id = ?", id), db)
     return row
 end
 
-function M.get_kb_by_name(name)
+function M.get_kb_by_name(name: any): any?
     local db = get_db()
     local row = query_one(sql.builder.select("*"):from("keeper_kbs"):where("name = ?", name), db)
     return row
 end
 
-function M.resolve_kb(name_or_id)
+function M.resolve_kb(name_or_id: any): any?
     if not name_or_id or name_or_id == "" then return nil end
     local kb = M.get_kb_by_name(name_or_id)
     if kb then return kb end
     return M.get_kb(name_or_id)
 end
 
-function M.update_kb(id, params)
+function M.update_kb(id: any, params: any): (any?, string?)
     local db = get_db()
     local ts = now_iso()
     local values = {}
@@ -181,7 +204,7 @@ function M.update_kb(id, params)
     return { id = id, updated_at = ts }
 end
 
-function M.delete_kb(id)
+function M.delete_kb(id: any): (any?, string?)
     if id == consts.DEFAULT_KB_ID then return nil, "Cannot delete the default knowledge base" end
     local db = get_db()
     local kb = M.get_kb(id)
@@ -209,10 +232,10 @@ end
 
 -- Node operations
 
-local function row_to_node(row)
+local function row_to_node(row: any): KnowledgeNode?
     if not row then return nil end
     return {
-        id = row.id,
+        id = tostring(row.id or ""),
         kb_id = row.kb_id,
         parent_id = row.parent_id,
         workspace_id = row.workspace_id,
@@ -230,10 +253,10 @@ local function row_to_node(row)
         metadata = parse_json_field(row.metadata, {}),
         created_at = row.created_at,
         updated_at = row.updated_at,
-    }
+    } :: KnowledgeNode
 end
 
-function M.find_by_title(kb_id, title)
+function M.find_by_title(kb_id: any, title: any): (KnowledgeNode?, string?)
     if not kb_id or not title or title == "" then return nil end
     local db = get_db()
     local rows, err = sql.builder.select("*")
@@ -248,7 +271,7 @@ function M.find_by_title(kb_id, title)
     return row_to_node(rows[1])
 end
 
-function M.create(params)
+function M.create(params: any): (KnowledgeNode?, string?)
     local kb_id = params.kb_id or consts.DEFAULT_KB_ID
     local db = get_db()
     local id = uuid.v4()
@@ -293,7 +316,7 @@ function M.create(params)
         :exec()
 
     local node = {
-        id = id,
+        id = tostring(id),
         kb_id = kb_id,
         node_type = params.node_type or M.TYPE.PATTERN,
         title = params.title or "",
@@ -301,13 +324,13 @@ function M.create(params)
         source = params.source or M.SOURCE.HUMAN,
         workspace_id = params.workspace_id,
         created_at = ts,
-    }
+    } :: KnowledgeNode
 
     publish(consts.EVENTS.NODE_CREATED, node)
     return node
 end
 
-function M.update(id, params)
+function M.update(id: any, params: any): (any?, string?)
     local db = get_db()
     local ts = now_iso()
     local values = {}
@@ -352,7 +375,7 @@ function M.update(id, params)
     return { id = id, updated_at = ts }
 end
 
-function M.delete(id)
+function M.delete(id: any): (any?, string?)
     local db = get_db()
     local node = M.get(id)
     sql.builder.update("keeper_kb_nodes")
@@ -371,7 +394,7 @@ function M.delete(id)
     return { id = id, deleted = true }
 end
 
-function M.delete_by_workspace(workspace_id)
+function M.delete_by_workspace(workspace_id: any): any
     local db = get_db()
     local rows = sql.builder.select("id")
         :from("keeper_kb_nodes")
@@ -386,7 +409,7 @@ function M.delete_by_workspace(workspace_id)
     return { workspace_id = workspace_id, deleted = count }
 end
 
-function M.get(id)
+function M.get(id: any): KnowledgeNode?
     local db = get_db()
     local rows, err = sql.builder.select("*")
         :from("keeper_kb_nodes")
@@ -397,7 +420,7 @@ function M.get(id)
     return row_to_node(rows[1])
 end
 
-function M.list(params)
+function M.list(params: any?): ({ KnowledgeNode }?, string?)
     local db = get_db()
     params = params or {}
     local q = sql.builder.select("*"):from("keeper_kb_nodes")
@@ -418,12 +441,15 @@ function M.list(params)
         :query()
     if err then return nil, "Failed to list nodes: " .. err end
 
-    local nodes = {}
-    for _, row in ipairs(rows or {}) do table.insert(nodes, row_to_node(row)) end
+    local nodes: { KnowledgeNode } = {}
+    for _, row in ipairs(rows or {}) do
+        local node = row_to_node(row)
+        if node then table.insert(nodes, node) end
+    end
     return nodes
 end
 
-function M.search_text(query, params)
+function M.search_text(query: any, params: any?): ({ KnowledgeNode }?, string?)
     local db = get_db()
     params = params or {}
     local limit = params.limit or 20
@@ -459,12 +485,15 @@ function M.search_text(query, params)
         if err then return nil, "Search failed: " .. err end
     end
 
-    local nodes = {}
-    for _, row in ipairs(rows or {}) do table.insert(nodes, row_to_node(row)) end
+    local nodes: { KnowledgeNode } = {}
+    for _, row in ipairs(rows or {}) do
+        local node = row_to_node(row)
+        if node then table.insert(nodes, node) end
+    end
     return nodes
 end
 
-function M.search_by_embedding(query_vec, params)
+function M.search_by_embedding(query_vec: any, params: any?): ({ KnowledgeNode }?, string?)
     local db = get_db()
     params = params or {}
     local limit = params.limit or 10
@@ -498,7 +527,7 @@ function M.search_by_embedding(query_vec, params)
         return nil, "Semantic search failed"
     end
 
-    local results = {}
+    local results: { KnowledgeNode } = {}
     for _, row in ipairs(rows or {}) do
         local node = M.get(row.node_id)
         if node then
@@ -511,7 +540,7 @@ function M.search_by_embedding(query_vec, params)
     return results
 end
 
-function M.stats(params)
+function M.stats(params: any?): (any?, string?)
     local db = get_db()
     params = params or {}
 
@@ -520,7 +549,7 @@ function M.stats(params)
         :group_by("node_type")
     if params.kb_id then type_q = type_q:where("kb_id = ?", params.kb_id) end
     local rows, err = type_q:run_with(db):query()
-    if err then return nil, err end
+    if err then return nil, tostring(err) end
 
     local stats = { total = 0, by_type = {}, by_source = {} }
     for _, row in ipairs(rows or {}) do
