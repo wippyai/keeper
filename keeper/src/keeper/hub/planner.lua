@@ -835,14 +835,14 @@ end
 function Planner:artifact_requirement_details(component, selected)
     if not selected then return selected, nil end
     local selected_item = selected :: VersionItem
-    if #(selected_item.requirements or {}) > 0 then
-        return selected, nil
-    end
     if not has_entry_kind(selected_item, "ns.requirement") then
         return selected, nil
     end
     local inspected, inspect_err = self:inspect_artifact(component, selected_item)
     if not inspected then
+        if #(selected_item.requirements or {}) > 0 then
+            return selected, nil
+        end
         return nil, err("INTERNAL", "hub artifact inspection failed for " .. component .. ": " .. tostring(inspect_err))
     end
 
@@ -1576,7 +1576,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
     local parameters = {}
     for _, row in ipairs(out) do
         if row.missing then table.insert(missing, row.parameter_name) end
-        if trim(row.value) ~= "" and row.invalid ~= true then
+        if row.transitive ~= true and trim(row.value) ~= "" and row.invalid ~= true then
             table.insert(parameters, { name = row.parameter_name, value = row.value })
         end
     end

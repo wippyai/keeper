@@ -2210,6 +2210,15 @@ local function define_tests()
                             {
                                 version = "v1.0.0",
                                 entry_kinds = { "ns.requirement" },
+                                requirements = {
+                                    {
+                                        name = "user_security_scope",
+                                        default = "",
+                                        targets = {
+                                            { entry = "acme.secure.security:endpoint_access", path = ".groups +=" },
+                                        },
+                                    },
+                                },
                                 inspect = {
                                     entries = {
                                         {
