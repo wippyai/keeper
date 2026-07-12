@@ -14,6 +14,11 @@ local function expect_missing(id)
     test.not_nil(err)
 end
 
+local function is_version_range(version)
+    if type(version) ~= "string" or version == "" then return false end
+    return version:find("[<>=~%^%*xX]", 1) ~= nil
+end
+
 local function define_tests()
     test.describe("keeper internal namespace conventions", function()
         test.it("keeps shared helpers under keeper.internal", function()
@@ -80,6 +85,26 @@ local function define_tests()
                 test.is_true(source:find('database%("sqlite"', 1) ~= nil, id .. " must keep sqlite support")
                 test.is_true(source:find('database%("postgres"', 1) ~= nil, id .. " must support postgres app DBs")
             end
+        end)
+
+        test.it("publishes compatible dependency ranges rather than lockfile pins", function()
+            local dependencies, err = registry.find({ [".kind"] = "ns.dependency" })
+            test.is_nil(err)
+            local keeper_dependency_count = 0
+
+            for _, dependency in ipairs(dependencies or {}) do
+                local id = tostring(dependency.id or "")
+                if id:sub(1, 11) == "keeper:dep." then
+                    keeper_dependency_count = keeper_dependency_count + 1
+                    local version = dependency.data and dependency.data.version
+                    test.is_true(is_version_range(version), id .. " must publish a version range, not an exact lockfile version")
+                end
+            end
+
+            test.eq(keeper_dependency_count, 8)
+
+            local dataflow = must_get("keeper:dep.wippy.dataflow")
+            test.eq(dataflow.data.version, ">=v0.4.10")
         end)
     end)
 end
