@@ -35,3 +35,10 @@ entries:
     meta:
       comment: Route prefix for Keeper MCP on the host app gateway
     default: /keeper-mcp/
+
+  # keeper.config:hub_security_scan_model
+  - name: hub_security_scan_model
+    kind: registry.entry
+    meta:
+      comment: Model class used for Keeper Hub security scans
+    default: class:fast
