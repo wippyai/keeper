@@ -846,18 +846,19 @@ function Planner:artifact_requirement_details(component, selected)
         return nil, err("INTERNAL", "hub artifact inspection failed for " .. component .. ": " .. tostring(inspect_err))
     end
 
+    local inspected_artifact = inspected :: any
     local merged = shallow_copy(selected_item)
-    local entry_requirements = requirements_from_entries(inspected.entries)
+    local entry_requirements = requirements_from_entries(inspected_artifact.entries)
     if #entry_requirements > 0 then
         merged.requirements = entry_requirements
     else
-        merged.requirements = inspected.requirements or {}
+        merged.requirements = inspected_artifact.requirements or {}
     end
-    merged.entry_count = inspected.entry_count or merged.entry_count
-    merged.entry_kinds = inspected.entry_kinds or merged.entry_kinds
-    merged.size_bytes = inspected.size_bytes or merged.size_bytes
-    merged.digest = inspected.digest or merged.digest
-    merged.protected = inspected.protected == true or merged.protected == true
+    merged.entry_count = inspected_artifact.entry_count or merged.entry_count
+    merged.entry_kinds = inspected_artifact.entry_kinds or merged.entry_kinds
+    merged.size_bytes = inspected_artifact.size_bytes or merged.size_bytes
+    merged.digest = inspected_artifact.digest or merged.digest
+    merged.protected = inspected_artifact.protected == true or merged.protected == true
     return merged, nil
 end
 
@@ -877,8 +878,10 @@ function Planner:inspect_artifact(component, selected)
         return nil, err("INTERNAL", "cannot inspect Hub artifact without version id or version")
     end
 
-    if self.catalog and self.catalog.versions and type(self.catalog.versions.open) == "function" then
-        local pkg, open_err = self.catalog.versions.open(component, ref)
+    local versions = self.catalog and self.catalog.versions
+    local inspect = versions and versions.inspect
+    if versions and type(versions.open) == "function" then
+        local pkg, open_err = versions.open(component, ref)
         if pkg then
             local entries, entries_err = pkg:entries({ include_data = true })
             local close_ok, close_err = pcall(function() return pkg:close() end)
@@ -892,18 +895,18 @@ function Planner:inspect_artifact(component, selected)
                     close_error = close_err,
                 }, nil
             end
-            if not self.catalog.versions.inspect then
+            if type(inspect) ~= "function" then
                 return nil, entries_err or open_err or "hub artifact entries unavailable"
             end
-        elseif not self.catalog.versions.inspect then
+        elseif type(inspect) ~= "function" then
             return nil, open_err or "hub artifact open failed"
         end
     end
 
-    if not self.catalog or not self.catalog.versions or not self.catalog.versions.inspect then
+    if type(inspect) ~= "function" then
         return nil, err("INTERNAL", "hub artifact inspection API unavailable for " .. component)
     end
-    return self.catalog.versions.inspect(component, ref)
+    return inspect(component, ref)
 end
 
 function Planner:dependency_details(component, selected)
@@ -1446,7 +1449,11 @@ function Planner:plan_requirements(graph, supplied_parameters)
         for _, req in ipairs(node.requirements or {}) do
             local name = trim(req.name)
             if name ~= "" then
-                local full_id = tostring(node.namespace or M.module_namespace(node.module) or node.module) .. ":" .. name
+                local requirement_namespace = trim(req.namespace)
+                if requirement_namespace == "" then
+                    requirement_namespace = tostring(node.namespace or M.module_namespace(node.module) or node.module)
+                end
+                local full_id = requirement_namespace .. ":" .. name
                 local value, source = find_supplied(full_id, name, node.direct)
                 local suggestions = {}
                 local suggestion_seen = {}
@@ -1519,15 +1526,16 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 end
 
                 for _, candidate in ipairs(registry_candidates) do
+                    local registry_candidate = candidate :: any
                     add_suggestion(
                         suggestions,
                         suggestion_seen,
-                        candidate.value,
-                        candidate.label or candidate.value,
+                        registry_candidate.value,
+                        registry_candidate.label or registry_candidate.value,
                         "registry",
                         nil,
-                        candidate.kind,
-                        candidate.description
+                        registry_candidate.kind,
+                        registry_candidate.description
                     )
                 end
 

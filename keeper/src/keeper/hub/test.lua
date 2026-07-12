@@ -361,13 +361,19 @@ local function fake_catalog(versions_by_component)
                     if (id ~= "" and item.id == id) or
                         (version ~= "" and item.version == version) or
                         (label ~= "" and (item.version == label or item.label == label)) then
-                        local artifact = item.open or item.inspect
+                        local artifact = item.open
                         if not artifact then return nil, "artifact unavailable" end
                         return {
                             version = item.version,
                             digest = item.digest,
                             entries = function(_, _)
                                 return artifact.entries or {}, nil
+                            end,
+                            resources = function()
+                                return artifact.resources or {}, nil
+                            end,
+                            metadata = function()
+                                return artifact.metadata or {}, nil
                             end,
                             close = function() return true end,
                         }, nil
@@ -1986,6 +1992,60 @@ local function define_tests()
                     test.eq(#out.modules[1].findings, 0)
                 end)
 
+                it("uses the fast model class by default", function()
+                    local requested_model = nil
+                    local scanner = security_scan.new({
+                        config = {
+                            read_default = function(name)
+                                test.eq(name, "hub_security_scan_model")
+                                return nil, "not configured"
+                            end,
+                        },
+                        llm = {
+                            generate = function(_, options)
+                                requested_model = options.model
+                                return { result = '{"status":"clean","findings":[]}' }, nil
+                            end,
+                        },
+                    }) :: any
+
+                    local result = scanner:review_module(
+                        { module = "acme/clean", version = "v1.0.0" },
+                        { entries = {} }
+                    )
+
+                    test.eq(result.status, "clean")
+                    test.eq(scanner.model, "class:fast")
+                    test.eq(requested_model, "class:fast")
+                end)
+
+                it("honors the declared security scan model override", function()
+                    local requested_model = nil
+                    local scanner = security_scan.new({
+                        config = {
+                            read_default = function(name)
+                                test.eq(name, "hub_security_scan_model")
+                                return "class:security", nil
+                            end,
+                        },
+                        llm = {
+                            generate = function(_, options)
+                                requested_model = options.model
+                                return { result = '{"status":"clean","findings":[]}' }, nil
+                            end,
+                        },
+                    }) :: any
+
+                    local result = scanner:review_module(
+                        { module = "acme/clean", version = "v1.0.0" },
+                        { entries = {} }
+                    )
+
+                    test.eq(result.status, "clean")
+                    test.eq(scanner.model, "class:security")
+                    test.eq(requested_model, "class:security")
+                end)
+
                 it("promotes dangerous reviewer findings to the overall status", function()
                     local scanner = security_scan.new({
                         planner = planner,
@@ -2033,6 +2093,7 @@ local function define_tests()
                     test.eq(out.modules[1].status, "error")
                     test.eq(out.modules[1].findings[1].severity, "warning")
                     test.contains(out.modules[1].findings[1].title, "Security review unavailable")
+                    test.contains(out.modules[1].findings[1].detail, "model unavailable")
                     test.contains(out.overall_summary, "unavailable")
                 end)
 
@@ -3112,8 +3173,8 @@ local function define_tests()
                 test.is_false(req.missing)
 
                 local param = find_parameter(plan.install_payload.parameters, "wippy.bootloader:env_storage")
-                test.not_nil(param)
-                test.eq(param.value, "app.env:store")
+                test.is_nil(param)
+                test.eq(plan.parameter_values["wippy.bootloader:env_storage"], "app.env:store")
             end)
 
             it("does not reuse bare existing parameters from other components", function()

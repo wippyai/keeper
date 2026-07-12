@@ -5,6 +5,7 @@ local prompt = require("prompt")
 local registry = require("registry")
 local time = require("time")
 local planner = require("planner")
+local keeper_config = require("keeper_config")
 
 local M = {}
 
@@ -54,6 +55,7 @@ type ScannerDeps = {
     catalog: unknown?,
     registry: unknown?,
     llm: unknown?,
+    config: unknown?,
     model: string?,
     max_tokens: number?,
     content_limit: number?,
@@ -61,7 +63,7 @@ type ScannerDeps = {
     time_budget_ms: number?,
 }
 
-M.DEFAULT_MODEL = "class:premium"
+M.DEFAULT_MODEL = "class:fast"
 M.DEFAULT_MAX_TOKENS = 2000
 M.DEFAULT_CONTENT_LIMIT = 60000
 M.DEFAULT_MAX_MODULES = 40
@@ -98,6 +100,19 @@ local SYSTEM_PROMPT = table.concat({
 
 local function trim(value: unknown): string
     return string.match(tostring(value or ""), "^%s*(.-)%s*$") or ""
+end
+
+local function resolve_model(deps: ScannerDeps): string
+    local explicit = trim(deps.model)
+    if explicit ~= "" then return explicit end
+
+    local config = deps.config or keeper_config
+    if type(config) == "table" and type(config.read_default) == "function" then
+        local configured = config.read_default("hub_security_scan_model")
+        configured = trim(configured)
+        if configured ~= "" then return configured end
+    end
+    return M.DEFAULT_MODEL
 end
 
 local function now_ms(): number
@@ -181,10 +196,10 @@ end
 local function entry_source(entry: unknown): string
     if type(entry) ~= "table" then return "" end
     local data = type(entry.data) == "table" and entry.data or {}
-    return trim(entry.source) ~= "" and tostring(entry.source)
-        or (trim(data.source) ~= "" and tostring(data.source))
-        or (trim(entry.content) ~= "" and tostring(entry.content))
-        or (trim(data.content) ~= "" and tostring(data.content))
+    return entry.source ~= nil and tostring(entry.source)
+        or (data.source ~= nil and tostring(data.source))
+        or (entry.content ~= nil and tostring(entry.content))
+        or (data.content ~= nil and tostring(data.content))
         or ""
 end
 
@@ -389,7 +404,7 @@ function M.new(deps: ScannerDeps?)
         catalog = d.catalog or hub_sdk,
         registry = d.registry or registry,
         llm = d.llm or llm,
-        model = d.model or M.DEFAULT_MODEL,
+        model = resolve_model(d),
         max_tokens = d.max_tokens or M.DEFAULT_MAX_TOKENS,
         content_limit = d.content_limit or M.DEFAULT_CONTENT_LIMIT,
         max_modules = d.max_modules or M.DEFAULT_MAX_MODULES,

@@ -59,6 +59,7 @@ entries:
       - registry
       - time
     imports:
+      keeper_config: keeper:config
       llm: wippy.llm:llm
       planner: keeper.hub:planner
       prompt: wippy.llm:prompt
