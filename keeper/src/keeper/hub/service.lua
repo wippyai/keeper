@@ -398,9 +398,21 @@ function Service:find_entries(criteria)
     return rows or {}, nil
 end
 
+local function is_not_found_error(e)
+    if e == nil then return false end
+    local ok, kind = pcall(function() return (e :: any):kind() end)
+    if ok and (kind == errors.NOT_FOUND or tostring(kind) == tostring(errors.NOT_FOUND)) then
+        return true
+    end
+    return string.find(string.lower(tostring(e)), "not found", 1, true) ~= nil
+end
+
 function Service:get_entry(id)
     local entry, get_err = self.registry.get(id)
     if get_err then
+        if is_not_found_error(get_err) then
+            return nil, err("NOT_FOUND", "entry not found: " .. tostring(id))
+        end
         return nil, err("INTERNAL", "registry.get failed for " .. tostring(id) .. ": " .. tostring(get_err))
     end
     if not entry then
@@ -727,15 +739,6 @@ function Service:current_registry_version()
         return nil, err("INTERNAL", "failed to snapshot registry version: " .. tostring(version_err or "nil version"))
     end
     return version, nil
-end
-
-local function is_not_found_error(e)
-    if e == nil then return false end
-    local ok, kind = pcall(function() return (e :: any):kind() end)
-    if ok and (kind == errors.NOT_FOUND or tostring(kind) == tostring(errors.NOT_FOUND)) then
-        return true
-    end
-    return string.find(string.lower(tostring(e)), "not found", 1, true) ~= nil
 end
 
 function Service:dependency_create_or_update_op(entry)

@@ -21,11 +21,13 @@ and process restarts.
 
 ### Verification
 
-- `keeper.hub:test` passed 104/104.
+- `keeper.hub:test` passed 105/105.
 - Governance changeset, sync, and service suites passed 94/94.
 - Keeper lint checked 375 entries with no errors.
-- Isolated local-binary E2E passed install, redundant-root uninstall,
-  undo/redo source reconciliation, and restart persistence.
+- Three isolated fresh-app local-binary runs each downloaded 44 locked modules
+  into a new state directory, then passed unsafe-write rejection, idempotent
+  install, shared and standalone uninstall, three undo/redo cycles, source
+  reconciliation, and restart persistence.
 
 ## keeper/keeper 0.5.58
 

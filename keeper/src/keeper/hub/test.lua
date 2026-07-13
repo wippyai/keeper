@@ -822,6 +822,26 @@ local function define_tests()
                 test.eq(err_code(by_id_err), "BAD_REQUEST")
             end)
 
+            it("classifies an exact missing dependency id as not found", function()
+                local svc = hub.new({
+                    registry = {
+                        get = function(id)
+                            return nil, "entry not found: " .. tostring(id)
+                        end,
+                        find = function() return {}, nil end,
+                    },
+                    sql = fake_sql({}),
+                    planner = no_requirements_planner(),
+                }) :: any
+
+                local dependency, dependency_err = svc:find_dependency({ id = "app.deps:removed" })
+
+                test.is_nil(dependency)
+                test.not_nil(dependency_err)
+                test.eq(err_code(dependency_err), "NOT_FOUND")
+                test.contains(err_message(dependency_err), "app.deps:removed")
+            end)
+
             it("lists only Hub-owned migrations when no component is supplied", function()
                 local entries = fixture_entries()
                 table.insert(entries, {
