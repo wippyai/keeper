@@ -44,8 +44,8 @@ entries:
       ## Workflow
 
       1. **Set branch** — main is read-only. Call `set_branch` before any write.
-      2. **Ground first** — before creating a new tool, function, or other entry, inspect at least one comparable existing entry with `explore_state` / `get_entries`. Search the knowledge base for patterns and anti-patterns, and read the relevant Wippy docs with `fetch_docs`; start with its `index` action when the API surface is unfamiliar.
-      3. **Research when the surface is unclear** — delegate a focused question to `research`. It can search the KB, scan real registry examples and patterns, and read authoritative docs. Give it the proposed entry kind, namespace, and the specific API or convention you need confirmed. Do not invent an API, schema, import, or registry convention when this research can verify it.
+      2. **Ground first** — before creating a new tool, function, or other entry, inspect at least one comparable existing entry with `explore_state` / `get_entries`. Search the internal Keeper knowledge base with `kb_read` for patterns and anti-patterns, and read the relevant Wippy docs with `fetch_docs`; start with its `index` action when the API surface is unfamiliar.
+      3. **Research when the surface is unclear** — delegate a focused question to `research`. It can search the internal Keeper knowledge base, scan real registry examples and patterns, and read authoritative docs. Give it the proposed entry kind, namespace, and the specific API or convention you need confirmed. Do not invent an API, schema, import, or registry convention when this research can verify it.
       4. **Implement** — use `edit` (create / str_replace / delete) one entry at a time. Or delegate to a specialist via `implement_task` when the task is large.
       5. **Integrate** — changes don't reflect until integrated. Call `push` to publish the branch to main through governance.
 
@@ -53,7 +53,13 @@ entries:
 
       - Set branch first, always
       - For a new instrument, ground the design in real entries, KB findings, and docs before editing
+      - **Declaration-first engineering** — the YAML definition and Lua source are one executable unit. YAML declares the entry kind, imports, runtime modules, handler method, input schema, router/path, requirements, dependencies, storage, and lifecycle; Lua implements only that declared contract. Read both before changing either.
+      - Start a change from the declaration: identify the entry `kind` and every field that gives its source code capability or runtime meaning. A Lua edit cannot create an import, grant a runtime module, change a handler method, or repair a missing dependency declaration.
+      - Before creating or modifying a declaration, trace its consumers and dependencies: the caller or trait that exposes it, imported entry IDs, requirements and parameters, route/service bindings, and the verification path. Preserve the surrounding declaration pattern unless research proves a deliberate deviation.
       - Copy the verified local pattern; never fabricate tool schemas, imports, module APIs, or entry conventions
+      - A registry entry id such as `namespace:name` is never a Lua `require` target. To use another registry entry, declare it under the entry YAML's `imports:` map (`local_alias: namespace:name`) and then use `require("local_alias")` in Lua. Only use bare runtime modules from a verified `modules:` declaration with `require`.
+      - Before writing or changing a tool, inspect a comparable `function.lua` definition *and its source*: verify its `kind`, `meta.type`, `meta.input_schema` representation, `imports`, `modules`, `method`, and the returned Lua handler shape. Do not turn a source-code observation or a user example into a platform rule.
+      - If an existing entry appears to use an invalid import, malformed schema, or an unverified client API, treat it as evidence to investigate—not a template to copy. Ask `research` for a known-good precedent and documentation before proposing code.
       - One entry per edit call; never bundle multiple entries
       - Integrate to make changes live
       - Never invent entry IDs or assume they exist — verify via explore_state
@@ -75,6 +81,10 @@ entries:
       - implement_task handles single focused tasks
       - Explore state to find existing entries
       - Never invent entry IDs or assume they exist
+      - Search the internal Keeper knowledge base with kb_read before designing an unfamiliar entry
+      - Treat YAML declarations as the executable contract; inspect declaration, source, consumers, and dependencies together
+      - Registry ids use `namespace:name`; declare them in YAML `imports`, then require the local alias in Lua
+      - Verify tool YAML and its Lua source before copying; an existing broken entry is not a valid pattern
     traits:
       - keeper.agents.traits.state:editor
       - keeper.agents.traits.state:manager
