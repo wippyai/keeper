@@ -35,9 +35,8 @@ export interface HubDependency {
   meta?: Record<string, any>
 }
 
-// A dependency the list endpoint reports as an installed root: it appears in
-// wippy.lock as a directly requested component, and `used_by` names the other
-// installed modules that also reach it.
+// A dependency the list endpoint reports as an installed registry root;
+// `used_by` names the other installed modules that also reach it.
 export interface DependencyRoot extends HubDependency {
   is_root?: boolean
   used_by?: string[]
@@ -126,8 +125,8 @@ export interface HubInstallPlanNode {
   digest?: string
   yanked?: boolean
   protected?: boolean
-  // Resolution state relative to the current wippy.lock, filled by the planner.
-  // installed: this module is already present in the lock; shared: it is already
+  // Resolution state relative to the committed registry, filled by the planner.
+  // installed: this module is already present; shared: it is already
   // reached from another installed root, so installing here only reuses it.
   installed?: boolean
   shared?: boolean

@@ -1,9 +1,6 @@
 local registry = require("registry")
 local hub_sdk = require("hub")
 local gov_consts = require("gov_consts")
-local fs = require("fs")
-local yaml = require("yaml")
-local lockfile = require("lockfile")
 
 type ServiceError = unknown
 type Parameter = { name: string, value: string }
@@ -78,17 +75,11 @@ type PlannerDeps = {
     registry: unknown?,
     catalog: unknown?,
     gov: unknown?,
-    fs: unknown?,
-    yaml: unknown?,
-    lockfile: unknown?,
 }
 type PlannerInstance = {
     registry: unknown,
     catalog: unknown,
     gov: unknown,
-    fs: unknown,
-    yaml: unknown,
-    lockfile: unknown,
     version_cache: {[string]: {VersionItem}},
     plan_install: (PlannerInstance, unknown) -> (unknown, unknown?),
 }
@@ -102,7 +93,6 @@ M.DEFAULT_DEP_NAMESPACE = "app.deps"
 M.DEFAULT_VERSION = ">=v0.0.0"
 M.DEFAULT_PLAN_MAX_DEPTH = 10
 M.DEFAULT_PLAN_MAX_MODULES = 200
-M.PROJECT_FS_ID = "keeper.components:project_fs"
 
 local function trim(value: unknown): string
     return string.match(tostring(value or ""), "^%s*(.-)%s*$") or ""
@@ -642,9 +632,6 @@ function M.new(deps: PlannerDeps?)
         registry = deps.registry or registry,
         catalog = deps.catalog or hub_sdk,
         gov = deps.gov or gov_consts,
-        fs = deps.fs or fs,
-        yaml = deps.yaml or yaml,
-        lockfile = deps.lockfile or lockfile,
         version_cache = {},
     }, Planner) :: PlannerInstance
 end
@@ -668,8 +655,8 @@ function Planner:dependency_entries()
     return out, nil
 end
 
--- Precomputes the two per-node install-graph flags:
---   lock_names:   modules already recorded in the current wippy.lock (installed)
+-- Precomputes the two per-node install-graph flags from live registry state:
+--   installed_names: modules represented by module-owned registry entries
 --   shared_names: modules already reachable from an EXISTING deployment root
 --                 other than the one being installed, walking the same offline
 --                 installed edges the closure resolver uses. A node in this set
@@ -677,15 +664,11 @@ end
 function Planner:install_graph_context(component)
     local exclude = trim(component)
 
-    local lock_names = {}
-    if self.fs and self.lockfile and self.lockfile.read then
-        local lock_state = self.lockfile.read(self.fs, self.yaml, M.PROJECT_FS_ID, self.lockfile.LOCK_PATH)
-        if type(lock_state) == "table" and type(lock_state.doc) == "table" then
-            for _, row in ipairs((lock_state.doc :: {[string]: unknown}).modules or {}) do
-                local name = trim((row :: {[string]: unknown}).name)
-                if name ~= "" then lock_names[name] = true end
-            end
-        end
+    local installed_names = {}
+    local definitions = self:find_entries({ [".kind"] = "ns.definition" })
+    for _, row in ipairs(definitions or {}) do
+        local name = trim(row.meta and row.meta.module)
+        if name ~= "" then installed_names[name] = true end
     end
 
     local shared_names = {}
@@ -702,7 +685,7 @@ function Planner:install_graph_context(component)
         if keep then shared_names = keep end
     end
 
-    return { lock_names = lock_names, shared_names = shared_names }
+    return { installed_names = installed_names, shared_names = shared_names }
 end
 
 function Planner:existing_dependency_for_component(component)
@@ -1080,7 +1063,7 @@ function Planner:resolve_install_graph(component, constraint, opts)
         node.yanked = selected_item.yanked == true
         node.protected = selected_item.protected == true
 
-        local installed = ctx.lock_names[ref] == true
+        local installed = ctx.installed_names[ref] == true
         if not installed then installed = self:module_installed(ref) == true end
         node.installed = installed
         node.shared = ctx.shared_names[ref] == true
@@ -1139,23 +1122,16 @@ end
 --
 -- Returns (keep, unresolved): keep is the set of module names in the closure;
 -- unresolved is the set of reached refs that have no local installation and thus
--- unknowable dependency edges. A ref in unresolved is either a harmless phantom
--- (declared but never installed, absent from wippy.lock) or an installed-elsewhere
--- module whose edges this registry does not carry. The prune step uses unresolved
--- against the lock to keep over-prune impossible: a lock module whose need by an
--- unresolved root cannot be ruled out is never removed.
+-- unknowable dependency edges. The caller may surface that uncertainty in a
+-- preview, but live installed state remains the registry itself.
 --
 -- Soundness contract: this offline closure is correct because governance install
 -- writes each module's complete edge set atomically -- a module's ns.definition
 -- and every module-owned ns.dependency row (meta.module == it) land in ONE
 -- all-or-nothing governance changeset. So an installed module always exposes its
 -- FULL edge set here; a partial edge set (some edges present, one missing) implies
--- registry corruption, which is out of scope. Where such corruption manifests as a
--- lock-present but edgeless remaining root it is handled conservatively downstream
--- (lockfile.preview_uninstall withholds the transitive prune and reports loudly).
--- The belt-and-suspenders alternative -- persisting each module's resolved edges
--- in the lock so the prune never reads registry edges -- is deliberately not
--- implemented while this atomicity invariant holds.
+-- registry corruption, which is out of scope. Where such corruption manifests as
+-- an edgeless remaining root it is surfaced as unresolved rather than inferred.
 function Planner:resolve_dependency_closure(args)
     args = args or {}
 

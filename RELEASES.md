@@ -1,5 +1,17 @@
 # Release Notes
 
+## keeper/keeper 0.5.58
+
+`keeper/keeper@0.5.58` removes all runtime reads and writes of `wippy.lock` from
+Hub install, update, uninstall, planning, and component discovery. Committed
+registry dependencies and module metadata are now the live source of truth;
+lock generation remains outside Keeper's running Lua services.
+
+### Verification
+
+- `keeper.hub:test` passed 98/98.
+- `keeper.components.build:scanner_test` passed 5/5.
+
 ## keeper/keeper 0.5.57
 
 `keeper/keeper@0.5.57` restores the declared Dataflow lower-bound range. The

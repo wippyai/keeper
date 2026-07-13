@@ -11,19 +11,9 @@ entries:
     modules:
       - registry
       - hub
-      - fs
-      - yaml
     imports:
       gov_consts: keeper.gov:consts
-      lockfile: keeper.hub:lockfile
 
-  # keeper.hub:lockfile
-  - name: lockfile
-    kind: library.lua
-    meta:
-      comment: Deterministic wippy.lock updater for Hub install and uninstall operations
-    source: file://lockfile.lua
-    
   # keeper.hub:service
   - name: service
     kind: library.lua
@@ -37,12 +27,9 @@ entries:
       - uuid
       - process
       - system
-      - fs
-      - yaml
     imports:
       gov_consts: keeper.gov:consts
       governance: keeper.state.publish:governance
-      lockfile: keeper.hub:lockfile
       materialize: keeper.state.persist:materialize
       planner: keeper.hub:planner
       step_runner: keeper.develop.integrate.pipeline:step_runner
@@ -80,7 +67,6 @@ entries:
       hub_dependencies_tool: keeper.hub.tools:dependencies
       hub_migrations_tool: keeper.hub.tools:migrations
       hub_service: keeper.hub:service
-      lockfile: keeper.hub:lockfile
       planner: keeper.hub:planner
       security_scan: keeper.hub:security_scan
       test: wippy.test:test
