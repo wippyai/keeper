@@ -1,5 +1,24 @@
 # Release Notes
 
+## keeper/keeper 0.5.55
+
+`keeper/keeper@0.5.55` hardens Coder's implementation guidance around Wippy
+registry imports and verified tool patterns.
+
+### Highlights
+
+- Registry IDs must be declared in YAML `imports` and used through their local
+  alias; Coder must not pass `namespace:name` directly to Lua `require`.
+- Coder treats the YAML declaration and Lua source as one executable contract,
+  tracing imports, modules, method, schema, dependencies, and consumers first.
+- Coder now validates a comparable tool's definition and source before copying
+  its schema, imports, modules, method, or handler shape.
+- An invalid or unverified existing entry is a research signal, never a template.
+
+### Verification
+
+- `./test.sh keeper.agents.tools:test` passed 61/61.
+
 ## keeper/keeper 0.5.54
 
 `keeper/keeper@0.5.54` reissues the Coder grounding update in a fresh package

@@ -263,6 +263,21 @@ local function define_tests()
                     delegates[delegate.name] = delegate.id
                 end
                 test.eq(delegates.research, "keeper.agents:researcher")
+
+                local prompt = coder.data and coder.data.prompt or ""
+                local memory = table.concat((coder.data and coder.data.memory) or {}, "\n")
+                test.is_true(prompt:find("local_alias: namespace:name", 1, true) ~= nil,
+                    "coder prompt must define registry-entry imports")
+                test.is_true(prompt:find("invalid import", 1, true) ~= nil,
+                    "coder prompt must reject invalid-import examples")
+                test.is_true(memory:find("Registry ids use", 1, true) ~= nil,
+                    "coder memory must retain registry-import guidance")
+                test.is_true(memory:find("internal Keeper knowledge base", 1, true) ~= nil,
+                    "coder memory must retain internal-KB guidance")
+                test.is_true(prompt:find("Declaration-first engineering", 1, true) ~= nil,
+                    "coder prompt must treat declarations as executable contracts")
+                test.is_true(memory:find("YAML declarations as the executable contract", 1, true) ~= nil,
+                    "coder memory must retain declaration-first guidance")
             end)
 
             it("agent manager has clone/analyze plus edit, branch, and push tools", function()
