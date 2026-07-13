@@ -5,12 +5,9 @@ local sql = require("sql")
 local uuid = require("uuid")
 local process = require("process")
 local system = require("system")
-local fs = require("fs")
-local yaml = require("yaml")
 local planner = require("planner")
 local governance = require("governance")
 local gov_consts = require("gov_consts")
-local lockfile = require("lockfile")
 local step_runner = require("step_runner")
 
 local M = {}
@@ -26,12 +23,9 @@ type ServiceDeps = {
     uuid: unknown?,
     process: unknown?,
     system: unknown?,
-    fs: unknown?,
-    yaml: unknown?,
     planner: unknown?,
     governance: unknown?,
     gov_consts: unknown?,
-    lockfile: unknown?,
 }
 
 type HubService = {
@@ -42,12 +36,9 @@ type HubService = {
     uuid: unknown,
     process: unknown,
     system: unknown,
-    fs: unknown,
-    yaml: unknown,
     planner: unknown,
     governance: unknown,
     gov_consts: unknown,
-    lockfile: unknown,
     list_dependencies: (HubService, unknown) -> (unknown, unknown?),
     list_migrations: (HubService, unknown) -> (unknown, unknown?),
     install: (HubService, unknown, unknown?) -> (unknown, unknown?),
@@ -61,8 +52,6 @@ M.DEFAULT_VERSION = ">=v0.0.0"
 M.MIGRATION_HANDLER_FN = "keeper.develop.integrate.handlers:migration_handler"
 M.USER_HUB_PREFIX = "user."
 M.EVENT_TOPIC = "keeper.hub"
-M.PROJECT_FS_ID = "keeper.components:project_fs"
-M.LOCK_PATH = lockfile.LOCK_PATH
 M.EVENTS = {
     INSTALL_STARTED = "hub.install.started",
     INSTALL_FINISHED = "hub.install.finished",
@@ -121,6 +110,23 @@ local function err(code, message, details)
         message = tostring(message or "unknown error"),
         details = d,
     })
+end
+
+local function validate_resolved_graph(graph)
+    local seen = {}
+    for _, row in ipairs(graph or {}) do
+        local name = trim(row.module or row.name)
+        if name ~= "" then
+            local version = trim(row.version)
+            local digest = trim(row.digest or row.hash)
+            local prior = seen[name]
+            if prior and (prior.version ~= version or prior.digest ~= digest) then
+                return nil, err("INTERNAL", "resolved module graph contains conflicting entries for " .. name)
+            end
+            seen[name] = { version = version, digest = digest }
+        end
+    end
+    return true, nil
 end
 
 local function error_summary(e: unknown)
@@ -345,12 +351,9 @@ function M.new(deps: ServiceDeps?)
         uuid = deps.uuid or uuid,
         process = deps.process or process,
         system = deps.system or system,
-        fs = deps.fs or fs,
-        yaml = deps.yaml or yaml,
         planner = deps.planner or planner,
         governance = deps.governance or governance,
         gov_consts = deps.gov_consts or gov_consts,
-        lockfile = deps.lockfile or lockfile,
     }, Service) :: HubService
 end
 
@@ -545,20 +548,19 @@ end
 -- reached through installed edges). Each entry carries roots-vs-transitive
 -- provenance and used_by: the deployment roots whose dependency closure includes
 -- the module. used_by is the shared indicator -- a module needed by more than one
--- root is reused, not exclusive. Versions and local-replacement provenance come
--- from wippy.lock, the authoritative installed set.
+-- root is reused, not exclusive. Both membership and resolved versions come
+-- from committed registry state; the application lock is a build-time artifact.
 function Service:installed_module_inventory(deps)
-    local lock_versions = {}
-    local replacements = {}
-    local lock_state = self:read_lock()
-    if type(lock_state) == "table" and type(lock_state.doc) == "table" then
-        for _, row in ipairs(lock_state.doc.modules or {}) do
-            local name = trim(row.name)
-            if name ~= "" then lock_versions[name] = tostring(row.version or "") end
-        end
-        for _, rep in ipairs(lock_state.doc.replacements or {}) do
-            local from = trim(rep.from)
-            if from ~= "" then replacements[from] = trim(rep.to) end
+    local module_versions = {}
+    local rows = self.registry.find({})
+    for _, row in ipairs(rows or {}) do
+        local meta = row.meta or {}
+        local name = trim(meta.module)
+        if name ~= "" then
+            local version = trim(meta.module_version)
+            if version ~= "" or module_versions[name] == nil then
+                module_versions[name] = version
+            end
         end
     end
 
@@ -567,21 +569,21 @@ function Service:installed_module_inventory(deps)
     local function ensure(name)
         local m = by_name[name]
         if not m then
-            m = { name = name, version = lock_versions[name] or "", is_root = false, transitive = true, used_by = {}, used_by_count = 0, __seen = {} }
-            local rep = replacements[name]
-            if rep and rep ~= "" then
-                m.source = "local"
-                m.source_path = rep
-            else
-                m.source = "hub"
-            end
+            m = {
+                name = name,
+                version = module_versions[name] or "",
+                is_root = false,
+                transitive = true,
+                source = "registry",
+                used_by = {},
+                used_by_count = 0,
+                __seen = {},
+            }
             by_name[name] = m
             table.insert(order, name)
         end
         return m
     end
-
-    for name in pairs(lock_versions) do ensure(name) end
 
     local instance
     if type(self.planner) == "table" and self.planner.new then
@@ -931,34 +933,6 @@ function Service:restore_registry_version(version, reason)
     return result or { version = version }, nil
 end
 
-function Service:read_lock()
-    return self.lockfile.read(self.fs, self.yaml, M.PROJECT_FS_ID, M.LOCK_PATH)
-end
-
-function Service:encode_lock(lock_doc)
-    return self.lockfile.encode(self.yaml, lock_doc, M.LOCK_PATH)
-end
-
-function Service:write_lock(lock_state, content)
-    return self.lockfile.write(lock_state, M.LOCK_PATH, content)
-end
-
-function Service:prepare_install_lock_update(plan)
-    return self.lockfile.prepare_install(self.fs, self.yaml, M.PROJECT_FS_ID, M.LOCK_PATH, plan)
-end
-
-function Service:prepare_uninstall_lock_update(plan)
-    return self.lockfile.prepare_uninstall(self.fs, self.yaml, M.PROJECT_FS_ID, M.LOCK_PATH, plan)
-end
-
-function Service:commit_lock_update(update)
-    return self.lockfile.commit(M.LOCK_PATH, update)
-end
-
-function Service:restore_lock_update(update)
-    return self.lockfile.restore(M.LOCK_PATH, update)
-end
-
 function Service:plan_install(args)
     local p = self.planner
     if type(p) == "table" and p.new then
@@ -971,14 +945,9 @@ function Service:plan_install(args)
     return nil, err("INTERNAL", "hub install planner unavailable")
 end
 
--- Resolves the dependency closure of every deployment root except dep. Returns
--- (keep_modules, unresolved_modules): keep_modules is the set of module names
--- still reachable once dep is removed; unresolved_modules is the set of remaining
--- roots reached with no local installed edges. lockfile.prepare_uninstall prunes
--- wippy.lock to keep_modules. The target (dep) is always removed from the lock.
--- When an unresolved root is present in the lock, only the transitive pruning is
--- withheld -- a module such a root could still depend on is kept and reported
--- loudly (never removed under uncertainty), while dep itself is still removed.
+-- Resolves the dependency closure of every deployment root except dep from
+-- committed registry entries. This is used for uninstall validation and preview;
+-- the runtime dependency directive owns the actual module transition.
 function Service:plan_uninstall_closure(dep)
     local deps, deps_err = self:dependency_entries()
     if not deps then return nil, nil, deps_err end
@@ -1008,8 +977,7 @@ end
 -- flows build an explicit ordered step list, run it through step_runner, and on
 -- failure reverse the successful prefix through step_runner.reverse. Each step's
 -- inverse implementation is the corresponding restore_* method, invoked by a
--- service-bound rollback dispatcher so the injected governance/lockfile/funcs
--- dependencies (and the atomic single publish/commit) are honoured.
+-- service-bound rollback dispatcher so the atomic governance commit is honoured.
 
 function Service:ledger_result(ledger, op)
     for _, row in ipairs(ledger.execution.handlers or {}) do
@@ -1382,15 +1350,6 @@ function Service:install_step_dispatch(opts)
                     reason = "hub install rollback for " .. tostring(step.data.entry.data.component),
                 } },
             }
-        elseif op == "lockfile_commit" then
-            local lock_result, write_err = svc:commit_lock_update(step.data.lock_update)
-            if not lock_result then
-                return { op = op, label = step.label, error = write_err }
-            end
-            return {
-                op = op, label = step.label, result = lock_result,
-                inverse = { op = "restore_lock_update", data = { lock_update = step.data.lock_update } },
-            }
         elseif op == "migrations_up" then
             local migration_result, migration_err = svc:run_migrations({
                 component = step.data.component,
@@ -1414,8 +1373,7 @@ function Service:install_step_dispatch(opts)
     end
 end
 
--- Install rollback dispatcher: install compensations are unconditional
--- (restore registry + restore lock), matching the original best-effort flow.
+-- Install rollback restores the registry snapshot after a post-publish failure.
 function Service:install_rollback_dispatch()
     local svc = self
     return function(row)
@@ -1424,9 +1382,6 @@ function Service:install_rollback_dispatch()
         local wrapped = { op = inv.op, forward_label = row.label }
         if inv.op == "restore_registry_version" then
             local r, e = svc:restore_registry_version(inv.data.version, inv.data.reason)
-            wrapped.result, wrapped.error = r, e
-        elseif inv.op == "restore_lock_update" then
-            local r, e = svc:restore_lock_update(inv.data.lock_update)
             wrapped.result, wrapped.error = r, e
         else
             return nil
@@ -1441,6 +1396,8 @@ function Service:install(args, opts)
 
     local plan, plan_err = self:plan_install(args)
     if not plan then return nil, plan_err end
+    local graph_ok, graph_err = validate_resolved_graph(plan.graph)
+    if not graph_ok then return nil, graph_err end
     if #(plan.missing_requirements or {}) > 0 then
         return nil, err("REQUIREMENTS_MISSING", "Hub dependency requires explicit configuration", {
             dependency = plan.dependency,
@@ -1475,10 +1432,6 @@ function Service:install(args, opts)
         plan = plan,
     }
 
-    local lock_update, lock_err = self:prepare_install_lock_update(plan)
-    if not lock_update then return nil, lock_err end
-    payload.lock = self.lockfile.summary(M.LOCK_PATH, lock_update)
-
     local restart_data = {
         action = "install",
         entries = plan.planned_entries or plan.entries or {},
@@ -1497,13 +1450,9 @@ function Service:install(args, opts)
     local policy = planned.migration_policy
     if args.run_migrations == true then policy = "up" end
 
-    local baseline_version
-    if policy == "up" or lock_update.changed == true then
-        local version, version_err = self:current_registry_version()
-        if not version then return nil, version_err end
-        baseline_version = version
-        payload.baseline_version = baseline_version
-    end
+    local baseline_version, version_err = self:current_registry_version()
+    if not baseline_version then return nil, version_err end
+    payload.baseline_version = baseline_version
 
     local operation_id = self:new_operation_id()
     payload.operation_id = operation_id
@@ -1513,8 +1462,7 @@ function Service:install(args, opts)
     })
 
     -- Build the ordered install steps. governance_apply is the one atomic
-    -- publish; lockfile_commit and migrations_up only appear when they have
-    -- work to do.
+    -- publish; migrations_up appears only when it has work to do.
     local steps = {
         {
             op = "pre_apply_validate", label = "validation",
@@ -1533,9 +1481,6 @@ function Service:install(args, opts)
             },
         },
     }
-    if lock_update.changed == true then
-        table.insert(steps, { op = "lockfile_commit", label = "lockfile", data = { lock_update = lock_update } })
-    end
     if policy == "up" then
         table.insert(steps, { op = "migrations_up", label = "migrations", data = { component = entry.data.component } })
     end
@@ -1558,7 +1503,6 @@ function Service:install(args, opts)
     local apply_result, migration_result, restart_result
     for _, row in ipairs(ledger.execution.handlers) do
         if row.op == "governance_apply" then apply_result = row.result
-        elseif row.op == "lockfile_commit" then payload.lock = row.result
         elseif row.op == "migrations_up" then migration_result = row.result
         elseif row.op == "restart_affected_services" then restart_result = row.result end
     end
@@ -1600,42 +1544,14 @@ function Service:install_failure(ledger, payload, ctx, opts)
     local rollback_ledger = step_runner.reverse(registry_restore_first(ledger.execution),
         { execute = self:install_rollback_dispatch() })
     local restore = self:find_rollback_row(rollback_ledger, "restore_registry_version")
-    local lock_restore = self:find_rollback_row(rollback_ledger, "restore_lock_update")
-
     payload.rollback = restore and restore.result or nil
     payload.rollback_error = restore and error_summary(restore.error) or nil
-    if lock_restore then
-        payload.lock_rollback = lock_restore.result
-        payload.lock_rollback_error = error_summary(lock_restore.error)
-    end
     payload.execution = self:project_ledger(ledger, rollback_ledger)
 
     local restore_ok = restore ~= nil and restore.result ~= nil and restore.error == nil
     local apply_result = self:ledger_result(ledger, "governance_apply")
     local failure_err
-    if failed_op == "lockfile_commit" then
-        if restore_ok then
-            failure_err = err("LOCK_UPDATE_FAILED",
-                "dependency installed but wippy.lock update failed; registry restored to baseline",
-                {
-                    lock_error = error_summary(failed_err),
-                    baseline_version = ctx.baseline_version,
-                    rollback = payload.rollback,
-                    apply = apply_result,
-                    execution = execution_details(payload.execution),
-                })
-        else
-            failure_err = err("ROLLBACK_FAILED",
-                "dependency installed, wippy.lock update failed, and registry rollback failed",
-                {
-                    lock_error = error_summary(failed_err),
-                    baseline_version = ctx.baseline_version,
-                    rollback_error = payload.rollback_error,
-                    apply = apply_result,
-                    execution = execution_details(payload.execution),
-                })
-        end
-    elseif failed_op == "migrations_up" then
+    if failed_op == "migrations_up" then
         if restore_ok then
             failure_err = err("MIGRATIONS_FAILED",
                 "migrations failed after dependency install; registry restored to baseline",
@@ -1643,8 +1559,6 @@ function Service:install_failure(ledger, payload, ctx, opts)
                     migration_error = error_summary(failed_err),
                     baseline_version = ctx.baseline_version,
                     rollback = payload.rollback,
-                    lock_rollback = payload.lock_rollback,
-                    lock_rollback_error = payload.lock_rollback_error,
                     apply = apply_result,
                     execution = execution_details(payload.execution),
                 })
@@ -1655,8 +1569,6 @@ function Service:install_failure(ledger, payload, ctx, opts)
                     migration_error = error_summary(failed_err),
                     baseline_version = ctx.baseline_version,
                     rollback_error = payload.rollback_error,
-                    lock_rollback = payload.lock_rollback,
-                    lock_rollback_error = payload.lock_rollback_error,
                     apply = apply_result,
                     execution = execution_details(payload.execution),
                 })
@@ -1686,7 +1598,7 @@ function Service:plan_uninstall(args)
     -- installed-closure inventory names, per module, the deployment roots whose
     -- dependency closure reaches it (used_by); a non-empty used_by for the target
     -- means removing it would break those roots. This is the same derivation the
-    -- list API reports, and it runs before any registry/lock mutation, so the
+    -- list API reports, and it runs before any registry mutation, so the
     -- target's own row is never removed until the check passes.
     local all_deps, all_err = self:dependency_entries()
     if not all_deps then return nil, all_err end
@@ -1738,10 +1650,20 @@ function Service:plan_uninstall(args)
     local keep_modules, unresolved_modules, keep_err = self:plan_uninstall_closure(dep)
     if not keep_modules then
         return nil, err("DEPENDENCY_GRAPH_FAILED",
-            "failed to resolve dependency graph for uninstall; refusing to update registry or wippy.lock",
+            "failed to resolve installed dependency graph for uninstall; refusing to update registry",
             {
                 dependency = summary,
                 graph_error = error_summary(keep_err),
+            })
+    end
+
+    local target_modules, target_unresolved, target_err = self:resolve_dependency_closure({ dep })
+    if not target_modules then
+        return nil, err("DEPENDENCY_GRAPH_FAILED",
+            "failed to resolve target dependency graph for uninstall; refusing to update registry",
+            {
+                dependency = summary,
+                graph_error = error_summary(target_err),
             })
     end
 
@@ -1754,56 +1676,54 @@ function Service:plan_uninstall(args)
         applied_migrations_count = #applied,
         keep_modules = keep_modules,
         unresolved_modules = unresolved_modules,
+        target_modules = target_modules,
+        target_unresolved_modules = target_unresolved,
         target_module = summary.component,
         patch = { target = "entry", id = dep.id, op = "delete" },
     }, nil
 end
 
--- Projects the raw lock diff into a UI-ready uninstall preview: what is removed,
--- what transitive dependencies of the target are retained because a remaining
--- root still needs them, what is withheld under uncertainty, and any warnings.
--- The UI consumes this directly instead of diffing lock internals.
-function Service:build_uninstall_preview(plan, lock_changes)
-    lock_changes = lock_changes or {}
+-- Projects live registry closures into a UI-ready uninstall preview.
+function Service:build_uninstall_preview(plan)
     local target = trim(plan.target_module)
 
-    local lock_versions = {}
-    local lock_state = self:read_lock()
-    if type(lock_state) == "table" and type(lock_state.doc) == "table" then
-        for _, row in ipairs(lock_state.doc.modules or {}) do
-            local name = trim(row.name)
-            if name ~= "" then lock_versions[name] = tostring(row.version or "") end
-        end
-    end
-
-    local function project(rows)
+    local deps = self:dependency_entries() or {}
+    local _, inventory = self:installed_module_inventory(deps)
+    local function project(names)
         local out = {}
-        for _, row in ipairs(rows or {}) do
-            local name = trim(row.name)
-            table.insert(out, { name = name, version = tostring(row.version or lock_versions[name] or "") })
+        table.sort(names)
+        for _, name in ipairs(names) do
+            local row = inventory and inventory[name]
+            table.insert(out, { name = name, version = row and row.version or "" })
         end
         return out
     end
 
-    local kept = {}
-    local target_keep = self:resolve_dependency_closure({ target })
-    if target_keep then
-        local keep_modules = plan.keep_modules or {}
-        local names = {}
-        for name in pairs(target_keep) do
-            if name ~= target and keep_modules[name] then table.insert(names, name) end
-        end
-        table.sort(names)
-        for _, name in ipairs(names) do
-            table.insert(kept, { name = name, version = lock_versions[name] or "" })
+    local removed_names = {}
+    local kept_names = {}
+    local keep_modules = plan.keep_modules or {}
+    for name in pairs(plan.target_modules or { [target] = true }) do
+        if name ~= target and keep_modules[name] then
+            table.insert(kept_names, name)
+        else
+            table.insert(removed_names, name)
         end
     end
 
+    local warnings = {}
+    local unresolved = {}
+    for name in pairs(plan.unresolved_modules or {}) do table.insert(unresolved, name) end
+    if #unresolved > 0 then
+        table.sort(unresolved)
+        table.insert(warnings,
+            "installed registry state does not expose dependency edges for: " .. table.concat(unresolved, ", "))
+    end
+
     return {
-        removed = project(lock_changes.removed),
-        kept = kept,
-        kept_under_uncertainty = project(lock_changes.kept_under_uncertainty),
-        warnings = {},
+        removed = project(removed_names),
+        kept = project(kept_names),
+        kept_under_uncertainty = {},
+        warnings = warnings,
     }
 end
 
@@ -1842,15 +1762,6 @@ function Service:uninstall_step_dispatch(opts)
                     reason = "hub uninstall rollback for " .. tostring(step.data.id),
                 } },
             }
-        elseif op == "lockfile_prune" then
-            local lock_result, write_err = svc:commit_lock_update(step.data.lock_update)
-            if not lock_result then
-                return { op = op, label = step.label, error = write_err }
-            end
-            return {
-                op = op, label = step.label, result = lock_result,
-                inverse = { op = "restore_lock_update", data = { lock_update = step.data.lock_update } },
-            }
         elseif op == "restart_affected_services" then
             local restart_result = svc:restart_affected_services(step.data)
             return {
@@ -1877,9 +1788,6 @@ function Service:uninstall_rollback_dispatch(opts, payload)
         if inv.op == "restore_registry_version" then
             local r, e = svc:restore_registry_version(inv.data.version, inv.data.reason)
             registry_restored = (r ~= nil and e == nil)
-            wrapped.result, wrapped.error = r, e
-        elseif inv.op == "restore_lock_update" then
-            local r, e = svc:restore_lock_update(inv.data.lock_update)
             wrapped.result, wrapped.error = r, e
         elseif inv.op == "migrations_up_restore" then
             if not registry_restored then
@@ -1926,27 +1834,7 @@ function Service:uninstall(args, opts)
         patches = { plan.patch },
     }
 
-    local lock_update, lock_err = self:prepare_uninstall_lock_update(plan)
-    if not lock_update then return nil, lock_err end
-    payload.lock = self.lockfile.summary(M.LOCK_PATH, lock_update)
-
-    -- Surface a withheld transitive prune loudly: a still-needed module of an
-    -- unresolved remaining root was kept, so this is never a silent no-op.
-    local lock_changes = lock_update.changes or {}
-    if lock_changes.uncertain == true then
-        local kept_names = {}
-        for _, row in ipairs(lock_changes.kept_under_uncertainty or {}) do
-            table.insert(kept_names, tostring(row.name))
-        end
-        payload.uncertain = true
-        payload.uncertain_roots = lock_changes.uncertain_modules or {}
-        payload.kept_under_uncertainty = kept_names
-        payload.lock_warning = "wippy.lock pruning withheld for modules that may still be required by unresolved roots ["
-            .. table.concat(lock_changes.uncertain_modules or {}, ", ") .. "]: kept " .. table.concat(kept_names, ", ")
-    end
-
-    local preview = self:build_uninstall_preview(plan, lock_changes)
-    if payload.lock_warning then table.insert(preview.warnings, payload.lock_warning) end
+    local preview = self:build_uninstall_preview(plan)
     if plan.applied_migrations_count > 0 and policy == "leave" then
         table.insert(preview.warnings, "applied migrations will remain in the database after uninstall")
     end
@@ -1975,16 +1863,12 @@ function Service:uninstall(args, opts)
         applied_migrations_count = plan.applied_migrations_count,
     })
 
-    local baseline_version
-    if lock_update.changed == true then
-        local version, version_err = self:current_registry_version()
-        if not version then return nil, version_err end
-        baseline_version = version
-        payload.baseline_version = baseline_version
-    end
+    local baseline_version, version_err = self:current_registry_version()
+    if not baseline_version then return nil, version_err end
+    payload.baseline_version = baseline_version
 
     -- Build the ordered uninstall steps. The down migration (policy=down) runs
-    -- before the registry delete; the lockfile prune runs last.
+    -- before the registry delete.
     local steps = {}
     if plan.applied_migrations_count > 0 and policy == "down" then
         local ids = {}
@@ -2001,9 +1885,6 @@ function Service:uninstall(args, opts)
             baseline_version = baseline_version,
         },
     })
-    if lock_update.changed == true then
-        table.insert(steps, { op = "lockfile_prune", label = "lockfile", data = { lock_update = lock_update } })
-    end
     table.insert(steps, {
         op = "restart_affected_services",
         label = "restart affected services",
@@ -2022,7 +1903,6 @@ function Service:uninstall(args, opts)
     local apply_result, migration_result, restart_result
     for _, row in ipairs(ledger.execution.handlers) do
         if row.op == "governance_apply" then apply_result = row.result
-        elseif row.op == "lockfile_prune" then payload.lock = row.result
         elseif row.op == "migrations_down" then migration_result = row.result
         elseif row.op == "restart_affected_services" then restart_result = row.result end
     end
@@ -2081,31 +1961,6 @@ function Service:uninstall_failure(ledger, payload, ctx, opts)
                 migration_restore_error = payload.migration_restore_error,
                 execution = execution_details(payload.execution),
             })
-    elseif failed_op == "lockfile_prune" then
-        local restore_ok = restore ~= nil and restore.result ~= nil and restore.error == nil
-        if restore_ok then
-            failure_err = err("LOCK_UPDATE_FAILED",
-                "dependency uninstalled but wippy.lock update failed; registry restored to baseline",
-                {
-                    lock_error = error_summary(failed_err),
-                    baseline_version = ctx.baseline_version,
-                    rollback = payload.rollback,
-                    migration_restore = payload.migration_restore,
-                    migration_restore_error = payload.migration_restore_error,
-                    apply = apply_result,
-                    execution = execution_details(payload.execution),
-                })
-        else
-            failure_err = err("ROLLBACK_FAILED",
-                "dependency uninstalled, wippy.lock update failed, and registry rollback failed",
-                {
-                    lock_error = error_summary(failed_err),
-                    baseline_version = ctx.baseline_version,
-                    rollback_error = payload.rollback_error,
-                    apply = apply_result,
-                    execution = execution_details(payload.execution),
-                })
-        end
     else
         failure_err = failed_err or err("INTERNAL", "hub uninstall failed")
     end

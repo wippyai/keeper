@@ -13,7 +13,7 @@
 --   * hub install/uninstall — steps name a service operation (op) and run
 --     through a caller-supplied executor bound to the hub Service, so the
 --     dependency injection the hub unit tests rely on is honoured and the
---     atomic single governance.publish / lockfile commit stay in-process.
+--     the atomic single governance.publish stays in-process.
 
 local funcs = require("funcs")
 

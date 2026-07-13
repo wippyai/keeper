@@ -1,6 +1,6 @@
 organization: keeper
 module: keeper
-version: 0.5.57
+version: 0.5.58
 description: Keeper control plane for Wippy development, governance, agents, tasks, MCP, and runtime operations
 license: BSL-1.1
 repository: https://github.com/wippyai/keeper

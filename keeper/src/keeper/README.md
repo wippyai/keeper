@@ -62,9 +62,11 @@ module migrations when requested. Install plans are the canonical place to ask
 the user for missing requirement values; Keeper should not guess them.
 
 Hub dependency install and uninstall publish exact dependency registry changes
-through governance, then update `wippy.lock`. They do not use development
-workspace branch diffs, so source branches cannot accidentally broaden a module
-install into unrelated Keeper or application changes.
+through governance. Runtime dependency state is committed in the registry; it
+does not read or mutate the application's build-time lock. These operations do
+not use development workspace branch diffs, so source branches cannot
+accidentally broaden a module install into unrelated Keeper or application
+changes.
 
 ## MCP
 
