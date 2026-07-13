@@ -1,5 +1,13 @@
 # Release Notes
 
+## keeper/keeper 0.5.56
+
+`keeper/keeper@0.5.56` removes the module-local dependency lock. Keeper now
+publishes only its declared dependency ranges; its test application retains its
+own independent lock. The Dataflow declaration is constrained to the compatible
+0.4 line (`>=v0.4.31 <v0.5.0`), so Hub resolves it to `0.4.31` rather than the
+incompatible pre-1.0 0.5 line.
+
 ## keeper/keeper 0.5.55
 
 `keeper/keeper@0.5.55` hardens Coder's implementation guidance around Wippy
