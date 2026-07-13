@@ -238,8 +238,8 @@ local function define_tests()
                 test.eq(delegates.engineer, "keeper.agents:engineer")
             end)
 
-            it("coder has direct edit, inspect, branch, push, and task-launch tools", function()
-                local tools = collect_agent_tools("keeper.agents:coder")
+            it("coder has grounded research, edit, inspect, branch, push, and task-launch tools", function()
+                local tools, coder = collect_agent_tools("keeper.agents:coder")
                 local required = {
                     "keeper.develop:implement_task",
                     "keeper.state.tools:edit",
@@ -250,11 +250,19 @@ local function define_tests()
                     "keeper.state.tools:compare",
                     "keeper.state.tools:branch",
                     "keeper.state.tools:push",
+                    "keeper.knowledge.tools:kb_read",
+                    "keeper.knowledge.tools:fetch_docs",
                 }
                 for _, tool_id in ipairs(required) do
                     test.is_true(tools[tool_id] == true,
                         "coder missing tool through direct refs or traits: " .. tool_id)
                 end
+
+                local delegates = {}
+                for _, delegate in ipairs((coder.data and coder.data.delegates) or {}) do
+                    delegates[delegate.name] = delegate.id
+                end
+                test.eq(delegates.research, "keeper.agents:researcher")
             end)
 
             it("agent manager has clone/analyze plus edit, branch, and push tools", function()
