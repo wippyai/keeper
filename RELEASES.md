@@ -1,5 +1,22 @@
 # Release Notes
 
+## keeper/keeper 0.5.53
+
+`keeper/keeper@0.5.53` grounds the public Coder agent before it creates new
+tools or other registry entries.
+
+### Highlights
+
+- Coder can directly search Keeper knowledge and read authoritative Wippy docs.
+- Coder can delegate focused, read-only pattern research to Task Researcher.
+- Coder must inspect comparable entries, KB findings, and documentation before
+  creating an unfamiliar tool, API surface, import, or schema.
+
+### Verification
+
+- `./test.sh keeper.agents.tools:test` passed 61/61.
+
+
 ## keeper/keeper 0.5.18
 
 `keeper/keeper@0.5.18` preserves legacy Jet view support while keeping Keeper's
