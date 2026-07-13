@@ -1,5 +1,11 @@
 # Release Notes
 
+## keeper/keeper 0.5.57
+
+`keeper/keeper@0.5.57` restores the declared Dataflow lower-bound range. The
+module remains free of a module-root `wippy.lock`; consuming applications select
+the compatible Dataflow version.
+
 ## keeper/keeper 0.5.56
 
 `keeper/keeper@0.5.56` removes the module-local dependency lock. Keeper now
