@@ -1,5 +1,16 @@
 # Release Notes
 
+## keeper/keeper 0.5.54
+
+`keeper/keeper@0.5.54` reissues the Coder grounding update in a fresh package
+version after verification found that the prior Hub version resolved to stale
+package contents.
+
+### Verification
+
+- `./test.sh keeper.agents.tools:test`
+- Installed-package inspection after the app updates to `0.5.54`.
+
 ## keeper/keeper 0.5.53
 
 `keeper/keeper@0.5.53` grounds the public Coder agent before it creates new
