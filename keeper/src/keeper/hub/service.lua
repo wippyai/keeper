@@ -446,10 +446,20 @@ function Service:find_dependency(args)
 
     local deps, deps_err = self:dependency_entries()
     if not deps then return nil, deps_err end
+    local matches = {}
     for _, entry in ipairs(deps) do
         if entry.data and entry.data.component == parsed.component then
-            return entry, nil
+            table.insert(matches, entry)
         end
+    end
+    if #matches == 1 then return matches[1], nil end
+    if #matches > 1 then
+        local ids = {}
+        for i, entry in ipairs(matches) do ids[tostring(i)] = tostring(entry.id) end
+        return nil, err("CONFLICT",
+            "multiple application dependency roots declare " .. parsed.component
+                .. "; specify the exact root id",
+            { component = parsed.component, dependency_ids = ids })
     end
     return nil, err("NOT_FOUND", "dependency not found for component: " .. parsed.component)
 end
@@ -735,6 +745,27 @@ function Service:dependency_create_or_update_op(entry)
     local existing, get_err = self.registry.get(entry.id)
     if get_err and not is_not_found_error(get_err) then
         return nil, err("INTERNAL", "failed to inspect dependency entry " .. tostring(entry.id) .. ": " .. tostring(get_err))
+    end
+    if existing then
+        if existing.kind ~= "ns.dependency" then
+            return nil, err("CONFLICT", "dependency destination is already occupied by "
+                .. tostring(existing.kind) .. ": " .. tostring(entry.id))
+        end
+        if is_module_owned_dependency(existing) then
+            return nil, err("BAD_REQUEST", "dependency destination is a package-owned edge, not an application root: "
+                .. tostring(entry.id))
+        end
+        local existing_component = trim(existing.data and existing.data.component)
+        local requested_component = trim(entry.data and entry.data.component)
+        if existing_component ~= "" and requested_component ~= "" and existing_component ~= requested_component then
+            return nil, err("CONFLICT", "dependency destination " .. tostring(entry.id)
+                .. " already belongs to " .. existing_component,
+                {
+                    id = entry.id,
+                    existing_component = existing_component,
+                    component = requested_component,
+                })
+        end
     end
     local registry_ops = self.gov_consts and self.gov_consts.REGISTRY_OPERATIONS
     if not registry_ops then
@@ -1594,34 +1625,30 @@ function Service:plan_uninstall(args)
 
     local summary = M.dependency_summary(dep)
 
-    -- Refuse to uninstall a root that another installed root still requires. The
-    -- installed-closure inventory names, per module, the deployment roots whose
-    -- dependency closure reaches it (used_by); a non-empty used_by for the target
-    -- means removing it would break those roots. This is the same derivation the
-    -- list API reports, and it runs before any registry mutation, so the
-    -- target's own row is never removed until the check passes.
+    -- Removing a direct root is safe even when another root still requires the
+    -- same module: the runtime re-resolves the remaining roots and retains that
+    -- module as a transitive dependency. Work out that closure before deciding
+    -- whether migrations or module entries are actually being removed.
+    local keep_modules, unresolved_modules, keep_err = self:plan_uninstall_closure(dep)
+    if not keep_modules then
+        return nil, err("DEPENDENCY_GRAPH_FAILED",
+            "failed to resolve installed dependency graph for uninstall; refusing to update registry",
+            {
+                dependency = summary,
+                graph_error = error_summary(keep_err),
+            })
+    end
+    local module_remains_installed = keep_modules[summary.component] == true
+
     local all_deps, all_err = self:dependency_entries()
     if not all_deps then return nil, all_err end
     local _, inventory_by_name = self:installed_module_inventory(all_deps)
     local target_inventory = inventory_by_name and inventory_by_name[summary.component]
-    if target_inventory and #(target_inventory.used_by or {}) > 0 then
-        local required_by = {}
-        for _, root in ipairs(target_inventory.used_by) do table.insert(required_by, root) end
-        table.sort(required_by)
-        -- Error details drop numeric-keyed arrays crossing the errors boundary, so
-        -- the dependent roots travel as a string-keyed positional map (recover the
-        -- list with pairs / Object.values) alongside the human-readable summary.
-        local required_by_detail = {}
-        for i, root in ipairs(required_by) do required_by_detail[tostring(i)] = root end
-        return nil, err("DEPENDENCY_REQUIRED",
-            "cannot uninstall " .. tostring(summary.component)
-            .. "; still required by " .. table.concat(required_by, ", "),
-            {
-                dependency = summary,
-                required_by = required_by_detail,
-                required_by_text = table.concat(required_by, ", "),
-            })
+    local required_by = {}
+    for _, root in ipairs(target_inventory and target_inventory.used_by or {}) do
+        table.insert(required_by, root)
     end
+    table.sort(required_by)
 
     local module_entries, module_err = self:module_entries(summary.component)
     if not module_entries then return nil, module_err end
@@ -1647,16 +1674,6 @@ function Service:plan_uninstall(args)
         end
     end
 
-    local keep_modules, unresolved_modules, keep_err = self:plan_uninstall_closure(dep)
-    if not keep_modules then
-        return nil, err("DEPENDENCY_GRAPH_FAILED",
-            "failed to resolve installed dependency graph for uninstall; refusing to update registry",
-            {
-                dependency = summary,
-                graph_error = error_summary(keep_err),
-            })
-    end
-
     local target_modules, target_unresolved, target_err = self:resolve_dependency_closure({ dep })
     if not target_modules then
         return nil, err("DEPENDENCY_GRAPH_FAILED",
@@ -1672,13 +1689,17 @@ function Service:plan_uninstall(args)
         entries = entries,
         entries_count = #entries,
         migrations = migrations,
-        applied_migrations = applied,
-        applied_migrations_count = #applied,
+        applied_migrations = module_remains_installed and {} or applied,
+        applied_migrations_count = module_remains_installed and 0 or #applied,
+        retained_applied_migrations = module_remains_installed and applied or {},
+        retained_applied_migrations_count = module_remains_installed and #applied or 0,
         keep_modules = keep_modules,
         unresolved_modules = unresolved_modules,
         target_modules = target_modules,
         target_unresolved_modules = target_unresolved,
         target_module = summary.component,
+        module_remains_installed = module_remains_installed,
+        required_by = required_by,
         patch = { target = "entry", id = dep.id, op = "delete" },
     }, nil
 end
@@ -1694,7 +1715,12 @@ function Service:build_uninstall_preview(plan)
         table.sort(names)
         for _, name in ipairs(names) do
             local row = inventory and inventory[name]
-            table.insert(out, { name = name, version = row and row.version or "" })
+            table.insert(out, {
+                name = name,
+                version = row and row.version or "",
+                used_by = row and row.used_by or {},
+                used_by_count = row and row.used_by_count or 0,
+            })
         end
         return out
     end
@@ -1703,7 +1729,7 @@ function Service:build_uninstall_preview(plan)
     local kept_names = {}
     local keep_modules = plan.keep_modules or {}
     for name in pairs(plan.target_modules or { [target] = true }) do
-        if name ~= target and keep_modules[name] then
+        if keep_modules[name] then
             table.insert(kept_names, name)
         else
             table.insert(removed_names, name)
@@ -1717,6 +1743,10 @@ function Service:build_uninstall_preview(plan)
         table.sort(unresolved)
         table.insert(warnings,
             "installed registry state does not expose dependency edges for: " .. table.concat(unresolved, ", "))
+    end
+    if plan.module_remains_installed then
+        table.insert(warnings, target .. " will remain installed as a transitive dependency"
+            .. (#(plan.required_by or {}) > 0 and " of " .. table.concat(plan.required_by, ", ") or ""))
     end
 
     return {
@@ -1837,6 +1867,9 @@ function Service:uninstall(args, opts)
     local preview = self:build_uninstall_preview(plan)
     if plan.applied_migrations_count > 0 and policy == "leave" then
         table.insert(preview.warnings, "applied migrations will remain in the database after uninstall")
+    end
+    if plan.module_remains_installed and plan.retained_applied_migrations_count > 0 then
+        table.insert(preview.warnings, "migrations remain applied because the module remains installed")
     end
     payload.preview = preview
 

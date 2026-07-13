@@ -1,5 +1,32 @@
 # Release Notes
 
+## keeper/keeper 0.5.59
+
+`keeper/keeper@0.5.59` makes Hub dependency changes operate on application
+roots consistently across install, uninstall, undo/redo, source persistence,
+and process restarts.
+
+### Highlights
+
+- Package-owned dependency edges remain part of graph resolution but can no
+  longer be selected as mutable application install roots.
+- Installing an already-transitive module creates a managed application root;
+  removing that redundant root keeps the transitive module and its migrations.
+- Governance undo/redo now reconstructs the applied registry delta so source
+  YAML, the state index, and observers receive the same change.
+- Filesystem sync recognizes canonical entry blocks regardless of YAML field
+  order, including version-first blocks at end of file.
+- A filesystem-sync failure restores the registry baseline and attempts the
+  inverse source update instead of reporting a successful partial transition.
+
+### Verification
+
+- `keeper.hub:test` passed 104/104.
+- Governance changeset, sync, and service suites passed 94/94.
+- Keeper lint checked 375 entries with no errors.
+- Isolated local-binary E2E passed install, redundant-root uninstall,
+  undo/redo source reconciliation, and restart persistence.
+
 ## keeper/keeper 0.5.58
 
 `keeper/keeper@0.5.58` removes all runtime reads and writes of `wippy.lock` from

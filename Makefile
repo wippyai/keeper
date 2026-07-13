@@ -2,7 +2,7 @@
 
 WIPPY ?= wippy
 
-KEEPER_VERSION ?= 0.5.58
+KEEPER_VERSION ?= 0.5.59
 USAGE_VERSION ?= 0.1.1
 
 lint: lint-keeper lint-usage
@@ -14,7 +14,7 @@ test:
 	WIPPY=$(WIPPY) ./test.sh $(SUITES)
 
 lint-keeper:
-	cd keeper && $(WIPPY) lint --ns 'keeper,keeper.*' --summary --limit 200 --no-color
+	cd keeper/test && $(WIPPY) lint --ns 'keeper,keeper.*' --summary --limit 200 --no-color
 
 lint-usage:
 	cd usage && $(WIPPY) lint --summary --limit 200 --no-color

@@ -297,6 +297,10 @@ local function dependency_component(entry): string
     return trim(data.component)
 end
 
+local function is_module_owned_dependency(entry): boolean
+    return entry ~= nil and trim(entry.meta and entry.meta.module) ~= ""
+end
+
 local function namespace_score(namespace: string, count: number): number
     local lower = string.lower(namespace)
     local score = count * 100
@@ -330,11 +334,38 @@ local function namespace_is_managed_by(gov, namespace: string): boolean
     local checker = type(gov) == "table" and gov.is_namespace_managed or nil
     if type(checker) == "function" then
         local ok, managed = pcall(checker, namespace)
-        if ok then return managed == true end
+        if ok and managed == true then return true end
     end
 
     for _, root in ipairs(managed_namespaces_from(gov)) do
         if namespace == root or namespace:sub(1, #root + 1) == root .. "." then
+            return true
+        end
+    end
+    return false
+end
+
+-- Placement heuristics must honor an explicit governance answer. The broader
+-- namespace_is_managed_by helper retains the legacy app/keeper fallback for a
+-- deployment that has not configured governance yet, but that fallback must
+-- not make an existing arbitrary cluster look intentionally managed.
+local function namespace_is_explicitly_managed_by(gov, namespace: string): boolean
+    namespace = trim(namespace)
+    if namespace == "" then return false end
+
+    local checker = type(gov) == "table" and gov.is_namespace_managed or nil
+    if type(checker) == "function" then
+        local ok, managed = pcall(checker, namespace)
+        if ok then return managed == true end
+    end
+
+    local getter = type(gov) == "table" and gov.get_managed_namespaces or nil
+    if type(getter) ~= "function" then return false end
+    local ok, roots = pcall(getter)
+    if not ok or type(roots) ~= "table" then return false end
+    for _, root in ipairs(roots) do
+        root = trim(root)
+        if root ~= "" and (namespace == root or namespace:sub(1, #root + 1) == root .. ".") then
             return true
         end
     end
@@ -655,6 +686,20 @@ function Planner:dependency_entries()
     return out, nil
 end
 
+-- Deployment roots are the dependency directives owned by the consuming
+-- application. Module-owned dependency entries are immutable edges extracted
+-- from package manifests; they participate in graph resolution, but must never
+-- be selected as install/update/uninstall destinations.
+function Planner:deployment_dependency_entries()
+    local rows, rows_err = self:dependency_entries()
+    if not rows then return nil, rows_err end
+    local out = {}
+    for _, entry in ipairs(rows) do
+        if not is_module_owned_dependency(entry) then table.insert(out, entry) end
+    end
+    return out, nil
+end
+
 -- Precomputes the two per-node install-graph flags from live registry state:
 --   installed_names: modules represented by module-owned registry entries
 --   shared_names: modules already reachable from an EXISTING deployment root
@@ -672,7 +717,7 @@ function Planner:install_graph_context(component)
     end
 
     local shared_names = {}
-    local deps = self:dependency_entries()
+    local deps = self:deployment_dependency_entries()
     if deps then
         local roots = {}
         for _, dep in ipairs(deps) do
@@ -690,24 +735,33 @@ end
 
 function Planner:existing_dependency_for_component(component)
     local wanted = trim(component)
-    local deps, deps_err = self:dependency_entries()
+    local deps, deps_err = self:deployment_dependency_entries()
     if not deps then return nil, deps_err end
+    local matches = {}
     for _, dep in ipairs(deps) do
         if dependency_component(dep) == wanted then
-            return dep, nil
+            table.insert(matches, dep)
         end
     end
-    return nil, nil
+    if #matches == 0 then return nil, nil end
+    if #matches == 1 then return matches[1], nil end
+
+    local duplicate_ids = {}
+    for i, dep in ipairs(matches) do duplicate_ids[tostring(i)] = tostring(dep.id) end
+    return nil, err("CONFLICT",
+        "multiple application dependency roots declare " .. wanted
+            .. "; remove the duplicate roots or specify the exact root id",
+        { component = wanted, dependency_ids = duplicate_ids })
 end
 
 function Planner:preferred_dependency_namespace(): (string?, unknown?)
-    local deps, deps_err = self:dependency_entries()
+    local deps, deps_err = self:deployment_dependency_entries()
     if not deps then return nil, deps_err end
 
     local counts = {}
     for _, dep in ipairs(deps) do
         local ns = entry_namespace(dep.id)
-        if ns and ns ~= "" and namespace_is_managed_by(self.gov, ns) then
+        if ns and ns ~= "" and namespace_is_explicitly_managed_by(self.gov, ns) then
             counts[ns] = (counts[ns] or 0) + 1
         end
     end
@@ -726,26 +780,81 @@ end
 
 function Planner:resolve_dependency_destination_args(args): (unknown?, unknown?)
     local out = shallow_copy(args or {})
-    if trim(out.id) ~= "" then return out, nil end
-
     local parsed, comp_err = M.parse_component(out.component)
     if not parsed then return nil, comp_err end
 
+    local explicit_id = trim(out.id)
     local has_explicit_name = trim(out.name) ~= ""
     local has_explicit_namespace = trim(out.namespace) ~= ""
-    if not has_explicit_name and not has_explicit_namespace then
+    if explicit_id == "" and not has_explicit_name and not has_explicit_namespace then
         local existing, existing_err = self:existing_dependency_for_component(parsed.component)
         if existing_err then return nil, existing_err end
         if existing and existing.id then
             out.id = existing.id
-            return out, nil
+            explicit_id = tostring(existing.id)
         end
     end
 
-    if not has_explicit_namespace then
+    if explicit_id == "" and not has_explicit_namespace then
         local namespace, namespace_err = self:preferred_dependency_namespace()
         if not namespace then return nil, namespace_err end
         out.namespace = namespace
+    end
+
+    local destination_id, id_err = M.resolve_dependency_id(out)
+    if not destination_id then return nil, id_err end
+    local destination_namespace = entry_namespace(destination_id)
+    local existing, get_err = self.registry.get(destination_id)
+    if get_err and not string.find(string.lower(tostring(get_err)), "not found", 1, true) then
+        return nil, err("INTERNAL", "failed to inspect dependency destination "
+            .. destination_id .. ": " .. tostring(get_err)) :: unknown?
+    end
+    if existing then
+        if existing.kind ~= "ns.dependency" then
+            return nil, err("CONFLICT", "dependency destination is already occupied by "
+                .. tostring(existing.kind) .. ": " .. destination_id,
+                { id = destination_id, existing_kind = existing.kind, component = parsed.component }) :: unknown?
+        end
+        if is_module_owned_dependency(existing) then
+            return nil, err("BAD_REQUEST", "dependency destination is a package-owned edge, not an application root: "
+                .. destination_id,
+                { id = destination_id, owner = existing.meta and existing.meta.module, component = parsed.component }) :: unknown?
+        end
+        local existing_component = dependency_component(existing)
+        if existing_component ~= "" and existing_component ~= parsed.component then
+            -- The default short name can collide across organizations. Pick a
+            -- deterministic fully-qualified fallback when the caller did not
+            -- explicitly choose the destination name/id.
+            if explicit_id == "" and not has_explicit_name then
+                out.name = M.sanitize_dependency_name(parsed.org .. "_" .. parsed.module)
+                destination_id, id_err = M.resolve_dependency_id(out)
+                if not destination_id then return nil, id_err end
+                local fallback, fallback_err = self.registry.get(destination_id)
+                if fallback_err and not string.find(string.lower(tostring(fallback_err)), "not found", 1, true) then
+                    return nil, err("INTERNAL", "failed to inspect dependency destination "
+                        .. destination_id .. ": " .. tostring(fallback_err)) :: unknown?
+                end
+                if fallback then
+                    local fallback_component = dependency_component(fallback)
+                    if fallback.kind ~= "ns.dependency" or is_module_owned_dependency(fallback)
+                        or fallback_component ~= parsed.component then
+                        return nil, err("CONFLICT", "dependency destination is already occupied: "
+                            .. destination_id,
+                            { id = destination_id, existing_component = fallback_component, component = parsed.component }) :: unknown?
+                    end
+                end
+            else
+                return nil, err("CONFLICT", "dependency destination " .. destination_id
+                    .. " already belongs to " .. existing_component,
+                    { id = destination_id, existing_component = existing_component, component = parsed.component }) :: unknown?
+            end
+        end
+    end
+    if not destination_namespace or not namespace_is_managed_by(self.gov, destination_namespace) then
+        return nil, err("BAD_REQUEST",
+            "dependency destination namespace is not managed by governance: "
+                .. tostring(destination_namespace or ""),
+            { id = destination_id, namespace = destination_namespace, component = parsed.component }) :: unknown?
     end
     return out, nil
 end

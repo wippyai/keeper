@@ -222,6 +222,71 @@ entries:
                 test.is_true(after:find(before_suffix, 1, true) ~= nil)
                 test.is_true(after:find(target_block, 1, true) == nil)
             end)
+
+            it("removes a canonical version-first dependency block at EOF", function()
+                local sibling_block = [[  # app.deps:keep
+  - version: 1.2.3
+    name: keep
+    kind: ns.dependency
+    component: wippy/keep]]
+                local target_block = [[  # app.deps:doc2md
+  - version: 0.8.7
+    name: doc2md
+    kind: ns.dependency
+    meta: []
+    component: kickside/doc2md]]
+                local before = [[version: "1.0"
+namespace: app.deps
+entries:
+]] .. sibling_block .. "\n" .. target_block
+
+                local after, changed = sync.patch_index_content(
+                    before, "app.deps", {}, { doc2md = true }, {})
+
+                test.is_true(changed)
+                test.is_true(after:find(sibling_block, 1, true) ~= nil)
+                test.is_true(after:find(target_block, 1, true) == nil)
+                test.is_true(after:find("app.deps:doc2md", 1, true) == nil)
+            end)
+
+            it("updates a canonical version-first block without duplicating it", function()
+                local before = [[version: "1.0"
+namespace: app.deps
+entries:
+  # app.deps:doc2md
+  - version: 0.8.7
+    name: doc2md
+    kind: ns.dependency
+    component: kickside/doc2md]]
+                local replacement = [[  # app.deps:doc2md
+  - version: ">=0.8.8"
+    name: doc2md
+    kind: ns.dependency
+    component: kickside/doc2md]]
+
+                local after, changed = sync.patch_index_content(
+                    before, "app.deps", { doc2md = replacement }, {}, {})
+
+                test.is_true(changed)
+                test.is_true(after:find('version: ">=0.8.8"', 1, true) ~= nil)
+                local _, marker_count = after:gsub("app.deps:doc2md", "")
+                test.eq(marker_count, 1)
+            end)
+
+            it("uses the identity marker when a hand-written block has no name field", function()
+                local before = [[version: "1.0"
+namespace: app.deps
+entries:
+  # app.deps:legacy
+  - kind: ns.dependency
+    component: wippy/legacy]]
+
+                local after, changed = sync.patch_index_content(
+                    before, "app.deps", {}, { legacy = true }, {})
+
+                test.is_true(changed)
+                test.is_true(after:find("app.deps:legacy", 1, true) == nil)
+            end)
         end)
 
         describe("entry_file_path", function()

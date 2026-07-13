@@ -16,7 +16,7 @@ Set-Location $PSScriptRoot
 
 # Module versions - mirrors KEEPER_VERSION / USAGE_VERSION in the Makefile.
 # Override at invocation: `$env:KEEPER_VERSION = '0.5.17'; make publish-keeper`
-$keeperVersion = if ($env:KEEPER_VERSION) { $env:KEEPER_VERSION } else { '0.5.16' }
+$keeperVersion = if ($env:KEEPER_VERSION) { $env:KEEPER_VERSION } else { '0.5.59' }
 $usageVersion  = if ($env:USAGE_VERSION)  { $env:USAGE_VERSION  } else { '0.1.1'  }
 $wippyExe = if ($env:WIPPY) { $env:WIPPY } else { Join-Path $PSScriptRoot 'wippy.exe' }
 
@@ -33,7 +33,7 @@ $builds = @(
 # (target, modulePath, lintArgs) tuples for `lint-*` recipes. Mirrors the
 # Makefile's `cd <module> && wippy lint ...` invocations.
 $lints = @(
-    @{ name = 'keeper'; dir = 'keeper'; args = @('lint', '--ns', 'keeper,keeper.*', '--summary', '--limit', '200', '--no-color') }
+    @{ name = 'keeper'; dir = 'keeper/test'; args = @('lint', '--ns', 'keeper,keeper.*', '--summary', '--limit', '200', '--no-color') }
     @{ name = 'usage';  dir = 'usage';  args = @('lint',                                     '--summary', '--limit', '200', '--no-color') }
 )
 
