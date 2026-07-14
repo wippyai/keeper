@@ -745,6 +745,30 @@ function Service:dependency_create_or_update_op(entry)
     if not self.registry or not self.registry.get then
         return nil, err("INTERNAL", "registry.get unavailable")
     end
+    local requested_component = trim(entry.data and entry.data.component)
+    if requested_component ~= "" then
+        local deps, deps_err = self:dependency_entries()
+        if not deps then return nil, deps_err end
+        local matches = {}
+        for _, dep in ipairs(deps) do
+            if trim(dep.data and dep.data.component) == requested_component then
+                table.insert(matches, dep)
+            end
+        end
+        if #matches > 1 or (#matches == 1 and tostring(matches[1].id) ~= tostring(entry.id)) then
+            local ids = {}
+            for i, dep in ipairs(matches) do ids[tostring(i)] = tostring(dep.id) end
+            return nil, err("CONFLICT", requested_component .. " already has an application dependency root at "
+                .. tostring(matches[1] and matches[1].id or "another destination")
+                .. "; update or remove the existing root instead of creating " .. tostring(entry.id),
+                {
+                    component = requested_component,
+                    existing_dependency_id = matches[1] and tostring(matches[1].id) or nil,
+                    requested_dependency_id = tostring(entry.id),
+                    dependency_ids = ids,
+                })
+        end
+    end
     local existing, get_err = self.registry.get(entry.id)
     if get_err and not is_not_found_error(get_err) then
         return nil, err("INTERNAL", "failed to inspect dependency entry " .. tostring(entry.id) .. ": " .. tostring(get_err))
@@ -759,7 +783,6 @@ function Service:dependency_create_or_update_op(entry)
                 .. tostring(entry.id))
         end
         local existing_component = trim(existing.data and existing.data.component)
-        local requested_component = trim(entry.data and entry.data.component)
         if existing_component ~= "" and requested_component ~= "" and existing_component ~= requested_component then
             return nil, err("CONFLICT", "dependency destination " .. tostring(entry.id)
                 .. " already belongs to " .. existing_component,

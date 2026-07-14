@@ -12,22 +12,41 @@ and process restarts.
   longer be selected as mutable application install roots.
 - Installing an already-transitive module creates a managed application root;
   removing that redundant root keeps the transitive module and its migrations.
+- Explicit dependency IDs cannot create a second application root for a
+  component; both planning and apply enforce the invariant.
+- Dependency resolution intersects every incoming constraint across diamonds,
+  cycles, and existing reachable roots, while ignoring unreachable orphan
+  package edges and dependencies replaced by the current plan.
+- Package-owned dependency parameters are not reused as application bindings,
+  preventing a transitive package's private configuration from leaking into a
+  new root install.
 - Governance undo/redo now reconstructs the applied registry delta so source
   YAML, the state index, and observers receive the same change.
 - Filesystem sync recognizes canonical entry blocks regardless of YAML field
   order, including version-first blocks at end of file.
 - A filesystem-sync failure restores the registry baseline and attempts the
   inverse source update instead of reporting a successful partial transition.
+- Keeper's fixture application is excluded from both published artifacts and
+  local replacement loads, so its app roots cannot pull fixture modules into a
+  consuming application.
 
 ### Verification
 
-- `keeper.hub:test` passed 105/105.
+- `keeper.hub:test` passed 114/114, including compatible and incompatible
+  diamonds, version-narrowing cycles, existing-root intersections, orphan
+  edges, explicit duplicate roots, and parameter provenance.
 - Governance changeset, sync, and service suites passed 94/94.
-- Keeper lint checked 375 entries with no errors.
-- Three isolated fresh-app local-binary runs each downloaded 44 locked modules
-  into a new state directory, then passed unsafe-write rejection, idempotent
-  install, shared and standalone uninstall, three undo/redo cycles, source
-  reconciliation, and restart persistence.
+- Keeper lint checked 375 entries with no errors and four pre-existing
+  warnings.
+- Five isolated fresh-state local-binary runs loaded the clean 46-module graph
+  (44 Hub artifacts and two local replacements) and passed unsafe-write
+  rejection, three transitive lifecycle passes,
+  idempotent install, shared and standalone uninstall, three undo/redo cycles,
+  source reconciliation, and restart persistence. Their runtime logs contain
+  no error, fatal, or panic records.
+- The 13.5 MB dry-run artifact contains 609 entries and eight ranged
+  dependencies, with no fixture `app:*`, `app.*:*`, `test:*`, or
+  `userspace.uploads:*` entries.
 
 ## keeper/keeper 0.5.58
 
