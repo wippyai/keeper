@@ -531,14 +531,6 @@ entries:
     component: wippy/session
     version: ">=v0.1.11"
 
-  # keeper:dep.wippy.test
-  - name: dep.wippy.test
-    kind: ns.dependency
-    meta:
-      description: Test runner used by Keeper verification tools
-    component: wippy/test
-    version: ">=v0.4.12"
-
   # keeper:dep.wippy.views
   - name: dep.wippy.views
     kind: ns.dependency
