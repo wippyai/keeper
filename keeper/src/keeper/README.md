@@ -61,6 +61,25 @@ installs, show transitive requirements, install/uninstall modules, and run
 module migrations when requested. Install plans are the canonical place to ask
 the user for missing requirement values; Keeper should not guess them.
 
+### Hub Administrator capability
+
+`keeper.agents.traits.hub:operator` is the public agent capability named **Hub
+Administrator**. Its catalog, dependency, and migration tools are public
+registry capabilities so an authorized administrator can discover and attach
+them to an agent. Public metadata is not an authorization grant.
+
+The host must bind `keeper:admin_scope` to its administrator security group.
+Keeper injects exact discovery (`registry.get` / `registry.find`) and invocation
+(`funcs.call` / `access`) policies for the trait and its three tools into that
+group. Each tool checks its own `access` permission again at invocation, and
+the agent tool caller preserves the initiating actor and scope. A normal user
+without those Keeper policies cannot discover or invoke the capability.
+
+MCP authorization is separate from application-agent authorization. Hub tools
+require `hub.read`; install/uninstall additionally require `hub.write`, and
+migration execution requires `hub.migrate`. Marking a tool public does not
+bypass those MCP scopes.
+
 Hub dependency install and uninstall publish exact dependency registry changes
 through governance. Runtime dependency state is committed in the registry; it
 does not read or mutate the application's build-time lock. These operations do

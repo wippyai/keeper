@@ -1,0 +1,48 @@
+version: "1.0"
+namespace: keeper.hub.security
+
+entries:
+  - name: admin_discovery
+    kind: security.policy
+    meta:
+      comment: Allow Keeper administrators to discover the Hub Administrator trait and its exact tool surface.
+    groups: []
+    policy:
+      resources:
+        - keeper.agents.traits.hub:operator
+        - keeper.hub.tools:catalog
+        - keeper.hub.tools:dependencies
+        - keeper.hub.tools:migrations
+      actions:
+        - registry.get
+        - registry.find
+      effect: allow
+
+  - name: admin_call
+    kind: security.policy
+    meta:
+      comment: Allow Keeper administrators to invoke only the Hub Administrator tool functions.
+    groups: []
+    policy:
+      resources:
+        - keeper.hub.tools:catalog
+        - keeper.hub.tools:dependencies
+        - keeper.hub.tools:migrations
+      actions:
+        - funcs.call
+        - access
+      effect: allow
+
+  - name: admin_catalog
+    kind: security.policy
+    meta:
+      comment: Allow the Hub Catalog tool to use its exact native read-only Hub operations.
+    groups: []
+    policy:
+      resources: '*'
+      actions:
+        - hub.modules.list
+        - hub.modules.search
+        - hub.modules.readme
+        - hub.versions.list
+      effect: allow

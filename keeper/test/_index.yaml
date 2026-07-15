@@ -40,6 +40,7 @@ entries:
     meta:
       description: Upload repository dependency required by wippy/session prompt building
     component: userspace/uploads
+    version: "*"
     parameters:
       - name: database_resource
         value: app:db
@@ -57,10 +58,35 @@ entries:
     meta:
       description: Bootloader for applying module migrations in tests
     component: wippy/bootloader
+    version: "*"
     parameters:
       - name: application_host
         value: app:processes
       - name: env_storage
+        value: app.env:store
+
+  - name: dep.wippy.dataflow
+    kind: ns.dependency
+    meta:
+      description: Dataflow runtime configured explicitly for Keeper tests
+    component: wippy/dataflow
+    version: "*"
+    parameters:
+      - name: userspace.dataflow:target_db
+        value: app:db
+      - name: userspace.dataflow:user_security_scope
+        value: app.security:user
+
+  - name: dep.wippy.migration
+    kind: ns.dependency
+    meta:
+      description: Migration runtime configured explicitly for Keeper tests
+    component: wippy/migration
+    version: "*"
+    parameters:
+      - name: wippy.migration:app_db
+        value: app:db
+      - name: wippy.bootloader:env_storage
         value: app.env:store
 
   - name: dep.wippy.session
@@ -68,6 +94,7 @@ entries:
     meta:
       description: Session module configured explicitly for Keeper tests
     component: wippy/session
+    version: "*"
     parameters:
       - name: database_resource
         value: app:db
@@ -93,6 +120,7 @@ entries:
     meta:
       description: Keeper module under test
     component: keeper/keeper
+    version: "*"
     parameters:
       - name: api_router
         value: app:api
@@ -116,3 +144,10 @@ entries:
         value: app:api.public
       - name: wippy.views:env_storage
         value: app.env:store
+
+  - name: dep.wippy.test
+    kind: ns.dependency
+    meta:
+      description: Test runner used only by the Keeper test host
+    component: wippy/test
+    version: "*"

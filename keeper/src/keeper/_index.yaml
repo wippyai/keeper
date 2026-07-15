@@ -408,6 +408,12 @@ entries:
     targets:
       - entry: keeper.config:admin_scope
         path: .default
+      - entry: keeper.hub.security:admin_discovery
+        path: ".groups +="
+      - entry: keeper.hub.security:admin_call
+        path: ".groups +="
+      - entry: keeper.hub.security:admin_catalog
+        path: ".groups +="
 
   # keeper:auth_token_store
   - name: auth_token_store
@@ -524,14 +530,6 @@ entries:
       description: Session persistence and message inspection for Keeper debug tools
     component: wippy/session
     version: ">=v0.1.11"
-
-  # keeper:dep.wippy.test
-  - name: dep.wippy.test
-    kind: ns.dependency
-    meta:
-      description: Test runner used by Keeper verification tools
-    component: wippy/test
-    version: ">=v0.4.12"
 
   # keeper:dep.wippy.views
   - name: dep.wippy.views

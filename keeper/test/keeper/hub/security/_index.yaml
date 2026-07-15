@@ -1,0 +1,52 @@
+version: "1.0"
+namespace: keeper.hub.security
+
+entries:
+  - name: security_test_entry
+    kind: security.policy
+    meta:
+      comment: Test-host entry point for ordinary-user capability discovery checks.
+    groups:
+      - app.security:user
+    policy:
+      resources:
+        - keeper.hub.security:security_test
+      actions:
+        - funcs.call
+      effect: allow
+
+  - name: security_test_permissive
+    kind: security.policy
+    meta:
+      comment: Test-host registry and function plumbing for defense-in-depth checks.
+    groups:
+      - keeper.hub.security:test_permissive
+    policy:
+      resources:
+        - keeper:*
+        - keeper.*
+      actions:
+        - registry.get
+        - funcs.call
+      effect: allow
+
+  - name: security_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Exact Hub Administrator discovery, invocation, native catalog, and inherited agent security tests.
+      suite: hub_security
+    source: file://security_test.lua
+    modules:
+      - security
+      - registry
+      - funcs
+    imports:
+      catalog: keeper.hub.tools:catalog
+      dependencies: keeper.hub.tools:dependencies
+      migrations: keeper.hub.tools:migrations
+      test: wippy.test:test
+      tool_caller: wippy.agent.tools:caller
+    method: define_tests
+    pool:
+      size: 1
