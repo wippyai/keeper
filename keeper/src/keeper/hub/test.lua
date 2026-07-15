@@ -7,6 +7,28 @@ local hub_migrations_tool = require("hub_migrations_tool")
 local http_client = require("http_client")
 local api_test = require("api_test")
 local json = require("json")
+local gov_consts = require("gov_consts")
+
+local function fake_managed_governance(namespaces)
+    namespaces = namespaces or {}
+    local function is_managed(namespace)
+        for _, root in ipairs(namespaces) do
+            if namespace == root or namespace:sub(1, #root + 1) == root .. "." then
+                return true
+            end
+        end
+        return false
+    end
+    return {
+        REGISTRY_OPERATIONS = {
+            CREATE = "entry.create",
+            UPDATE = "entry.update",
+            DELETE = "entry.delete",
+        },
+        get_managed_namespaces = function() return namespaces end,
+        is_namespace_managed = is_managed,
+    }
+end
 
 local function fake_registry(entries)
     local by_id = {}
@@ -586,6 +608,17 @@ end
 
 local function define_tests()
     describe("keeper.hub service", function()
+        local original_managed_namespaces = {}
+        before_all(function()
+            original_managed_namespaces = gov_consts.get_managed_namespaces()
+            local _, set_err = gov_consts.set_managed_namespaces({ "app" })
+            if set_err then error(set_err) end
+        end)
+        after_all(function()
+            local _, set_err = gov_consts.set_managed_namespaces(original_managed_namespaces)
+            if set_err then error(set_err) end
+        end)
+
         describe("dependency closure resolver (installed edges)", function()
             it("keeps a transitive still required by another remaining root", function()
                 local entries = concat_entries(
@@ -788,6 +821,28 @@ local function define_tests()
                     registry = fake_registry(entries),
                     sql = fake_sql({}),
                     planner = no_requirements_planner(),
+                }) :: any
+
+                local out, err = svc:list_dependencies({})
+
+                test.is_nil(err)
+                test.eq(out.count, 1)
+                test.eq(out.dependencies[1].id, "app.deps:foo")
+            end)
+
+            it("lists managed dependency roots even when pack provenance metadata is present", function()
+                local entries = fixture_entries()
+                for _, entry in ipairs(entries) do
+                    if entry.id == "app.deps:foo" then
+                        entry.meta.module = "acme/application"
+                        entry.meta.module_version = "1.0.0"
+                    end
+                end
+                local svc = hub.new({
+                    registry = fake_registry(entries),
+                    sql = fake_sql({}),
+                    planner = no_requirements_planner(),
+                    gov_consts = fake_managed_governance({ "app.deps" }),
                 }) :: any
 
                 local out, err = svc:list_dependencies({})
@@ -2098,7 +2153,7 @@ local function define_tests()
                 test.eq(plan.install_payload.id, "app.deps:shared")
             end)
 
-            it("rejects an explicit package-owned dependency edge as an install destination", function()
+            it("rejects an explicit dependency edge outside managed namespaces as an install destination", function()
                 local entries = concat_entries({
                     root_dep("app.deps:parent", "acme/parent"),
                     {
@@ -2119,6 +2174,7 @@ local function define_tests()
                         ["acme/shared"] = { { version = "v1.2.3", requirements = {} } },
                     }),
                     registry = fake_registry(entries),
+                    gov = fake_managed_governance({ "app.deps" }),
                 }) :: any
 
                 local plan, plan_err = svc:plan_install({
@@ -2129,7 +2185,7 @@ local function define_tests()
 
                 test.is_nil(plan)
                 test.eq(err_code(plan_err), "BAD_REQUEST")
-                test.contains(err_message(plan_err), "package-owned edge")
+                test.contains(err_message(plan_err), "outside the governance-managed dependency namespaces")
             end)
 
             it("fails clearly when duplicate application roots declare one component", function()

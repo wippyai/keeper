@@ -82,8 +82,36 @@ local function string_set(values)
     return out
 end
 
-local function is_module_owned_dependency(entry)
-    return entry and entry.meta and trim(entry.meta.module) ~= ""
+local function entry_namespace(entry)
+    return entry and tostring(entry.id or ""):match("^([^:]+):") or nil
+end
+
+local function namespace_is_managed_by(gov, namespace)
+    namespace = trim(namespace)
+    if namespace == "" then return false end
+
+    local checker = type(gov) == "table" and gov.is_namespace_managed or nil
+    if type(checker) == "function" then
+        local ok, managed = pcall(checker, namespace)
+        if ok and managed == true then return true end
+    end
+
+    local getter = type(gov) == "table" and gov.get_managed_namespaces or nil
+    if type(getter) ~= "function" then return false end
+    local ok, roots = pcall(getter)
+    if not ok or type(roots) ~= "table" then return false end
+    for _, root in ipairs(roots) do
+        root = trim(root)
+        if root ~= "" and (namespace == root or namespace:sub(1, #root + 1) == root .. ".") then
+            return true
+        end
+    end
+    return false
+end
+
+local function is_managed_dependency_root(gov, entry)
+    return entry and entry.kind == "ns.dependency"
+        and namespace_is_managed_by(gov, entry_namespace(entry))
 end
 
 local ERROR_KIND_BY_CODE = {
@@ -426,11 +454,10 @@ function Service:dependency_entries()
     if not rows then return nil, rows_err end
     local deploy_deps = {}
     for _, entry in ipairs(rows) do
-        -- Module-owned ns.dependency entries describe a package's dependency
-        -- graph. Only deployment dependency entries should be install/uninstall
-        -- roots; otherwise uninstall can keep dependencies required only by the
-        -- package being removed.
-        if not is_module_owned_dependency(entry) then
+        -- Deployment roots live in namespaces explicitly managed by the
+        -- consuming application. Package dependency edges remain outside that
+        -- boundary even if pack provenance metadata is present on both shapes.
+        if is_managed_dependency_root(self.gov_consts, entry) then
             table.insert(deploy_deps, entry)
         end
     end
@@ -447,8 +474,8 @@ function Service:find_dependency(args)
         if entry.kind ~= "ns.dependency" then
             return nil, err("BAD_REQUEST", "entry is not an ns.dependency: " .. entry.id)
         end
-        if is_module_owned_dependency(entry) then
-            return nil, err("BAD_REQUEST", "entry is a module-owned dependency, not an installed dependency root: " .. entry.id)
+        if not is_managed_dependency_root(self.gov_consts, entry) then
+            return nil, err("BAD_REQUEST", "entry is outside the governance-managed dependency namespaces: " .. entry.id)
         end
         return entry, nil
     end
@@ -745,6 +772,10 @@ function Service:dependency_create_or_update_op(entry)
     if not self.registry or not self.registry.get then
         return nil, err("INTERNAL", "registry.get unavailable")
     end
+    if not is_managed_dependency_root(self.gov_consts, entry) then
+        return nil, err("BAD_REQUEST", "dependency destination is outside the governance-managed dependency namespaces: "
+            .. tostring(entry and entry.id))
+    end
     local requested_component = trim(entry.data and entry.data.component)
     if requested_component ~= "" then
         local deps, deps_err = self:dependency_entries()
@@ -778,8 +809,8 @@ function Service:dependency_create_or_update_op(entry)
             return nil, err("CONFLICT", "dependency destination is already occupied by "
                 .. tostring(existing.kind) .. ": " .. tostring(entry.id))
         end
-        if is_module_owned_dependency(existing) then
-            return nil, err("BAD_REQUEST", "dependency destination is a package-owned edge, not an application root: "
+        if not is_managed_dependency_root(self.gov_consts, existing) then
+            return nil, err("BAD_REQUEST", "dependency destination is outside the governance-managed dependency namespaces: "
                 .. tostring(entry.id))
         end
         local existing_component = trim(existing.data and existing.data.component)

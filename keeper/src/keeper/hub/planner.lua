@@ -297,10 +297,6 @@ local function dependency_component(entry): string
     return trim(data.component)
 end
 
-local function is_module_owned_dependency(entry): boolean
-    return entry ~= nil and trim(entry.meta and entry.meta.module) ~= ""
-end
-
 local function namespace_score(namespace: string, count: number): number
     local lower = string.lower(namespace)
     local score = count * 100
@@ -698,16 +694,16 @@ function Planner:dependency_entries()
     return out, nil
 end
 
--- Deployment roots are the dependency directives owned by the consuming
--- application. Module-owned dependency entries are immutable edges extracted
--- from package manifests; they participate in graph resolution, but must never
--- be selected as install/update/uninstall destinations.
+-- Deployment roots are dependency directives in namespaces managed by the
+-- consuming application. Package dependency edges outside that boundary still
+-- participate in graph resolution, but are never install/update destinations.
 function Planner:deployment_dependency_entries()
     local rows, rows_err = self:dependency_entries()
     if not rows then return nil, rows_err end
     local out = {}
     for _, entry in ipairs(rows) do
-        if not is_module_owned_dependency(entry) then table.insert(out, entry) end
+        local ns = entry_namespace(entry.id)
+        if ns and namespace_is_managed_by(self.gov, ns) then table.insert(out, entry) end
     end
     return out, nil
 end
@@ -836,10 +832,10 @@ function Planner:resolve_dependency_destination_args(args): (unknown?, unknown?)
                 .. tostring(existing.kind) .. ": " .. destination_id,
                 { id = destination_id, existing_kind = existing.kind, component = parsed.component }) :: unknown?
         end
-        if is_module_owned_dependency(existing) then
-            return nil, err("BAD_REQUEST", "dependency destination is a package-owned edge, not an application root: "
+        if not destination_namespace or not namespace_is_managed_by(self.gov, destination_namespace) then
+            return nil, err("BAD_REQUEST", "dependency destination is outside the governance-managed dependency namespaces: "
                 .. destination_id,
-                { id = destination_id, owner = existing.meta and existing.meta.module, component = parsed.component }) :: unknown?
+                { id = destination_id, namespace = destination_namespace, component = parsed.component }) :: unknown?
         end
         local existing_component = dependency_component(existing)
         if existing_component ~= "" and existing_component ~= parsed.component then
@@ -857,7 +853,10 @@ function Planner:resolve_dependency_destination_args(args): (unknown?, unknown?)
                 end
                 if fallback then
                     local fallback_component = dependency_component(fallback)
-                    if fallback.kind ~= "ns.dependency" or is_module_owned_dependency(fallback)
+                    local fallback_namespace = entry_namespace(destination_id)
+                    if fallback.kind ~= "ns.dependency"
+                        or not fallback_namespace
+                        or not namespace_is_managed_by(self.gov, fallback_namespace)
                         or fallback_component ~= parsed.component then
                         return nil, err("CONFLICT", "dependency destination is already occupied: "
                             .. destination_id,
