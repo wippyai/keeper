@@ -6,8 +6,53 @@ entries:
   - name: helpers
     kind: library.lua
     meta:
-      comment: Shared helpers for Hub MCP tool wrappers
+      comment: Shared helpers for Hub agent tool wrappers
     source: file://helpers.lua
+
+  # keeper.hub.tools:catalog
+  - name: catalog
+    kind: function.lua
+    meta:
+      type: tool
+      title: Hub Catalog
+      public: true
+      comment: Browse Hub components, inspect published versions, and read component documentation through the native Hub client.
+      tags:
+        - hub
+        - catalog
+        - components
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "action": {"type": "string", "enum": ["browse", "versions", "readme"]},
+            "query": {"type": "string", "description": "Optional component search text for browse."},
+            "component": {"type": "string", "description": "Component reference in org/name form; required for versions and readme."},
+            "version": {"type": "string", "description": "Optional published version for readme."},
+            "visibility": {"type": "string", "description": "Optional visibility filter for browse."},
+            "type": {"type": "string", "description": "Optional module type filter for browse."},
+            "sort": {"type": "string", "description": "Optional Hub sort order for browse."},
+            "page": {"type": "integer", "minimum": 1},
+            "page_size": {"type": "integer", "minimum": 1, "maximum": 100}
+          },
+          "required": ["action"],
+          "additionalProperties": false
+        }
+      llm_alias: hub_catalog
+      llm_description: Browse or search the Wippy Hub catalog, list a component's published versions, and read its documentation.
+      mcp:
+        required_scopes:
+          - hub.read
+    source: file://catalog.lua
+    modules:
+      - security
+      - hub
+    imports:
+      audit: keeper.task:audit
+      helpers: keeper.hub.tools:helpers
+    method: handler
+    pool:
+      size: 2
 
   # keeper.hub.tools:dependencies
   - name: dependencies
@@ -15,6 +60,7 @@ entries:
     meta:
       type: tool
       title: Hub Dependencies
+      public: true
       comment: List, plan, install/update, and uninstall Wippy Hub dependencies
       tags:
         - hub
@@ -28,7 +74,7 @@ entries:
               "enum": ["list", "plan", "install", "uninstall"],
               "description": "Hub dependency operation"
             },
-            "component": {"type": "string", "description": "Hub module ref in org/name form"},
+            "component": {"type": "string", "description": "Hub component ref in org/name form"},
             "version": {"type": "string", "description": "Version or semver constraint, e.g. 0.5.0 or >=v0.0.0"},
             "id": {"type": "string", "description": "Explicit ns.dependency entry id for uninstall/list targeting"},
             "namespace": {"type": "string", "description": "Dependency namespace override for install. Omit to reuse an existing dependency entry or choose a managed dependency namespace cluster."},
@@ -73,6 +119,7 @@ entries:
     meta:
       type: tool
       title: Hub Migrations
+      public: true
       comment: List and run Hub-owned migrations for installed dependencies
       tags:
         - hub
@@ -86,7 +133,7 @@ entries:
               "enum": ["list", "run"],
               "description": "List migrations or run/unrun them"
             },
-            "component": {"type": "string", "description": "Optional Hub module ref in org/name form"},
+            "component": {"type": "string", "description": "Optional Hub component ref in org/name form"},
             "entry_ids": {"type": "array", "items": {"type": "string"}, "description": "Explicit migration entry ids"},
             "operation": {"type": "string", "enum": ["up", "down"], "description": "Migration operation for action=run"},
             "dry_run": {"type": "boolean", "description": "Return selected migrations without executing"},

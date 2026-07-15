@@ -1,0 +1,99 @@
+version: "1.0"
+namespace: keeper.hub.security
+
+entries:
+  - name: admin_discovery
+    kind: security.policy
+    meta:
+      comment: Allow Keeper administrators to discover the Hub Administrator trait and its exact tool surface.
+    groups: []
+    policy:
+      resources:
+        - keeper.agents.traits.hub:operator
+        - keeper.hub.tools:catalog
+        - keeper.hub.tools:dependencies
+        - keeper.hub.tools:migrations
+      actions:
+        - registry.get
+        - registry.find
+      effect: allow
+
+  - name: admin_call
+    kind: security.policy
+    meta:
+      comment: Allow Keeper administrators to invoke only the Hub Administrator tool functions.
+    groups: []
+    policy:
+      resources:
+        - keeper.hub.tools:catalog
+        - keeper.hub.tools:dependencies
+        - keeper.hub.tools:migrations
+      actions:
+        - funcs.call
+        - access
+      effect: allow
+
+  - name: admin_catalog
+    kind: security.policy
+    meta:
+      comment: Allow the Hub Catalog tool to use its exact native read-only Hub operations.
+    groups: []
+    policy:
+      resources: '*'
+      actions:
+        - hub.modules.list
+        - hub.modules.search
+        - hub.modules.readme
+        - hub.versions.list
+      effect: allow
+
+  - name: security_test_entry
+    kind: security.policy
+    meta:
+      type: test
+      comment: Test-only entry point for ordinary-user capability discovery checks.
+    groups:
+      - app.security:user
+    policy:
+      resources:
+        - keeper.hub.security:security_test
+      actions:
+        - funcs.call
+      effect: allow
+
+  - name: security_test_permissive
+    kind: security.policy
+    meta:
+      type: test
+      comment: Test-only permissive Keeper registry and function plumbing for defense-in-depth checks.
+    groups:
+      - keeper.hub.security:test_permissive
+    policy:
+      resources:
+        - keeper:*
+        - keeper.*
+      actions:
+        - registry.get
+        - funcs.call
+      effect: allow
+
+  - name: security_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Exact Hub Administrator discovery, invocation, native catalog, and inherited agent security tests.
+      suite: hub_security
+    source: file://security_test.lua
+    modules:
+      - security
+      - registry
+      - funcs
+    imports:
+      catalog: keeper.hub.tools:catalog
+      dependencies: keeper.hub.tools:dependencies
+      migrations: keeper.hub.tools:migrations
+      test: wippy.test:test
+      tool_caller: wippy.agent.tools:caller
+    method: define_tests
+    pool:
+      size: 1
