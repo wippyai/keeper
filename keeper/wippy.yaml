@@ -19,6 +19,8 @@ embed:
   - "git_static_fs"
   - "wippy_monaco_static_fs"
 exclude:
+  - "test/**"
+  - "test:**"
   - "frontend/applications/**/node_modules/**"
   - "frontend/applications/**/node_modules:**"
   - "frontend/web-components/**/node_modules/**"

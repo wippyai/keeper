@@ -408,6 +408,12 @@ entries:
     targets:
       - entry: keeper.config:admin_scope
         path: .default
+      - entry: keeper.hub.security:admin_discovery
+        path: ".groups +="
+      - entry: keeper.hub.security:admin_call
+        path: ".groups +="
+      - entry: keeper.hub.security:admin_catalog
+        path: ".groups +="
 
   # keeper:auth_token_store
   - name: auth_token_store
