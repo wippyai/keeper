@@ -62,6 +62,7 @@ entries:
         - security.policy_group.get
         - funcs.security
         - funcs.context
+        - funcs.call
       effect: allow
 
   # keeper.mcp.security:endpoint_registry_read
