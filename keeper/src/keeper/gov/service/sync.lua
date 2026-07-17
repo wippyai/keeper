@@ -108,12 +108,14 @@ function M.changeset_namespaces(changeset)
     return list
 end
 
--- Pure: collect distinct valid entry IDs named directly by a changeset and map
--- each id to its last operation kind.
+-- Pure: collect distinct valid entry IDs named directly by a changeset, map
+-- each id to its last operation kind, and remember IDs created at any point in
+-- the changeset so a surviving create/update lifecycle can be written to disk.
 function M.changeset_entry_ops(changeset)
     local seen = {}
     local ids = {}
     local ops = {}
+    local created = {}
     for _, op in ipairs(changeset or {}) do
         local entry = op.entry
         local id = entry and entry.id
@@ -123,9 +125,23 @@ function M.changeset_entry_ops(changeset)
                 table.insert(ids, id)
             end
             ops[id] = op.kind
+            if op.kind == consts.REGISTRY_OPERATIONS.CREATE then
+                created[id] = true
+            end
         end
     end
-    return ids, ops
+    return ids, ops, created
+end
+
+-- Pure: reduce an entry's changeset lifecycle to the decisions shared by
+-- registry collection, index patching, and source-file cleanup.
+function M.entry_sync_decision(entry_id, entry_kind, ops_by_id, created_by_id)
+    ops_by_id = ops_by_id or {}
+    created_by_id = created_by_id or {}
+    return {
+        delete = ops_by_id[entry_id] == consts.REGISTRY_OPERATIONS.DELETE,
+        guarded_missing = entry_kind == "ns.dependency" and not created_by_id[entry_id],
+    }
 end
 
 -- Get current entries for a set of namespaces from the registry
@@ -200,12 +216,16 @@ local function split_lines(content)
     return lines
 end
 
-local function block_name(lines, entry_line)
-    local raw = lines[entry_line] or ""
-    local name = raw:match("^  %- name:%s*(.-)%s*$")
-    if not name or name == "" then return nil end
-    name = name:gsub('^"(.*)"$', "%1"):gsub("^'(.*)'$", "%1")
-    return name
+local function block_name(lines, entry_line, finish)
+    for i = entry_line, finish do
+        local raw = lines[i] or ""
+        local name = raw:match("^  %- name:%s*(.-)%s*$")
+            or raw:match("^    name:%s*(.-)%s*$")
+        if name and name ~= "" then
+            return name:gsub('^"(.*)"$', "%1"):gsub("^'(.*)'$", "%1")
+        end
+    end
+    return nil
 end
 
 local function append_block_lines(out, block)
@@ -266,6 +286,7 @@ function M.patch_index_content(existing, namespace, replacements, deletes, guard
     for i = 1, entries_idx do table.insert(out, lines[i]) end
 
     local found = {}
+    local replaced = {}
     local i = entries_idx + 1
     while i <= #lines do
         local start = i
@@ -281,7 +302,6 @@ function M.patch_index_content(existing, namespace, replacements, deletes, guard
             table.insert(out, lines[i])
             i = i + 1
         else
-            local name = block_name(lines, entry_line)
             local next_start = entry_line + 1
             while next_start <= #lines do
                 if lines[next_start]:match("^  %- ") then
@@ -293,12 +313,16 @@ function M.patch_index_content(existing, namespace, replacements, deletes, guard
                 next_start = next_start + 1
             end
             local finish = next_start - 1
+            local name = block_name(lines, entry_line, finish)
 
             if name then found[name] = true end
             if name and deletes[name] then
                 -- drop the block
             elseif name and replacements[name] then
-                append_block_lines(out, replacements[name])
+                if not replaced[name] then
+                    append_block_lines(out, replacements[name])
+                    replaced[name] = true
+                end
             else
                 for j = start, finish do table.insert(out, lines[j]) end
             end
@@ -422,7 +446,7 @@ local function write_entries_to_fs(entries, options)
     return stats
 end
 
-local function write_changeset_entries_to_fs(entries, changeset, ops_by_id)
+local function write_changeset_entries_to_fs(entries, changeset, ops_by_id, created_by_id)
     local fs_id: string = tostring(consts.FILESYSTEM.SOURCE_FS_ID)
     local base_dir = "."
 
@@ -477,7 +501,9 @@ local function write_changeset_entries_to_fs(entries, changeset, ops_by_id)
             end
 
             group.replacements[name] = block
-            if entry.kind == "ns.dependency" and ops_by_id[entry.id] ~= consts.REGISTRY_OPERATIONS.CREATE then
+            local decision = M.entry_sync_decision(
+                entry.id, entry.kind, ops_by_id, created_by_id)
+            if decision.guarded_missing then
                 group.guarded_missing[name] = true
             end
             stats.entries = stats.entries + 1
@@ -486,8 +512,10 @@ local function write_changeset_entries_to_fs(entries, changeset, ops_by_id)
 
     for _, op in ipairs(changeset or {}) do
         if op.kind == consts.REGISTRY_OPERATIONS.DELETE and op.entry and op.entry.id then
+            local decision = M.entry_sync_decision(
+                op.entry.id, op.entry.kind, ops_by_id, created_by_id)
             local ns, name = op.entry.id:match("^([^:]+):(.+)$")
-            if ns and name and consts.is_namespace_managed(ns) then
+            if decision.delete and ns and name and consts.is_namespace_managed(ns) then
                 ns_group(ns).deletes[name] = true
             end
         end
@@ -607,15 +635,17 @@ function M.entry_file_path(entry)
 end
 
 -- Remove on-disk source files for entries deleted in this changeset.
-local function remove_deleted_files(changeset)
+local function remove_deleted_files(changeset, ops_by_id, created_by_id)
     local fs = fs_module.get(tostring(consts.FILESYSTEM.SOURCE_FS_ID))
     if not fs then return 0 end
 
     local removed = 0
     for _, op in ipairs(changeset or {}) do
-        if op.kind == "entry.delete" and op.entry and op.entry.id then
+        if op.kind == consts.REGISTRY_OPERATIONS.DELETE and op.entry and op.entry.id then
+            local decision = M.entry_sync_decision(
+                op.entry.id, op.entry.kind, ops_by_id, created_by_id)
             local ns = op.entry.id:match("^([^:]+):")
-            if ns and consts.is_namespace_managed(ns) then
+            if decision.delete and ns and consts.is_namespace_managed(ns) then
                 local path = M.entry_file_path(op.entry)
                 if path and fs:exists(path) then
                     if fs:remove(path) then
@@ -637,14 +667,15 @@ end
 
 -- Public: sync namespaces affected by a changeset
 function M.sync_changeset(changeset)
-    local ids, ops_by_id = M.changeset_entry_ops(changeset)
+    local ids, ops_by_id, created_by_id = M.changeset_entry_ops(changeset)
     if #ids == 0 then
         return { namespaces = 0, entries = 0, files = 0, files_skipped = 0, pruned = 0 }
     end
 
     local id_set = {}
     for _, id in ipairs(ids) do
-        if ops_by_id[id] ~= consts.REGISTRY_OPERATIONS.DELETE then
+        local decision = M.entry_sync_decision(id, nil, ops_by_id, created_by_id)
+        if not decision.delete then
             id_set[id] = true
         end
     end
@@ -652,10 +683,12 @@ function M.sync_changeset(changeset)
     local entries, err = collect_entries_by_id(id_set)
     if not entries then return nil, err end
 
-    local stats, write_err = write_changeset_entries_to_fs(entries, changeset, (ops_by_id :: any))
+    local stats, write_err = write_changeset_entries_to_fs(
+        entries, changeset, (ops_by_id :: any), (created_by_id :: any))
     if not stats then return nil, write_err end
 
-    local removed = remove_deleted_files(changeset)
+    local removed = remove_deleted_files(
+        changeset, (ops_by_id :: any), (created_by_id :: any))
     if removed > 0 then
         stats.files_removed = removed
     end

@@ -141,6 +141,66 @@ local function define_tests()
                 test.eq(ops["app.beta:new"], "entry.create")
                 test.is_nil(ops["app.alpha:sibling"])
             end)
+
+            it("tracks the last operation and whether repeated entry ids were created", function()
+                local _, ops, created = sync.changeset_entry_ops({
+                    { kind = "entry.delete", entry = { id = "app.deps:recreated" } },
+                    { kind = "entry.create", entry = { id = "app.deps:recreated" } },
+                    { kind = "entry.create", entry = { id = "app.deps:removed" } },
+                    { kind = "entry.delete", entry = { id = "app.deps:removed" } },
+                    { kind = "entry.delete", entry = { id = "app.deps:updated" } },
+                    { kind = "entry.update", entry = { id = "app.deps:updated" } },
+                })
+
+                test.eq(ops["app.deps:recreated"], "entry.create")
+                test.eq(ops["app.deps:removed"], "entry.delete")
+                test.eq(ops["app.deps:updated"], "entry.update")
+                test.is_true(created["app.deps:recreated"])
+                test.is_true(created["app.deps:removed"])
+                test.is_nil(created["app.deps:updated"])
+            end)
+        end)
+
+        describe("entry_sync_decision", function()
+            local function decision_for(ops)
+                local _, final_ops, created = sync.changeset_entry_ops(ops)
+                return sync.entry_sync_decision(
+                    "app.deps:root", "ns.dependency", final_ops, created)
+            end
+
+            it("writes a dependency created then updated without guarding it as missing", function()
+                local decision = decision_for({
+                    { kind = "entry.create", entry = { id = "app.deps:root" } },
+                    { kind = "entry.update", entry = { id = "app.deps:root" } },
+                })
+                test.is_false(decision.delete)
+                test.is_false(decision.guarded_missing)
+            end)
+
+            it("keeps a dependency deleted then recreated", function()
+                local decision = decision_for({
+                    { kind = "entry.delete", entry = { id = "app.deps:root" } },
+                    { kind = "entry.create", entry = { id = "app.deps:root" } },
+                })
+                test.is_false(decision.delete)
+                test.is_false(decision.guarded_missing)
+            end)
+
+            it("deletes a dependency created then deleted", function()
+                local decision = decision_for({
+                    { kind = "entry.create", entry = { id = "app.deps:root" } },
+                    { kind = "entry.delete", entry = { id = "app.deps:root" } },
+                })
+                test.is_true(decision.delete)
+            end)
+
+            it("guards an ordinary dependency update when its block is missing", function()
+                local decision = decision_for({
+                    { kind = "entry.update", entry = { id = "app.deps:root" } },
+                })
+                test.is_false(decision.delete)
+                test.is_true(decision.guarded_missing)
+            end)
         end)
 
         describe("patch_index_content", function()
@@ -204,16 +264,20 @@ entries:
     component: wippy/keep
     version: v1.0.0]]
                 local target_block = [[  # app.deps:actor
-  - name: actor
+  - version: v0.4.0
+    name: 'actor'
     kind: ns.dependency
     component: wippy/actor
-    version: v0.4.0]]
+    parameters:
+      - name: nested-parameter-name
+        value: app:db]]
                 local before_suffix = [[  # app.deps:tail
   - name: tail
     kind: ns.dependency
     component: wippy/tail
     version: v2.0.0]]
-                local before = before_prefix .. "\n" .. target_block .. "\n" .. before_suffix
+                local before = before_prefix .. "\n" .. target_block .. "\n"
+                    .. target_block .. "\n" .. before_suffix
 
                 local after, changed = sync.patch_index_content(before, "app.deps", {}, { actor = true }, {})
 
@@ -221,6 +285,102 @@ entries:
                 test.is_true(after:find(before_prefix, 1, true) ~= nil)
                 test.is_true(after:find(before_suffix, 1, true) ~= nil)
                 test.is_true(after:find(target_block, 1, true) == nil)
+            end)
+
+            it("ignores nested names when a malformed block has no direct name", function()
+                local before = [[version: "1.0"
+namespace: app.deps
+entries:
+  # malformed dependency without a direct name
+  - version: v1.0.0
+    kind: ns.dependency
+    component: wippy/malformed
+    parameters:
+      - name: root
+        value: app:db]]
+
+                local after, changed = sync.patch_index_content(
+                    before, "app.deps", {}, { root = true }, {})
+
+                test.eq(after, before)
+                test.is_false(changed)
+            end)
+
+            it("updates one canonical version-first block and collapses touched duplicates", function()
+                local sibling_block = [[  # app.deps:keep
+  - version: v1.0.0
+    name: keep
+    kind: ns.dependency
+    component: wippy/keep]]
+                local old_block = [[  # app.deps:workflows
+  - version: '>=v0.0.0'
+    name: workflows
+    kind: ns.dependency
+    component: kickside/workflows]]
+                local new_block = [[  # app.deps:workflows
+  - version: '>=v0.1.0'
+    name: workflows
+    kind: ns.dependency
+    component: kickside/workflows]]
+                local before = [[version: "1.0"
+namespace: app.deps
+entries:
+]] .. sibling_block .. "\n" .. old_block .. "\n" .. old_block
+
+                local after, changed = sync.patch_index_content(
+                    before, "app.deps", { workflows = new_block }, {}, {})
+                if not after then error("expected patched index content") end
+                local _, occurrences = after:gsub("# app%.deps:workflows", "")
+
+                test.is_true(changed)
+                test.eq(occurrences, 1)
+                test.is_true(after:find(new_block, 1, true) ~= nil)
+                test.is_true(after:find(sibling_block, 1, true) ~= nil)
+            end)
+
+            it("keeps one dependency block when a version-first entry is deleted then recreated", function()
+                local block = sync.render_index_entry("app.deps", {
+                    version = ">=v0.0.0",
+                    name = "workflows",
+                    kind = "ns.dependency",
+                    component = "kickside/workflows",
+                })
+                local before = [[version: "1.0"
+namespace: app.deps
+entries:
+]] .. block
+
+                local after_delete = sync.patch_index_content(
+                    before, "app.deps", {}, { workflows = true }, {})
+                local after_recreate = sync.patch_index_content(
+                    after_delete, "app.deps", { workflows = block }, {}, {})
+                if not after_recreate then error("expected recreated index content") end
+                local _, occurrences = after_recreate:gsub("# app%.deps:workflows", "")
+                local after_repeat, repeat_changed = sync.patch_index_content(
+                    after_recreate, "app.deps", { workflows = block }, {}, {})
+
+                test.eq(occurrences, 1)
+                test.eq(after_repeat, after_recreate)
+                test.is_false(repeat_changed)
+            end)
+
+            it("is byte-idempotent with the canonical serializer field order", function()
+                local block = sync.render_index_entry("app.deps", {
+                    version = ">=v0.0.0",
+                    name = "workflows",
+                    kind = "ns.dependency",
+                    component = "kickside/workflows",
+                })
+                local before = [[version: "1.0"
+namespace: app.deps
+entries:
+]] .. block
+
+                local after, changed = sync.patch_index_content(
+                    before, "app.deps", { workflows = block }, {}, {})
+
+                test.eq(after, before)
+                test.is_false(changed)
             end)
         end)
 
