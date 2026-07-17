@@ -61,6 +61,7 @@ entries:
         - security.scope.create
         - security.policy_group.get
         - funcs.security
+        - funcs.context
       effect: allow
 
   # keeper.mcp.security:endpoint_registry_read
