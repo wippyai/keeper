@@ -5,6 +5,7 @@
 local registry = require("registry")
 local runner_lib = require("runner")
 local sql = require("sql")
+local sql_dialect = require("sql_dialect")
 
 local function string_list(value: unknown): {string}
     local out = {}
@@ -25,7 +26,7 @@ local function applied_ids(target_db, wanted_ids)
     if err or not db then return out end
     local placeholders = {}
     for i = 1, #wanted_ids do placeholders[i] = "?" end
-    local rows, qerr = db:query(
+    local rows, qerr = sql_dialect.query(db,
         "SELECT id FROM _migrations WHERE id IN (" .. table.concat(placeholders, ",") .. ")",
         wanted_ids)
     db:release()

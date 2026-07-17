@@ -138,6 +138,7 @@ entries:
       - sql
     imports:
       runner: wippy.migration:runner
+      sql_dialect: keeper.internal:sql_dialect
     method: handler
     
   # keeper.develop.integrate.handlers:migration_handler_test

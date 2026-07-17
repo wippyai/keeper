@@ -7,6 +7,7 @@ local hub_migrations_tool = require("hub_migrations_tool")
 local http_client = require("http_client")
 local api_test = require("api_test")
 local json = require("json")
+local sql = require("sql")
 
 local function fake_registry(entries)
     local by_id = {}
@@ -41,12 +42,15 @@ local function fake_registry(entries)
     }
 end
 
-local function fake_sql(applied)
+local function fake_sql(applied, opts)
     applied = applied or {}
+    opts = opts or {}
     return {
         get = function()
             return {
-                query = function(_, _, params)
+                type = function() return opts.db_type end,
+                query = function(_, statement, params)
+                    if opts.on_query then opts.on_query(statement, params) end
                     local id = params and params[1]
                     if applied[id] then return { { id = id } }, nil end
                     return {}, nil
@@ -774,6 +778,24 @@ local function define_tests()
                 test.is_true(dep.installed)
                 test.eq(dep.installed_entries_count, 2)
                 test.eq(dep.migrations[1].status, "applied")
+            end)
+
+            it("binds migration status parameters for postgres", function()
+                local statement
+                local svc = hub.new({
+                    registry = fake_registry(fixture_entries()),
+                    sql = fake_sql({ ["wippy.foo.migrations:001"] = true }, {
+                        db_type = sql.type.POSTGRES,
+                        on_query = function(query) statement = query end,
+                    }),
+                    planner = no_requirements_planner(),
+                }) :: any
+
+                local out, err = svc:list_dependencies({})
+
+                test.is_nil(err)
+                test.eq(out.dependencies[1].migrations[1].status, "applied")
+                test.eq(statement, "SELECT id FROM _migrations WHERE id = $1 LIMIT 1")
             end)
 
             it("does not list module-owned package dependencies as installed dependencies", function()

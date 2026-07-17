@@ -2,6 +2,7 @@ local registry = require("registry")
 local materialize = require("materialize")
 local funcs = require("funcs")
 local sql = require("sql")
+local sql_dialect = require("sql_dialect")
 local uuid = require("uuid")
 local process = require("process")
 local system = require("system")
@@ -476,7 +477,8 @@ function Service:migration_status(entry)
         return "unknown", "db unavailable: " .. tostring(db_err or "nil db")
     end
 
-    local rows, query_err = db:query("SELECT id FROM _migrations WHERE id = ? LIMIT 1", { entry.id })
+    local rows, query_err = sql_dialect.query(db,
+        "SELECT id FROM _migrations WHERE id = ? LIMIT 1", { entry.id })
     db:release()
     if query_err then
         local msg = tostring(query_err)
