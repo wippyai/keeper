@@ -53,12 +53,16 @@ entries:
   - name: endpoint_actor_create
     kind: security.policy
     meta:
-      comment: The public Keeper MCP endpoint may synthesize the resolved token subject actor and runtime scope.
+      comment: The public Keeper MCP endpoint may synthesize the resolved token subject actor and runtime scope. Scope resolution goes through security.named_scope, which the runtime gates behind security.policy_group.get, so tool dispatch needs that action too.
     policy:
       resources: '*'
       actions:
         - security.actor.create
         - security.scope.create
+        - security.policy_group.get
+        - funcs.security
+        - funcs.context
+        - funcs.call
       effect: allow
 
   # keeper.mcp.security:endpoint_registry_read
