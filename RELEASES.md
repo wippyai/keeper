@@ -1,5 +1,18 @@
 # Release Notes
 
+## keeper/keeper 0.5.65
+
+`keeper/keeper@0.5.65` lets a newly installed plugin consume an application's
+declarative requirement profile without repeating the same values in the Hub
+dialog.
+
+- Bare requirement names are reused only when governance-managed deployment
+  roots agree on one compatible value.
+- Package-owned transitive edges remain excluded from configuration reuse.
+- Conflicting application values remain explicit and require a user choice.
+- `keeper.hub:test` passed 116/116, including cross-root reuse, ambiguity,
+  resource-kind validation, and package-edge isolation.
+
 ## keeper/keeper 0.5.64
 
 `keeper/keeper@0.5.64` makes Hub dependency changes operate on application
