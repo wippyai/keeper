@@ -1684,10 +1684,9 @@ function Service:plan_uninstall(args)
 
     local summary = M.dependency_summary(dep)
 
-    -- Removing a direct root is safe even when another root still requires the
-    -- same module: the runtime re-resolves the remaining roots and retains that
-    -- module as a transitive dependency. Work out that closure before deciding
-    -- whether migrations or module entries are actually being removed.
+    -- Resolve the remaining installed roots before any mutation. Besides
+    -- determining what an ordinary uninstall can remove, this identifies a
+    -- managed root that is still part of another managed root's closure.
     local keep_modules, unresolved_modules, keep_err = self:plan_uninstall_closure(dep)
     if not keep_modules then
         return nil, err("DEPENDENCY_GRAPH_FAILED",
@@ -1708,6 +1707,23 @@ function Service:plan_uninstall(args)
         table.insert(required_by, root)
     end
     table.sort(required_by)
+
+    -- A managed root is an explicit application choice, not merely a duplicate
+    -- reference to a transitive module. Removing it while another managed root
+    -- still requires the module asks governance to apply an invalid intermediate
+    -- graph: the remaining root's package edge is not a replacement deployment
+    -- root. Refuse at the planning boundary, before migration inspection,
+    -- registry publication, or lock/state mutation.
+    if #required_by > 0 then
+        return nil, err("DEPENDENCY_REQUIRED",
+            "cannot uninstall " .. tostring(summary.component)
+                .. "; still required by " .. table.concat(required_by, ", "),
+            {
+                dependency = summary,
+                required_by = planner.position_keyed(required_by),
+                required_by_text = table.concat(required_by, ", "),
+            })
+    end
 
     local module_entries, module_err = self:module_entries(summary.component)
     if not module_entries then return nil, module_err end
