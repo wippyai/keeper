@@ -4,6 +4,7 @@ local planner = require("planner")
 local security_scan = require("security_scan")
 local hub_dependencies_tool = require("hub_dependencies_tool")
 local hub_migrations_tool = require("hub_migrations_tool")
+local api_http = require("api_http")
 local http_client = require("http_client")
 local api_test = require("api_test")
 local json = require("json")
@@ -1180,7 +1181,7 @@ local function define_tests()
                 test.eq(err_details(err).applied_migrations_count, 1)
             end)
 
-            it("does not roll back migrations when only the redundant root is removed", function()
+            it("rejects a required root before considering its migration policy", function()
                 local entries = concat_entries(
                     fixture_entries(),
                     { root_dep("app.deps:consumer", "wippy/consumer") },
@@ -1198,12 +1199,10 @@ local function define_tests()
                     dry_run = true,
                 })
 
-                test.is_nil(err)
-                test.is_true(out.plan.module_remains_installed)
-                test.eq(out.plan.applied_migrations_count, 0)
-                test.eq(out.plan.retained_applied_migrations_count, 1)
-                test.eq(out.preview.kept[1].name, "wippy/foo")
-                test.contains(out.preview.warnings[2], "migrations remain applied")
+                test.is_nil(out)
+                test.eq(err_code(err), "DEPENDENCY_REQUIRED")
+                test.eq(err_kind(err), errors.CONFLICT)
+                test.eq(err_details(err).required_by["1"], "wippy/consumer")
             end)
 
             it("allows explicit leave policy and returns a delete patch", function()
@@ -1468,29 +1467,27 @@ local function define_tests()
                 test.eq(out.preview.kept[1].name, "wippy/shared")
             end)
 
-            it("removes a redundant direct root while retaining the transitively required module", function()
+            it("preflights a required managed root with HTTP 409 and no state change", function()
                 local function make_svc(gov_state)
+                    local files = { ["wippy.lock"] = "knowledge@1.0.0\nkb10@1.0.0" }
                     local entries = concat_entries(
                         {
-                            root_dep("app.deps:repl", "wippy/repl"),
-                            root_dep("app.deps:docs", "wippy/docs"),
-                            root_dep("app.deps:shared", "wippy/shared"),
+                            root_dep("app.deps:knowledge", "kickside/knowledge"),
+                            root_dep("app.deps:kb10", "kickside/kb10"),
                         },
-                        installed_module("wippy/repl", { "wippy/shared" }),
-                        installed_module("wippy/docs", { "wippy/shared" }),
-                        installed_module("wippy/shared", {})
+                        installed_module("kickside/kb10", { "kickside/knowledge" }),
+                        installed_module("kickside/knowledge", {})
                     )
-                    return hub.new({
+                    local svc = hub.new({
                         registry = fake_registry(entries),
                         sql = fake_sql({}),
                         planner = planner,
-                        fs = fake_project_fs({ ["wippy.lock"] = "initial-lock" }),
+                        fs = fake_project_fs(files),
                         yaml = fake_yaml_for_lock({
                             directories = { modules = ".wippy", src = "./src/app" },
                             modules = {
-                                { name = "wippy/repl", version = "1.0.0", hash = "repl-hash" },
-                                { name = "wippy/docs", version = "1.0.0", hash = "docs-hash" },
-                                { name = "wippy/shared", version = "1.0.0", hash = "shared-hash" },
+                                { name = "kickside/knowledge", version = "1.0.0", hash = "knowledge-hash" },
+                                { name = "kickside/kb10", version = "1.0.0", hash = "kb10-hash" },
                             },
                             replacements = {},
                         }),
@@ -1499,34 +1496,40 @@ local function define_tests()
                             new = function()
                                 return {
                                     call = function()
+                                        gov_state.func_calls = (gov_state.func_calls or 0) + 1
                                         return { ok = true, stage = "push", push = { version = 51 } }, nil
                                     end,
                                 }, nil
                             end,
                         },
                     }) :: any
+                    return svc, files, entries
                 end
 
-                local dry_out, dry_err = make_svc():uninstall({
-                    component = "wippy/shared",
-                    dry_run = true,
-                    migration_policy = "block",
-                })
-                test.is_nil(dry_err)
-                test.is_true(dry_out.plan.module_remains_installed)
-                test.eq(#dry_out.preview.removed, 0)
-                test.eq(dry_out.preview.kept[1].name, "wippy/shared")
-                test.contains(dry_out.preview.warnings[1], "will remain installed")
-
                 local gov_state = { current_version = 50 }
-                local real_out, real_err = make_svc(gov_state):uninstall({
-                    component = "wippy/shared",
+                local svc, files, entries = make_svc(gov_state)
+                local out, uninstall_err = svc:uninstall({
+                    component = "kickside/knowledge",
                     migration_policy = "block",
                 })
-                test.is_nil(real_err)
-                test.not_nil(real_out.apply)
-                test.eq(gov_state.last_changeset[1].kind, "entry.delete")
-                test.eq(gov_state.last_changeset[1].entry.id, "app.deps:shared")
+                test.is_nil(out)
+                test.eq(err_code(uninstall_err), "DEPENDENCY_REQUIRED")
+                test.eq(err_kind(uninstall_err), errors.CONFLICT)
+                test.eq(err_details(uninstall_err).dependency.id, "app.deps:knowledge")
+                test.eq(err_details(uninstall_err).required_by["1"], "kickside/kb10")
+                test.eq(gov_state.publish_calls or 0, 0)
+                test.eq(gov_state.current_calls or 0, 0)
+                test.eq(gov_state.func_calls or 0, 0)
+                test.eq(files["wippy.lock"], "knowledge@1.0.0\nkb10@1.0.0")
+                test.eq(entries[1].id, "app.deps:knowledge")
+
+                local response = { status_code = nil, body = nil }
+                function response:set_status(status) self.status_code = status end
+                function response:set_content_type(_) end
+                function response:write_json(body) self.body = body end
+                api_http.write_service_error(response, uninstall_err)
+                test.eq(response.status_code, 409)
+                test.eq(response.body.code, "DEPENDENCY_REQUIRED")
             end)
 
             it("uninstalls a root that no other root requires even when it has dependents of its own", function()
