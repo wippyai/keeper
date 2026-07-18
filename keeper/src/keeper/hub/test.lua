@@ -3095,7 +3095,7 @@ local function define_tests()
                 test.eq(plan.parameter_values["wippy.bootloader:env_storage"], "app.env:store")
             end)
 
-            it("does not reuse bare existing parameters from other components", function()
+            it("reuses a unique bare application profile value across managed roots", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
                         ["wippy/dummy"] = {
@@ -3121,7 +3121,7 @@ local function define_tests()
                             data = {
                                 component = "acme/other",
                                 version = "v1.0.0",
-                                parameters = { { name = "router", value = "app:api.public" } },
+                                parameters = { { name = "router", value = "app:api" } },
                             },
                         },
                     }),
@@ -3135,11 +3135,11 @@ local function define_tests()
                 test.is_nil(err)
                 local req = find_requirement(plan, "wippy.dummy:router")
                 test.not_nil(req)
-                test.eq(req.value, "app:router")
-                test.eq(req.value_source, "default")
+                test.eq(req.value, "app:api")
+                test.eq(req.value_source, "existing_bare")
                 test.is_false(req.missing)
-                test.eq(req.suggestions[1].value, "app:router")
-                test.eq(req.suggestions[1].source, "default")
+                test.eq(req.suggestions[1].value, "app:api")
+                test.eq(req.suggestions[1].source, "existing_bare")
             end)
 
             it("reuses a unique existing full-id parameter", function()
@@ -3274,7 +3274,7 @@ local function define_tests()
                 test.is_true(req.missing)
             end)
 
-            it("reuses a unique bare existing parameter only for the same direct component", function()
+            it("reuses a unique bare managed-root parameter for a newly installed component", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
                         ["wippy/dummy"] = {
@@ -3292,11 +3292,11 @@ local function define_tests()
                     registry = fake_registry({
                         { id = "app:api.public", kind = "http.router", meta = {}, data = {} },
                         {
-                            id = "app.deps:dummy",
+                            id = "app.deps:profile",
                             kind = "ns.dependency",
                             meta = {},
                             data = {
-                                component = "wippy/dummy",
+                                component = "acme/application-profile",
                                 version = "v1.0.0",
                                 parameters = { { name = "router", value = "app:api.public" } },
                             },
@@ -3342,7 +3342,7 @@ local function define_tests()
                             data = {
                                 component = "acme/parameter_source_a",
                                 version = "v1.0.0",
-                                parameters = { { name = "wippy.dummy:router", value = "app:api" } },
+                                parameters = { { name = "router", value = "app:api" } },
                             },
                         },
                         {
@@ -3352,7 +3352,7 @@ local function define_tests()
                             data = {
                                 component = "acme/parameter_source_b",
                                 version = "v1.0.0",
-                                parameters = { { name = "wippy.dummy:router", value = "app:api.public" } },
+                                parameters = { { name = "router", value = "app:api.public" } },
                             },
                         },
                     }),

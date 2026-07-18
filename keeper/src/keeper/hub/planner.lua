@@ -1811,7 +1811,11 @@ function Planner:plan_requirements(graph, supplied_parameters)
                     end
                 end
 
-                local bare_existing = unique_existing_values(name, node.module)
+                -- Bare names are application profile keys. Reuse them across
+                -- managed deployment roots only when every declaration agrees.
+                -- existing_parameter_values() already excludes package-owned
+                -- transitive edges, so this cannot import package-private state.
+                local bare_existing = unique_existing_values(name)
                 for _, match in ipairs(bare_existing) do
                     if compatible_value(match.value) then
                         add_suggestion(
