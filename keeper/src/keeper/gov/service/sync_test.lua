@@ -306,6 +306,21 @@ entries:
                 test.is_false(changed)
             end)
 
+            it("uses the canonical identity marker when a hand-written block has no name field", function()
+                local before = [[version: "1.0"
+namespace: app.deps
+entries:
+  # app.deps:legacy
+  - kind: ns.dependency
+    component: wippy/legacy]]
+
+                local after, changed = sync.patch_index_content(
+                    before, "app.deps", {}, { legacy = true }, {})
+
+                test.is_true(changed)
+                test.is_true(after:find("app.deps:legacy", 1, true) == nil)
+            end)
+
             it("updates one canonical version-first block and collapses touched duplicates", function()
                 local sibling_block = [[  # app.deps:keep
   - version: v1.0.0

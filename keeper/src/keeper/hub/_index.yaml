@@ -66,6 +66,7 @@ entries:
       - sql
     imports:
       api_test: keeper.tests:api_test
+      gov_consts: keeper.gov:consts
       hub_dependencies_tool: keeper.hub.tools:dependencies
       hub_migrations_tool: keeper.hub.tools:migrations
       hub_service: keeper.hub:service

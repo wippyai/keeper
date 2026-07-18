@@ -1,5 +1,44 @@
 # Release Notes
 
+## keeper/keeper 0.5.64
+
+`keeper/keeper@0.5.64` makes Hub dependency changes operate on application
+roots consistently across install, uninstall, undo/redo, source persistence,
+and process restarts.
+
+### Highlights
+
+- Package-owned dependency edges remain part of graph resolution but can no
+  longer be selected as mutable application install roots.
+- Installing an already-transitive module creates a managed application root;
+  removing that redundant root keeps the transitive module and its migrations.
+- Explicit dependency IDs cannot create a second application root for a
+  component; both planning and apply enforce the invariant.
+- Dependency resolution intersects every incoming constraint across diamonds,
+  cycles, and existing reachable roots, while ignoring unreachable orphan
+  package edges and dependencies replaced by the current plan.
+- Package-owned dependency parameters are not reused as application bindings,
+  preventing a transitive package's private configuration from leaking into a
+  new root install.
+- Governance undo/redo now reconstructs the applied registry delta so source
+  YAML, the state index, and observers receive the same change.
+- Filesystem sync recognizes canonical entry blocks regardless of YAML field
+  order, including version-first blocks at end of file.
+- A filesystem-sync failure restores the registry baseline and attempts the
+  inverse source update instead of reporting a successful partial transition.
+- Keeper's fixture application is excluded from both published artifacts and
+  local replacement loads, so its app roots cannot pull fixture modules into a
+  consuming application.
+
+### Verification
+
+- `keeper.hub:test` passed 116/116, including compatible and incompatible
+  diamonds, version-narrowing cycles, existing-root intersections, orphan
+  edges, explicit duplicate roots, and parameter provenance.
+- Governance changeset, sync, and service suites passed 101/101.
+- Keeper lint checked 380 entries with no errors and four pre-existing
+  warnings.
+
 ## keeper/keeper 0.5.58
 
 `keeper/keeper@0.5.58` removes all runtime reads and writes of `wippy.lock` from
