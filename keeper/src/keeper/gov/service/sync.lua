@@ -216,14 +216,32 @@ local function split_lines(content)
     return lines
 end
 
-local function block_name(lines, entry_line, finish)
-    for i = entry_line, finish do
-        local raw = lines[i] or ""
-        local name = raw:match("^  %- name:%s*(.-)%s*$")
-            or raw:match("^    name:%s*(.-)%s*$")
-        if name and name ~= "" then
-            return name:gsub('^"(.*)"$', "%1"):gsub("^'(.*)'$", "%1")
+local function scalar_value(raw)
+    if not raw or raw == "" then return nil end
+    return raw:gsub('^"(.*)"$', "%1"):gsub("^'(.*)'$", "%1")
+end
+
+-- Locate the entry name without assuming which field the YAML encoder emits
+-- first. Sequence-item fields use four-space indentation after the initial
+-- `  - ` line; nested `name` fields are therefore deliberately ignored.
+-- Canonical identity comments are a fallback for unusual hand-written blocks.
+local function block_name(lines, start_line, entry_line, finish, namespace)
+    for line_number = entry_line, finish do
+        local raw = lines[line_number] or ""
+        local value
+        if line_number == entry_line then
+            value = raw:match("^  %- name:%s*(.-)%s*$")
+        else
+            value = raw:match("^    name:%s*(.-)%s*$")
         end
+        local name = scalar_value(value)
+        if name then return name end
+    end
+
+    local marker = (lines[start_line] or ""):match("^  #%s*(.-)%s*$")
+    local prefix = tostring(namespace) .. ":"
+    if marker and marker:sub(1, #prefix) == prefix then
+        return scalar_value(marker:sub(#prefix + 1))
     end
     return nil
 end
@@ -313,7 +331,7 @@ function M.patch_index_content(existing, namespace, replacements, deletes, guard
                 next_start = next_start + 1
             end
             local finish = next_start - 1
-            local name = block_name(lines, entry_line, finish)
+            local name = block_name(lines, start, entry_line, finish, namespace)
 
             if name then found[name] = true end
             if name and deletes[name] then

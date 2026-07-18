@@ -8,6 +8,28 @@ local http_client = require("http_client")
 local api_test = require("api_test")
 local json = require("json")
 local sql = require("sql")
+local gov_consts = require("gov_consts")
+
+local function fake_managed_governance(namespaces)
+    namespaces = namespaces or {}
+    local function is_managed(namespace)
+        for _, root in ipairs(namespaces) do
+            if namespace == root or namespace:sub(1, #root + 1) == root .. "." then
+                return true
+            end
+        end
+        return false
+    end
+    return {
+        REGISTRY_OPERATIONS = {
+            CREATE = "entry.create",
+            UPDATE = "entry.update",
+            DELETE = "entry.delete",
+        },
+        get_managed_namespaces = function() return namespaces end,
+        is_namespace_managed = is_managed,
+    }
+end
 
 local function fake_registry(entries)
     local by_id = {}
@@ -590,6 +612,17 @@ end
 
 local function define_tests()
     describe("keeper.hub service", function()
+        local original_managed_namespaces = {}
+        before_all(function()
+            original_managed_namespaces = gov_consts.get_managed_namespaces()
+            local _, set_err = gov_consts.set_managed_namespaces({ "app" })
+            if set_err then error(set_err) end
+        end)
+        after_all(function()
+            local _, set_err = gov_consts.set_managed_namespaces(original_managed_namespaces)
+            if set_err then error(set_err) end
+        end)
+
         describe("dependency closure resolver (installed edges)", function()
             it("keeps a transitive still required by another remaining root", function()
                 local entries = concat_entries(
@@ -819,6 +852,28 @@ local function define_tests()
                 test.eq(out.dependencies[1].id, "app.deps:foo")
             end)
 
+            it("lists managed dependency roots even when pack provenance metadata is present", function()
+                local entries = fixture_entries()
+                for _, entry in ipairs(entries) do
+                    if entry.id == "app.deps:foo" then
+                        entry.meta.module = "acme/application"
+                        entry.meta.module_version = "1.0.0"
+                    end
+                end
+                local svc = hub.new({
+                    registry = fake_registry(entries),
+                    sql = fake_sql({}),
+                    planner = no_requirements_planner(),
+                    gov_consts = fake_managed_governance({ "app.deps" }),
+                }) :: any
+
+                local out, err = svc:list_dependencies({})
+
+                test.is_nil(err)
+                test.eq(out.count, 1)
+                test.eq(out.dependencies[1].id, "app.deps:foo")
+            end)
+
             it("does not resolve module-owned dependencies as install roots", function()
                 local entries = fixture_entries()
                 table.insert(entries, {
@@ -842,6 +897,26 @@ local function define_tests()
                 test.is_nil(by_id)
                 test.not_nil(by_id_err)
                 test.eq(err_code(by_id_err), "BAD_REQUEST")
+            end)
+
+            it("classifies an exact missing dependency id as not found", function()
+                local svc = hub.new({
+                    registry = {
+                        get = function(id)
+                            return nil, "entry not found: " .. tostring(id)
+                        end,
+                        find = function() return {}, nil end,
+                    },
+                    sql = fake_sql({}),
+                    planner = no_requirements_planner(),
+                }) :: any
+
+                local dependency, dependency_err = svc:find_dependency({ id = "app.deps:removed" })
+
+                test.is_nil(dependency)
+                test.not_nil(dependency_err)
+                test.eq(err_code(dependency_err), "NOT_FOUND")
+                test.contains(err_message(dependency_err), "app.deps:removed")
             end)
 
             it("lists only Hub-owned migrations when no component is supplied", function()
@@ -1103,6 +1178,32 @@ local function define_tests()
                 test.not_nil(err)
                 test.eq(err_code(err), "MIGRATIONS_APPLIED")
                 test.eq(err_details(err).applied_migrations_count, 1)
+            end)
+
+            it("does not roll back migrations when only the redundant root is removed", function()
+                local entries = concat_entries(
+                    fixture_entries(),
+                    { root_dep("app.deps:consumer", "wippy/consumer") },
+                    installed_module("wippy/consumer", { "wippy/foo" })
+                )
+                local svc = hub.new({
+                    registry = fake_registry(entries),
+                    sql = fake_sql({ ["wippy.foo.migrations:001"] = true }),
+                    planner = planner,
+                }) :: any
+
+                local out, err = svc:uninstall({
+                    component = "wippy/foo",
+                    migration_policy = "block",
+                    dry_run = true,
+                })
+
+                test.is_nil(err)
+                test.is_true(out.plan.module_remains_installed)
+                test.eq(out.plan.applied_migrations_count, 0)
+                test.eq(out.plan.retained_applied_migrations_count, 1)
+                test.eq(out.preview.kept[1].name, "wippy/foo")
+                test.contains(out.preview.warnings[2], "migrations remain applied")
             end)
 
             it("allows explicit leave policy and returns a delete patch", function()
@@ -1367,8 +1468,8 @@ local function define_tests()
                 test.eq(out.preview.kept[1].name, "wippy/shared")
             end)
 
-            it("refuses to uninstall a root still required by another installed root", function()
-                local function make_svc()
+            it("removes a redundant direct root while retaining the transitively required module", function()
+                local function make_svc(gov_state)
                     local entries = concat_entries(
                         {
                             root_dep("app.deps:repl", "wippy/repl"),
@@ -1393,7 +1494,7 @@ local function define_tests()
                             },
                             replacements = {},
                         }),
-                        governance = fake_governance({ current_version = 50 }),
+                        governance = fake_governance(gov_state or { current_version = 50 }),
                         funcs = {
                             new = function()
                                 return {
@@ -1406,22 +1507,26 @@ local function define_tests()
                     }) :: any
                 end
 
-                -- dry_run must refuse loudly and list the dependent roots.
-                local dry_out, dry_err = make_svc():uninstall({ component = "wippy/shared", dry_run = true })
-                test.is_nil(dry_out)
-                test.eq(err_code(dry_err), "DEPENDENCY_REQUIRED")
-                local dry_details = err_details(dry_err)
-                test.not_nil(dry_details.required_by)
-                local names = {}
-                for _, n in pairs(dry_details.required_by) do names[n] = true end
-                test.is_true(names["wippy/repl"])
-                test.is_true(names["wippy/docs"])
+                local dry_out, dry_err = make_svc():uninstall({
+                    component = "wippy/shared",
+                    dry_run = true,
+                    migration_policy = "block",
+                })
+                test.is_nil(dry_err)
+                test.is_true(dry_out.plan.module_remains_installed)
+                test.eq(#dry_out.preview.removed, 0)
+                test.eq(dry_out.preview.kept[1].name, "wippy/shared")
+                test.contains(dry_out.preview.warnings[1], "will remain installed")
 
-                -- real mode must refuse identically and never touch the registry/lock.
-                local gov_svc = make_svc()
-                local real_out, real_err = gov_svc:uninstall({ component = "wippy/shared" })
-                test.is_nil(real_out)
-                test.eq(err_code(real_err), "DEPENDENCY_REQUIRED")
+                local gov_state = { current_version = 50 }
+                local real_out, real_err = make_svc(gov_state):uninstall({
+                    component = "wippy/shared",
+                    migration_policy = "block",
+                })
+                test.is_nil(real_err)
+                test.not_nil(real_out.apply)
+                test.eq(gov_state.last_changeset[1].kind, "entry.delete")
+                test.eq(gov_state.last_changeset[1].entry.id, "app.deps:shared")
             end)
 
             it("uninstalls a root that no other root requires even when it has dependents of its own", function()
@@ -2045,6 +2150,174 @@ local function define_tests()
                 test.eq(plan.dependency.id, "app.plugins:app")
                 test.eq(plan.dependency.namespace, "app.plugins")
                 test.eq(plan.install_payload.namespace, "app.plugins")
+            end)
+
+            it("promotes an installed transitive module into a new managed root", function()
+                local entries = concat_entries(
+                    { root_dep("app.deps:parent", "acme/parent") },
+                    installed_module("acme/parent", { "acme/shared" }),
+                    installed_module("acme/shared", {})
+                )
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/shared"] = { { version = "v1.2.3", requirements = {} } },
+                    }),
+                    registry = fake_registry(entries),
+                }) :: any
+
+                local plan, err = svc:plan_install({
+                    component = "acme/shared",
+                    version = "v1.2.3",
+                })
+
+                test.is_nil(err)
+                test.eq(plan.dependency.id, "app.deps:shared")
+                test.eq(plan.install_payload.id, "app.deps:shared")
+            end)
+
+            it("rejects an explicit dependency edge outside managed namespaces as an install destination", function()
+                local entries = concat_entries({
+                    root_dep("app.deps:parent", "acme/parent"),
+                    {
+                        id = "acme.parent:__def",
+                        kind = "ns.definition",
+                        meta = { module = "acme/parent", module_version = "1.0.0" },
+                        data = {},
+                    },
+                    {
+                        id = "acme.parent:dep.acme.shared",
+                        kind = "ns.dependency",
+                        meta = { module = "acme/parent", module_version = "1.0.0" },
+                        data = { component = "acme/shared", version = "v1.2.3" },
+                    },
+                }, installed_module("acme/shared", {}))
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/shared"] = { { version = "v1.2.3", requirements = {} } },
+                    }),
+                    registry = fake_registry(entries),
+                    gov = fake_managed_governance({ "app.deps" }),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({
+                    id = "acme.parent:dep.acme.shared",
+                    component = "acme/shared",
+                    version = "v1.2.3",
+                })
+
+                test.is_nil(plan)
+                test.eq(err_code(plan_err), "BAD_REQUEST")
+                test.contains(err_message(plan_err), "outside the governance-managed dependency namespaces")
+            end)
+
+            it("fails clearly when duplicate application roots declare one component", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({}),
+                    registry = fake_registry({
+                        root_dep("app.deps:shared_a", "acme/shared"),
+                        root_dep("app.deps:shared_b", "acme/shared"),
+                    }),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({
+                    component = "acme/shared",
+                    version = "v1.2.3",
+                })
+
+                test.is_nil(plan)
+                test.eq(err_code(plan_err), "CONFLICT")
+                test.contains(err_message(plan_err), "multiple application dependency roots")
+            end)
+
+            it("rejects an explicit destination that would duplicate an application root", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/shared"] = { { version = "v1.2.3", requirements = {} } },
+                    }),
+                    registry = fake_registry({
+                        root_dep("app.deps:shared", "acme/shared"),
+                    }),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({
+                    id = "app.deps:shared_copy",
+                    component = "acme/shared",
+                    version = "v1.2.3",
+                })
+
+                test.is_nil(plan)
+                test.eq(err_code(plan_err), "CONFLICT")
+                test.contains(err_message(plan_err), "already has an application dependency root")
+                test.eq(err_details(plan_err).existing_dependency_id, "app.deps:shared")
+            end)
+
+            it("defends publish against a duplicate root even when planning is bypassed", function()
+                local gov_state = ({}) :: any
+                local svc = hub.new({
+                    registry = fake_registry({
+                        root_dep("app.deps:shared", "acme/shared"),
+                    }),
+                    governance = fake_governance(gov_state),
+                }) :: any
+
+                local out, publish_err = svc:publish_dependency_changeset({
+                    action = "install",
+                    entry = root_dep("app.deps:shared_copy", "acme/shared"),
+                })
+
+                test.is_nil(out)
+                test.eq(err_code(publish_err), "CONFLICT")
+                test.contains(err_message(publish_err), "already has an application dependency root")
+                test.eq(gov_state.publish_calls or 0, 0)
+            end)
+
+            it("uses an organization-qualified root name when the short id is occupied", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["other/tools"] = { { version = "v1.0.0", requirements = {} } },
+                    }),
+                    registry = fake_registry({
+                        root_dep("app.deps:tools", "acme/tools"),
+                    }),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({
+                    component = "other/tools",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(plan_err)
+                test.eq(plan.dependency.id, "app.deps:other_tools")
+            end)
+
+            it("does not treat the target package's own edges as independent roots", function()
+                local entries = concat_entries(
+                    { root_dep("app.deps:parent", "acme/parent") },
+                    installed_module("acme/parent", { "acme/shared" }),
+                    installed_module("acme/shared", {})
+                )
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/parent"] = {
+                            {
+                                version = "v2.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "shared", version = "v1.2.3" },
+                                },
+                            },
+                        },
+                        ["acme/shared"] = { { version = "v1.2.3" } },
+                    }),
+                    registry = fake_registry(entries),
+                }) :: any
+
+                local graph, graph_err = svc:resolve_install_graph("acme/parent", "v2.0.0", {})
+
+                test.is_nil(graph_err)
+                local by_name = {}
+                for _, node in ipairs(graph) do by_name[node.module] = node end
+                test.is_true(by_name["acme/shared"].installed)
+                test.is_false(by_name["acme/shared"].shared)
             end)
 
             it("ignores existing dependency clusters when governance manages no namespaces", function()
@@ -2958,6 +3231,49 @@ local function define_tests()
                 test.eq(#req.suggestions, 0)
             end)
 
+            it("does not reuse parameters stored on package-owned transitive edges", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["wippy/dummy"] = {
+                            {
+                                version = "v1.0.0",
+                                requirements = {
+                                    {
+                                        name = "router",
+                                        targets = { { entry = "wippy.dummy:ping", path = "meta.router" } },
+                                    },
+                                },
+                            },
+                        },
+                    }),
+                    registry = fake_registry({
+                        { id = "app:api", kind = "http.router", meta = {}, data = {} },
+                        {
+                            id = "acme.parent:dep.wippy.dummy",
+                            kind = "ns.dependency",
+                            meta = { module = "acme/parent", module_version = "v1.0.0" },
+                            data = {
+                                component = "wippy/dummy",
+                                version = "v1.0.0",
+                                parameters = { { name = "wippy.dummy:router", value = "app:api" } },
+                            },
+                        },
+                    }),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({
+                    component = "wippy/dummy",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(plan_err)
+                local req = find_requirement(plan, "wippy.dummy:router")
+                test.not_nil(req)
+                test.eq(req.value, "")
+                test.eq(req.value_source, "empty")
+                test.is_true(req.missing)
+            end)
+
             it("reuses a unique bare existing parameter only for the same direct component", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
@@ -3024,7 +3340,7 @@ local function define_tests()
                             kind = "ns.dependency",
                             meta = {},
                             data = {
-                                component = "wippy/dummy",
+                                component = "acme/parameter_source_a",
                                 version = "v1.0.0",
                                 parameters = { { name = "wippy.dummy:router", value = "app:api" } },
                             },
@@ -3034,7 +3350,7 @@ local function define_tests()
                             kind = "ns.dependency",
                             meta = {},
                             data = {
-                                component = "wippy/dummy",
+                                component = "acme/parameter_source_b",
                                 version = "v1.0.0",
                                 parameters = { { name = "wippy.dummy:router", value = "app:api.public" } },
                             },
@@ -3043,6 +3359,7 @@ local function define_tests()
                 }) :: any
 
                 local plan, err = svc:plan_install({
+                    id = "app.deps:dummy_probe",
                     component = "wippy/dummy",
                     version = "v1.0.0",
                 })
@@ -3109,6 +3426,181 @@ local function define_tests()
                 test.eq(#graph, 2)
                 test.eq(graph[1].module, "acme/a")
                 test.eq(graph[2].module, "acme/b")
+            end)
+
+            it("narrows a root version through a compatible cycle", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/a"] = {
+                            {
+                                version = "v1.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "b", version = "v1.0.0" },
+                                },
+                            },
+                            {
+                                version = "v2.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "b", version = "v1.0.0" },
+                                    { org = "acme", name = "only_v2", version = "v1.0.0" },
+                                },
+                            },
+                        },
+                        ["acme/b"] = {
+                            {
+                                version = "v1.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "a", version_constraint = "<v2.0.0" },
+                                },
+                            },
+                        },
+                        ["acme/only_v2"] = {
+                            { version = "v1.0.0" },
+                        },
+                    }),
+                    registry = fake_registry({}),
+                }) :: any
+
+                local graph, graph_err = svc:resolve_install_graph("acme/a", ">=v1.0.0", {})
+
+                test.is_nil(graph_err)
+                local nodes = {}
+                for _, node in ipairs(graph) do nodes[node.module] = node end
+                test.eq(nodes["acme/a"].version, "v1.0.0")
+                test.not_nil(nodes["acme/b"])
+                test.is_nil(nodes["acme/only_v2"])
+            end)
+
+            it("selects a version satisfying every incoming diamond constraint", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/app"] = {
+                            {
+                                version = "v1.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "left", version = "v1.0.0" },
+                                    { org = "acme", name = "right", version = "v1.0.0" },
+                                },
+                            },
+                        },
+                        ["acme/left"] = {
+                            {
+                                version = "v1.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "shared", version_constraint = ">=v1.0.0" },
+                                },
+                            },
+                        },
+                        ["acme/right"] = {
+                            {
+                                version = "v1.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "shared", version_constraint = "<v2.0.0" },
+                                },
+                            },
+                        },
+                        ["acme/shared"] = {
+                            { version = "v1.5.0" },
+                            { version = "v2.0.0" },
+                        },
+                    }),
+                    registry = fake_registry({}),
+                }) :: any
+
+                local graph, graph_err = svc:resolve_install_graph("acme/app", "v1.0.0", {})
+
+                test.is_nil(graph_err)
+                local nodes = {}
+                for _, node in ipairs(graph) do nodes[node.module] = node end
+                test.eq(nodes["acme/shared"].version, "v1.5.0")
+                test.eq(#nodes["acme/shared"].constraints, 2)
+            end)
+
+            it("rejects incompatible incoming diamond constraints", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/app"] = {
+                            {
+                                version = "v1.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "left", version = "v1.0.0" },
+                                    { org = "acme", name = "right", version = "v1.0.0" },
+                                },
+                            },
+                        },
+                        ["acme/left"] = {
+                            {
+                                version = "v1.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "shared", version_constraint = ">=v2.0.0" },
+                                },
+                            },
+                        },
+                        ["acme/right"] = {
+                            {
+                                version = "v1.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "shared", version_constraint = "<v2.0.0" },
+                                },
+                            },
+                        },
+                        ["acme/shared"] = {
+                            { version = "v1.5.0" },
+                            { version = "v2.0.0" },
+                        },
+                    }),
+                    registry = fake_registry({}),
+                }) :: any
+
+                local graph, graph_err = svc:resolve_install_graph("acme/app", "v1.0.0", {})
+
+                test.is_nil(graph)
+                test.eq(err_code(graph_err), "CONFLICT")
+                test.contains(err_message(graph_err), "conflicting version constraints for acme/shared")
+                test.contains(err_message(graph_err), ">=v2.0.0")
+                test.contains(err_message(graph_err), "<v2.0.0")
+            end)
+
+            it("drops transient child failures after a parent version is narrowed", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/app"] = {
+                            {
+                                version = "v1.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "parent", version_constraint = ">=v1.0.0" },
+                                    { org = "acme", name = "limiter", version = "v1.0.0" },
+                                },
+                            },
+                        },
+                        ["acme/parent"] = {
+                            { version = "v1.0.0", dependencies = {} },
+                            {
+                                version = "v2.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "removed_child", version = "v1.0.0" },
+                                },
+                            },
+                        },
+                        ["acme/limiter"] = {
+                            {
+                                version = "v1.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "parent", version_constraint = "<v2.0.0" },
+                                },
+                            },
+                        },
+                    }),
+                    registry = fake_registry({}),
+                }) :: any
+
+                local graph, graph_err = svc:resolve_install_graph("acme/app", "v1.0.0", {})
+
+                test.is_nil(graph_err)
+                local nodes = {}
+                for _, node in ipairs(graph) do nodes[node.module] = node end
+                test.eq(nodes["acme/parent"].version, "v1.0.0")
+                test.is_nil(nodes["acme/removed_child"])
             end)
 
             it("flags installed and shared modules in the install graph", function()
@@ -3223,10 +3715,81 @@ local function define_tests()
                 test.contains(err_message(plan_err), "0.1.2 (required by root)")
                 test.contains(err_message(plan_err), "0.1.8 (required by kickside/demo)")
                 local details = err_details(plan_err)
-                test.not_nil(details.conflicts)
-                test.eq(details.conflicts["1"].module, "kickside/component")
-                test.eq(details.conflicts["1"].installed_constraint, "0.1.2")
-                test.eq(details.conflicts["1"].resolved_version, "0.1.8")
+                test.eq(details.component, "kickside/component")
+                test.not_nil(details.constraints)
+                test.eq(details.constraints["1"].constraint, "0.1.8")
+                test.eq(details.constraints["1"].required_by, "kickside/demo")
+                test.eq(details.constraints["2"].constraint, "0.1.2")
+                test.eq(details.constraints["2"].required_by, "root")
+            end)
+
+            it("selects the highest version in the intersection with an installed root", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/app"] = {
+                            {
+                                version = "v1.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "shared", version_constraint = ">=v1.0.0" },
+                                },
+                            },
+                        },
+                        ["acme/shared"] = {
+                            { version = "v1.5.0" },
+                            { version = "v2.0.0" },
+                        },
+                    }),
+                    registry = fake_registry({
+                        {
+                            id = "app.deps:shared",
+                            kind = "ns.dependency",
+                            meta = {},
+                            data = { component = "acme/shared", version = "<v2.0.0" },
+                        },
+                    }),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({
+                    component = "acme/app",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(plan_err)
+                local nodes = {}
+                for _, node in ipairs(plan.graph) do nodes[node.module] = node end
+                test.eq(nodes["acme/shared"].version, "v1.5.0")
+            end)
+
+            it("ignores constraints owned only by an unreachable orphan module", function()
+                local orphan = installed_module("acme/orphan", { "acme/shared" })
+                orphan[2].data.version = "v1.0.0"
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/app"] = {
+                            {
+                                version = "v1.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "shared", version = "v2.0.0" },
+                                },
+                            },
+                        },
+                        ["acme/shared"] = {
+                            { version = "v1.0.0" },
+                            { version = "v2.0.0" },
+                        },
+                    }),
+                    registry = fake_registry(orphan),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({
+                    component = "acme/app",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(plan_err)
+                local nodes = {}
+                for _, node in ipairs(plan.graph) do nodes[node.module] = node end
+                test.eq(nodes["acme/shared"].version, "v2.0.0")
             end)
 
             it("plans a compatible version against installed root constraints with correct flags", function()

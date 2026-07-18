@@ -8,6 +8,43 @@ local log = logger:named("gov.service.changeset")
 
 local M = {}
 
+local function snapshot_entries()
+    local snapshot, snapshot_err = registry.snapshot()
+    if not snapshot then
+        return nil, "registry.snapshot failed: " .. tostring(snapshot_err)
+    end
+    local entries, entries_err = snapshot:entries()
+    if not entries then
+        return nil, "registry snapshot entries failed: " .. tostring(entries_err)
+    end
+    return entries, nil
+end
+
+local function build_delta(before_entries, after_entries)
+    -- registry.build_delta accepts entry arrays at runtime; the runtime type
+    -- metadata still labels these arguments as registry.Version.
+    local changeset, delta_err = registry.build_delta(
+        before_entries :: registry.Version,
+        after_entries :: registry.Version
+    )
+    if not changeset then
+        return nil, "registry.build_delta failed: " .. tostring(delta_err)
+    end
+    return changeset, nil
+end
+
+local function failed_result(message, err, request_id, user_id, extra)
+    local out = {
+        success = false,
+        message = message,
+        error = tostring(err or message),
+        request_id = request_id,
+        user_id = user_id,
+    }
+    for key, value in pairs(extra or {}) do out[key] = value end
+    return out
+end
+
 function M.merge_options(base_options, override_options)
     local merged = {}
     if type(base_options) == "table" then
@@ -375,6 +412,25 @@ local function run(args)
     local result
     local changeset = args.changeset
     local validation_details = {}
+    local sync_enabled = args.options == nil or args.options.sync ~= false
+    local needs_baseline = sync_enabled or args.version_id ~= nil
+    local baseline_version
+    local baseline_entries
+
+    if needs_baseline then
+        local version, version_err = registry.current_version()
+        if not version then
+            return failed_result("Failed to capture registry baseline", version_err,
+                request_id, user_id)
+        end
+        baseline_version = version
+        local entries, entries_err = snapshot_entries()
+        if not entries then
+            return failed_result("Failed to capture registry baseline entries", entries_err,
+                request_id, user_id)
+        end
+        baseline_entries = entries
+    end
 
     if args.changeset then
         local validated_changeset, err, issues = validate_changeset(args.changeset, request_id, args.options or {}, user_id)
@@ -426,6 +482,32 @@ local function run(args)
 
         result = execute_version(validated_version, args.options or {}, request_id, user_id)
 
+        -- Version application is a real entry changeset even though the caller
+        -- supplied only a version id. Reconstruct that delta so filesystem sync,
+        -- state reconciliation, and observers see the same operation that the
+        -- registry applied.
+        if result.success then
+            local applied_entries, entries_err = snapshot_entries()
+            if not applied_entries then
+                local restored, restore_err = registry.apply_version(baseline_version)
+                return failed_result("Applied registry version but could not inspect its entries", entries_err,
+                    request_id, user_id, {
+                        rollback = restored == true,
+                        rollback_error = restore_err,
+                    })
+            end
+            local version_changeset, delta_err = build_delta(baseline_entries, applied_entries)
+            if not version_changeset then
+                local restored, restore_err = registry.apply_version(baseline_version)
+                return failed_result("Applied registry version but could not reconstruct its changeset", delta_err,
+                    request_id, user_id, {
+                        rollback = restored == true,
+                        rollback_error = restore_err,
+                    })
+            end
+            changeset = version_changeset
+        end
+
     else
         log:error("Invalid arguments - requires changeset or version_id", {
             request_id = request_id,
@@ -449,7 +531,7 @@ local function run(args)
     local should_sync = result.success
         and changeset
         and #changeset > 0
-        and (args.options == nil or args.options.sync ~= false)
+        and sync_enabled
 
     if should_sync then
         local sync_stats, sync_err = sync.sync_changeset(changeset)
@@ -459,7 +541,35 @@ local function run(args)
                 request_id = request_id,
                 user_id = user_id,
             })
+            -- Registry and source are one governed state transition. If source
+            -- persistence fails, restore the registry baseline and apply the
+            -- inverse delta to repair any files written before the failure.
+            local applied_entries, applied_entries_err = snapshot_entries()
+            local inverse_changeset
+            local inverse_err
+            if applied_entries then
+                inverse_changeset, inverse_err = build_delta(applied_entries, baseline_entries)
+            else
+                inverse_err = applied_entries_err
+            end
+
+            local restored, restore_err = registry.apply_version(baseline_version)
+            local source_restore
+            local source_restore_err
+            if restored and inverse_changeset then
+                source_restore, source_restore_err = sync.sync_changeset(inverse_changeset)
+            elseif not inverse_changeset then
+                source_restore_err = inverse_err
+            end
+
+            result.success = false
+            result.message = "Registry apply rolled back because filesystem sync failed"
+            result.error = tostring(sync_err)
             result.sync_error = sync_err
+            result.rollback = restored == true
+            result.rollback_error = restore_err
+            result.source_restore = source_restore
+            result.source_restore_error = source_restore_err
         else
             result.sync_stats = sync_stats
             log:info("Auto-synced changeset to filesystem", sync_stats or {})
