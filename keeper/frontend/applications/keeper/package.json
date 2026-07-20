@@ -1,7 +1,7 @@
 {
   "name": "@wippy/app-keeper",
   "version": "1.0.0",
-  "license": "BSL-1.1",
+  "license": "MPL-2.0",
   "specification": "wippy-component-1.0",
   "title": "Keeper",
   "description": "Wippy control plane for registry governance, agents, tasks, MCP, Hub, and runtime operations",
