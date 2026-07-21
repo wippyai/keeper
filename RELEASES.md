@@ -1,5 +1,17 @@
 # Release Notes
 
+## keeper/keeper 0.5.67
+
+`keeper/keeper@0.5.67` preserves application deployment-root authority when
+Hub installs or updates a managed dependency.
+
+- Created and updated dependency entries explicitly remain deployment roots;
+  package-owned transitive edges are still resolved without becoming roots.
+- Subsequent installs can therefore reuse the application's declared bindings
+  instead of reporting unrelated requirements as unresolved.
+- `keeper.hub:test` passed 116/116, including both create and update changeset
+  assertions for deployment-root authority.
+
 ## keeper/keeper 0.5.65
 
 `keeper/keeper@0.5.65` lets a newly installed plugin consume an application's
