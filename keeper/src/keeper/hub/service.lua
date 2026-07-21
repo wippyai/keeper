@@ -324,6 +324,7 @@ function M.build_dependency_entry(args)
     return {
         id = id,
         kind = "ns.dependency",
+        dependency_root = true,
         meta = shallow_copy(args.meta or {}),
         data = data,
     }, nil
