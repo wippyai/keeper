@@ -1148,271 +1148,6 @@ local function registry_restore_first(execution)
     return ordered
 end
 
-local function entry_namespace(id)
-    return tostring(id or ""):match("^([^:]+):")
-end
-
-local function namespace_from_component(component)
-    local parsed = M.parse_component(component)
-    if not parsed then return nil end
-    return parsed.org .. "." .. parsed.module
-end
-
-local function qualify_entry_id(id, default_ns)
-    id = trim(id)
-    if id == "" then return nil end
-    if string.find(id, ":", 1, true) then return id end
-    default_ns = trim(default_ns)
-    if default_ns == "" then return id end
-    return default_ns .. ":" .. id
-end
-
-local function sorted_keys(set)
-    local out = {}
-    for key in pairs(set or {}) do table.insert(out, key) end
-    table.sort(out)
-    return out
-end
-
-local function add_restart_warning(warnings, message)
-    if trim(message) ~= "" then table.insert(warnings, tostring(message)) end
-end
-
-local function add_namespaces_from_entries(namespaces, entries)
-    for _, entry in ipairs(entries or {}) do
-        local ns = entry_namespace(entry and entry.id)
-        if ns and ns ~= "" then namespaces[ns] = true end
-    end
-end
-
-local function add_namespaces_from_changeset(namespaces, changeset)
-    for _, op in ipairs(changeset or {}) do
-        local entry = type(op) == "table" and op.entry or nil
-        local ns = entry_namespace(entry and entry.id)
-        if ns and ns ~= "" then namespaces[ns] = true end
-    end
-end
-
-local function add_namespaces_from_graph(namespaces, graph)
-    for _, node in ipairs(graph or {}) do
-        local ns = trim(node and node.namespace)
-        if ns == "" then ns = namespace_from_component(node and node.module) end
-        if ns and ns ~= "" then namespaces[ns] = true end
-    end
-end
-
-function Service:restart_namespaces(data)
-    data = data or {}
-    local namespaces = {}
-    add_namespaces_from_entries(namespaces, data.entries)
-    add_namespaces_from_changeset(namespaces, data.changeset)
-    add_namespaces_from_graph(namespaces, data.graph)
-    return namespaces
-end
-
-function Service:list_running_processes()
-    local sys = self.system
-    if not sys or not sys.hosts or not sys.hosts.list or not sys.hosts.processes then
-        return nil, "system.hosts inspector unavailable"
-    end
-
-    local hosts, hosts_err = sys.hosts.list()
-    if not hosts then return nil, "system.hosts.list: " .. tostring(hosts_err) end
-
-    local out = {}
-    for _, host in ipairs(hosts or {}) do
-        local host_id = tostring(host.id or "")
-        if host_id ~= "" then
-            local procs, procs_err = sys.hosts.processes(host_id)
-            if not procs then
-                return nil, "system.hosts.processes(" .. host_id .. "): " .. tostring(procs_err)
-            end
-            for _, proc_row in ipairs(procs or {}) do
-                table.insert(out, proc_row)
-            end
-        end
-    end
-
-    return out, nil
-end
-
-function Service:process_service_entries()
-    if not self.registry or not self.registry.find then
-        return nil, "registry.find unavailable"
-    end
-    local services, find_err = self.registry.find({ [".kind"] = "process.service" })
-    if not services then return nil, "registry.find process.service: " .. tostring(find_err) end
-    return services or {}, nil
-end
-
-function Service:restart_preview(data)
-    local namespaces = self:restart_namespaces(data)
-    local preview = {
-        namespaces = sorted_keys(namespaces),
-        services = {},
-        warnings = {},
-    }
-    if #preview.namespaces == 0 then return preview end
-
-    local services, svc_err = self:process_service_entries()
-    if not services then
-        add_restart_warning(preview.warnings, svc_err)
-        return preview
-    end
-
-    local processes, proc_err = self:list_running_processes()
-    if not processes then
-        add_restart_warning(preview.warnings, proc_err)
-        return preview
-    end
-
-    local by_source = {}
-    for _, proc_row in ipairs(processes or {}) do
-        local source = trim(proc_row.source)
-        if source ~= "" then
-            by_source[source] = by_source[source] or {}
-            table.insert(by_source[source], proc_row)
-        end
-    end
-
-    local seen = {}
-    for _, svc in ipairs(services or {}) do
-        local service_id = trim(svc.id)
-        local service_ns = entry_namespace(service_id) or ""
-        local svc_data = type(svc.data) == "table" and svc.data or svc
-        local source = qualify_entry_id(tostring(svc_data.process or ""), service_ns)
-        local source_ns = entry_namespace(source)
-        if source and source_ns and namespaces[source_ns] then
-            for _, proc_row in ipairs(by_source[source] or {}) do
-                local pid = trim(proc_row.pid)
-                local key = service_id .. "\n" .. pid
-                if pid ~= "" and not seen[key] then
-                    seen[key] = true
-                    local meta = type(svc.meta) == "table" and svc.meta or {}
-                    local target = type(meta.upgrade_target) == "string" and trim(meta.upgrade_target) or ""
-                    local upgradable = meta.upgradable == true and target ~= ""
-                    table.insert(preview.services, {
-                        service_id = service_id,
-                        source = source,
-                        pid = pid,
-                        host = tostring(proc_row.host or svc_data.host or ""),
-                        state = tostring(proc_row.state or ""),
-                        mechanism = upgradable and "upgrade" or "respawn",
-                        upgrade_target = upgradable and target or nil,
-                        upgrade_topic = upgradable and (meta.upgrade_topic or "system.upgrade") or nil,
-                    })
-                end
-            end
-        end
-    end
-
-    table.sort(preview.services, function(a, b)
-        if a.service_id ~= b.service_id then return a.service_id < b.service_id end
-        return tostring(a.pid) < tostring(b.pid)
-    end)
-
-    return preview
-end
-
-function Service:signal_service_upgrade(row)
-    if not self.process or not self.process.send then
-        return false, "process.send unavailable"
-    end
-    local target = row.upgrade_target
-    if trim(target) == "" then
-        return false, "upgrade target unavailable"
-    end
-    local topic = trim(row.upgrade_topic) ~= "" and row.upgrade_topic or "system.upgrade"
-    local ok, send_err = self.process.send(target, topic, {
-        reason = "module.update",
-        process = row.source,
-        service = row.service_id,
-        deadline = "30s",
-    })
-    if not ok then
-        return false, send_err and tostring(send_err) or "process.send returned false"
-    end
-    return true, nil
-end
-
-function Service:terminate_for_respawn(row)
-    if not self.process or not self.process.terminate then
-        return false, "process.terminate unavailable"
-    end
-    local ok, terminate_err = self.process.terminate(row.pid)
-    if terminate_err then return false, tostring(terminate_err) end
-    if ok == false or ok == nil then return false, "process.terminate returned false" end
-    return true, nil
-end
-
-function Service:restart_affected_services(data)
-    local preview = self:restart_preview(data)
-    local result = {
-        ok = true,
-        namespaces = preview.namespaces,
-        outcomes = {},
-        warnings = {},
-        errors = {},
-    }
-    for _, warning in ipairs(preview.warnings or {}) do
-        add_restart_warning(result.warnings, warning)
-        table.insert(result.errors, warning)
-    end
-
-    for _, row in ipairs(preview.services or {}) do
-        local outcome = shallow_copy(row)
-        if row.mechanism == "upgrade" then
-            local upgrade_ok, upgrade_err = self:signal_service_upgrade(row)
-            if upgrade_ok then
-                outcome.status = "upgrade_signaled"
-            else
-                outcome.upgrade_error = upgrade_err
-                local respawn_ok, respawn_err = self:terminate_for_respawn(row)
-                outcome.mechanism = "respawn"
-                if respawn_ok then
-                    outcome.status = "restarted"
-                    outcome.warning = "upgrade signal failed; respawned instead: " .. tostring(upgrade_err)
-                    add_restart_warning(result.warnings,
-                        "upgrade signal failed for " .. row.service_id .. "; respawned instead: " .. tostring(upgrade_err))
-                else
-                    outcome.status = "failed"
-                    outcome.error = "upgrade signal failed: " .. tostring(upgrade_err)
-                        .. "; respawn failed: " .. tostring(respawn_err)
-                end
-            end
-        else
-            local restart_ok, restart_err = self:terminate_for_respawn(row)
-            if restart_ok then
-                outcome.status = "restarted"
-            else
-                outcome.status = "failed"
-                outcome.error = restart_err
-            end
-        end
-
-        if outcome.status == "failed" then
-            local msg = "failed to restart " .. tostring(row.service_id) .. " (" .. tostring(row.pid) .. "): "
-                .. tostring(outcome.error)
-            add_restart_warning(result.warnings, msg)
-            table.insert(result.errors, msg)
-        end
-        table.insert(result.outcomes, outcome)
-    end
-
-    result.service_count = #result.outcomes
-    result.warning_count = #result.warnings
-    result.error_count = #result.errors
-    return result, nil
-end
-
-function Service:append_restart_warnings(payload, restart_result)
-    if not restart_result or #(restart_result.warnings or {}) == 0 then return end
-    payload.warnings = payload.warnings or {}
-    for _, warning in ipairs(restart_result.warnings or {}) do
-        table.insert(payload.warnings, warning)
-    end
-end
-
 function Service:install_step_dispatch(opts)
     local svc = self
     return function(step)
@@ -1452,12 +1187,6 @@ function Service:install_step_dispatch(opts)
             return {
                 op = op, label = step.label, result = migration_result,
                 inverse = { op = "migrations_down", data = { entry_ids = migration_result.entry_ids or {} } },
-            }
-        elseif op == "restart_affected_services" then
-            local restart_result = svc:restart_affected_services(step.data)
-            return {
-                op = op, label = step.label, result = restart_result,
-                inverse = { op = "restart_affected_services_noop" },
             }
         end
         return { op = op, label = step.label, error = err("INTERNAL", "unknown install step: " .. tostring(op)) }
@@ -1523,14 +1252,6 @@ function Service:install(args, opts)
         plan = plan,
     }
 
-    local restart_data = {
-        action = "install",
-        entries = plan.planned_entries or plan.entries or {},
-        changeset = planned_changeset,
-        graph = plan.graph or {},
-    }
-    payload.restart_preview = self:restart_preview(restart_data)
-
     -- Plan and guards are complete. The dry-run short-circuit is the hard
     -- boundary before any step runs — dry_run reaches zero steps.
     if args.dry_run == true then
@@ -1575,12 +1296,6 @@ function Service:install(args, opts)
     if policy == "up" then
         table.insert(steps, { op = "migrations_up", label = "migrations", data = { component = entry.data.component } })
     end
-    table.insert(steps, {
-        op = "restart_affected_services",
-        label = "restart affected services",
-        data = restart_data,
-    })
-
     local ledger = step_runner.run(steps, { execute = self:install_step_dispatch(opts) })
 
     if not ledger.success then
@@ -1591,24 +1306,19 @@ function Service:install(args, opts)
     end
 
     -- Lift the step results into the payload for API back-compat.
-    local apply_result, migration_result, restart_result
+    local apply_result, migration_result
     for _, row in ipairs(ledger.execution.handlers) do
         if row.op == "governance_apply" then apply_result = row.result
-        elseif row.op == "migrations_up" then migration_result = row.result
-        elseif row.op == "restart_affected_services" then restart_result = row.result end
+        elseif row.op == "migrations_up" then migration_result = row.result end
     end
     payload.apply = apply_result
     payload.migrations = migration_result
-    payload.restart = restart_result
-    self:append_restart_warnings(payload, restart_result)
     payload.execution = self:project_ledger(ledger, nil)
 
     self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FINISHED, operation_id, {
         dependency = payload.dependency,
         apply = apply_result,
         migrations = migration_result,
-        restart = restart_result,
-        warnings = (payload :: any).warnings,
         execution = payload.execution,
     })
 
@@ -1868,12 +1578,6 @@ function Service:uninstall_step_dispatch(opts)
                     reason = "hub uninstall rollback for " .. tostring(step.data.id),
                 } },
             }
-        elseif op == "restart_affected_services" then
-            local restart_result = svc:restart_affected_services(step.data)
-            return {
-                op = op, label = step.label, result = restart_result,
-                inverse = { op = "restart_affected_services_noop" },
-            }
         end
         return { op = op, label = step.label, error = err("INTERNAL", "unknown uninstall step: " .. tostring(op)) }
     end
@@ -1949,13 +1653,6 @@ function Service:uninstall(args, opts)
     end
     payload.preview = preview
 
-    local restart_data = {
-        action = "uninstall",
-        entries = plan.entries or {},
-        graph = {},
-    }
-    payload.restart_preview = self:restart_preview(restart_data)
-
     if args.dry_run == true then
         payload.dry_run = true
         if plan.applied_migrations_count > 0 and policy == "leave" then
@@ -1994,12 +1691,6 @@ function Service:uninstall(args, opts)
             baseline_version = baseline_version,
         },
     })
-    table.insert(steps, {
-        op = "restart_affected_services",
-        label = "restart affected services",
-        data = restart_data,
-    })
-
     local ledger = step_runner.run(steps, { execute = self:uninstall_step_dispatch(opts) })
 
     if not ledger.success then
@@ -2009,16 +1700,13 @@ function Service:uninstall(args, opts)
         }, opts)
     end
 
-    local apply_result, migration_result, restart_result
+    local apply_result, migration_result
     for _, row in ipairs(ledger.execution.handlers) do
         if row.op == "governance_apply" then apply_result = row.result
-        elseif row.op == "migrations_down" then migration_result = row.result
-        elseif row.op == "restart_affected_services" then restart_result = row.result end
+        elseif row.op == "migrations_down" then migration_result = row.result end
     end
     payload.apply = apply_result
     payload.migrations = migration_result
-    payload.restart = restart_result
-    self:append_restart_warnings(payload, restart_result)
     payload.execution = self:project_ledger(ledger, nil)
 
     self:emit_operation(opts.actor_id, M.EVENTS.UNINSTALL_FINISHED, operation_id, {
@@ -2026,8 +1714,6 @@ function Service:uninstall(args, opts)
         apply = apply_result,
         migrations = migration_result,
         warning = payload.warning,
-        restart = restart_result,
-        warnings = (payload :: any).warnings,
         execution = payload.execution,
     })
 
