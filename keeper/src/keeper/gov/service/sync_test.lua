@@ -40,6 +40,13 @@ local function define_tests()
                 test.eq(sync.pick_kind_config("library.lua", nil).extension, ".lua")
                 test.eq(sync.pick_kind_config("process.lua", nil).extension, ".lua")
             end)
+
+            it("externalizes workflow.lua source to a .lua file like other actor kinds", function()
+                local cfg = sync.pick_kind_config("workflow.lua", nil)
+                test.not_nil(cfg)
+                test.eq(cfg.source_field, "source")
+                test.eq(cfg.extension, ".lua")
+            end)
         end)
 
         describe("append_extension", function()
