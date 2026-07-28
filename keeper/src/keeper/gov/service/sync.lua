@@ -18,6 +18,7 @@ M.KIND_CONFIG = {
     ["function.lua"]   = { source_field = "source", extension = ".lua" },
     ["library.lua"]    = { source_field = "source", extension = ".lua" },
     ["process.lua"]    = { source_field = "source", extension = ".lua" },
+    ["workflow.lua"]   = { source_field = "source", extension = ".lua" },
     ["template.jet"]   = { source_field = "source", extension = ".jet" },
     ["registry.entry"] = {
         types = {
