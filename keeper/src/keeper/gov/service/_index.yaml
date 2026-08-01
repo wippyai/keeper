@@ -201,6 +201,7 @@ entries:
       - loader
       - logger
       - fs
+      - system
     imports:
       consts: keeper.gov:consts
     method: run
@@ -218,6 +219,7 @@ entries:
       - loader
       - logger
       - fs
+      - system
     imports:
       test: wippy.test:test
       upload: keeper.gov.service:upload

@@ -3,6 +3,7 @@ local loader = require("loader")
 local logger = require("logger")
 local consts = require("consts")
 local fs_module = require("fs")
+local system = require("system")
 
 local log = logger:named("gov.service.upload")
 
@@ -17,6 +18,34 @@ type RegistryEntry = {
     meta: {[string]: unknown}?,
     data: unknown?,
 }
+
+type SourceAuthority = {
+    host: boolean,
+    modules: {[string]: boolean},
+    roots: {string},
+}
+
+function M.retain_authoritative_entries(entries: {RegistryEntry}, authority: SourceAuthority)
+    local retained: {RegistryEntry} = {}
+    local skipped = {}
+    for _, entry in ipairs(entries or {}) do
+        local module = entry.meta and entry.meta.module
+        local authoritative = authority.host and (module == nil or module == "")
+        if type(module) == "string" and module ~= "" then
+            authoritative = authority.modules[module] == true
+        end
+        if authoritative then
+            table.insert(retained, entry)
+        else
+            table.insert(skipped, {
+                id = entry.id,
+                namespace = entry.id:match("^([^:]+):") or "unknown",
+                module = module,
+            })
+        end
+    end
+    return retained, skipped
+end
 
 -- Pure: split entries into { filtered, skipped } using the supplied
 -- is_managed(namespace) predicate. `skipped` rows carry {id, namespace}
@@ -103,20 +132,23 @@ function M.skipped_summary(skipped)
     return summary
 end
 
-local function add_skip_stats(stats, filesystem_skipped, registry_skipped, managed_namespaces)
+local function add_skip_stats(stats, filesystem_skipped, registry_skipped, managed_namespaces, unmounted_registry)
     stats.skipped_unmanaged_source = #(filesystem_skipped or {})
     stats.skipped_unmanaged_registry = #(registry_skipped or {})
     stats.managed_namespaces = type(managed_namespaces) == "table" and #managed_namespaces or 0
+    stats.skipped_unmounted_registry = #(unmounted_registry or {})
     return stats
 end
 
-local function build_details(managed_namespaces, filesystem_skipped, registry_skipped)
+local function build_details(managed_namespaces, filesystem_skipped, registry_skipped, unmounted_registry, source_roots)
     return {
         managed_namespaces = managed_namespaces or {},
         skipped_unmanaged = {
             filesystem = M.skipped_summary(filesystem_skipped),
             registry = M.skipped_summary(registry_skipped),
+            unmounted_registry = M.skipped_summary(unmounted_registry),
         },
+        source_roots = source_roots or {},
     }
 end
 
@@ -178,39 +210,59 @@ end
 local function get_filesystem_entries(options)
     log:debug("Getting filesystem entries", options)
 
-    -- Use governance filesystem
-    local fs_id: string = tostring(consts.FILESYSTEM.SOURCE_FS_ID)
-
-    -- Create a loader instance for the governance filesystem
-    local loader_instance, err = loader.new(fs_id)
-    if not loader_instance then
-        return nil, nil, nil, "Failed to create loader for filesystem '" .. fs_id .. "': " .. tostring(err)
+    local source_modules = rawget(system, "source_modules")
+    local load_sources = rawget(loader, "load_sources")
+    if (source_modules == nil) ~= (load_sources == nil) then
+        return nil, nil, nil, nil, "runtime module-source capabilities are incomplete"
     end
 
-    -- Get source directory from governance filesystem
-    local fs = fs_module.get(fs_id)
-    if not fs then
-        return nil, nil, nil, "Failed to get filesystem instance: " .. fs_id
-    end
+    local authority: SourceAuthority = { host = true, modules = {}, roots = { "application" } }
+    local all_entries: {RegistryEntry} = {}
 
-    -- Use root directory of governance filesystem
-    local directory = "."
-
-    log:debug("Loading entries from filesystem", {
-        filesystem = fs_id,
-        directory = directory
-    })
-
-    -- Load entries from the governance source directory
-    local all_entries, err = loader_instance:load_directory(directory, {})
-    if not all_entries then
-        return nil, nil, nil, "Failed to load entries from directory '" .. directory .. "': " .. tostring(err)
+    if source_modules ~= nil and load_sources ~= nil then
+        if type(source_modules) ~= "function" or type(load_sources) ~= "function" then
+            return nil, nil, nil, nil, "runtime module-source capabilities have invalid types"
+        end
+        local modules, modules_err = source_modules()
+        if not modules then return nil, nil, nil, nil, tostring(modules_err) end
+        for _, module in ipairs(modules) do
+            if type(module) ~= "string" then
+                return nil, nil, nil, nil, "runtime returned an invalid module-source identifier"
+            end
+            local module_name: string = module
+            authority.modules[module_name] = true
+            table.insert(authority.roots, module_name)
+        end
+        local loaded, load_err = load_sources()
+        if not loaded then
+            return nil, nil, nil, nil, "Failed to load deployment sources: " .. tostring(load_err)
+        end
+        all_entries = M.retain_authoritative_entries(loaded :: {RegistryEntry}, authority)
+    else
+        -- Older runtimes expose only the application filesystem. Module-owned
+        -- snapshots stay outside this sync operation.
+        local fs_id: string = tostring(consts.FILESYSTEM.SOURCE_FS_ID)
+        local loader_instance, err = loader.new(fs_id)
+        if not loader_instance then
+            return nil, nil, nil, nil,
+                "Failed to create loader for filesystem '" .. fs_id .. "': " .. tostring(err)
+        end
+        local fs = fs_module.get(fs_id)
+        if not fs then
+            return nil, nil, nil, nil, "Failed to get filesystem instance: " .. fs_id
+        end
+        local host_entries, load_err = loader_instance:load_directory(".")
+        if not host_entries then
+            return nil, nil, nil, nil,
+                "Failed to load application source: " .. tostring(load_err)
+        end
+        all_entries = M.retain_authoritative_entries(host_entries :: {RegistryEntry}, authority)
     end
 
     local filtered_entries, skipped, managed_namespaces, filter_err =
         filter_managed_entries(all_entries :: {RegistryEntry}, options, "filesystem")
     if not filtered_entries then
-        return nil, nil, nil, filter_err
+        return nil, nil, nil, nil, filter_err
     end
 
     log:info("Retrieved filesystem entries", {
@@ -218,7 +270,7 @@ local function get_filesystem_entries(options)
         managed_count = #filtered_entries
     })
 
-    return filtered_entries, skipped, managed_namespaces
+    return filtered_entries, skipped, managed_namespaces, authority, nil
 end
 
 -- Compare registry entries with filesystem entries
@@ -265,14 +317,16 @@ local function has_changes(options)
         }
     end
 
-    -- Get filesystem entries (managed namespaces only)
-    local filesystemEntries, filesystem_skipped, _, err = get_filesystem_entries(options)
-    if not filesystemEntries then
+    local filesystemEntries, filesystem_skipped, _, authority, err =
+        get_filesystem_entries(options)
+    if not filesystemEntries or not authority then
         return {
             success = false,
             message = err
         }
     end
+    local unmounted_registry
+    currentEntries, unmounted_registry = M.retain_authoritative_entries(currentEntries, authority)
 
     -- Build delta between current registry entries and filesystem entries
     local comparison, err = compare_entries(currentEntries, filesystemEntries)
@@ -292,7 +346,8 @@ local function has_changes(options)
         success = true,
         has_changes = comparison.has_changes,
         count = comparison.count,
-        details = build_details(managed_namespaces, filesystem_skipped, registry_skipped),
+        details = build_details(managed_namespaces, filesystem_skipped, registry_skipped,
+            unmounted_registry, authority.roots),
     }
 end
 
@@ -309,14 +364,16 @@ local function upload(options)
         }
     end
 
-    -- Get filesystem entries (managed namespaces only)
-    local filesystemEntries, filesystem_skipped, _, err = get_filesystem_entries(options)
-    if not filesystemEntries then
+    local filesystemEntries, filesystem_skipped, _, authority, err =
+        get_filesystem_entries(options)
+    if not filesystemEntries or not authority then
         return {
             success = false,
             message = err
         }
     end
+    local unmounted_registry
+    currentEntries, unmounted_registry = M.retain_authoritative_entries(currentEntries, authority)
 
     -- Build delta between current registry entries and filesystem entries
     local comparison, err = compare_entries(currentEntries, filesystemEntries)
@@ -340,8 +397,9 @@ local function upload(options)
                 create = 0,
                 update = 0,
                 delete = 0
-            }, filesystem_skipped, registry_skipped, managed_namespaces),
-            details = build_details(managed_namespaces, filesystem_skipped, registry_skipped),
+            }, filesystem_skipped, registry_skipped, managed_namespaces, unmounted_registry),
+            details = build_details(managed_namespaces, filesystem_skipped, registry_skipped,
+                unmounted_registry, authority.roots),
         }
     end
 
@@ -349,7 +407,8 @@ local function upload(options)
         M.compute_changeset_stats(comparison.changeset),
         filesystem_skipped,
         registry_skipped,
-        managed_namespaces
+        managed_namespaces,
+        unmounted_registry
     )
 
     log:info("Upload operation completed", {
@@ -364,7 +423,8 @@ local function upload(options)
         changeset = comparison.changeset,
         count = comparison.count,
         stats = stats,
-        details = build_details(managed_namespaces, filesystem_skipped, registry_skipped),
+        details = build_details(managed_namespaces, filesystem_skipped, registry_skipped,
+            unmounted_registry, authority.roots),
     }
 end
 
