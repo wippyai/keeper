@@ -8,7 +8,8 @@ function M.format_stats(stats)
     local ordered = {
         "created", "updated", "deleted", "unchanged", "skipped", "total",
         "create", "update", "delete",
-        "skipped_unmanaged_source", "skipped_unmanaged_registry", "managed_namespaces",
+        "skipped_unmanaged_source", "skipped_unmanaged_registry", "skipped_unmounted_registry",
+        "managed_namespaces",
     }
     for _, k in ipairs(ordered) do
         if stats[k] ~= nil then
