@@ -1,5 +1,19 @@
 # Release Notes
 
+## keeper/keeper 0.5.68
+
+`keeper/keeper@0.5.68` lets a requirement that names the `db.sql` kind family
+find the databases that satisfy it.
+
+- A resource carries a concrete kind — `app:db` is a `db.sql.sqlite` or a
+  `db.sql.postgres` entry — while a requirement declares the family it accepts,
+  so `db.sql` joins `env.storage` in the planner's kind-family table.
+- An install plan now offers the instance's databases as candidates for such a
+  requirement, and a supplied `app:db` stays valid instead of being refused as a
+  value that must reference an existing `db.sql` and dropped from the payload.
+- `keeper.hub:test` passed 112/112, including a new case covering both the
+  candidate list and the supplied value reaching `install_payload`.
+
 ## keeper/keeper 0.5.67
 
 `keeper/keeper@0.5.67` preserves application deployment-root authority when
