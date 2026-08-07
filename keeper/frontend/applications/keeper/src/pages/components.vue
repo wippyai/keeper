@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import { useApi, useWippy } from '../composables/useWippy'
@@ -18,6 +18,7 @@ import {
 } from '../api/components'
 import MarkdownContent from '../components/shared/MarkdownContent.vue'
 import JsonBlock from '../components/shared/JsonBlock.vue'
+import { SubscriptionRegistry, type SubscriptionHandle } from '../utils/subscriptions'
 
 const api = useApi()
 const route = useRoute()
@@ -163,6 +164,7 @@ function agoShort(ts: number): string {
 
 const buildsByComponent = ref<Record<string, BuildRun[]>>({})
 const buildInstance = useWippy()
+const buildSubscriptions = new SubscriptionRegistry()
 
 const buildRunsForComponent = computed<BuildRun[]>(() => {
   if (!selectedComponent.value) return []
@@ -183,31 +185,38 @@ async function refreshBuilds(cid: string) {
   } catch (e: any) { error.value = e?.response?.data?.error || e.message }
 }
 
-function watchBuild(build_id: string, cid: string) {
-  // Initial fetch
-  getBuild(api, build_id, 0).then(r => {
-    if (!r.success) return
-    const list = buildsByComponent.value[cid] || []
-    const idx = list.findIndex(b => b.build_id === build_id)
-    if (idx === -1) list.unshift(r.build)
-    else list[idx] = r.build
-    buildsByComponent.value = { ...buildsByComponent.value, [cid]: [...list] }
-  }).catch(() => {})
+function isTerminalBuild(status: BuildStatus): boolean {
+  return status === 'success' || status === 'failed' || status === 'cancelled'
+}
 
-  // Real-time updates via relay
-  buildInstance.on('keeper.builds', async (evt: any) => {
+function storeBuild(cid: string, build: BuildRun) {
+  const list = [...(buildsByComponent.value[cid] || [])]
+  const idx = list.findIndex(b => b.build_id === build.build_id)
+  if (idx === -1) list.unshift(build)
+  else list[idx] = build
+  buildsByComponent.value = { ...buildsByComponent.value, [cid]: list }
+}
+
+async function refreshWatchedBuild(buildId: string, cid: string, subscription: SubscriptionHandle) {
+  try {
+    const r = await getBuild(api, buildId, 0)
+    if (!r.success) return
+    storeBuild(cid, r.build)
+    if (isTerminalBuild(r.build.status)) subscription.remove()
+  } catch (e: any) {
+    error.value = e?.response?.data?.error || e.message
+  }
+}
+
+function watchBuild(buildId: string, cid: string) {
+  // Re-watching the same build replaces the old listener. Terminal builds
+  // release their listener immediately after the final state is fetched.
+  let subscription: SubscriptionHandle
+  subscription = buildSubscriptions.replace(buildId, () => buildInstance.on('keeper.builds', (evt: any) => {
     const data = evt?.data || evt
-    if (!data || data.build_id !== build_id) return
-    try {
-      const r = await getBuild(api, build_id, 0)
-      if (!r.success) return
-      const list = buildsByComponent.value[cid] || []
-      const idx = list.findIndex(b => b.build_id === build_id)
-      if (idx === -1) list.unshift(r.build)
-      else list[idx] = r.build
-      buildsByComponent.value = { ...buildsByComponent.value, [cid]: [...list] }
-    } catch (e: any) { error.value = e?.response?.data?.error || e.message }
-  })
+    if (data?.build_id === buildId) void refreshWatchedBuild(buildId, cid, subscription)
+  }))
+  void refreshWatchedBuild(buildId, cid, subscription)
 }
 
 async function rebuildComponent(cid: string) {
@@ -341,6 +350,10 @@ function openZoom(url: string) { zoomImage.value = url }
 function closeZoom() { zoomImage.value = null }
 
 onMounted(load)
+onUnmounted(() => {
+  buildSubscriptions.clear()
+  stopResize()
+})
 </script>
 
 <template>

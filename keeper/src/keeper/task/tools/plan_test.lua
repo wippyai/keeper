@@ -17,9 +17,19 @@ local function define_tests()
             return row
         end
 
+        local function exec_sql(statement)
+            local db, db_err = sql.get(task_consts.DATABASE.RESOURCE_ID)
+            if db_err then error(db_err) end
+            local _, err = db:execute(statement)
+            db:release()
+            if err then error(err) end
+        end
+
         after_all(function()
             local db = sql.get(task_consts.DATABASE.RESOURCE_ID)
             if not db then return end
+            db:execute("DROP TRIGGER IF EXISTS keeper_test_plan_step_abort")
+            db:execute("DROP TRIGGER IF EXISTS keeper_test_step_block_abort")
             for _, id in ipairs(created_ids) do
                 db:execute("DELETE FROM keeper_task_nodes WHERE task_id = ?", { id })
                 db:execute("DELETE FROM keeper_tasks WHERE task_id = ?", { id })
@@ -133,6 +143,39 @@ local function define_tests()
                 test.eq(must_row(old_steps, 1, "old step").status, "cancelled",
                     "prior open steps cancelled when plan is superseded")
             end)
+
+            it("rolls back supersede and partial inserts when a later step insert fails", function()
+                local id = make_task("atomic re-plan failure")
+                write_plan.write(id, {
+                    steps = { { id = "original", kind = "impl", title = "original", task = "keep me" } },
+                })
+
+                exec_sql([[
+                    CREATE TRIGGER keeper_test_plan_step_abort
+                    BEFORE INSERT ON keeper_task_nodes
+                    WHEN NEW.type = 'step' AND NEW.discriminator = '__atomic_plan_abort__'
+                    BEGIN
+                        SELECT RAISE(ABORT, 'injected plan step failure');
+                    END
+                ]])
+                local _, err = write_plan.write(id, { steps = {
+                    { id = "would_be_partial", kind = "impl", title = "first", task = "must roll back" },
+                    { id = "__atomic_plan_abort__", kind = "verify", title = "fail", task = "inject failure" },
+                } })
+                exec_sql("DROP TRIGGER keeper_test_plan_step_abort")
+
+                test.not_nil(err, "injected insert failure must be returned")
+                local plans = nodes_reader.by_type(id, "plan")
+                test.eq(#plans, 1, "failed revision must not leave a plan node")
+                test.eq(must_row(plans, 1, "original plan").status, "active",
+                    "the prior plan must remain active")
+
+                local steps = nodes_reader.by_type(id, "step")
+                test.eq(#steps, 1, "no partial steps from the failed revision may persist")
+                test.eq(must_row(steps, 1, "original step").discriminator, "original")
+                test.eq(must_row(steps, 1, "original step").status, "pending",
+                    "the prior step must not be cancelled")
+            end)
         end)
 
         describe("step_done", function()
@@ -208,6 +251,38 @@ local function define_tests()
                 local _, err = step_block.block(id, { step_id = "a", question = "?" })
                 test.not_nil(err)
                 test.is_true(err:find("is completed") ~= nil)
+            end)
+
+            it("rolls back ask_user when the step update fails", function()
+                local id = make_task("atomic step block failure")
+                write_plan.write(id, { steps = {
+                    { id = "atomic_block", kind = "impl", title = "t", task = "b" },
+                } })
+
+                exec_sql([[
+                    CREATE TRIGGER keeper_test_step_block_abort
+                    BEFORE UPDATE OF status ON keeper_task_nodes
+                    WHEN OLD.type = 'step'
+                      AND OLD.discriminator = 'atomic_block'
+                      AND NEW.status = 'blocked'
+                    BEGIN
+                        SELECT RAISE(ABORT, 'injected step block failure');
+                    END
+                ]])
+                local _, err = step_block.block(id, {
+                    step_id = "atomic_block",
+                    question = "must not become orphaned",
+                })
+                exec_sql("DROP TRIGGER keeper_test_step_block_abort")
+
+                test.not_nil(err, "injected update failure must be returned")
+                local asks = nodes_reader.by_type(id, "ask_user")
+                test.eq(#asks, 0, "ask_user insert must roll back with the failed step update")
+
+                local steps = nodes_reader.by_type(id, "step", { discriminator = "atomic_block" })
+                local step = must_row(steps, #steps, "unchanged step")
+                test.eq(step.status, "pending")
+                test.is_nil(step.metadata.blocker_node_id)
             end)
         end)
     end)

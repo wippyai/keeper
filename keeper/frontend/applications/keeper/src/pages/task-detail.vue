@@ -10,6 +10,7 @@ import {
   type Task, type TaskStats, type TaskNode,
 } from '../api/tasks'
 import MarkdownContent from '../components/shared/MarkdownContent.vue'
+import { useDocumentDrag } from '../composables/useDocumentDrag'
 
 const route = useRoute()
 const router = useRouter()
@@ -37,6 +38,7 @@ const SIDEBAR_MAX = 640
 const sidebarWidth = ref<number>(Number(localStorage.getItem('keeper.task.sidebar') || 280))
 if (isNaN(sidebarWidth.value) || sidebarWidth.value < SIDEBAR_MIN) sidebarWidth.value = 280
 const isResizing = ref(false)
+const { startDrag } = useDocumentDrag()
 function goBack() {
   if (window.history.length > 1) router.back()
   else router.push('/tasks')
@@ -48,22 +50,19 @@ function copyText(value?: string | null) {
 }
 
 function startResize(e: MouseEvent) {
-  e.preventDefault()
-  isResizing.value = true
   const startX = e.clientX
   const startW = sidebarWidth.value
-  const onMove = (ev: MouseEvent) => {
-    const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startW + (ev.clientX - startX)))
-    sidebarWidth.value = next
-  }
-  const onUp = () => {
-    isResizing.value = false
-    document.removeEventListener('mousemove', onMove)
-    document.removeEventListener('mouseup', onUp)
-    localStorage.setItem('keeper.task.sidebar', String(sidebarWidth.value))
-  }
-  document.addEventListener('mousemove', onMove)
-  document.addEventListener('mouseup', onUp)
+  startDrag(e, {
+    onMove: (ev) => {
+      const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startW + (ev.clientX - startX)))
+      sidebarWidth.value = next
+    },
+    onStop: () => {
+      isResizing.value = false
+      localStorage.setItem('keeper.task.sidebar', String(sidebarWidth.value))
+    },
+  })
+  isResizing.value = true
 }
 
 // -- load -------------------------------------------------------------------
@@ -690,7 +689,7 @@ const dataflowId = computed(() => {
     </aside>
 
     <!-- RESIZE HANDLE -->
-    <div @mousedown="startResize" class="w-1 cursor-col-resize hover:bg-primary-500/40"
+    <div data-testid="task-resize-handle" @mousedown="startResize" class="w-1 cursor-col-resize hover:bg-primary-500/40"
       :class="{ 'bg-primary-500/40': isResizing }" />
 
     <!-- MAIN -->

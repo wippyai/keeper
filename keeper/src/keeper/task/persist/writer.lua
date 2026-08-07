@@ -167,6 +167,27 @@ function task_writer.for_task(task_id)
     }, builder_mt) :: TaskBuilder
 end
 
+-- Apply one task-row update to a caller-owned transaction. This is the
+-- transaction-aware counterpart of for_task(...):update_task(...):execute()
+-- and deliberately does not commit or publish before the owner commits.
+function task_writer.update_in(tx, task_id, updates)
+    local payload = {}
+    for k, v in pairs(updates or {}) do payload[k] = v end
+    payload.task_id = task_id
+    return handlers[CMD.UPDATE_TASK](tx, {
+        type = CMD.UPDATE_TASK,
+        payload = payload,
+    })
+end
+
+function task_writer.publish_results(results)
+    for _, result in ipairs(results or {}) do
+        if result.event then
+            publish(result.event, { task_id = result.task_id })
+        end
+    end
+end
+
 function builder_methods:update_task(updates)
     updates.task_id = self._task_id
     table.insert(self._commands, {
@@ -211,11 +232,7 @@ function builder_methods:execute()
         return nil, consts.ERRORS.DB_ERROR .. ": commit: " .. tostring(commit_err)
     end
 
-    for _, result in ipairs(results) do
-        if result.event then
-            publish(result.event, { task_id = result.task_id })
-        end
-    end
+    task_writer.publish_results(results)
 
     return {
         task_id      = self._task_id,

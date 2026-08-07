@@ -216,8 +216,7 @@ entries:
       - ctx
     imports:
       audit: keeper.task:audit
-      nodes_reader: keeper.task.persist:nodes_reader
-      nodes_writer: keeper.task.persist:nodes_writer
+      task_mutations: keeper.task.persist:mutations
     method: handler
 
   # keeper.task.tools:step_done
@@ -320,11 +319,9 @@ entries:
     source: file://write_plan.lua
     modules:
       - ctx
-      - sql
     imports:
       audit: keeper.task:audit
-      nodes_reader: keeper.task.persist:nodes_reader
-      nodes_writer: keeper.task.persist:nodes_writer
+      task_mutations: keeper.task.persist:mutations
     method: handler
     pool:
       size: 1
@@ -354,10 +351,7 @@ entries:
     source: file://write_spec.lua
     modules:
       - ctx
-      - sql
     imports:
       audit: keeper.task:audit
-      nodes_reader: keeper.task.persist:nodes_reader
-      nodes_writer: keeper.task.persist:nodes_writer
-      task_writer: keeper.task.persist:writer
+      task_mutations: keeper.task.persist:mutations
     method: handler

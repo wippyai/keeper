@@ -20,9 +20,18 @@ local function define_tests()
             return row
         end
 
+        local function exec_sql(statement)
+            local db, db_err = sql.get(task_consts.DATABASE.RESOURCE_ID)
+            if db_err then error(db_err) end
+            local _, err = db:execute(statement)
+            db:release()
+            if err then error(err) end
+        end
+
         after_all(function()
             local db = sql.get(task_consts.DATABASE.RESOURCE_ID)
             if not db then return end
+            db:execute("DROP TRIGGER IF EXISTS keeper_test_spec_task_abort")
             for _, id in ipairs(created_ids) do
                 db:execute("DELETE FROM keeper_task_nodes WHERE task_id = ?", { id })
                 db:execute("DELETE FROM keeper_tasks WHERE task_id = ?", { id })
@@ -235,6 +244,33 @@ local function define_tests()
                 test.eq(second.discriminator, "2")
                 test.eq(second.status, "active")
                 test.eq(first.metadata.is_final, false)
+            end)
+
+            it("rolls back the new node and supersede when the legacy task update fails", function()
+                local task_id = make_task("atomic write_spec failure")
+                write_spec.write(task_id, { content = "stable specification" })
+
+                exec_sql([[
+                    CREATE TRIGGER keeper_test_spec_task_abort
+                    BEFORE UPDATE OF spec ON keeper_tasks
+                    WHEN NEW.spec = '__atomic_spec_abort__'
+                    BEGIN
+                        SELECT RAISE(ABORT, 'injected task spec failure');
+                    END
+                ]])
+                local _, err = write_spec.write(task_id, { content = "__atomic_spec_abort__" })
+                exec_sql("DROP TRIGGER keeper_test_spec_task_abort")
+
+                test.not_nil(err, "injected task update failure must be returned")
+                local specs = nodes_reader.by_type(task_id, "spec")
+                test.eq(#specs, 1, "failed revision must not leave a spec node")
+                local spec = must_row(specs, 1, "stable spec")
+                test.eq(spec.status, "active", "prior spec must remain active")
+                test.eq(spec.content, "stable specification")
+
+                local task = task_reader.get_task(task_id)
+                test.eq(task.spec, "stable specification",
+                    "legacy task state must remain aligned with the active spec")
             end)
         end)
 

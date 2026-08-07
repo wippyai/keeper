@@ -105,12 +105,28 @@ entries:
         path: .meta.router
       - entry: keeper.gov.api.registry:get_entry.endpoint
         path: .meta.router
+      - entry: keeper.gov.api.registry:get_entry
+        path: .meta.depends_on +=
+      - entry: keeper.gov.api.registry:get_entry.endpoint
+        path: .meta.depends_on +=
       - entry: keeper.gov.api.registry:list_entries.endpoint
         path: .meta.router
+      - entry: keeper.gov.api.registry:list_entries
+        path: .meta.depends_on +=
+      - entry: keeper.gov.api.registry:list_entries.endpoint
+        path: .meta.depends_on +=
       - entry: keeper.gov.api.registry:list_namespaces.endpoint
         path: .meta.router
+      - entry: keeper.gov.api.registry:list_namespaces
+        path: .meta.depends_on +=
+      - entry: keeper.gov.api.registry:list_namespaces.endpoint
+        path: .meta.depends_on +=
       - entry: keeper.gov.api.registry:update_entry.endpoint
         path: .meta.router
+      - entry: keeper.gov.api.registry:update_entry
+        path: .meta.depends_on +=
+      - entry: keeper.gov.api.registry:update_entry.endpoint
+        path: .meta.depends_on +=
       - entry: keeper.gov.env.api:list_variables.endpoint
         path: .meta.router
       - entry: keeper.gov.env.api:set_variable.endpoint
@@ -155,6 +171,10 @@ entries:
         path: .meta.router
       - entry: keeper.hub.api:uninstall_dependency.endpoint
         path: .meta.router
+      - entry: keeper.events.api:subscribe.endpoint
+        path: .meta.router
+      - entry: keeper.events.api:unsubscribe.endpoint
+        path: .meta.router
       - entry: keeper.git.api:explain
         path: .meta.router
       - entry: keeper.git.api:explain.endpoint
@@ -174,6 +194,8 @@ entries:
       - entry: keeper.git.api:push
         path: .meta.router
       - entry: keeper.git.api:push.endpoint
+        path: .meta.router
+      - entry: keeper.git.api:pull_request.endpoint
         path: .meta.router
       - entry: keeper.git.api:rebuild
         path: .meta.router
@@ -399,6 +421,8 @@ entries:
         path: .meta.target_db
       - entry: keeper.mcp.migrations:migration_06
         path: .meta.target_db
+      - entry: keeper.mcp.security:endpoint_db_access
+        path: .policy.resources
 
   # keeper:admin_scope
   - name: admin_scope
@@ -466,6 +490,21 @@ entries:
         path: .meta.server
       - entry: keeper.components:git_static
         path: .meta.server
+      - entry: keeper.components:wippy_monaco_static
+        path: .meta.server
+
+  - name: packaging_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: packaging
+      comment: Verifies that every Keeper-owned static UI mount is host-configurable.
+    source: file://packaging_test.lua
+    imports:
+      test: wippy.test:test
+    modules:
+      - registry
+    method: define_tests
 
   # keeper:process_host
   - name: process_host

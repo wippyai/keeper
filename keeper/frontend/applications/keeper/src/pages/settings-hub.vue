@@ -15,6 +15,7 @@ import {
 import PageHeader from '../components/shared/PageHeader.vue'
 import HubInstallDialog from '../components/hub/HubInstallDialog.vue'
 import HubUninstallDialog from '../components/hub/HubUninstallDialog.vue'
+import { renderHubMarkdown } from '../utils/hubMarkdown'
 
 const api = useApi()
 const router = useRouter()
@@ -202,56 +203,6 @@ function fmtBytes(n: number | undefined): string {
 
 function toggleVersion(id: string) {
   expandedVersion.value = expandedVersion.value === id ? null : id
-}
-
-// Permissive markdown renderer for trusted hub READMEs.
-// Allows raw HTML (hub.wippy.ai content is curated; we strip script/style/iframe
-// + on* attributes), and applies common markdown features.
-function renderHubMarkdown(src: string): string {
-  if (!src) return ''
-  let html = src
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '')
-    .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '')
-    .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '')
-    .replace(/javascript:/gi, '')
-  const fences: string[] = []
-  html = html.replace(/```([a-z0-9_-]*)\n([\s\S]*?)```/g, (_, _lang, code) => {
-    const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    fences.push(`<pre class="rm-pre"><code>${escaped}</code></pre>`)
-    return ` FENCE${fences.length - 1} `
-  })
-  html = html.replace(/`([^`\n]+)`/g, (_, code) => {
-    const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    return `<code class="rm-code">${escaped}</code>`
-  })
-  html = html.replace(/^######\s+(.+)$/gm, '<h6 class="rm-h">$1</h6>')
-  html = html.replace(/^#####\s+(.+)$/gm, '<h5 class="rm-h">$1</h5>')
-  html = html.replace(/^####\s+(.+)$/gm, '<h4 class="rm-h">$1</h4>')
-  html = html.replace(/^###\s+(.+)$/gm, '<h3 class="rm-h">$1</h3>')
-  html = html.replace(/^##\s+(.+)$/gm, '<h2 class="rm-h">$1</h2>')
-  html = html.replace(/^#\s+(.+)$/gm, '<h1 class="rm-h">$1</h1>')
-  html = html.replace(/^-{3,}$/gm, '<hr class="rm-hr" />')
-  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-  html = html.replace(/(^|\W)\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>')
-  html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, '<img class="rm-img" src="$2" alt="$1" loading="lazy" />')
-  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, '<a class="rm-link" href="$2" target="_blank" rel="noopener">$1</a>')
-  html = html.replace(/^(\s*)[-*]\s+(.+)$/gm, '$1<li class="rm-uli">$2</li>')
-  html = html.replace(/^(\s*)\d+\.\s+(.+)$/gm, '$1<li class="rm-oli">$2</li>')
-  html = html.replace(/((?:<li class="rm-uli">.*<\/li>\n?)+)/g, '<ul class="rm-ul">$1</ul>')
-  html = html.replace(/((?:<li class="rm-oli">.*<\/li>\n?)+)/g, '<ol class="rm-ol">$1</ol>')
-  html = html.replace(/ FENCE(\d+) /g, (_, i) => fences[Number(i)])
-  const BLOCK_RE = /^\s*<\/?(?:[a-z][a-z0-9]*)\b/i
-  const paras = html.split(/\n{2,}/)
-  html = paras.map(p => {
-    p = p.trim()
-    if (!p) return ''
-    if (BLOCK_RE.test(p)) return p
-    return '<p class="rm-p">' + p.replace(/\n/g, '<br />') + '</p>'
-  }).join('\n')
-  return html
 }
 
 const renderedReadme = computed(() => renderHubMarkdown(readmeText.value))

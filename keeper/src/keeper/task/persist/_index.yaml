@@ -83,6 +83,19 @@ entries:
     imports:
       task_consts: keeper.task:consts
       notify: keeper.events:notify
+
+  # keeper.task.persist:mutations
+  - name: mutations
+    kind: library.lua
+    meta:
+      comment: Atomic repository operations spanning task rows and task-node trees
+    source: file://mutations.lua
+    modules:
+      - sql
+    imports:
+      nodes_writer: keeper.task.persist:nodes_writer
+      task_consts: keeper.task:consts
+      task_writer: keeper.task.persist:writer
     
   # keeper.task.persist:reader
   - name: reader
@@ -113,4 +126,3 @@ entries:
       changeset_consts: keeper.changeset:consts
       task_consts: keeper.task:consts
       notify: keeper.events:notify
-    

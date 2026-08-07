@@ -14,6 +14,7 @@ import {
   type KB, type KBNode, type KBStats,
 } from '../api/knowledge'
 import MarkdownContent from '../components/shared/MarkdownContent.vue'
+import { SubscriptionRegistry } from '../utils/subscriptions'
 
 const router = useRouter()
 const api = useApi()
@@ -35,6 +36,15 @@ const researching = ref(false)
 const showResearch = ref(false)
 const researchPrompt = ref('')
 const activeResearch = ref<{ id: string; prompt: string; status: string; target_kb?: string } | null>(null)
+const subscriptions = new SubscriptionRegistry()
+const terminalResearchStatuses = new Set([
+  'completed_success',
+  'completed_failure',
+  'failed',
+  'cancelled',
+  'terminated',
+])
+let researchDismissTimer: ReturnType<typeof setTimeout> | null = null
 
 function kbNameFromId(kbId?: string): string {
   if (!kbId) return ''
@@ -229,19 +239,34 @@ async function refreshNode() {
 function watchResearchStatus() {
   if (!activeResearch.value) return
   const id = activeResearch.value.id
-  const inst = useWippy()
-  inst.on(`dataflow:${id}`, async (evt: any) => {
+  if (researchDismissTimer) {
+    clearTimeout(researchDismissTimer)
+    researchDismissTimer = null
+  }
+  subscriptions.replace('research', () => instance.on(`dataflow:${id}`, async (evt: any) => {
     const data = evt?.data || evt
     const status = data?.status || data?.dataflow?.status
     if (activeResearch.value && activeResearch.value.id === id && status) {
       activeResearch.value.status = status
-      if (status === 'completed_success' || status === 'completed_failure' || status === 'failed' || status === 'cancelled' || status === 'terminated') {
-        await fetchNodes()
-        await fetchStats()
-        setTimeout(() => { if (activeResearch.value?.id === id) activeResearch.value = null }, 5000)
+      if (terminalResearchStatuses.has(status)) {
+        subscriptions.remove('research')
+        await Promise.all([fetchNodes(), fetchStats()])
+        if (activeResearch.value?.id === id) {
+          researchDismissTimer = setTimeout(() => {
+            if (activeResearch.value?.id === id) activeResearch.value = null
+            researchDismissTimer = null
+          }, 5000)
+        }
       }
     }
-  })
+  }))
+}
+
+function dismissResearch() {
+  subscriptions.remove('research')
+  if (researchDismissTimer) clearTimeout(researchDismissTimer)
+  researchDismissTimer = null
+  activeResearch.value = null
 }
 
 async function doCreate() {
@@ -297,24 +322,29 @@ function selectNode(node: KBNode) {
 let debounce: ReturnType<typeof setTimeout> | null = null
 watch(searchQuery, () => {
   if (debounce) clearTimeout(debounce)
-  debounce = setTimeout(doSearch, 300)
+  debounce = setTimeout(() => {
+    debounce = null
+    void doSearch()
+  }, 300)
 })
-
-let unsub: (() => void) | null = null
 
 onMounted(() => {
   fetchKBs()
   fetchNodes()
   fetchStats()
-  unsub = instance.on('keeper.knowledge', () => {
+  subscriptions.replace('knowledge', () => instance.on('keeper.knowledge', () => {
     fetchKBs()
     fetchNodes()
     fetchStats()
-  })
+  }))
 })
 
 onUnmounted(() => {
-  if (unsub) unsub()
+  subscriptions.clear()
+  if (debounce) clearTimeout(debounce)
+  debounce = null
+  if (researchDismissTimer) clearTimeout(researchDismissTimer)
+  researchDismissTimer = null
 })
 </script>
 
@@ -373,7 +403,7 @@ onUnmounted(() => {
       </button>
       <button v-if="activeResearch.status !== 'running'" class="text-[10px] px-1.5 py-0.5 rounded cursor-pointer"
         style="background: color-mix(in srgb, var(--p-text-color) 8%, var(--p-content-background)); color: var(--p-text-muted-color); border: none"
-        @click="activeResearch = null">
+        @click="dismissResearch">
         Dismiss
       </button>
     </div>

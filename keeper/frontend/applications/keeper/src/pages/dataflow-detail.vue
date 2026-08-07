@@ -9,6 +9,7 @@ import { getDataflow, cancelDataflow, terminateDataflow, statusColor, statusIcon
 import { formatDate, timeAgo } from '../api/sessions'
 import DataTimeline from '../components/dataflow/DataTimeline.vue'
 import NodesList from '../components/dataflow/NodesList.vue'
+import { useDocumentDrag } from '../composables/useDocumentDrag'
 
 const route = useRoute()
 const router = useRouter()
@@ -49,9 +50,14 @@ function goBack() {
 }
 
 let resizing = false; let sx = 0; let sw = 0
-function startResize(e: MouseEvent) { resizing = true; sx = e.clientX; sw = leftW.value; document.addEventListener('mousemove', onResize); document.addEventListener('mouseup', stopResize); document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none' }
+const { startDrag } = useDocumentDrag()
+function startResize(e: MouseEvent) {
+  sx = e.clientX; sw = leftW.value
+  startDrag(e, { onMove: onResize, onStop: stopResize })
+  resizing = true
+}
 function onResize(e: MouseEvent) { if (!resizing) return; const dx = e.clientX - sx; leftW.value = Math.max(180, Math.min(400, sw + dx)) }
-function stopResize() { resizing = false; document.removeEventListener('mousemove', onResize); document.removeEventListener('mouseup', stopResize); document.body.style.cursor = ''; document.body.style.userSelect = ''; saveW() }
+function stopResize() { resizing = false; saveW() }
 
 const dataflowId = computed(() => route.params.id as string)
 const isImported = computed(() => dataflowId.value === 'imported')
@@ -370,7 +376,7 @@ async function handleTerminate() { if (!dataflowId.value) return; await terminat
         </div>
       </aside>
 
-      <div class="rh" @mousedown="startResize"></div>
+      <div data-testid="dataflow-resize-handle" class="rh" @mousedown="startResize"></div>
 
       <!-- Main area -->
       <div class="flex-1 overflow-hidden flex flex-col min-w-0">

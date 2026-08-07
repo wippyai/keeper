@@ -2,6 +2,7 @@ import { addCollection } from '@iconify/vue'
 import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 import { PrimeVuePlugin } from '@wippy-fe/theme/primevue-plugin'
+import wippy from '@wippy-fe/proxy'
 
 import App from './app/app.vue'
 import { AXIOS_INSTANCE, HOST_API, WIPPY_INSTANCE, WIPPY_CONFIG, ON_SUBSCRIPTION } from './constants'
@@ -11,10 +12,10 @@ import './styles.css'
 import './tailwind.css'
 
 export async function createKeeperApp() {
-  const config = await window.$W.config()
-  const hostApi = await window.$W.host()
-  const axios = await window.$W.api()
-  const instance = await window.$W.instance()
+  const config = wippy.config
+  const hostApi = wippy.host
+  const axios = wippy.api
+  const instance = wippy
 
   // 401 → auth-expired. The proxy api swallows non-2xx into rejections
   // without logging the user out. Without this interceptor, an expired
@@ -35,8 +36,7 @@ export async function createKeeperApp() {
     },
   )
 
-  let on: OnSubscription | null = null
-  try { on = await window.$W.on() } catch {}
+  const on = instance.on as unknown as OnSubscription
 
   // gen-2-chat's loadWebPageByPackageJson passes the URL sub-path (including
   // query string) as config.context.route — verified live across deep links
@@ -64,7 +64,7 @@ export async function createKeeperApp() {
   app.provide(AXIOS_INSTANCE, axios)
   app.provide(WIPPY_INSTANCE, instance)
   app.provide(WIPPY_CONFIG, config)
-  if (on) app.provide(ON_SUBSCRIPTION, on)
+  app.provide(ON_SUBSCRIPTION, on)
 
   const router = createAppRouter(hostApi, instance.on, initialPath)
   app.use(router)

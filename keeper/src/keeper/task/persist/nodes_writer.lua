@@ -117,18 +117,20 @@ local function next_position(tx, task_id, parent_node_id)
         q = "SELECT COALESCE(MAX(position), -1) + 1 AS pos FROM keeper_task_nodes WHERE task_id = ? AND parent_node_id IS NULL"
         params = { task_id }
     end
-    local rows, _ = tx:query(q, params)
-    if not rows or #rows == 0 then return 0 end
-    return tonumber(rows[1].pos) or 0
+    local rows, err = tx:query(q, params)
+    if err then return nil, "position lookup: " .. tostring(err) end
+    if not rows or #rows == 0 then return 0, nil end
+    return tonumber(rows[1].pos) or 0, nil
 end
 
 local function next_seq(tx, task_id)
-    local rows, _ = tx:query(
+    local rows, err = tx:query(
         "SELECT COALESCE(MAX(seq), 0) + 1 AS s FROM keeper_task_nodes WHERE task_id = ?",
         { task_id }
     )
-    if not rows or #rows == 0 then return 1 end
-    return tonumber(rows[1].s) or 1
+    if err then return nil, "sequence lookup: " .. tostring(err) end
+    if not rows or #rows == 0 then return 1, nil end
+    return tonumber(rows[1].s) or 1, nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -146,7 +148,7 @@ end
 --   agent_id, dataflow_id, changeset_id (optional)
 --   execution_ms, error_message, result_summary (optional)
 --   metadata (table, optional)
-local function insert_node(spec)
+local function insert_node_in(tx, spec)
     if not spec or not spec.task_id or spec.task_id == "" then
         return nil, "task_id required"
     end
@@ -164,21 +166,12 @@ local function insert_node(spec)
     local meta_str, meta_err = encode_metadata(spec.metadata)
     if meta_err then return nil, meta_err end
 
-    local db, db_err = get_db()
-    if db_err then return nil, db_err end
-
-    local tx, txerr = db:begin()
-    if txerr then db:release(); return nil, "begin: " .. tostring(txerr) end
-
-    local rollback = function(msg)
-        tx:rollback(); db:release()
-        return nil, msg
-    end
-
     local parent_info, perr = resolve_parent(tx, spec.parent_node_id)
-    if perr then return rollback(perr) end
-    local position = next_position(tx, spec.task_id, spec.parent_node_id)
-    local seq = next_seq(tx, spec.task_id)
+    if perr then return nil, perr end
+    local position, pos_err = next_position(tx, spec.task_id, spec.parent_node_id)
+    if pos_err then return nil, pos_err end
+    local seq, seq_err = next_seq(tx, spec.task_id)
+    if seq_err then return nil, seq_err end
     local ts = now_ms()
 
     local _, ierr = tx:execute([[
@@ -202,21 +195,20 @@ local function insert_node(spec)
         meta_str,
         seq, ts, ts,
     })
-    if ierr then return rollback("insert: " .. tostring(ierr)) end
+    if ierr then return nil, "insert: " .. tostring(ierr) end
 
-    local _, cerr = tx:commit()
-    db:release()
-    if cerr then return nil, "commit: " .. tostring(cerr) end
-
-    publish(task_consts.EVENTS.NODE_CREATED, {
-        node_id        = node_id,
-        task_id        = spec.task_id,
-        parent_node_id = spec.parent_node_id,
-        type           = spec.type,
-        discriminator  = spec.discriminator,
-        status         = spec.status,
-        seq            = seq,
-    })
+    local event = {
+        event = task_consts.EVENTS.NODE_CREATED,
+        data = {
+            node_id        = node_id,
+            task_id        = spec.task_id,
+            parent_node_id = spec.parent_node_id,
+            type           = spec.type,
+            discriminator  = spec.discriminator,
+            status         = spec.status,
+            seq            = seq,
+        },
+    }
 
     return {
         node_id = node_id,
@@ -227,12 +219,12 @@ local function insert_node(spec)
         position = position,
         seq = seq,
         created_at = ts,
-    }, nil
+    }, nil, event
 end
 
 -- Update subset of fields on an existing node. Useful for turning
 -- status=running into status=passed|failed after a tool body returns.
-local function update_node(node_id, fields)
+local function update_node_in(tx, node_id, fields)
     if not node_id or node_id == "" then return nil, "node_id required" end
     if not fields or next(fields) == nil then return nil, "no fields to update" end
 
@@ -258,21 +250,18 @@ local function update_node(node_id, fields)
         -- without losing kind/needs/target the planner wrote).
         local merged = fields.metadata
         if type(merged) == "table" then
-            local db_read, rerr = get_db()
-            if not rerr then
-                local rows, qerr = db_read:query(
-                    "SELECT metadata FROM keeper_task_nodes WHERE node_id = ?",
-                    { node_id }
-                )
-                db_read:release()
-                local row = rows and rows[1]
-                local metadata = row and row.metadata
-                if not qerr and type(metadata) == "string" and metadata ~= "" then
-                    local prev, perr = json.decode(metadata)
-                    if not perr and type(prev) == "table" then
-                        for k, v in pairs(merged) do prev[k] = v end
-                        merged = prev
-                    end
+            local rows, qerr = tx:query(
+                "SELECT metadata FROM keeper_task_nodes WHERE node_id = ?",
+                { node_id }
+            )
+            if qerr then return nil, "metadata lookup: " .. tostring(qerr) end
+            local row = rows and rows[1]
+            local metadata = row and row.metadata
+            if type(metadata) == "string" and metadata ~= "" then
+                local prev, perr = json.decode(metadata)
+                if not perr and type(prev) == "table" then
+                    for k, v in pairs(merged) do prev[k] = v end
+                    merged = prev
                 end
             end
         end
@@ -287,18 +276,57 @@ local function update_node(node_id, fields)
     table.insert(params, node_id)
     local q = "UPDATE keeper_task_nodes SET " .. table.concat(sets, ", ") .. " WHERE node_id = ?"
 
-    local db, db_err = get_db()
-    if db_err then return nil, db_err end
-    local _, err = db:execute(q, params)
-    db:release()
+    local _, err = tx:execute(q, params)
     if err then return nil, "update: " .. tostring(err) end
 
-    publish(task_consts.EVENTS.NODE_UPDATED, {
-        node_id = node_id,
-        status  = fields.status,
-    })
+    return { node_id = node_id, updated = true }, nil, {
+        event = task_consts.EVENTS.NODE_UPDATED,
+        data = {
+            node_id = node_id,
+            status  = fields.status,
+        },
+    }
+end
 
-    return { node_id = node_id, updated = true }, nil
+-- Run one node mutation in its own transaction. Multi-write operations use
+-- record_in/update_in below so one caller-owned transaction covers every row.
+local function run_single(fn)
+    local db, db_err = get_db()
+    if db_err then return nil, db_err end
+    local tx, tx_err = db:begin()
+    if tx_err then
+        db:release()
+        return nil, "begin: " .. tostring(tx_err)
+    end
+
+    local result, err, event = fn(tx)
+    if err then
+        tx:rollback()
+        db:release()
+        return nil, err
+    end
+
+    local _, commit_err = tx:commit()
+    if commit_err then
+        tx:rollback()
+        db:release()
+        return nil, "commit: " .. tostring(commit_err)
+    end
+    db:release()
+    if event then publish(event.event, event.data) end
+    return result, nil
+end
+
+local function insert_node(spec)
+    return run_single(function(tx)
+        return insert_node_in(tx, spec)
+    end)
+end
+
+local function update_node(node_id, fields)
+    return run_single(function(tx)
+        return update_node_in(tx, node_id, fields)
+    end)
 end
 
 -- ---------------------------------------------------------------------------
@@ -314,6 +342,23 @@ end
 -- task_writer.update(node_id, fields) -> {node_id}, err
 function M.update(node_id, fields)
     return update_node(node_id, fields)
+end
+
+-- Transaction-aware primitives for repository-level unit-of-work operations.
+-- They never commit, roll back, or publish: the owner of tx must do that and
+-- publish the returned event only after a successful commit.
+function M.record_in(tx, spec)
+    return insert_node_in(tx, spec)
+end
+
+function M.update_in(tx, node_id, fields)
+    return update_node_in(tx, node_id, fields)
+end
+
+function M.publish_events(events)
+    for _, item in ipairs(events or {}) do
+        publish(item.event, item.data)
+    end
 end
 
 -- task_writer.for_task(task_id) -> workspace handle with fluent node ops

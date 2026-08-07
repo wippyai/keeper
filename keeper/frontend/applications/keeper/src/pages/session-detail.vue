@@ -15,6 +15,7 @@ import MsgRenderer from '../components/messages/MsgRenderer.vue'
 import DetailPanel from '../components/shared/DetailPanel.vue'
 import TokenBar from '../components/shared/TokenBar.vue'
 import JsonBlock from '../components/shared/JsonBlock.vue'
+import { useDocumentDrag } from '../composables/useDocumentDrag'
 
 const route = useRoute()
 const router = useRouter()
@@ -49,9 +50,14 @@ function goBack() {
 }
 
 let resDir: 'l' | 'r' | null = null; let sx = 0; let sw = 0
-function startResize(d: 'l' | 'r', e: MouseEvent) { resDir = d; sx = e.clientX; sw = d === 'l' ? leftW.value : rightW.value; document.addEventListener('mousemove', onR); document.addEventListener('mouseup', stopR); document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none' }
+const { startDrag } = useDocumentDrag()
+function startResize(d: 'l' | 'r', e: MouseEvent) {
+  sx = e.clientX; sw = d === 'l' ? leftW.value : rightW.value
+  startDrag(e, { onMove: onR, onStop: stopR })
+  resDir = d
+}
 function onR(e: MouseEvent) { if (!resDir) return; const dx = e.clientX - sx; if (resDir === 'l') leftW.value = Math.max(140, Math.min(300, sw + dx)); else rightW.value = Math.max(280, Math.min(700, sw - dx)) }
-function stopR() { resDir = null; document.removeEventListener('mousemove', onR); document.removeEventListener('mouseup', stopR); document.body.style.cursor = ''; document.body.style.userSelect = ''; saveW() }
+function stopR() { resDir = null; saveW() }
 
 const sessionId = computed(() => route.params.id as string)
 const filtered = computed(() => {
@@ -258,7 +264,7 @@ onUnmounted(() => {
         </div>
       </aside>
 
-      <div class="rh" @mousedown="startResize('l', $event)"></div>
+      <div data-testid="session-left-resize-handle" class="rh" @mousedown="startResize('l', $event)"></div>
 
       <!-- Center: message list -->
       <div class="flex-1 overflow-y-auto min-w-0">
@@ -285,7 +291,7 @@ onUnmounted(() => {
 
       <!-- Right: detail panel -->
       <template v-if="selected">
-        <div class="rh" @mousedown="startResize('r', $event)"></div>
+        <div data-testid="session-right-resize-handle" class="rh" @mousedown="startResize('r', $event)"></div>
         <div class="shrink-0" :style="{ width: rightW + 'px' }">
           <DetailPanel :icon="msgIcon(selected.type)" :icon-color="msgColor(selected.type)" :title="selected.type" :subtitle="formatDate(selected.date)" :tabs="['content', 'meta', 'raw']" v-model:active-tab="detailTab" @close="selected = null">
             <template #subheader>

@@ -150,10 +150,14 @@
   "dependencies": {
     "@wippy-fe/theme": "^0.0.32",
     "chart.js": "^4.5.1",
-    "d3-force": "^3.0.0"
+    "d3-force": "^3.0.0",
+    "markdown-it": "^14.3.0",
+    "sanitize-html": "^2.17.5"
   },
   "devDependencies": {
     "@testing-library/vue": "^8.1.0",
+    "@types/markdown-it": "^14.1.2",
+    "@types/sanitize-html": "^2.16.1",
     "@vitejs/plugin-vue": "^5.0.0",
     "@vue/test-utils": "^2.4.6",
     "@wippy-fe/types-global-proxy": "^0.0.32",

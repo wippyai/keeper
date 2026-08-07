@@ -7,8 +7,7 @@ entries:
     kind: function.lua
     meta:
       comment: Gets a single registry entry with all data
-      depends_on:
-        - app:api
+      depends_on: []
     source: file://get_entry.lua
     modules:
       - http
@@ -23,8 +22,7 @@ entries:
     kind: http.endpoint
     meta:
       comment: Endpoint that retrieves a single registry entry by ID
-      depends_on:
-        - app:api
+      depends_on: []
       router: app:api
     method: GET
     func: get_entry
@@ -35,8 +33,7 @@ entries:
     kind: function.lua
     meta:
       comment: Lists registry entries with optional namespace filter
-      depends_on:
-        - app:api
+      depends_on: []
     source: file://list_entries.lua
     modules:
       - http
@@ -51,8 +48,7 @@ entries:
     kind: http.endpoint
     meta:
       comment: Endpoint that lists registry entries with optional namespace filter
-      depends_on:
-        - app:api
+      depends_on: []
       router: app:api
     method: GET
     func: list_entries
@@ -63,8 +59,7 @@ entries:
     kind: function.lua
     meta:
       comment: Lists all namespaces with count of entries
-      depends_on:
-        - app:api
+      depends_on: []
     source: file://list_namespaces.lua
     modules:
       - http
@@ -79,8 +74,7 @@ entries:
     kind: http.endpoint
     meta:
       comment: Endpoint that lists all namespaces with entry counts
-      depends_on:
-        - app:api
+      depends_on: []
       router: app:api
     method: GET
     func: list_namespaces
@@ -91,8 +85,7 @@ entries:
     kind: function.lua
     meta:
       comment: Updates a registry entry (data and/or metadata)
-      depends_on:
-        - app:api
+      depends_on: []
     source: file://update_entry.lua
     modules:
       - http
@@ -107,10 +100,8 @@ entries:
     kind: http.endpoint
     meta:
       comment: Endpoint that updates a registry entry
-      depends_on:
-        - app:api
+      depends_on: []
       router: app:api
     method: PUT
     func: update_entry
     path: /keeper/registry/entry
-    

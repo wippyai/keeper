@@ -8,6 +8,7 @@ import { listNamespaces, listEntries, getEntry, updateEntry, fetchGraph, getGove
 import { entryName, prettyJson } from '../utils'
 import EditorWrapper from '../components/editors/EditorWrapper.vue'
 import ForceGraph from '../components/shared/ForceGraph.vue'
+import { useDocumentDrag } from '../composables/useDocumentDrag'
 
 const api = useApi()
 const route = useRoute()
@@ -93,13 +94,14 @@ const treeWidth = ref<number>(parseInt(localStorage.getItem(STORAGE_KEY) || '240
 function saveTreeWidth() { localStorage.setItem(STORAGE_KEY, String(treeWidth.value)) }
 
 let resizing = false; let startX = 0; let startW = 0
+const { startDrag } = useDocumentDrag()
 function startResize(e: MouseEvent) {
-  resizing = true; startX = e.clientX; startW = treeWidth.value
-  document.addEventListener('mousemove', onResize); document.addEventListener('mouseup', stopResize)
-  document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'
+  startX = e.clientX; startW = treeWidth.value
+  startDrag(e, { onMove: onResize, onStop: stopResize })
+  resizing = true
 }
 function onResize(e: MouseEvent) { if (!resizing) return; treeWidth.value = Math.max(180, Math.min(400, startW + (e.clientX - startX))) }
-function stopResize() { resizing = false; document.removeEventListener('mousemove', onResize); document.removeEventListener('mouseup', stopResize); document.body.style.cursor = ''; document.body.style.userSelect = ''; saveTreeWidth() }
+function stopResize() { resizing = false; saveTreeWidth() }
 
 interface TreeNode {
   name: string
@@ -388,7 +390,7 @@ onUnmounted(() => {
         </template>
       </aside>
 
-      <div class="resize-handle" @mousedown="startResize($event)"></div>
+      <div data-testid="structure-resize-handle" class="resize-handle" @mousedown="startResize($event)"></div>
 
       <!-- Right: editor / detail -->
       <div class="flex-1 flex flex-col overflow-hidden min-w-0">
