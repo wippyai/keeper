@@ -654,7 +654,12 @@ local function requirement_value_kind(req): string?
     return REQUIREMENT_VALUE_KIND_BY_NAME[string.lower(trim(req and req.name))]
 end
 
+-- Kind families: a requirement names the family it accepts, while the resource
+-- that satisfies it carries a concrete kind underneath it (db.sql.sqlite,
+-- env.storage.file). Both sides of the search know that: the registry query
+-- widens to every entry, and kind_matches accepts the family's members.
 local KIND_PREFIX_SEARCH = {
+    ["db.sql"] = true,
     ["env.storage"] = true,
 }
 
