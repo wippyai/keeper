@@ -1,8 +1,8 @@
 # Release Notes
 
-## keeper/keeper 0.5.68
+## keeper/keeper 0.5.71
 
-`keeper/keeper@0.5.68` lets a requirement that names the `db.sql` kind family
+`keeper/keeper@0.5.71` lets a requirement that names the `db.sql` kind family
 find the databases that satisfy it.
 
 - A resource carries a concrete kind — `app:db` is a `db.sql.sqlite` or a
