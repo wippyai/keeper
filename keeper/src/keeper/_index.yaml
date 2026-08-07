@@ -14,6 +14,7 @@ entries:
   - name: api_router
     kind: ns.requirement
     meta:
+      value_kind: http.router
       description: HTTP API router used by Keeper application endpoints
     default: app:api
     targets:
@@ -376,6 +377,7 @@ entries:
   - name: app_db
     kind: ns.requirement
     meta:
+      value_kind: db.sql
       description: Application database resource used by Keeper integrations and app-owned migrations
     default: app:db
     targets:
@@ -429,6 +431,7 @@ entries:
   - name: env_storage
     kind: ns.requirement
     meta:
+      value_kind: env.storage
       description: Environment storage entry used by Keeper settings and MCP flags
     default: app.env:store
     targets:
@@ -465,6 +468,7 @@ entries:
   - name: ui_server
     kind: ns.requirement
     meta:
+      value_kind: http.service
       description: HTTP service used to serve the compiled Keeper UI assets
     default: app:gateway
     targets:
@@ -477,6 +481,7 @@ entries:
   - name: process_host
     kind: ns.requirement
     meta:
+      value_kind: process.host
       description: Process host used for Keeper-spawned runtime work such as frontend builds and MCP SSE brokers
     default: app:processes
     targets:

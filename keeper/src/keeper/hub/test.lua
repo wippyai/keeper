@@ -554,6 +554,7 @@ local function planner_catalog()
                     {
                         name = "env_storage",
                         description = "Environment storage",
+                        meta = { value_kind = "env.storage" },
                         targets = { { entry = "wippy.bootloader:service", path = ".env_storage" } },
                     },
                 },
@@ -564,6 +565,7 @@ local function planner_catalog()
                     {
                         name = "env_storage",
                         description = "Environment storage",
+                        meta = { value_kind = "env.storage" },
                         targets = { { entry = "wippy.bootloader:service", path = ".env_storage" } },
                     },
                 },
@@ -2610,6 +2612,7 @@ local function define_tests()
                                 requirements = {
                                     {
                                         name = "env_storage",
+                                        meta = { value_kind = "env.storage" },
                                         targets = { { entry = "wippy.bootloader:service", path = ".env_storage" } },
                                     },
                                 },
@@ -2654,7 +2657,7 @@ local function define_tests()
                 test.eq(param.value, "enabled")
             end)
 
-            it("infers router and environment storage values from canonical requirement paths", function()
+            it("resolves declared requirement value kinds to registry candidates", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
                         ["butschster/telegram"] = {
@@ -2663,10 +2666,12 @@ local function define_tests()
                                 requirements = {
                                     {
                                         name = "webhook_router",
+                                        meta = { value_kind = "http.router" },
                                         targets = { { entry = "telegram.handler:webhook_endpoint", path = ".meta.router" } },
                                     },
                                     {
                                         name = "env_storage",
+                                        meta = { value_kind = "env.storage" },
                                         targets = {
                                             { entry = "telegram:bot_token", path = ".storage" },
                                             { entry = "telegram:webhook_url", path = ".storage" },
@@ -2703,7 +2708,55 @@ local function define_tests()
                 test.eq(env_storage.suggestions[2].kind, "env.storage.router")
             end)
 
-            it("uses canonical requirement names when target paths are not descriptive", function()
+            it("resolves declared filesystem requirement kinds to registry candidates", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/skills"] = {
+                            {
+                                version = "v1.0.0",
+                                requirements = {
+                                    {
+                                        name = "upload_storage",
+                                        meta = { value_kind = "fs.directory" },
+                                        targets = { { entry = "acme.skills:storage_config", path = ".storage_id" } },
+                                    },
+                                    {
+                                        name = "temp_fs",
+                                        meta = { value_kind = "fs.directory" },
+                                        targets = { { entry = "acme.skills:jobs", path = ".meta.fs_id" } },
+                                    },
+                                },
+                            },
+                        },
+                    }),
+                    registry = fake_registry({
+                        { id = "app:uploads", kind = "fs.directory", meta = {}, data = {} },
+                        { id = "app:data_dir", kind = "fs.directory", meta = {}, data = {} },
+                    }),
+                }) :: any
+
+                local plan, err = svc:plan_install({
+                    component = "acme/skills",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(err)
+                local upload = find_requirement(plan, "acme.skills:upload_storage")
+                local temp_fs = find_requirement(plan, "acme.skills:temp_fs")
+                test.not_nil(upload)
+                test.not_nil(temp_fs)
+                -- both filesystem requirements resolve to a kind, so the installer
+                -- offers the host's fs.directory entries as a selectable picker
+                -- instead of an empty required field that deadlocks the install.
+                test.eq(upload.expected_kind, "fs.directory")
+                test.eq(temp_fs.expected_kind, "fs.directory")
+                test.not_nil(upload.suggestions[1])
+                test.eq(upload.suggestions[1].kind, "fs.directory")
+                test.not_nil(temp_fs.suggestions[1])
+                test.eq(temp_fs.suggestions[1].kind, "fs.directory")
+            end)
+
+            it("does not infer candidate kinds from requirement names or target paths", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
                         ["acme/webhooks"] = {
@@ -2712,11 +2765,11 @@ local function define_tests()
                                 requirements = {
                                     {
                                         name = "webhook_router",
-                                        targets = { { entry = "acme.webhooks:endpoint", path = ".value" } },
+                                        targets = { { entry = "acme.webhooks:endpoint", path = ".meta.router" } },
                                     },
                                     {
                                         name = "env_storage",
-                                        targets = { { entry = "acme.webhooks:env", path = ".value" } },
+                                        targets = { { entry = "acme.webhooks:env", path = ".storage" } },
                                     },
                                 },
                             },
@@ -2738,11 +2791,15 @@ local function define_tests()
                 local env_storage = find_requirement(plan, "acme.webhooks:env_storage")
                 test.not_nil(router)
                 test.not_nil(env_storage)
-                test.eq(router.expected_kind, "http.router")
-                test.eq(router.suggestions[1].value, "app:api")
-                test.eq(env_storage.expected_kind, "env.storage")
-                test.eq(env_storage.suggestions[1].value, "app.env:os")
-                test.eq(env_storage.suggestions[1].kind, "env.storage.os")
+                -- a requirement without a declared meta.value_kind gets no
+                -- registry candidates: names and target paths are
+                -- module-authored identifiers, never a type signal
+                test.is_nil(router.expected_kind)
+                test.eq(#router.suggestions, 0)
+                test.eq(router.value_source, "empty")
+                test.is_nil(env_storage.expected_kind)
+                test.eq(#env_storage.suggestions, 0)
+                test.eq(env_storage.value_source, "empty")
             end)
 
             it("loads selected version detail before building the requirement list", function()
@@ -2806,6 +2863,7 @@ local function define_tests()
                                             name = "router",
                                             description = "Router to register endpoints on",
                                             default = "app:router",
+                                            meta = { value_kind = "http.router" },
                                             targets = { { entry = "wippy.dummy:ping", path = "meta.router" } },
                                         },
                                     },
@@ -2849,6 +2907,7 @@ local function define_tests()
                                     {
                                         name = "router",
                                         default = "app:router",
+                                        meta = { value_kind = "http.router" },
                                         targets = { { entry = "wippy.dummy:ping", path = "meta.router" } },
                                     },
                                 },
@@ -2892,6 +2951,7 @@ local function define_tests()
                                 requirements = {
                                     {
                                         name = "router",
+                                        meta = { value_kind = "http.router" },
                                         targets = { { entry = "wippy.dummy:ping", path = "meta.router" } },
                                     },
                                 },
@@ -2935,6 +2995,7 @@ local function define_tests()
                                     {
                                         name = "router",
                                         default = "app:router",
+                                        meta = { value_kind = "http.router" },
                                         targets = { { entry = "wippy.dummy:ping", path = "meta.router" } },
                                     },
                                 },
@@ -2966,6 +3027,131 @@ local function define_tests()
                 test.eq(param.value, "app:router")
             end)
 
+            it("prefers the module default over a bare-name parameter from another root", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["wippy/dummy"] = {
+                            {
+                                version = "v1.0.0",
+                                requirements = {
+                                    {
+                                        name = "router",
+                                        default = "app:api",
+                                        meta = { value_kind = "http.router" },
+                                        targets = { { entry = "wippy.dummy:ping", path = "meta.router" } },
+                                    },
+                                },
+                            },
+                        },
+                    }),
+                    registry = fake_registry({
+                        { id = "app:api", kind = "http.router", meta = {}, data = {} },
+                        { id = "app:api.public", kind = "http.router", meta = {}, data = {} },
+                        {
+                            id = "app.deps:facade",
+                            kind = "ns.dependency",
+                            meta = {},
+                            data = {
+                                component = "wippy/facade",
+                                version = "*",
+                                parameters = { { name = "router", value = "app:api.public" } },
+                            },
+                        },
+                    }),
+                }) :: any
+
+                local plan, err = svc:plan_install({
+                    component = "wippy/dummy",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(err)
+                local req = find_requirement(plan, "wippy.dummy:router")
+                test.not_nil(req)
+                test.eq(req.value, "app:api")
+                test.eq(req.value_source, "default")
+                local param = find_parameter(plan.install_payload.parameters, "wippy.dummy:router")
+                test.not_nil(param)
+                test.eq(param.value, "app:api")
+            end)
+
+            it("preserves the recorded parameters when an update supplies none", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["wippy/dummy"] = {
+                            {
+                                version = "v1.0.0",
+                                requirements = {
+                                    {
+                                        name = "router",
+                                        default = "app:api",
+                                        meta = { value_kind = "http.router" },
+                                        targets = { { entry = "wippy.dummy:ping", path = "meta.router" } },
+                                    },
+                                },
+                            },
+                        },
+                    }),
+                    registry = fake_registry({
+                        { id = "app:api", kind = "http.router", meta = {}, data = {} },
+                        { id = "app:custom", kind = "http.router", meta = {}, data = {} },
+                        {
+                            id = "app.deps:dummy",
+                            kind = "ns.dependency",
+                            meta = {},
+                            data = {
+                                component = "wippy/dummy",
+                                version = "v1.0.0",
+                                parameters = { { name = "wippy.dummy:router", value = "app:custom" } },
+                            },
+                        },
+                    }),
+                }) :: any
+
+                local plan, err = svc:plan_install({
+                    component = "wippy/dummy",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(err)
+                local req = find_requirement(plan, "wippy.dummy:router")
+                test.not_nil(req)
+                test.eq(req.value, "app:custom")
+                test.eq(req.value_source, "provided")
+                local param = find_parameter(plan.install_payload.parameters, "wippy.dummy:router")
+                test.not_nil(param)
+                test.eq(param.value, "app:custom")
+
+                local empty_plan, empty_err = svc:plan_install({
+                    component = "wippy/dummy",
+                    version = "v1.0.0",
+                    parameters = {},
+                })
+                test.is_nil(empty_err)
+                local empty_param = find_parameter(empty_plan.install_payload.parameters, "wippy.dummy:router")
+                test.not_nil(empty_param)
+                test.eq(empty_param.value, "app:custom")
+
+                local explicit_plan, explicit_err = svc:plan_install({
+                    component = "wippy/dummy",
+                    version = "v1.0.0",
+                    parameters = { ["wippy.dummy:router"] = "app:api" },
+                })
+                test.is_nil(explicit_err)
+                local explicit_param = find_parameter(explicit_plan.install_payload.parameters, "wippy.dummy:router")
+                test.not_nil(explicit_param)
+                test.eq(explicit_param.value, "app:api")
+
+                local malformed_plan, malformed_err = svc:plan_install({
+                    component = "wippy/dummy",
+                    version = "v1.0.0",
+                    parameters = "invalid",
+                })
+                test.is_nil(malformed_plan)
+                test.not_nil(malformed_err)
+                test.eq(err_code(malformed_err), "BAD_REQUEST")
+            end)
+
             it("uses Hub dependency metadata when version metadata omits dependency edges", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
@@ -2982,6 +3168,7 @@ local function define_tests()
                                 requirements = {
                                     {
                                         name = "env_storage",
+                                        meta = { value_kind = "env.storage" },
                                         targets = { { entry = "wippy.bootloader:service", path = ".env_storage" } },
                                     },
                                 },
@@ -3176,7 +3363,7 @@ local function define_tests()
                 test.eq(plan.parameter_values["wippy.bootloader:env_storage"], "app.env:store")
             end)
 
-            it("reuses a unique bare application profile value across managed roots", function()
+            it("reuses a unique bare application profile value when the module declares no default", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
                         ["wippy/dummy"] = {
@@ -3185,7 +3372,7 @@ local function define_tests()
                                 requirements = {
                                     {
                                         name = "router",
-                                        default = "app:router",
+                                        meta = { value_kind = "http.router" },
                                         targets = { { entry = "wippy.dummy:ping", path = "meta.router" } },
                                     },
                                 },
@@ -3232,6 +3419,7 @@ local function define_tests()
                                 requirements = {
                                     {
                                         name = "router",
+                                        meta = { value_kind = "http.router" },
                                         targets = { { entry = "wippy.dummy:ping", path = "meta.router" } },
                                     },
                                 },
@@ -3262,7 +3450,7 @@ local function define_tests()
                 local req = find_requirement(plan, "wippy.dummy:router")
                 test.not_nil(req)
                 test.eq(req.value, "app:api")
-                test.eq(req.value_source, "existing")
+                test.eq(req.value_source, "provided")
                 test.is_false(req.missing)
                 local param = find_parameter(plan.install_payload.parameters, "wippy.dummy:router")
                 test.not_nil(param)
@@ -3278,6 +3466,7 @@ local function define_tests()
                                 requirements = {
                                     {
                                         name = "router",
+                                        meta = { value_kind = "http.router" },
                                         targets = { { entry = "wippy.dummy:ping", path = "meta.router" } },
                                     },
                                 },
@@ -3306,10 +3495,12 @@ local function define_tests()
                 test.is_nil(err)
                 local req = find_requirement(plan, "wippy.dummy:router")
                 test.not_nil(req)
-                test.eq(req.value, "")
-                test.eq(req.value_source, "empty")
+                test.eq(req.value, "app:missing")
+                test.eq(req.value_source, "provided_invalid")
+                test.is_true(req.invalid)
                 test.is_true(req.missing)
-                test.eq(#req.suggestions, 0)
+                local param = find_parameter(plan.install_payload.parameters, "wippy.dummy:router")
+                test.is_nil(param)
             end)
 
             it("does not reuse parameters stored on package-owned transitive edges", function()
@@ -3321,6 +3512,7 @@ local function define_tests()
                                 requirements = {
                                     {
                                         name = "router",
+                                        meta = { value_kind = "http.router" },
                                         targets = { { entry = "wippy.dummy:ping", path = "meta.router" } },
                                     },
                                 },
@@ -3364,6 +3556,7 @@ local function define_tests()
                                 requirements = {
                                     {
                                         name = "router",
+                                        meta = { value_kind = "http.router" },
                                         targets = { { entry = "wippy.dummy:ping", path = "meta.router" } },
                                     },
                                 },
@@ -3407,6 +3600,7 @@ local function define_tests()
                                 requirements = {
                                     {
                                         name = "router",
+                                        meta = { value_kind = "http.router" },
                                         targets = { { entry = "wippy.dummy:ping", path = "meta.router" } },
                                     },
                                 },
