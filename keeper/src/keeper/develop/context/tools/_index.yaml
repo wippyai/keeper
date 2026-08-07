@@ -7,7 +7,7 @@ entries:
     kind: function.lua
     meta:
       type: tool
-      title: Test prepare_context
+      title: Prepare Context Test
       comment: Isolation-test wrapper that calls keeper.develop.context:prepare_context with a given agent_id + task prompt and returns the gathered context blob
       tags:
         - develop
@@ -23,7 +23,7 @@ entries:
           "required": ["agent_id", "prompt"]
         }
       llm_alias: test_prepare_context
-      llm_description: Run keeper.develop.context:prepare_context directly against an agent_id + prompt and return the resulting context blob.
+      llm_description: Run the context-preparation step for a selected agent and prompt, then return the context that would be supplied to the agent.
       mcp:
         required_scopes:
           - tasks.read
