@@ -2110,6 +2110,81 @@ local function define_tests()
                 test.eq(req.suggestions[1].kind, "security.scope")
             end)
 
+            it("matches a declared db.sql requirement against the concrete database kinds", function()
+                local function db_plan(supplied)
+                    local args: { [string]: any } = { component = "acme/store", version = "v1.0.0" }
+                    if supplied then
+                        args.parameters = { { name = "acme.store:target_db", value = supplied } }
+                    end
+                    local svc = planner.new({
+                        catalog = fake_catalog({
+                            ["acme/store"] = {
+                                {
+                                    version = "v1.0.0",
+                                    entry_kinds = { "ns.requirement" },
+                                    requirements = {
+                                        {
+                                            name = "target_db",
+                                            default = "",
+                                            targets = {
+                                                { entry = "acme.store.migrations:01_store", path = ".meta.target_db" },
+                                            },
+                                        },
+                                    },
+                                    inspect = {
+                                        entries = {
+                                            {
+                                                id = "acme.store:target_db",
+                                                kind = "ns.requirement",
+                                                data = {
+                                                    meta = {
+                                                        value_kind = "db.sql",
+                                                        comment = "SQL database resource backing the store tables.",
+                                                    },
+                                                    targets = {
+                                                        { entry = "acme.store.migrations:01_store", path = ".meta.target_db" },
+                                                    },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        }),
+                        registry = fake_registry({
+                            {
+                                id = "app:db",
+                                kind = "db.sql.sqlite",
+                                meta = { title = "Application database" },
+                                data = {},
+                            },
+                        }),
+                    }) :: any
+                    return svc:plan_install(args)
+                end
+
+                -- A database resource is declared with a concrete kind, so the db.sql family
+                -- has to reach db.sql.sqlite and db.sql.postgres the way env.storage reaches
+                -- its own members.
+                local plan, err = db_plan(nil)
+                test.is_nil(err)
+                local req = find_requirement(plan, "acme.store:target_db")
+                test.not_nil(req)
+                test.eq(req.expected_kind, "db.sql")
+                test.eq(req.suggestions[1].value, "app:db")
+                test.eq(req.suggestions[1].kind, "db.sql.sqlite")
+
+                -- A supplied database survives into the install payload instead of being
+                -- refused as a value of the wrong kind.
+                local supplied_plan, supplied_err = db_plan("app:db")
+                test.is_nil(supplied_err)
+                local supplied = find_requirement(supplied_plan, "acme.store:target_db")
+                test.not_nil(supplied)
+                test.eq(supplied.value, "app:db")
+                test.is_false(supplied.invalid)
+                test.not_nil(find_parameter(supplied_plan.install_payload.parameters, "acme.store:target_db"))
+            end)
+
             it("places new dependencies in the strongest existing dependency namespace cluster", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
