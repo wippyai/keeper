@@ -10,6 +10,7 @@ type HubRequirement = {
     description?: string,
     default?: string,
     required?: boolean,
+    meta?: {[string]: unknown},
     targets?: { RequirementTarget },
 }
 type HubDependencyRef = {
@@ -625,33 +626,15 @@ local function requirement_required(req): boolean
     return true
 end
 
-local REQUIREMENT_VALUE_KIND_BY_TARGET_PATH = {
-    ["router"] = "http.router",
-    [".router"] = "http.router",
-    ["meta.router"] = "http.router",
-    [".meta.router"] = "http.router",
-    ["storage"] = "env.storage",
-    [".storage"] = "env.storage",
-    ["env_storage"] = "env.storage",
-    [".env_storage"] = "env.storage",
-}
-
-local REQUIREMENT_VALUE_KIND_BY_NAME = {
-    ["router"] = "http.router",
-    ["webhook_router"] = "http.router",
-    ["env_storage"] = "env.storage",
-    ["storage"] = "env.storage",
-}
-
+-- A requirement resolves to registry candidates only through the type it
+-- declares (meta.value_kind on the ns.requirement entry). There is no
+-- inference from requirement names or target paths: names are module-authored
+-- identifiers the installer cannot enumerate, so keying on them couples the
+-- planner to individual modules.
 local function requirement_value_kind(req): string?
     local explicit = trim(req and req.meta and req.meta.value_kind)
     if explicit ~= "" then return explicit end
-    for _, target in ipairs((req and req.targets) or {}) do
-        local path = trim(target.path)
-        local kind = REQUIREMENT_VALUE_KIND_BY_TARGET_PATH[path]
-        if kind then return kind end
-    end
-    return REQUIREMENT_VALUE_KIND_BY_NAME[string.lower(trim(req and req.name))]
+    return nil
 end
 
 -- Kind families: a requirement names the family it accepts, while the resource
@@ -715,7 +698,8 @@ function Planner:deployment_dependency_entries()
 end
 
 -- Precomputes the two per-node install-graph flags from live registry state:
---   installed_names: modules represented by module-owned registry entries
+--   installed_names: modules represented by an existing dependency binding
+--                    or module-owned registry entries
 --   shared_names: modules already reachable from an EXISTING deployment root
 --                 other than the one being installed, walking the same offline
 --                 installed edges the closure resolver uses. A node in this set
@@ -728,6 +712,12 @@ function Planner:install_graph_context(component)
     for _, row in ipairs(definitions or {}) do
         local name = trim(row.meta and row.meta.module)
         if name ~= "" then installed_names[name] = true end
+    end
+
+    local dependency_bindings = self:dependency_entries()
+    for _, dep in ipairs(dependency_bindings or {}) do
+        local installed_component = dependency_component(dep)
+        if installed_component ~= "" then installed_names[installed_component] = true end
     end
 
     local shared_names = {}
@@ -869,6 +859,7 @@ function Planner:resolve_dependency_destination_args(args): (unknown?, unknown?)
                             { id = destination_id, existing_component = fallback_component, component = parsed.component }) :: unknown?
                     end
                 end
+                existing = fallback
             else
                 return nil, err("CONFLICT", "dependency destination " .. destination_id
                     .. " already belongs to " .. existing_component,
@@ -881,6 +872,21 @@ function Planner:resolve_dependency_destination_args(args): (unknown?, unknown?)
             "dependency destination namespace is not managed by governance: "
                 .. tostring(destination_namespace or ""),
             { id = destination_id, namespace = destination_namespace, component = parsed.component }) :: unknown?
+    end
+    -- An update that supplies no parameters keeps the destination's recorded
+    -- ones: absence means unchanged, never re-planned. Re-planning let another
+    -- root's same-named parameter replace an operator's recorded value.
+    local parameters_empty = type(out.parameters) == "table" and next(out.parameters) == nil
+    if out.parameters == nil or parameters_empty then
+        local recorded_data = existing and type((existing :: any).data) == "table" and (existing :: any).data or {}
+        local recorded_params = type(recorded_data.parameters) == "table" and recorded_data.parameters or {}
+        if #recorded_params > 0 then
+            local copied = {}
+            for _, param in ipairs(recorded_params) do
+                table.insert(copied, { name = (param :: any).name, value = (param :: any).value })
+            end
+            out.parameters = copied
+        end
     end
     return out, nil
 end
@@ -1774,7 +1780,14 @@ function Planner:plan_requirements(graph, supplied_parameters)
     local missing = {}
 
     for _, node in ipairs(graph or {}) do
-        for _, req in ipairs(node.requirements or {}) do
+        -- An installed module reached through another package is existing
+        -- application state, not a configuration target of this operation.
+        -- Its dependency entry already owns the concrete parameter binding;
+        -- evaluating the Hub artifact's requirements here would replace that
+        -- binding with a new guess and can block an unrelated install. A
+        -- direct install/update remains configurable and is planned normally.
+        if node.installed ~= true or node.direct == true then
+            for _, req in ipairs(node.requirements or {}) do
             local name = trim(req.name)
             if name ~= "" then
                 local requirement_namespace = trim(req.namespace)
@@ -1883,6 +1896,13 @@ function Planner:plan_requirements(graph, supplied_parameters)
                         source = "conflict"
                     end
                 end
+                -- The module's own declared default outranks bare-name reuse:
+                -- a same-named parameter on another root is a different
+                -- requirement that happens to share a name, not agreement.
+                if value == nil and source ~= "conflict" and default_value ~= "" and default_compatible then
+                    value = default_value
+                    source = "default"
+                end
                 if value == nil and source ~= "conflict" then
                     local compatible_existing = {}
                     for _, match in ipairs(bare_existing) do
@@ -1894,10 +1914,6 @@ function Planner:plan_requirements(graph, supplied_parameters)
                     elseif #compatible_existing > 1 then
                         source = "conflict"
                     end
-                end
-                if value == nil and source ~= "conflict" and default_value ~= "" and default_compatible then
-                    value = default_value
-                    source = "default"
                 end
                 value = value or ""
                 values[full_id] = value
@@ -1926,6 +1942,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 }
                 row.missing = row.required and (trim(value) == "" or row.invalid == true)
                 table.insert(out, row)
+            end
             end
         end
     end
