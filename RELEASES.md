@@ -1,5 +1,21 @@
 # Release Notes
 
+## keeper/keeper 0.5.73
+
+`keeper/keeper@0.5.73` preserves installed dependency configuration when a
+different package is added from the Hub.
+
+- Every existing dependency binding is an installed-module boundary, whether
+  it is an application root or a package-owned transitive edge.
+- Requirement planning skips installed non-target modules. Their concrete
+  parameter bindings are neither guessed again nor rejected because an
+  unrelated install traverses them.
+- Direct installation or update of the target module remains configurable.
+- The install changeset contains only the newly requested root and leaves
+  existing dependency parameters unchanged.
+- `keeper.hub:test` passed 117/117, including root, transitive-edge, and service
+  changeset regressions. Keeper Hub lint checked 17 entries with no issues.
+
 ## keeper/keeper 0.5.71
 
 `keeper/keeper@0.5.71` lets a requirement that names the `db.sql` kind family
