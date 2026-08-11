@@ -3328,11 +3328,10 @@ local function define_tests()
                 test.is_true(req.missing)
             end)
 
-            it("reuses bare existing parameters for already-installed transitive components", function()
+            it("does not re-plan parameters for an installed dependency root", function()
                 local svc = planner.new({
                     catalog = planner_catalog(),
                     registry = fake_registry({
-                        { id = "app.env:store", kind = "env.storage.router", meta = {}, data = {} },
                         {
                             id = "app.deps:bootloader",
                             kind = "ns.dependency",
@@ -3340,7 +3339,7 @@ local function define_tests()
                             data = {
                                 component = "wippy/bootloader",
                                 version = ">=v0.0.9",
-                                parameters = { { name = "env_storage", value = "app.env:store" } },
+                                parameters = { { name = "env_storage", value = "app.env:recorded" } },
                             },
                         },
                     }),
@@ -3353,14 +3352,38 @@ local function define_tests()
 
                 test.is_nil(err)
                 local req = find_requirement(plan, "wippy.bootloader:env_storage")
-                test.not_nil(req)
-                test.eq(req.value, "app.env:store")
-                test.eq(req.value_source, "existing_bare")
-                test.is_false(req.missing)
+                test.is_nil(req)
+                test.eq(#plan.missing_requirements, 0)
+                test.is_nil(plan.parameter_values["wippy.bootloader:env_storage"])
+                test.is_nil(find_parameter(plan.install_payload.parameters, "wippy.bootloader:env_storage"))
+            end)
 
-                local param = find_parameter(plan.install_payload.parameters, "wippy.bootloader:env_storage")
-                test.is_nil(param)
-                test.eq(plan.parameter_values["wippy.bootloader:env_storage"], "app.env:store")
+            it("does not re-plan parameters for an installed package-owned dependency", function()
+                local parent_entries = installed_module("acme/parent", { "wippy/bootloader" })
+                parent_entries[2].data.parameters = {
+                    { name = "wippy.bootloader:env_storage", value = "app.env:recorded" },
+                }
+                local recorded_parameters = parent_entries[2].data.parameters
+                local svc = planner.new({
+                    catalog = planner_catalog(),
+                    registry = fake_registry(concat_entries(
+                        { root_dep("app.deps:parent", "acme/parent") },
+                        parent_entries
+                    )),
+                }) :: any
+
+                local plan, err = svc:plan_install({
+                    component = "acme/app",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(err)
+                local req = find_requirement(plan, "wippy.bootloader:env_storage")
+                test.is_nil(req)
+                test.eq(#plan.missing_requirements, 0)
+                test.eq(#recorded_parameters, 1)
+                test.eq(recorded_parameters[1].name, "wippy.bootloader:env_storage")
+                test.eq(recorded_parameters[1].value, "app.env:recorded")
             end)
 
             it("reuses a unique bare application profile value when the module declares no default", function()
@@ -4378,6 +4401,53 @@ local function define_tests()
                 local params = gov_state.last_changeset[1].entry.data.parameters
                 test.eq(params[1].name, "wippy.dummy:router")
                 test.eq(params[1].value, "app:api.public")
+            end)
+
+            it("publishes only the new root when an installed dependency already owns its parameters", function()
+                local recorded = {
+                    { name = "wippy.bootloader:env_storage", value = "app.env:recorded" },
+                }
+                local installed_root = {
+                    id = "app.deps:bootloader",
+                    kind = "ns.dependency",
+                    meta = {},
+                    data = {
+                        component = "wippy/bootloader",
+                        version = ">=v0.0.9",
+                        parameters = recorded,
+                    },
+                }
+                local registry_state = fake_registry({ installed_root })
+                local gov_state = ({}) :: any
+                local svc = hub.new({
+                    registry = registry_state,
+                    planner = {
+                        new = function()
+                            return planner.new({
+                                catalog = planner_catalog(),
+                                registry = registry_state,
+                            })
+                        end,
+                    },
+                    governance = fake_governance(gov_state),
+                    process = fake_process({}),
+                    uuid = fake_uuid(),
+                }) :: any
+
+                local out, install_err = svc:install({
+                    component = "acme/app",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(install_err)
+                test.not_nil(out)
+                test.eq(gov_state.publish_calls, 1)
+                test.eq(#gov_state.last_changeset, 1)
+                test.eq(gov_state.last_changeset[1].entry.id, "app.deps:app")
+                test.eq(#(gov_state.last_changeset[1].entry.data.parameters or {}), 0)
+                test.eq(#installed_root.data.parameters, 1)
+                test.eq(installed_root.data.parameters[1].name, "wippy.bootloader:env_storage")
+                test.eq(installed_root.data.parameters[1].value, "app.env:recorded")
             end)
 
             it("refuses planned bindings to missing contracts before publish", function()

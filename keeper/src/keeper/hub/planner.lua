@@ -698,7 +698,8 @@ function Planner:deployment_dependency_entries()
 end
 
 -- Precomputes the two per-node install-graph flags from live registry state:
---   installed_names: modules represented by module-owned registry entries
+--   installed_names: modules represented by an existing dependency binding
+--                    or module-owned registry entries
 --   shared_names: modules already reachable from an EXISTING deployment root
 --                 other than the one being installed, walking the same offline
 --                 installed edges the closure resolver uses. A node in this set
@@ -711,6 +712,12 @@ function Planner:install_graph_context(component)
     for _, row in ipairs(definitions or {}) do
         local name = trim(row.meta and row.meta.module)
         if name ~= "" then installed_names[name] = true end
+    end
+
+    local dependency_bindings = self:dependency_entries()
+    for _, dep in ipairs(dependency_bindings or {}) do
+        local installed_component = dependency_component(dep)
+        if installed_component ~= "" then installed_names[installed_component] = true end
     end
 
     local shared_names = {}
@@ -1773,7 +1780,14 @@ function Planner:plan_requirements(graph, supplied_parameters)
     local missing = {}
 
     for _, node in ipairs(graph or {}) do
-        for _, req in ipairs(node.requirements or {}) do
+        -- An installed module reached through another package is existing
+        -- application state, not a configuration target of this operation.
+        -- Its dependency entry already owns the concrete parameter binding;
+        -- evaluating the Hub artifact's requirements here would replace that
+        -- binding with a new guess and can block an unrelated install. A
+        -- direct install/update remains configurable and is planned normally.
+        if node.installed ~= true or node.direct == true then
+            for _, req in ipairs(node.requirements or {}) do
             local name = trim(req.name)
             if name ~= "" then
                 local requirement_namespace = trim(req.namespace)
@@ -1928,6 +1942,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 }
                 row.missing = row.required and (trim(value) == "" or row.invalid == true)
                 table.insert(out, row)
+            end
             end
         end
     end
