@@ -255,7 +255,7 @@ local function graph_planner(graph)
                     component = data.component,
                     version = data.version,
                     parameters = data.parameters or {},
-                    migration_policy = args.migration_policy or (args.run_migrations == true and "up" or "none"),
+                    migration_policy = planner.migration_policy_for(args),
                 },
             }, nil
         end,
@@ -282,7 +282,7 @@ local function no_requirements_planner()
                     component = data.component,
                     version = data.version,
                     parameters = data.parameters or {},
-                    migration_policy = args.migration_policy or (args.run_migrations == true and "up" or "none"),
+                    migration_policy = planner.migration_policy_for(args),
                 },
             }, nil
         end,
@@ -624,6 +624,19 @@ local function define_tests()
         after_all(function()
             local _, set_err = gov_consts.set_managed_namespaces(original_managed_namespaces)
             if set_err then error(set_err) end
+        end)
+
+        describe("install migration policy", function()
+            it("runs migrations by default so installed code never outruns its schema", function()
+                test.eq(planner.migration_policy_for({}), "up")
+                test.eq(planner.migration_policy_for({ run_migrations = true }), "up")
+            end)
+
+            it("honors an explicit policy and an explicit opt-out", function()
+                test.eq(planner.migration_policy_for({ migration_policy = "none" }), "none")
+                test.eq(planner.migration_policy_for({ migration_policy = "up", run_migrations = false }), "up")
+                test.eq(planner.migration_policy_for({ run_migrations = false }), "none")
+            end)
         end)
 
         describe("dependency closure resolver (installed edges)", function()
@@ -4749,11 +4762,14 @@ local function define_tests()
 
                 test.is_nil(err)
                 test.not_nil(out.execution)
-                test.eq(#out.execution, 2)
+                -- Migrations run by default: installed code never outruns its schema.
+                test.eq(#out.execution, 3)
                 test.eq(out.execution[1].step, "validation")
                 test.eq(out.execution[1].status, "ok")
                 test.eq(out.execution[2].step, "governance")
                 test.eq(out.execution[2].status, "ok")
+                test.eq(out.execution[3].step, "migrations")
+                test.eq(out.execution[3].status, "ok")
             end)
 
             it("returns an ordered ok ledger on a successful uninstall", function()
