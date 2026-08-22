@@ -1,5 +1,17 @@
 # Release Notes
 
+## keeper/keeper 0.5.74
+
+`keeper/keeper@0.5.74` runs migrations by default on install. `plan_install`
+used to default `migration_policy` to `none`, so a version that ships a new
+migration could land with its code running against a missing table until
+someone noticed the failing tasks. `planner.migration_policy_for` now answers
+`up` unless the caller names a policy or passes `run_migrations=false`.
+
+### Verification
+
+- `keeper.hub:test` passed.
+
 ## keeper/keeper 0.5.73
 
 `keeper/keeper@0.5.73` preserves installed dependency configuration when a
