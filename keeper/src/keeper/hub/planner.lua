@@ -1970,6 +1970,21 @@ function Planner:plan_requirements(graph, supplied_parameters)
     }, nil
 end
 
+-- The migration policy an install runs under when the caller names none.
+-- Installing a module version without its schema is never a valid state: a
+-- pending migration leaves the new code running against missing tables and
+-- every scheduled task of that module fails until someone notices. The
+-- default is therefore "up"; an explicit policy always wins, and
+-- run_migrations=false opts out as "none".
+function M.migration_policy_for(args)
+    args = args or {}
+    if type(args.migration_policy) == "string" and args.migration_policy ~= "" then
+        return args.migration_policy
+    end
+    if args.run_migrations == false then return "none" end
+    return "up"
+end
+
 function Planner:plan_install(args)
     args = args or {}
     local planned_args, dest_err = self:resolve_dependency_destination_args(args)
@@ -2003,14 +2018,14 @@ function Planner:plan_install(args)
         missing_requirements = req_plan.missing,
         parameter_values = req_plan.values,
         recommended_parameters = req_plan.parameters,
-        migration_policy = planned_args.migration_policy or (planned_args.run_migrations == true and "up" or "none"),
+        migration_policy = M.migration_policy_for(planned_args),
         install_payload = {
             id = entry.id,
             namespace = M.dependency_summary(entry).namespace,
             component = data.component,
             version = data.version,
             parameters = req_plan.parameters,
-            migration_policy = planned_args.migration_policy or (planned_args.run_migrations == true and "up" or "none"),
+            migration_policy = M.migration_policy_for(planned_args),
         },
     }, nil
 end
