@@ -2,6 +2,15 @@ version: "1.0"
 namespace: keeper.hub
 
 entries:
+  # keeper.hub:provenance
+  - name: provenance
+    kind: library.lua
+    meta:
+      comment: Registry-owned provenance index resolving which module owns each resident entry
+    source: file://provenance.lua
+    modules:
+      - registry
+
   # keeper.hub:planner
   - name: planner
     kind: library.lua
@@ -13,6 +22,7 @@ entries:
       - hub
     imports:
       gov_consts: keeper.gov:consts
+      provenance: keeper.hub:provenance
 
   # keeper.hub:service
   - name: service
@@ -32,6 +42,7 @@ entries:
       governance: keeper.state.publish:governance
       materialize: keeper.state.persist:materialize
       planner: keeper.hub:planner
+      provenance: keeper.hub:provenance
       sql_dialect: keeper.internal:sql_dialect
       step_runner: keeper.develop.integrate.pipeline:step_runner
 
@@ -72,6 +83,7 @@ entries:
       hub_migrations_tool: keeper.hub.tools:migrations
       hub_service: keeper.hub:service
       planner: keeper.hub:planner
+      provenance: keeper.hub:provenance
       security_scan: keeper.hub:security_scan
       test: wippy.test:test
     method: define_tests

