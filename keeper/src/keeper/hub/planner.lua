@@ -1,6 +1,7 @@
 local registry = require("registry")
 local hub_sdk = require("hub")
 local gov_consts = require("gov_consts")
+local provenance = require("provenance")
 
 type ServiceError = unknown
 type Parameter = { name: string, value: string }
@@ -660,8 +661,18 @@ function M.new(deps: PlannerDeps?)
         registry = deps.registry or registry,
         catalog = deps.catalog or hub_sdk,
         gov = deps.gov or gov_consts,
+        provenance = deps.provenance or provenance,
         version_cache = {},
     }, Planner) :: PlannerInstance
+end
+
+-- One provenance index per planner instance: ownership is resolved from
+-- registry-owned provenance, never from entry metadata.
+function Planner:provenance_index()
+    if not self.__provenance_index then
+        self.__provenance_index = self.provenance.new(self.registry)
+    end
+    return self.__provenance_index
 end
 
 function Planner:find_entries(criteria)
@@ -690,9 +701,14 @@ function Planner:deployment_dependency_entries()
     local rows, rows_err = self:dependency_entries()
     if not rows then return nil, rows_err end
     local out = {}
+    local index = self:provenance_index()
     for _, entry in ipairs(rows) do
         local ns = entry_namespace(entry.id)
-        if ns and namespace_is_managed_by(self.gov, ns) then table.insert(out, entry) end
+        local is_root, root_err = index:root_of(entry.id)
+        if root_err then return nil, err("INTERNAL", tostring(root_err)) end
+        if is_root and ns and namespace_is_managed_by(self.gov, ns) then
+            table.insert(out, entry)
+        end
     end
     return out, nil
 end
@@ -707,34 +723,32 @@ end
 function Planner:install_graph_context(component)
     local exclude = trim(component)
 
-    local installed_names = {}
-    local definitions = self:find_entries({ [".kind"] = "ns.definition" })
-    for _, row in ipairs(definitions or {}) do
-        local name = trim(row.meta and row.meta.module)
-        if name ~= "" then installed_names[name] = true end
-    end
+    local installed_names, installed_err = self:provenance_index():module_versions()
+    if not installed_names then return nil, err("INTERNAL", tostring(installed_err)) end
+    for name in pairs(installed_names) do installed_names[name] = true end
 
-    local dependency_bindings = self:dependency_entries()
-    for _, dep in ipairs(dependency_bindings or {}) do
+    local dependency_bindings, bindings_err = self:dependency_entries()
+    if not dependency_bindings then return nil, bindings_err end
+    for _, dep in ipairs(dependency_bindings) do
         local installed_component = dependency_component(dep)
         if installed_component ~= "" then installed_names[installed_component] = true end
     end
 
     local shared_names = {}
-    local deps = self:deployment_dependency_entries()
-    if deps then
-        local roots = {}
-        for _, dep in ipairs(deps) do
-            local comp = dependency_component(dep)
-            if comp ~= "" and comp ~= exclude then
-                table.insert(roots, comp)
-            end
+    local deps, deps_err = self:deployment_dependency_entries()
+    if not deps then return nil, deps_err end
+    local roots = {}
+    for _, dep in ipairs(deps) do
+        local comp = dependency_component(dep)
+        if comp ~= "" and comp ~= exclude then
+            table.insert(roots, comp)
         end
-        local keep = self:resolve_dependency_closure({ roots = roots })
-        if keep then shared_names = keep end
     end
+    local keep, _, closure_err = self:resolve_dependency_closure({ roots = roots })
+    if not keep then return nil, closure_err end
+    shared_names = keep
 
-    return { installed_names = installed_names, shared_names = shared_names }
+    return { installed_names = installed_names, shared_names = shared_names }, nil
 end
 
 function Planner:existing_dependency_for_component(component)
@@ -1262,7 +1276,8 @@ function Planner:resolve_install_graph(component, constraint, opts)
     local parsed, comp_err = M.parse_component(component)
     if not parsed then return nil, comp_err end
 
-    local ctx = self:install_graph_context(parsed.component)
+    local ctx, ctx_err = self:install_graph_context(parsed.component)
+    if not ctx then return nil, ctx_err end
     local installed_constraints, installed_constraints_err = self:installed_constraints(parsed.component)
     if not installed_constraints then return nil, installed_constraints_err end
     local max_depth = tonumber(opts.max_depth or M.DEFAULT_PLAN_MAX_DEPTH) or M.DEFAULT_PLAN_MAX_DEPTH
@@ -1441,19 +1456,19 @@ function Planner:resolve_install_graph(component, constraint, opts)
         { component = parsed.component, max_passes = max_passes })
 end
 
--- True when the module has any registry entry stamped with meta.module, i.e. it
--- is installed locally and its dependency edges live in the registry.
+-- True when registry provenance attributes any resident entry to the module,
+-- i.e. it is installed locally and its dependency edges live in the registry.
 function Planner:module_installed(component)
-    local rows, rows_err = self:find_entries({ ["meta.module"] = component })
-    if rows_err then return false, rows_err end
-    return rows ~= nil and #rows > 0, nil
+    local installed, installed_err = self:provenance_index():is_installed(component)
+    if installed_err then return false, err("INTERNAL", tostring(installed_err)) end
+    return installed == true, nil
 end
 
--- Child components of a locally installed module, read from its module-owned
--- ns.dependency entries (meta.module == component -> data.component).
+-- Child components of a locally installed module, read from the ns.dependency
+-- entries provenance attributes to it (owner == component -> data.component).
 function Planner:installed_child_components(component)
-    local rows, rows_err = self:find_entries({ ["meta.module"] = component, [".kind"] = "ns.dependency" })
-    if not rows then return nil, rows_err end
+    local rows, rows_err = self:provenance_index():entries_of_kind(component, "ns.dependency")
+    if not rows then return nil, err("INTERNAL", tostring(rows_err)) end
     local out = {}
     local seen = {}
     for _, row in ipairs(rows) do
@@ -1469,7 +1484,7 @@ end
 
 -- Computes the installed dependency closure of a set of deployment roots by
 -- walking local registry edges only (module-owned ns.dependency entries:
--- meta.module == component -> data.component). Resolution is fully offline: a
+-- provenance owner == component -> data.component). Resolution is fully offline: a
 -- ref with no local installation is treated as a leaf and contributes only its
 -- own name. Uninstall must never re-resolve against the Hub, because brownfield
 -- apps carry roots whose modules are unpublished or never installed (e.g. a
@@ -1483,7 +1498,7 @@ end
 --
 -- Soundness contract: this offline closure is correct because governance install
 -- writes each module's complete edge set atomically -- a module's ns.definition
--- and every module-owned ns.dependency row (meta.module == it) land in ONE
+-- and every module-owned ns.dependency row (provenance owner == it) land in ONE
 -- all-or-nothing governance changeset. So an installed module always exposes its
 -- FULL edge set here; a partial edge set (some edges present, one missing) implies
 -- registry corruption, which is out of scope. Where such corruption manifests as
@@ -1572,17 +1587,21 @@ function Planner:installed_constraints(exclude_component)
 
     local rows, rows_err = self:dependency_entries()
     if not rows then return nil, rows_err end
+    local index = self:provenance_index()
     local out = {}
     for _, entry in ipairs(rows) do
         local component = dependency_component(entry)
         local constraint = trim(entry.data and entry.data.version)
-        local owner = trim(entry.meta and entry.meta.module)
+        local owner, _, owner_err = index:owner_of(entry.id)
+        if owner_err then return nil, err("INTERNAL", tostring(owner_err)) end
+        local is_root, root_err = index:root_of(entry.id)
+        if root_err then return nil, err("INTERNAL", tostring(root_err)) end
         if component ~= "" and constraint ~= "" then
             if owner ~= "" then
                 if reachable[owner] == true then
                     table.insert(out, { component = component, constraint = constraint, required_by = owner, owner = owner })
                 end
-            elseif component ~= exclude_component then
+            elseif is_root and component ~= exclude_component then
                 table.insert(out, { component = component, constraint = constraint, required_by = "root", entry_id = tostring(entry.id) })
             end
         end

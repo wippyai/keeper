@@ -10,6 +10,7 @@ local planner = require("planner")
 local governance = require("governance")
 local gov_consts = require("gov_consts")
 local step_runner = require("step_runner")
+local provenance = require("provenance")
 
 local M = {}
 
@@ -25,6 +26,7 @@ type ServiceDeps = {
     process: unknown?,
     system: unknown?,
     planner: unknown?,
+    provenance: unknown?,
     governance: unknown?,
     gov_consts: unknown?,
 }
@@ -38,6 +40,7 @@ type HubService = {
     process: unknown,
     system: unknown,
     planner: unknown,
+    provenance: unknown,
     governance: unknown,
     gov_consts: unknown,
     list_dependencies: (HubService, unknown) -> (unknown, unknown?),
@@ -345,13 +348,15 @@ function M.entry_to_set_patch(entry)
     }, nil
 end
 
-local function entry_summary(entry)
+-- Ownership (module, module_version) is supplied by the caller from registry
+-- provenance; the entry itself carries only its own descriptive metadata.
+local function entry_summary(entry, owner_module, owner_version)
     return {
         id = entry.id,
         kind = entry.kind,
         type = entry.meta and entry.meta.type or nil,
-        module = entry.meta and entry.meta.module or nil,
-        module_version = entry.meta and entry.meta.module_version or nil,
+        module = owner_module ~= "" and owner_module or nil,
+        module_version = owner_version ~= "" and owner_version or nil,
         title = entry.meta and entry.meta.title or nil,
         comment = entry.meta and entry.meta.comment or nil,
     }
@@ -382,6 +387,7 @@ function M.new(deps: ServiceDeps?)
         process = deps.process or process,
         system = deps.system or system,
         planner = deps.planner or planner,
+        provenance = deps.provenance or provenance,
         governance = deps.governance or governance,
         gov_consts = deps.gov_consts or gov_consts,
     }, Service) :: HubService
@@ -420,6 +426,15 @@ function Service:emit_operation(actor_id, event, operation_id, data)
     return self:emit_user_event(actor_id, event, data)
 end
 
+-- One provenance index per service instance: a single registry scan answers
+-- every ownership question for the request that built it.
+function Service:provenance_index()
+    if not self.__provenance_index then
+        self.__provenance_index = self.provenance.new(self.registry)
+    end
+    return self.__provenance_index
+end
+
 function Service:find_entries(criteria)
     local rows, find_err = self.registry.find(criteria or {})
     if find_err then
@@ -455,11 +470,13 @@ function Service:dependency_entries()
     local rows, rows_err = self:find_entries({ [".kind"] = "ns.dependency" })
     if not rows then return nil, rows_err end
     local deploy_deps = {}
+    local index = self:provenance_index()
     for _, entry in ipairs(rows) do
-        -- Deployment roots live in namespaces explicitly managed by the
-        -- consuming application. Package dependency edges remain outside that
-        -- boundary even if pack provenance metadata is present on both shapes.
-        if is_managed_dependency_root(self.gov_consts, entry) then
+        -- Provenance is the root authority. Managed namespaces remain the
+        -- governance boundary for entries Keeper is allowed to operate on.
+        local is_root, root_err = index:root_of(entry.id)
+        if root_err then return nil, err("INTERNAL", tostring(root_err)) end
+        if is_root and is_managed_dependency_root(self.gov_consts, entry) then
             table.insert(deploy_deps, entry)
         end
     end
@@ -478,6 +495,11 @@ function Service:find_dependency(args)
         end
         if not is_managed_dependency_root(self.gov_consts, entry) then
             return nil, err("BAD_REQUEST", "entry is outside the governance-managed dependency namespaces: " .. entry.id)
+        end
+        local is_root, root_err = self:provenance_index():root_of(entry.id)
+        if root_err then return nil, err("INTERNAL", tostring(root_err)) end
+        if not is_root then
+            return nil, err("BAD_REQUEST", "entry is not a deployment dependency root: " .. entry.id)
         end
         return entry, nil
     end
@@ -506,14 +528,9 @@ function Service:find_dependency(args)
 end
 
 function Service:module_entries(component)
-    local rows, rows_err = self:find_entries({ ["meta.module"] = component })
-    if not rows then return nil, rows_err end
-    -- Sort a copy: registry.find may return a backing slice shared with later
-    -- readers, so never reorder it in place.
-    local out = {}
-    for _, entry in ipairs(rows) do table.insert(out, entry) end
-    table.sort(out, function(a, b) return tostring(a.id) < tostring(b.id) end)
-    return out, nil
+    local rows, rows_err = self:provenance_index():entries_for(component)
+    if not rows then return nil, err("INTERNAL", tostring(rows_err)) end
+    return rows, nil
 end
 
 function Service:migration_status(entry)
@@ -557,17 +574,21 @@ function Service:migration_rows(args)
     elseif args.component and trim(args.component) ~= "" then
         local parsed, comp_err = M.parse_component(args.component)
         if not parsed then return nil, comp_err end
-        local rows, rows_err = self:find_entries({
-            ["meta.module"] = parsed.component,
-            ["meta.type"] = "migration",
-        })
+        local rows, rows_err = self:module_entries(parsed.component)
         if not rows then return nil, rows_err end
-        entries = rows
+        for _, entry in ipairs(rows) do
+            if entry.meta and entry.meta.type == "migration" then
+                table.insert(entries, entry)
+            end
+        end
     else
         local rows, rows_err = self:find_entries({ ["meta.type"] = "migration" })
         if not rows then return nil, rows_err end
+        local index = self:provenance_index()
         for _, entry in ipairs(rows) do
-            if entry.meta and entry.meta.module then
+            local owner, _, owner_err = index:owner_of(entry.id)
+            if owner_err then return nil, err("INTERNAL", tostring(owner_err)) end
+            if owner ~= "" then
                 table.insert(entries, entry)
             end
         end
@@ -581,13 +602,16 @@ function Service:migration_rows(args)
     end)
 
     local out = {}
+    local index = self:provenance_index()
     for _, entry in ipairs(entries) do
         local status, status_err = self:migration_status(entry)
+        local owner, owner_version, owner_err = index:owner_of(entry.id)
+        if owner_err then return nil, err("INTERNAL", tostring(owner_err)) end
         table.insert(out, {
             id = entry.id,
             target_db = entry.meta and entry.meta.target_db or nil,
-            module = entry.meta and entry.meta.module or nil,
-            module_version = entry.meta and entry.meta.module_version or nil,
+            module = owner ~= "" and owner or nil,
+            module_version = owner_version ~= "" and owner_version or nil,
             timestamp = entry.meta and entry.meta.timestamp or nil,
             status = status,
             status_error = status_err,
@@ -603,17 +627,9 @@ end
 -- root is reused, not exclusive. Both membership and resolved versions come
 -- from committed registry state; the application lock is a build-time artifact.
 function Service:installed_module_inventory(deps)
-    local module_versions = {}
-    local rows = self.registry.find({})
-    for _, row in ipairs(rows or {}) do
-        local meta = row.meta or {}
-        local name = trim(meta.module)
-        if name ~= "" then
-            local version = trim(meta.module_version)
-            if version ~= "" or module_versions[name] == nil then
-                module_versions[name] = version
-            end
-        end
+    local module_versions, versions_err = self:provenance_index():module_versions()
+    if not module_versions then
+        return nil, nil, err("INTERNAL", tostring(versions_err))
     end
 
     local by_name = {}
@@ -678,7 +694,7 @@ function Service:installed_module_inventory(deps)
         m.__seen = nil
         table.insert(modules, m)
     end
-    return modules, by_name
+    return modules, by_name, nil
 end
 
 function Service:list_dependencies(args)
@@ -702,15 +718,17 @@ function Service:list_dependencies(args)
             if summary.component and summary.component ~= "" then
                 local module_entries, module_err = self:module_entries(summary.component)
                 if not module_entries then return nil, module_err end
+                local owner_version, version_err = self:provenance_index():version_of(summary.component)
+                if not owner_version then return nil, err("INTERNAL", tostring(version_err)) end
                 for _, entry in ipairs(module_entries) do
-                    table.insert(entries, entry_summary(entry))
+                    table.insert(entries, entry_summary(entry, summary.component, owner_version))
                     if entry.meta and entry.meta.type == "migration" then
                         local status, status_err = self:migration_status(entry)
                         table.insert(migrations, {
                             id = entry.id,
                             target_db = entry.meta.target_db,
-                            module = entry.meta.module,
-                            module_version = entry.meta.module_version,
+                            module = summary.component,
+                            module_version = owner_version ~= "" and owner_version or nil,
                             timestamp = entry.meta.timestamp,
                             status = status,
                             status_error = status_err,
@@ -731,7 +749,8 @@ function Service:list_dependencies(args)
     -- Skipped only when the caller opted out with modules=false.
     local modules = {}
     if args.include_modules ~= false then
-        local inventory, by_name = self:installed_module_inventory(deps)
+        local inventory, by_name, inventory_err = self:installed_module_inventory(deps)
+        if not inventory or not by_name then return nil, inventory_err end
         modules = inventory
         for _, summary in ipairs(out) do
             local m = by_name[summary.component]
@@ -1411,7 +1430,8 @@ function Service:plan_uninstall(args)
 
     local all_deps, all_err = self:dependency_entries()
     if not all_deps then return nil, all_err end
-    local _, inventory_by_name = self:installed_module_inventory(all_deps)
+    local _, inventory_by_name, inventory_err = self:installed_module_inventory(all_deps)
+    if not inventory_by_name then return nil, inventory_err end
     local target_inventory = inventory_by_name and inventory_by_name[summary.component]
     local required_by = {}
     for _, root in ipairs(target_inventory and target_inventory.used_by or {}) do
@@ -1442,15 +1462,17 @@ function Service:plan_uninstall(args)
     local entries = {}
     local migrations = {}
     local applied = {}
+    local owner_version, version_err = self:provenance_index():version_of(summary.component)
+    if not owner_version then return nil, err("INTERNAL", tostring(version_err)) end
     for _, entry in ipairs(module_entries) do
-        table.insert(entries, entry_summary(entry))
+        table.insert(entries, entry_summary(entry, summary.component, owner_version))
         if entry.meta and entry.meta.type == "migration" then
             local status, status_err = self:migration_status(entry)
             local row = {
                 id = entry.id,
                 target_db = entry.meta.target_db,
-                module = entry.meta.module,
-                module_version = entry.meta.module_version,
+                module = summary.component,
+                module_version = owner_version ~= "" and owner_version or nil,
                 timestamp = entry.meta.timestamp,
                 status = status,
                 status_error = status_err,
@@ -1495,7 +1517,8 @@ function Service:build_uninstall_preview(plan)
     local target = trim(plan.target_module)
 
     local deps = self:dependency_entries() or {}
-    local _, inventory = self:installed_module_inventory(deps)
+    local _, inventory, inventory_err = self:installed_module_inventory(deps)
+    if not inventory then return nil, inventory_err end
     local function project(names)
         local out = {}
         table.sort(names)
