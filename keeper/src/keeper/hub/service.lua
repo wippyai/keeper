@@ -10,7 +10,7 @@ local planner = require("planner")
 local governance = require("governance")
 local gov_consts = require("gov_consts")
 local step_runner = require("step_runner")
-local provenance = require("provenance")
+local ownership = require("ownership")
 
 local M = {}
 
@@ -26,7 +26,7 @@ type ServiceDeps = {
     process: unknown?,
     system: unknown?,
     planner: unknown?,
-    provenance: unknown?,
+    ownership: unknown?,
     governance: unknown?,
     gov_consts: unknown?,
 }
@@ -40,7 +40,7 @@ type HubService = {
     process: unknown,
     system: unknown,
     planner: unknown,
-    provenance: unknown,
+    ownership: unknown,
     governance: unknown,
     gov_consts: unknown,
     list_dependencies: (HubService, unknown) -> (unknown, unknown?),
@@ -349,7 +349,7 @@ function M.entry_to_set_patch(entry)
 end
 
 -- Ownership (module, module_version) is supplied by the caller from registry
--- provenance; the entry itself carries only its own descriptive metadata.
+-- registry ownership; the entry itself carries only descriptive metadata.
 local function entry_summary(entry, owner_module, owner_version)
     return {
         id = entry.id,
@@ -387,7 +387,7 @@ function M.new(deps: ServiceDeps?)
         process = deps.process or process,
         system = deps.system or system,
         planner = deps.planner or planner,
-        provenance = deps.provenance or provenance,
+        ownership = deps.ownership or ownership,
         governance = deps.governance or governance,
         gov_consts = deps.gov_consts or gov_consts,
     }, Service) :: HubService
@@ -426,13 +426,13 @@ function Service:emit_operation(actor_id, event, operation_id, data)
     return self:emit_user_event(actor_id, event, data)
 end
 
--- One provenance index per service instance: a single registry scan answers
+-- One ownership index per service instance: a single registry scan answers
 -- every ownership question for the request that built it.
-function Service:provenance_index()
-    if not self.__provenance_index then
-        self.__provenance_index = self.provenance.new(self.registry)
+function Service:ownership_index()
+    if not self.__ownership_index then
+        self.__ownership_index = self.ownership.new(self.registry)
     end
-    return self.__provenance_index
+    return self.__ownership_index
 end
 
 function Service:find_entries(criteria)
@@ -470,9 +470,9 @@ function Service:dependency_entries()
     local rows, rows_err = self:find_entries({ [".kind"] = "ns.dependency" })
     if not rows then return nil, rows_err end
     local deploy_deps = {}
-    local index = self:provenance_index()
+    local index = self:ownership_index()
     for _, entry in ipairs(rows) do
-        -- Provenance is the root authority. Managed namespaces remain the
+        -- Registry ownership is the root authority. Managed namespaces remain the
         -- governance boundary for entries Keeper is allowed to operate on.
         local is_root, root_err = index:root_of(entry.id)
         if root_err then return nil, err("INTERNAL", tostring(root_err)) end
@@ -496,7 +496,7 @@ function Service:find_dependency(args)
         if not is_managed_dependency_root(self.gov_consts, entry) then
             return nil, err("BAD_REQUEST", "entry is outside the governance-managed dependency namespaces: " .. entry.id)
         end
-        local is_root, root_err = self:provenance_index():root_of(entry.id)
+        local is_root, root_err = self:ownership_index():root_of(entry.id)
         if root_err then return nil, err("INTERNAL", tostring(root_err)) end
         if not is_root then
             return nil, err("BAD_REQUEST", "entry is not a deployment dependency root: " .. entry.id)
@@ -528,7 +528,7 @@ function Service:find_dependency(args)
 end
 
 function Service:module_entries(component)
-    local rows, rows_err = self:provenance_index():entries_for(component)
+    local rows, rows_err = self:ownership_index():entries_for(component)
     if not rows then return nil, err("INTERNAL", tostring(rows_err)) end
     return rows, nil
 end
@@ -584,7 +584,7 @@ function Service:migration_rows(args)
     else
         local rows, rows_err = self:find_entries({ ["meta.type"] = "migration" })
         if not rows then return nil, rows_err end
-        local index = self:provenance_index()
+        local index = self:ownership_index()
         for _, entry in ipairs(rows) do
             local owner, _, owner_err = index:owner_of(entry.id)
             if owner_err then return nil, err("INTERNAL", tostring(owner_err)) end
@@ -602,7 +602,7 @@ function Service:migration_rows(args)
     end)
 
     local out = {}
-    local index = self:provenance_index()
+    local index = self:ownership_index()
     for _, entry in ipairs(entries) do
         local status, status_err = self:migration_status(entry)
         local owner, owner_version, owner_err = index:owner_of(entry.id)
@@ -622,12 +622,12 @@ end
 
 -- Builds the full installed-module inventory (roots plus every transitive
 -- reached through installed edges). Each entry carries roots-vs-transitive
--- provenance and used_by: the deployment roots whose dependency closure includes
+-- ownership and used_by: the deployment roots whose dependency closure includes
 -- the module. used_by is the shared indicator -- a module needed by more than one
 -- root is reused, not exclusive. Both membership and resolved versions come
 -- from committed registry state; the application lock is a build-time artifact.
 function Service:installed_module_inventory(deps)
-    local module_versions, versions_err = self:provenance_index():module_versions()
+    local module_versions, versions_err = self:ownership_index():module_versions()
     if not module_versions then
         return nil, nil, err("INTERNAL", tostring(versions_err))
     end
@@ -718,7 +718,7 @@ function Service:list_dependencies(args)
             if summary.component and summary.component ~= "" then
                 local module_entries, module_err = self:module_entries(summary.component)
                 if not module_entries then return nil, module_err end
-                local owner_version, version_err = self:provenance_index():version_of(summary.component)
+                local owner_version, version_err = self:ownership_index():version_of(summary.component)
                 if not owner_version then return nil, err("INTERNAL", tostring(version_err)) end
                 for _, entry in ipairs(module_entries) do
                     table.insert(entries, entry_summary(entry, summary.component, owner_version))
@@ -1689,7 +1689,7 @@ function Service:plan_uninstall(args)
     local entries = {}
     local migrations = {}
     local applied = {}
-    local owner_version, version_err = self:provenance_index():version_of(summary.component)
+    local owner_version, version_err = self:ownership_index():version_of(summary.component)
     if not owner_version then return nil, err("INTERNAL", tostring(version_err)) end
     for _, entry in ipairs(module_entries) do
         table.insert(entries, entry_summary(entry, summary.component, owner_version))

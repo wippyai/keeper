@@ -1,7 +1,7 @@
 local registry = require("registry")
 local hub_sdk = require("hub")
 local gov_consts = require("gov_consts")
-local provenance = require("provenance")
+local ownership = require("ownership")
 
 type ServiceError = unknown
 type Parameter = { name: string, value: string }
@@ -77,11 +77,13 @@ type PlannerDeps = {
     registry: unknown?,
     catalog: unknown?,
     gov: unknown?,
+    ownership: unknown?,
 }
 type PlannerInstance = {
     registry: unknown,
     catalog: unknown,
     gov: unknown,
+    ownership: unknown,
     version_cache: {[string]: {VersionItem}},
     plan_install: (PlannerInstance, unknown) -> (unknown, unknown?),
 }
@@ -661,18 +663,18 @@ function M.new(deps: PlannerDeps?)
         registry = deps.registry or registry,
         catalog = deps.catalog or hub_sdk,
         gov = deps.gov or gov_consts,
-        provenance = deps.provenance or provenance,
+        ownership = deps.ownership or ownership,
         version_cache = {},
     }, Planner) :: PlannerInstance
 end
 
--- One provenance index per planner instance: ownership is resolved from
--- registry-owned provenance, never from entry metadata.
-function Planner:provenance_index()
-    if not self.__provenance_index then
-        self.__provenance_index = self.provenance.new(self.registry)
+-- One ownership index per planner instance: ownership is resolved from
+-- registry-owned metadata, never from entry metadata.
+function Planner:ownership_index()
+    if not self.__ownership_index then
+        self.__ownership_index = self.ownership.new(self.registry)
     end
-    return self.__provenance_index
+    return self.__ownership_index
 end
 
 function Planner:find_entries(criteria)
@@ -701,7 +703,7 @@ function Planner:deployment_dependency_entries()
     local rows, rows_err = self:dependency_entries()
     if not rows then return nil, rows_err end
     local out = {}
-    local index = self:provenance_index()
+    local index = self:ownership_index()
     for _, entry in ipairs(rows) do
         local ns = entry_namespace(entry.id)
         local is_root, root_err = index:root_of(entry.id)
@@ -723,7 +725,7 @@ end
 function Planner:install_graph_context(component)
     local exclude = trim(component)
 
-    local installed_names, installed_err = self:provenance_index():module_versions()
+    local installed_names, installed_err = self:ownership_index():module_versions()
     if not installed_names then return nil, err("INTERNAL", tostring(installed_err)) end
     for name in pairs(installed_names) do installed_names[name] = true end
 
@@ -1456,18 +1458,18 @@ function Planner:resolve_install_graph(component, constraint, opts)
         { component = parsed.component, max_passes = max_passes })
 end
 
--- True when registry provenance attributes any resident entry to the module,
+-- True when registry ownership attributes any resident entry to the module,
 -- i.e. it is installed locally and its dependency edges live in the registry.
 function Planner:module_installed(component)
-    local installed, installed_err = self:provenance_index():is_installed(component)
+    local installed, installed_err = self:ownership_index():is_installed(component)
     if installed_err then return false, err("INTERNAL", tostring(installed_err)) end
     return installed == true, nil
 end
 
 -- Child components of a locally installed module, read from the ns.dependency
--- entries provenance attributes to it (owner == component -> data.component).
+-- entries ownership attributes to it (owner == component -> data.component).
 function Planner:installed_child_components(component)
-    local rows, rows_err = self:provenance_index():entries_of_kind(component, "ns.dependency")
+    local rows, rows_err = self:ownership_index():entries_of_kind(component, "ns.dependency")
     if not rows then return nil, err("INTERNAL", tostring(rows_err)) end
     local out = {}
     local seen = {}
@@ -1484,7 +1486,7 @@ end
 
 -- Computes the installed dependency closure of a set of deployment roots by
 -- walking local registry edges only (module-owned ns.dependency entries:
--- provenance owner == component -> data.component). Resolution is fully offline: a
+-- registry owner == component -> data.component). Resolution is fully offline: a
 -- ref with no local installation is treated as a leaf and contributes only its
 -- own name. Uninstall must never re-resolve against the Hub, because brownfield
 -- apps carry roots whose modules are unpublished or never installed (e.g. a
@@ -1498,7 +1500,7 @@ end
 --
 -- Soundness contract: this offline closure is correct because governance install
 -- writes each module's complete edge set atomically -- a module's ns.definition
--- and every module-owned ns.dependency row (provenance owner == it) land in ONE
+-- and every module-owned ns.dependency row (ownership owner == it) land in ONE
 -- all-or-nothing governance changeset. So an installed module always exposes its
 -- FULL edge set here; a partial edge set (some edges present, one missing) implies
 -- registry corruption, which is out of scope. Where such corruption manifests as
@@ -1587,7 +1589,7 @@ function Planner:installed_constraints(exclude_component)
 
     local rows, rows_err = self:dependency_entries()
     if not rows then return nil, rows_err end
-    local index = self:provenance_index()
+    local index = self:ownership_index()
     local out = {}
     for _, entry in ipairs(rows) do
         local component = dependency_component(entry)

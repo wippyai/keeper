@@ -86,7 +86,7 @@ for suite in "${SUITES[@]}"; do
     echo "=================================================================="
     # The runner exits nonzero on failing suites; the capture must not abort
     # the script under set -e/pipefail before the output is echoed.
-    out="$(cd "$TEST_DIR" && "$WIPPY" run test "$suite" 2>&1 | strip_ansi)" || true
+    out="$(cd "$TEST_DIR" && "$WIPPY" test test "$suite" 2>&1 | strip_ansi)" || true
     echo "$out"
 
     # The runner ends with an uppercase banner line ("  PASSED ..." / "  FAILED
