@@ -325,7 +325,23 @@ entries:
                     before, "app.deps", {}, { legacy = true }, {})
 
                 test.is_true(changed)
-                test.is_true(after:find("app.deps:legacy", 1, true) == nil)
+                test.is_nil(after)
+            end)
+
+            it("removes an index when its final entry is deleted", function()
+                local before = [[version: "1.0"
+namespace: app.deps
+entries:
+  # app.deps:knowledge
+  - name: knowledge
+    kind: ns.dependency
+    component: kickside/knowledge]]
+
+                local after, changed = sync.patch_index_content(
+                    before, "app.deps", {}, { knowledge = true }, {})
+
+                test.is_nil(after)
+                test.is_true(changed)
             end)
 
             it("updates one canonical version-first block and collapses touched duplicates", function()
