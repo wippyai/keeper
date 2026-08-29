@@ -1,5 +1,18 @@
 # Release Notes
 
+## keeper/keeper 0.5.76
+
+`keeper/keeper@0.5.76` updates several dependency roots in one governance
+changeset. This lets interdependent modules cross a contract boundary without
+publishing an invalid intermediate registry; the singular install request is
+unchanged.
+
+### Verification
+
+- Atomic multi-root publish, contract-boundary, duplicate-root, and singular
+  install tests passed.
+- Keeper lint checked 384 entries with zero errors.
+
 ## keeper/keeper 0.5.74
 
 `keeper/keeper@0.5.74` runs migrations by default on install. `plan_install`
