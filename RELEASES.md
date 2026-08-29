@@ -1,5 +1,17 @@
 # Release Notes
 
+## keeper/keeper 0.5.78
+
+`keeper/keeper@0.5.78` removes a managed namespace index when its final entry
+is deleted. Dynamic module uninstall no longer leaves an invalid empty
+`_index.yaml` that prevents the application from restarting.
+
+### Verification
+
+- Keeper Hub tests passed 126/126.
+- Filesystem-sync tests passed 45/45, including final-entry deletion.
+- Keeper lint checked 350 entries with zero errors.
+
 ## keeper/keeper 0.5.77
 
 `keeper/keeper@0.5.77` reads installed-module ownership from the registry's
