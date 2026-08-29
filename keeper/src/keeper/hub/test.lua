@@ -1,7 +1,7 @@
 local test = require("test")
 local hub = require("hub_service")
 local planner = require("planner")
-local provenance = require("provenance")
+local ownership = require("ownership")
 local security_scan = require("security_scan")
 local hub_dependencies_tool = require("hub_dependencies_tool")
 local hub_migrations_tool = require("hub_migrations_tool")
@@ -33,11 +33,10 @@ local function fake_managed_governance(namespaces)
     }
 end
 
--- Fixture entries declare ownership in a `provenance` field, mirroring
--- registry-owned provenance. They deliberately carry no meta.module: the runtime
--- stopped stamping it, and a `meta.module` query raises here so no consumer can
--- silently fall back to the old model.
-local function fake_registry(entries)
+-- Fixture ownership is kept outside author metadata. The snapshot defaults to
+-- the current per-entry registry shape; map selects the released atomic shape
+-- used during a rolling Runtime update.
+local function fake_registry(entries, state_shape)
     local by_id = {}
     for _, entry in ipairs(entries or {}) do by_id[entry.id] = entry end
 
@@ -50,10 +49,6 @@ local function fake_registry(entries)
             digest = p.digest or "",
             root = p.root == true,
         }
-    end
-
-    local function provenance_of(id)
-        return entry_provenance(by_id[id])
     end
 
     local function matches(entry, criteria)
@@ -83,24 +78,45 @@ local function fake_registry(entries)
         get = function(id)
             return by_id[id], nil
         end,
-        -- One consistent capture: entries and their provenance are taken
-        -- together, exactly as registry.snapshot() serves them.
+        -- One consistent capture, exactly as registry.snapshot() serves it.
         snapshot = function()
             local captured = {}
             local captured_provenance = {}
+            local versions = {}
             for _, entry in ipairs(entries or {}) do
-                table.insert(captured, entry)
-                captured_provenance[entry.id] = entry_provenance(entry)
+                local record = entry_provenance(entry)
+                local row = {
+                    id = entry.id,
+                    kind = entry.kind,
+                    meta = entry.meta,
+                    data = entry.data,
+                }
+                if state_shape == "map" then
+                    captured_provenance[entry.id] = record
+                else
+                    row.registry = { owner = record.module, root = record.root }
+                end
+                if record.module ~= "" and record.version ~= "" then
+                    versions[record.module] = record.version
+                end
+                table.insert(captured, row)
             end
+            local modules = {}
+            for name, version in pairs(versions) do
+                table.insert(modules, { name = name, version = version })
+            end
+            table.sort(modules, function(a, b) return a.name < b.name end)
             return {
                 entries = function() return captured, nil end,
                 get = function(_, id) return by_id[id], nil end,
                 version = function() return "test-version" end,
                 state = function()
-                    return {
+                    local state = {
                         entries = captured,
-                        provenance = captured_provenance,
-                    }, nil
+                        resolution = { modules = modules },
+                    }
+                    if state_shape == "map" then state.provenance = captured_provenance end
+                    return state, nil
                 end,
             }, nil
         end,
@@ -878,7 +894,7 @@ local function define_tests()
                     return snap, snap_err
                 end
 
-                local first = provenance.new(reg) :: any
+                local first = ownership.new(reg) :: any
                 local first_modules, first_err = first:module_versions()
                 test.is_nil(first_err)
                 test.eq(first_modules["wippy/first"], "1.0.0")
@@ -892,7 +908,7 @@ local function define_tests()
                 for _, entry in ipairs(installed_module("wippy/second", {}, "2.0.0")) do
                     table.insert(entries, entry)
                 end
-                local next_operation = provenance.new(reg) :: any
+                local next_operation = ownership.new(reg) :: any
                 local next_modules, next_err = next_operation:module_versions()
                 test.is_nil(next_err)
                 test.eq(next_modules["wippy/first"], "1.0.0")
@@ -900,15 +916,27 @@ local function define_tests()
                 test.eq(state_reads, 2)
             end)
 
-            it("fails closed when atomic provenance state is unavailable or incomplete", function()
-                local unavailable = provenance.new({
+            it("reads the released atomic ownership-map shape during rollout", function()
+                local index = ownership.new(fake_registry(
+                    installed_module("wippy/mapped", {}, "1.2.3"),
+                    "map"
+                )) :: any
+
+                local modules, modules_err = index:module_versions()
+
+                test.is_nil(modules_err)
+                test.eq(modules["wippy/mapped"], "1.2.3")
+            end)
+
+            it("fails closed when atomic ownership state is unavailable or incomplete", function()
+                local unavailable = ownership.new({
                     snapshot = function() return { entries = function() return {}, nil end }, nil end,
                 }) :: any
                 local unavailable_modules, unavailable_err = unavailable:module_versions()
                 test.is_nil(unavailable_modules)
-                test.contains(tostring(unavailable_err), "does not serve atomic provenance state")
+                test.contains(tostring(unavailable_err), "does not serve atomic ownership state")
 
-                local incomplete = provenance.new({
+                local incomplete = ownership.new({
                     snapshot = function()
                         return {
                             state = function()
@@ -922,7 +950,7 @@ local function define_tests()
                 }) :: any
                 local incomplete_modules, incomplete_err = incomplete:module_versions()
                 test.is_nil(incomplete_modules)
-                test.contains(tostring(incomplete_err), "has no provenance for app:unowned")
+                test.contains(tostring(incomplete_err), "has no ownership for app:unowned")
             end)
 
             it("lists dependency entries with module entry and migration status", function()

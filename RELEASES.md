@@ -1,5 +1,17 @@
 # Release Notes
 
+## keeper/keeper 0.5.77
+
+`keeper/keeper@0.5.77` reads installed-module ownership from the registry's
+atomic snapshot without relying on author metadata. It supports both the
+released provenance-map snapshot and the current per-entry registry metadata
+during the Runtime rollout.
+
+### Verification
+
+- Keeper Hub tests passed 126/126 on both the released and current Runtime.
+- Keeper lint checked 384 entries with zero errors.
+
 ## keeper/keeper 0.5.76
 
 `keeper/keeper@0.5.76` updates several dependency roots in one governance
