@@ -860,16 +860,51 @@ function Service:publish_dependency_changeset(args)
         return nil, err("INTERNAL", "governance.publish unavailable")
     end
 
-    local changeset
+    local changeset = {}
     local entry_ids = {}
     if args.action == "install" then
-        if type(args.entry) ~= "table" then
-            return nil, err("BAD_REQUEST", "install dependency entry is required")
+        local entries = args.entries
+        if entries == nil then
+            if type(args.entry) ~= "table" then
+                return nil, err("BAD_REQUEST", "install dependency entry is required")
+            end
+            entries = { args.entry }
+        elseif not is_array(entries) or #entries == 0 then
+            return nil, err("BAD_REQUEST", "install dependency entries must be a non-empty array")
         end
-        local op, op_err = self:dependency_create_or_update_op(args.entry)
-        if not op then return nil, op_err end
-        changeset = { op }
-        entry_ids = { args.entry.id }
+
+        local seen_components = {}
+        local seen_ids = {}
+        for _, entry in ipairs(entries) do
+            if type(entry) ~= "table" then
+                return nil, err("BAD_REQUEST", "install dependency entries must contain objects")
+            end
+            local component = trim(entry.data and entry.data.component)
+            local id = trim(entry.id)
+            if component ~= "" and seen_components[component] then
+                return nil, err("CONFLICT", "duplicate dependency component: " .. component, {
+                    component = component,
+                    first_entry_id = seen_components[component],
+                    entry_id = id,
+                })
+            end
+            if id ~= "" and seen_ids[id] then
+                return nil, err("CONFLICT", "duplicate dependency id: " .. id, {
+                    id = id,
+                    first_entry_id = seen_ids[id],
+                    entry_id = id,
+                })
+            end
+            if component ~= "" then seen_components[component] = id end
+            if id ~= "" then seen_ids[id] = id end
+        end
+
+        for _, entry in ipairs(entries) do
+            local op, op_err = self:dependency_create_or_update_op(entry)
+            if not op then return nil, op_err end
+            table.insert(changeset, op)
+            table.insert(entry_ids, entry.id)
+        end
     elseif args.action == "uninstall" then
         local id = trim(args.id)
         if id == "" then return nil, err("BAD_REQUEST", "uninstall dependency id is required") end
@@ -907,6 +942,205 @@ function Service:publish_dependency_changeset(args)
         entry_ids = entry_ids,
         changeset_count = #changeset,
     }, nil
+end
+
+local function batch_item_error(index, service_err)
+    local summary = error_summary(service_err)
+    local details = type(summary) == "table" and summary or {}
+    details.item = index
+    local code = details.code or "BAD_REQUEST"
+    local message = details.message or tostring(service_err)
+    return err(code, "dependencies[" .. tostring(index) .. "]: " .. message, details)
+end
+
+function Service:prepare_install(args)
+    local plan, plan_err = self:plan_install(args)
+    if not plan then return nil, plan_err end
+    local graph_ok, graph_err = validate_resolved_graph(plan.graph)
+    if not graph_ok then return nil, graph_err end
+    if #(plan.missing_requirements or {}) > 0 then
+        return nil, err("REQUIREMENTS_MISSING", "Hub dependency requires explicit configuration", {
+            dependency = plan.dependency,
+            requirements = plan.requirements,
+            missing_requirements_by_id = string_set(plan.missing_requirements),
+            missing_requirements_count = #(plan.missing_requirements or {}),
+        })
+    end
+
+    local planned = shallow_copy(args)
+    local install_payload = plan.install_payload or {}
+    planned.id = install_payload.id or planned.id
+    planned.component = install_payload.component or planned.component
+    planned.version = install_payload.version or planned.version
+    planned.parameters = install_payload.parameters or planned.parameters
+    planned.migration_policy = install_payload.migration_policy or planned.migration_policy
+
+    local entry, entry_err = M.build_dependency_entry(planned)
+    if not entry then return nil, entry_err end
+    local patch, patch_err = M.entry_to_set_patch(entry)
+    if not patch then return nil, patch_err end
+    return {
+        args = planned,
+        plan = plan,
+        entry = entry,
+        patch = patch,
+        policy = planned.migration_policy,
+    }, nil
+end
+
+function Service:install_batch(args, opts)
+    local dependencies = args.dependencies
+    if not is_array(dependencies) or #dependencies == 0 then
+        return nil, err("BAD_REQUEST", "dependencies must be a non-empty array")
+    end
+
+    local prepared = {}
+    local seen_components = {}
+    local seen_ids = {}
+    local planned_entries = {}
+    for index, item in ipairs(dependencies) do
+        if type(item) ~= "table" then
+            return nil, err("BAD_REQUEST", "dependencies[" .. tostring(index) .. "] must be an object", {
+                item = index,
+            })
+        end
+        local item_args = shallow_copy(item)
+        if item_args.migration_policy == nil and args.migration_policy ~= nil then
+            item_args.migration_policy = args.migration_policy
+        end
+        if item_args.run_migrations == nil and args.run_migrations ~= nil then
+            item_args.run_migrations = args.run_migrations
+        end
+        local item_prepared, item_err = self:prepare_install(item_args)
+        if not item_prepared then return nil, batch_item_error(index, item_err) end
+
+        local component = tostring(item_prepared.entry.data.component)
+        if seen_components[component] then
+            return nil, err("CONFLICT", "dependencies[" .. tostring(index) .. "] duplicates component " .. component, {
+                item = index,
+                component = component,
+                first_item = seen_components[component],
+            })
+        end
+        seen_components[component] = index
+
+        local id = tostring(item_prepared.entry.id)
+        if seen_ids[id] then
+            return nil, err("CONFLICT", "dependencies[" .. tostring(index) .. "] duplicates dependency id " .. id, {
+                item = index,
+                id = id,
+                first_item = seen_ids[id],
+            })
+        end
+        seen_ids[id] = index
+
+        table.insert(prepared, item_prepared)
+        for _, entry in ipairs(item_prepared.plan.planned_entries or item_prepared.plan.entries or {}) do
+            table.insert(planned_entries, entry)
+        end
+    end
+
+    local changeset = {}
+    for index, item in ipairs(prepared) do
+        local op, op_err = self:dependency_create_or_update_op(item.entry)
+        if not op then return nil, batch_item_error(index, op_err) end
+        table.insert(changeset, op)
+    end
+
+    local payload = {
+        dependencies = {},
+        patches = {},
+        plans = {},
+        migration_policy = {},
+    }
+    local entries = {}
+    local migration_components = {}
+    for _, item in ipairs(prepared) do
+        table.insert(payload.dependencies, M.dependency_summary(item.entry))
+        table.insert(payload.patches, item.patch)
+        table.insert(payload.plans, item.plan)
+        table.insert(payload.migration_policy, item.policy)
+        table.insert(entries, item.entry)
+        if item.policy == "up" then table.insert(migration_components, item.entry.data.component) end
+    end
+
+    if args.dry_run == true then
+        payload.dry_run = true
+        return payload, nil
+    end
+
+    local baseline_version, version_err = self:current_registry_version()
+    if not baseline_version then return nil, version_err end
+    payload.baseline_version = baseline_version
+
+    local operation_id = self:new_operation_id()
+    payload.operation_id = operation_id
+    self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_STARTED, operation_id, {
+        dependencies = payload.dependencies,
+        migration_policy = payload.migration_policy,
+    })
+
+    local steps = {
+        {
+            op = "pre_apply_validate", label = "validation",
+            data = { changeset = changeset, planned_entries = planned_entries },
+        },
+        {
+            op = "governance_apply", label = "governance",
+            data = {
+                action = "install",
+                entries = entries,
+                message = "hub install " .. tostring(#entries) .. " dependencies",
+                baseline_version = baseline_version,
+            },
+        },
+    }
+    if #migration_components > 0 then
+        table.insert(steps, {
+            op = "migrations_up", label = "migrations",
+            data = { components = migration_components },
+        })
+    end
+
+    local ledger = step_runner.run(steps, { execute = self:install_step_dispatch(opts) })
+    if not ledger.success then
+        return self:install_failure(ledger, payload, {
+            operation_id = operation_id,
+            baseline_version = baseline_version,
+        }, opts)
+    end
+
+    local apply_result, migration_result
+    for _, row in ipairs(ledger.execution.handlers) do
+        if row.op == "governance_apply" then apply_result = row.result
+        elseif row.op == "migrations_up" then migration_result = row.result end
+    end
+    payload.apply = apply_result
+    payload.migrations = migration_result
+    payload.execution = self:project_ledger(ledger, nil)
+    self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FINISHED, operation_id, {
+        dependencies = payload.dependencies,
+        apply = apply_result,
+        migrations = migration_result,
+        execution = payload.execution,
+    })
+    return payload, nil
+end
+
+function Service:run_migrations_for_components(components, opts)
+    local entry_ids = {}
+    local seen = {}
+    for _, component in ipairs(components or {}) do
+        local rows, rows_err = self:migration_rows({ component = component })
+        if not rows then return nil, rows_err end
+        for _, row in ipairs(rows) do
+            if row.status ~= "applied" and not seen[row.id] then
+                seen[row.id] = true
+                table.insert(entry_ids, row.id)
+            end
+        end
+    end
+    return self:run_migrations({ entry_ids = entry_ids, operation = "up" }, opts)
 end
 
 local function entry_data(entry)
@@ -1182,6 +1416,7 @@ function Service:install_step_dispatch(opts)
             local apply_result, apply_err = svc:publish_dependency_changeset({
                 action = step.data.action,
                 entry = step.data.entry,
+                entries = step.data.entries,
                 actor_id = opts.actor_id,
                 message = step.data.message,
             })
@@ -1192,14 +1427,22 @@ function Service:install_step_dispatch(opts)
                 op = op, label = step.label, result = apply_result,
                 inverse = { op = "restore_registry_version", data = {
                     version = step.data.baseline_version,
-                    reason = "hub install rollback for " .. tostring(step.data.entry.data.component),
+                    reason = "hub install rollback for " .. tostring(
+                        step.data.entry and step.data.entry.data.component or
+                        (#(step.data.entries or {}) .. " dependencies")),
                 } },
             }
         elseif op == "migrations_up" then
-            local migration_result, migration_err = svc:run_migrations({
-                component = step.data.component,
-                operation = "up",
-            }, opts)
+            local migration_result, migration_err
+            if type(step.data.components) == "table" then
+                migration_result, migration_err = svc:run_migrations_for_components(
+                    step.data.components, opts)
+            else
+                migration_result, migration_err = svc:run_migrations({
+                    component = step.data.component,
+                    operation = "up",
+                }, opts)
+            end
             if not migration_result then
                 return { op = op, label = step.label, error = migration_err }
             end
@@ -1233,32 +1476,16 @@ function Service:install(args, opts)
     args = args or {}
     opts = opts or {}
 
-    local plan, plan_err = self:plan_install(args)
-    if not plan then return nil, plan_err end
-    local graph_ok, graph_err = validate_resolved_graph(plan.graph)
-    if not graph_ok then return nil, graph_err end
-    if #(plan.missing_requirements or {}) > 0 then
-        return nil, err("REQUIREMENTS_MISSING", "Hub dependency requires explicit configuration", {
-            dependency = plan.dependency,
-            requirements = plan.requirements,
-            missing_requirements_by_id = string_set(plan.missing_requirements),
-            missing_requirements_count = #(plan.missing_requirements or {}),
-        })
+    if args.dependencies ~= nil then
+        return self:install_batch(args, opts)
     end
 
-    local planned = shallow_copy(args)
-    local install_payload = plan.install_payload or {}
-    planned.id = install_payload.id or planned.id
-    planned.component = install_payload.component or planned.component
-    planned.version = install_payload.version or planned.version
-    planned.parameters = install_payload.parameters or planned.parameters
-    planned.migration_policy = install_payload.migration_policy or planned.migration_policy
-
-    local entry, entry_err = M.build_dependency_entry(planned)
-    if not entry then return nil, entry_err end
-
-    local patch, patch_err = M.entry_to_set_patch(entry)
-    if not patch then return nil, patch_err end
+    local prepared, prepare_err = self:prepare_install(args)
+    if not prepared then return nil, prepare_err end
+    local plan = prepared.plan
+    local planned = prepared.args
+    local entry = prepared.entry
+    local patch = prepared.patch
 
     local planned_changeset_op, planned_changeset_err = self:dependency_create_or_update_op(entry)
     if not planned_changeset_op then return nil, planned_changeset_err end

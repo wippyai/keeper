@@ -4439,6 +4439,141 @@ local function define_tests()
             end)
         end)
 
+        describe("atomic dependency-root install", function()
+            local function batch_planner()
+                return {
+                    plan_install = function(args)
+                        local entry, build_err = hub.build_dependency_entry(args)
+                        if not entry then return nil, build_err end
+                        local component = entry.data.component
+                        local planned_entries = {}
+                        if component == "acme/consumer" then
+                            table.insert(planned_entries, {
+                                id = "acme.consumer:binding",
+                                kind = "contract.binding",
+                                data = { contract = "acme.provider:contract" },
+                            })
+                        elseif component == "acme/provider" then
+                            table.insert(planned_entries, {
+                                id = "acme.provider:contract",
+                                kind = "contract.definition",
+                                data = {},
+                            })
+                        end
+                        return {
+                            dependency = hub.dependency_summary(entry),
+                            graph = {},
+                            missing_requirements = {},
+                            requirements = {},
+                            planned_entries = planned_entries,
+                            install_payload = {
+                                id = entry.id,
+                                component = component,
+                                version = entry.data.version,
+                                parameters = {},
+                                migration_policy = planner.migration_policy_for(args),
+                            },
+                        }, nil
+                    end,
+                }
+            end
+
+            it("publishes two root updates in one governance changeset", function()
+                local entries = {
+                    root_dep("app.deps:consumer", "acme/consumer"),
+                    root_dep("app.deps:provider", "acme/provider"),
+                }
+                local governance_state = ({ current_version = 19 }) :: any
+                local svc = hub.new({
+                    registry = fake_registry(entries),
+                    planner = batch_planner(),
+                    governance = fake_governance(governance_state),
+                    uuid = fake_uuid(),
+                }) :: any
+
+                local out, install_err = svc:install({
+                    migration_policy = "none",
+                    dependencies = {
+                        { id = "app.deps:consumer", component = "acme/consumer", version = "v2.0.0" },
+                        { id = "app.deps:provider", component = "acme/provider", version = "v2.0.0" },
+                    },
+                })
+
+                test.is_nil(install_err)
+                test.not_nil(out)
+                test.eq(governance_state.publish_calls, 1)
+                test.eq(#governance_state.last_changeset, 2)
+                test.eq(governance_state.last_changeset[1].kind, "entry.update")
+                test.eq(governance_state.last_changeset[2].kind, "entry.update")
+                test.eq(out.apply.changeset_count, 2)
+                test.eq(#out.dependencies, 2)
+            end)
+
+            it("validates a contract boundary supplied by another root atomically", function()
+                local governance_state = ({}) :: any
+                local svc = hub.new({
+                    registry = fake_registry({}),
+                    planner = batch_planner(),
+                    governance = fake_governance(governance_state),
+                }) :: any
+
+                local out, install_err = svc:install({
+                    dependencies = {
+                        { component = "acme/consumer", version = "v2.0.0" },
+                        { component = "acme/provider", version = "v2.0.0" },
+                    },
+                })
+
+                test.is_nil(install_err)
+                test.not_nil(out)
+                test.eq(governance_state.publish_calls, 1)
+                test.eq(#governance_state.last_changeset, 2)
+            end)
+
+            it("rejects duplicate components before governance publish", function()
+                local governance_state = ({}) :: any
+                local svc = hub.new({
+                    registry = fake_registry({}),
+                    planner = no_requirements_planner(),
+                    governance = fake_governance(governance_state),
+                }) :: any
+
+                local out, install_err = svc:install({
+                    dependencies = {
+                        { id = "app.deps:first", component = "acme/shared", version = "v1.0.0" },
+                        { id = "app.deps:second", component = "acme/shared", version = "v2.0.0" },
+                    },
+                })
+
+                test.is_nil(out)
+                test.not_nil(install_err)
+                test.eq(err_code(install_err), "CONFLICT")
+                test.contains(err_message(install_err), "duplicates component acme/shared")
+                test.eq(governance_state.publish_calls or 0, 0)
+            end)
+
+            it("keeps the singular install contract unchanged", function()
+                local governance_state = ({}) :: any
+                local svc = hub.new({
+                    registry = fake_registry({}),
+                    planner = no_requirements_planner(),
+                    governance = fake_governance(governance_state),
+                }) :: any
+
+                local out, install_err = svc:install({
+                    component = "acme/single",
+                    version = "v1.0.0",
+                })
+
+                test.is_nil(install_err)
+                test.not_nil(out)
+                test.not_nil(out.dependency)
+                test.is_nil(out.dependencies)
+                test.eq(governance_state.publish_calls, 1)
+                test.eq(#governance_state.last_changeset, 1)
+            end)
+        end)
+
         describe("user hub events", function()
             it("targets only the active user's relay hub", function()
                 local sent = {}
