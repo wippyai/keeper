@@ -355,6 +355,18 @@ function M.patch_index_content(existing, namespace, replacements, deletes, guard
         end
     end
 
+    -- A namespace document without an entry block is not a valid Wippy source.
+    -- Returning nil tells the filesystem writer to remove the index instead of
+    -- persisting an unbootable `entries:` document.
+    local has_entries = false
+    for _, line in ipairs(out) do
+        if line:match("^  %- ") then
+            has_entries = true
+            break
+        end
+    end
+    if not has_entries then return nil, true end
+
     local patched = table.concat(out, "\n")
     return patched, patched ~= existing
 end
@@ -554,10 +566,18 @@ local function write_changeset_entries_to_fs(entries, changeset, ops_by_id, crea
         if patch_err then
             return nil, "Failed to patch index for " .. ns .. ": " .. tostring(patch_err)
         end
-        if changed and patched then
-            ensure_directory(fs, base_dir, ns)
-            fs:write_file(index_filepath, patched)
-            stats.index_files = stats.index_files + 1
+        if changed then
+            if patched then
+                ensure_directory(fs, base_dir, ns)
+                fs:write_file(index_filepath, patched)
+                stats.index_files = stats.index_files + 1
+            elseif existing then
+                local removed, remove_err = fs:remove(index_filepath)
+                if not removed then
+                    return nil, "Failed to remove empty index for " .. ns .. ": " .. tostring(remove_err)
+                end
+                stats.index_files_removed = (stats.index_files_removed or 0) + 1
+            end
         end
     end
 
