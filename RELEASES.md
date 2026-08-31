@@ -1,5 +1,16 @@
 # Release Notes
 
+## keeper/keeper 0.5.79
+
+`keeper/keeper@0.5.79` reports the `_index.yaml` files a filesystem sync
+rewrites. `sync_to_fs` now surfaces the managed namespace index writes it makes
+alongside the entry-source writes, so a caller sees the full set of files a sync
+touched instead of only the sources.
+
+### Verification
+
+- Keeper filesystem-sync tests passed, including the new index-write reporting.
+
 ## keeper/keeper 0.5.78
 
 `keeper/keeper@0.5.78` removes a managed namespace index when its final entry
