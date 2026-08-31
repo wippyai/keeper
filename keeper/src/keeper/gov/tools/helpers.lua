@@ -65,6 +65,7 @@ function M.run_sync(opts, input)
         version       = result.version,
         stats         = result.stats,
         details       = result.details,
+        file_ops      = result.file_ops,
         journaled     = diff_rows,
         journal_error = diff_error,
     }

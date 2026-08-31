@@ -42,6 +42,16 @@ local function define_tests()
                 test.eq(out, "created=0 updated=0")
             end)
 
+            it("carries the index file count into the summary line", function()
+                local out = helpers.format_stats({ files = 0, index_files = 22 })
+                test.is_true(out:find("index_files=22", 1, true) ~= nil)
+            end)
+
+            it("keeps an index file count of zero in the summary line", function()
+                local out = helpers.format_stats({ files = 0, index_files = 0 })
+                test.is_true(out:find("index_files=0", 1, true) ~= nil)
+            end)
+
             it("includes sync unmanaged skip counters", function()
                 local out = helpers.format_stats({
                     skipped_unmanaged_source = 2,
@@ -108,6 +118,39 @@ local function define_tests()
                 test.is_true(diff_called)
                 test.is_true(out.summary:find("Up completed") ~= nil)
                 test.is_true(out.summary:find("created=1") ~= nil)
+            end)
+
+            it("forwards the file operations the sync reported", function()
+                local out = helpers.run_sync({
+                    tool_name = "sync_test",
+                    direction = "Down",
+                    gov_fn = function()
+                        return {
+                            message   = "ok",
+                            stats     = { files = 0, index_files = 2 },
+                            file_ops  = {
+                                { path = "./app/mail/_index.yaml", op = "update" },
+                                { path = "./xepozz/smtp/_index.yaml", op = "update" },
+                            },
+                        }
+                    end,
+                    diff_fn = function() return { ok = true, rows_written = 2 } end,
+                }, {})
+                test.not_nil(out.file_ops)
+                test.eq(#out.file_ops, 2)
+                test.eq(out.file_ops[1].path, "./app/mail/_index.yaml")
+                test.eq(out.file_ops[1].op, "update")
+                test.is_true(out.summary:find("index_files=2", 1, true) ~= nil)
+            end)
+
+            it("leaves file operations absent when the sync reported none", function()
+                local out = helpers.run_sync({
+                    tool_name = "sync_test",
+                    direction = "Up",
+                    gov_fn = function() return { message = "ok", stats = {} } end,
+                    diff_fn = function() return { ok = true, rows_written = 0 } end,
+                }, {})
+                test.is_nil(out.file_ops)
             end)
 
             it("captures diff_fn error without failing sync", function()
