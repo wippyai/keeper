@@ -1,5 +1,18 @@
 # Release Notes
 
+## keeper/keeper 0.5.80
+
+`keeper/keeper@0.5.80` makes `MCP_ENABLED=false` close the MCP transport. The
+endpoint handlers read `keeper.mcp:enabled` and `PUBLIC_API_URL` through the
+env registry, but their policy set granted no `env.get`, so the read was denied
+and the transport fell back to its enabled default. The new
+`keeper.mcp.security:endpoint_env_read` policy grants exactly those two reads.
+
+### Verification
+
+- `keeper.mcp:test` gains a policy check that evaluates the endpoint scope
+  against `env.get` on both variables.
+
 ## keeper/keeper 0.5.79
 
 `keeper/keeper@0.5.79` reports the `_index.yaml` files a filesystem sync
