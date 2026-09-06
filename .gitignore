@@ -1,6 +1,7 @@
 # Local runtime state
 .wippy/
 .wippy.yaml
+!keeper/test/.wippy.yaml
 .env
 .env.*
 *.sqlite
