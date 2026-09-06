@@ -1,6 +1,9 @@
 local test = require("test")
 local json = require("json")
+local sql = require("sql")
+local uuid = require("uuid")
 local repo = require("repo")
+local config = require("keeper_config")
 
 local function define_tests()
     describe("Flow repo pure helpers", function()
@@ -93,6 +96,82 @@ local function define_tests()
                 local chain = repo.ancestors(nodes, "ghost")
                 test.eq(#chain, 0)
             end)
+        end)
+    end)
+
+    describe("Flow repo reference rows", function()
+        local dataflow_id, node_id, answer_id = uuid.v7(), uuid.v7(), uuid.v7()
+
+        local function must_db()
+            local db, err = sql.get(config.app_db())
+            if err then error("db: " .. tostring(err)) end
+            if not db then error("db unavailable") end
+            return db
+        end
+
+        local function must_exec(db, statement, params)
+            local _, err = db:execute(statement, params)
+            if err then error(statement .. ": " .. tostring(err)) end
+        end
+
+        local prepared = false
+        local created = false
+
+        local function prepare()
+            if prepared then return end
+            created = true
+
+            local now = os.time()
+            local db = must_db()
+            must_exec(db,
+                "INSERT INTO dataflows (dataflow_id, actor_id, type, status, created_at, updated_at) " ..
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                { dataflow_id, "keeper.test", "test_workflow", "completed", now, now }
+            )
+            must_exec(db,
+                "INSERT INTO dataflow_nodes (node_id, dataflow_id, type, status, created_at, updated_at) " ..
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                { node_id, dataflow_id, "userspace.dataflow.node.agent:node", "completed", now, now }
+            )
+            must_exec(db,
+                "INSERT INTO dataflow_data " ..
+                "(data_id, dataflow_id, node_id, type, key, content, content_type, created_at) " ..
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                { answer_id, dataflow_id, node_id, "agent.delegation", "delegation_result_1",
+                  "the delegate's answer", "text/plain", now }
+            )
+            must_exec(db,
+                "INSERT INTO dataflow_data " ..
+                "(data_id, dataflow_id, node_id, type, key, content, content_type, created_at) " ..
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                { uuid.v7(), dataflow_id, node_id, "agent.observation", answer_id, "",
+                  "dataflow/reference", now }
+            )
+            db:release()
+            prepared = true
+        end
+
+        after_all(function()
+            if not created then return end
+            local db = must_db()
+            db:execute("DELETE FROM dataflow_data WHERE dataflow_id = ?", { dataflow_id })
+            db:execute("DELETE FROM dataflow_nodes WHERE dataflow_id = ?", { dataflow_id })
+            db:execute("DELETE FROM dataflows WHERE dataflow_id = ?", { dataflow_id })
+            db:release()
+        end)
+
+        it("node_data resolves a delegation observation to the child's content", function()
+            prepare()
+            local rows = repo.node_data(dataflow_id, node_id, { types = { "agent.observation" } })
+            test.eq(#rows, 1)
+            test.eq(rows[1].content, "the delegate's answer")
+        end)
+
+        it("flow_data resolves a delegation observation to the child's content", function()
+            prepare()
+            local rows = repo.flow_data(dataflow_id, { types = { "agent.observation" } })
+            test.eq(#rows, 1)
+            test.eq(rows[1].content, "the delegate's answer")
         end)
     end)
 end

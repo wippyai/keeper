@@ -57,7 +57,7 @@ type NodeReader = {
 type DataReader = {
     with_nodes: (DataReader, string) -> DataReader,
     with_data_types: (DataReader, string[]) -> DataReader,
-    fetch_options: (DataReader, {content: boolean, metadata: boolean}) -> DataReader,
+    fetch_options: (DataReader, {content: boolean, metadata: boolean, replace_references: boolean?}) -> DataReader,
     all: (DataReader) -> ({[integer]: DataRow}?, string?),
 }
 
@@ -200,7 +200,7 @@ function M.node_data(dataflow_id: unknown, node_id: unknown, opts: DataReadOptio
     local r = data_reader.with_dataflow(dataflow_id) :: DataReader
     r = r:with_nodes(node_id)
     if opts.types then r = r:with_data_types(opts.types) end
-    r = r:fetch_options({ content = opts.content ~= false, metadata = true })
+    r = r:fetch_options({ content = opts.content ~= false, metadata = true, replace_references = true })
     return r:all()
 end
 
@@ -212,7 +212,7 @@ function M.flow_data(dataflow_id: unknown, opts: DataReadOptions?)
     opts = opts or {}
     local r = data_reader.with_dataflow(dataflow_id) :: DataReader
     if opts.types then r = r:with_data_types(opts.types) end
-    r = r:fetch_options({ content = opts.content ~= false, metadata = true })
+    r = r:fetch_options({ content = opts.content ~= false, metadata = true, replace_references = true })
     return r:all()
 end
 
