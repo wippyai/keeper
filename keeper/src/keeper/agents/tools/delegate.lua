@@ -188,11 +188,14 @@ local function do_handler(raw_args)
 
     local result, run_err = f:run()
     if run_err then return nil, run_err end
-    return {
-        detached = false,
-        agent_id = args.agent_id,
-        result = result,
-    }
+
+    local out = { detached = false, agent_id = args.agent_id }
+    if type(result) == "table" and result._control ~= nil then
+        out._control = result._control
+    else
+        out.result = result
+    end
+    return out
 end
 
 function M.handler(args)
