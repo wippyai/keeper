@@ -819,6 +819,56 @@ local function define_tests()
             end)
         end)
 
+        describe("typed host options", function()
+            it("preserves boolean and numeric options through both public normalizers", function()
+                for _, normalize in ipairs({ hub.normalize_parameters, planner.normalize_parameters }) do
+                    local values, err = normalize({ enabled = false, interval = 300, label = "unchanged" })
+                    test.is_nil(err)
+                    test.eq(find_parameter(values, "enabled").value, false)
+                    test.eq(find_parameter(values, "interval").value, 300)
+                    test.eq(find_parameter(values, "label").value, "unchanged")
+                end
+            end)
+
+            it("keeps an omitted enable option false and typed in the install payload", function()
+                local pl = planner.new({ registry = fake_registry({}) }) :: any
+                local graph = {{ module = "acme/options", namespace = "acme.options", version = "1.0.0",
+                    direct = true, depth = 0, requirements = {{ name = "enabled", default = false,
+                        targets = {{ entry = "acme.options:service", path = ".lifecycle.auto_start" }} }} }}
+                local result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(result.values["acme.options:enabled"], false)
+                test.eq(find_parameter(result.parameters, "acme.options:enabled").value, false)
+                test.eq(#result.missing, 0)
+            end)
+
+            it("preserves explicit enable and disable instead of stringifying or losing false", function()
+                local pl = planner.new({ registry = fake_registry({}) }) :: any
+                local graph = {{ module = "acme/options", namespace = "acme.options", version = "1.0.0",
+                    direct = true, depth = 0, requirements = {{ name = "enabled", default = true }} }}
+                for _, value in ipairs({ true, false }) do
+                    local result, err = pl:plan_requirements(graph, {{ name = "acme.options:enabled", value = value }})
+                    test.is_nil(err)
+                    test.eq(result.values["acme.options:enabled"], value)
+                    test.eq(find_parameter(result.parameters, "acme.options:enabled").value, value)
+                end
+            end)
+
+            it("retains a previously recorded false option when another install supplies none", function()
+                local pl = planner.new({ registry = fake_registry({}) }) :: any
+                pl.existing_parameter_values = function()
+                    return {{ name = "acme.options:enabled", value = false,
+                        dependency_id = "app:options", component = "acme/options" }}
+                end
+                local graph = {{ module = "acme/options", namespace = "acme.options", version = "1.0.0",
+                    direct = true, depth = 0, requirements = {{ name = "enabled", default = true }} }}
+                local result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(result.values["acme.options:enabled"], false)
+                test.eq(find_parameter(result.parameters, "acme.options:enabled").value, false)
+            end)
+        end)
+
         describe("dependency entry shape", function()
             it("stores dependency fields under data, not top-level", function()
                 local entry, err = hub.build_dependency_entry({
@@ -835,7 +885,7 @@ local function define_tests()
                 test.eq(entry.data.component, "wippy/dataflow")
                 test.eq(entry.data.version, ">=v0.4.9")
                 test.eq(entry.data.parameters[1].name, "enabled")
-                test.eq(entry.data.parameters[1].value, "false")
+                test.eq(entry.data.parameters[1].value, false)
                 test.eq(entry.data.parameters[2].name, "target_db")
             end)
 
@@ -4667,6 +4717,8 @@ local function define_tests()
                                     version = entry.data.version,
                                     parameters = {
                                         { name = "wippy.dummy:router", value = "app:api.public" },
+                                        { name = "wippy.dummy:enabled", value = false },
+                                        { name = "wippy.dummy:interval", value = 300 },
                                     },
                                     migration_policy = "none",
                                 },
@@ -4690,6 +4742,8 @@ local function define_tests()
                 local params = gov_state.last_changeset[1].entry.data.parameters
                 test.eq(params[1].name, "wippy.dummy:router")
                 test.eq(params[1].value, "app:api.public")
+                test.eq(params[2].value, false)
+                test.eq(params[3].value, 300)
             end)
 
             it("publishes only the new root when an installed dependency already owns its parameters", function()

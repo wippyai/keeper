@@ -4,12 +4,12 @@ local gov_consts = require("gov_consts")
 local ownership = require("ownership")
 
 type ServiceError = unknown
-type Parameter = { name: string, value: string }
+type Parameter = { name: string, value: any }
 type RequirementTarget = { entry?: string, path?: string }
 type HubRequirement = {
     name?: string,
     description?: string,
-    default?: string,
+    default?: any,
     required?: boolean,
     meta?: {[string]: unknown},
     targets?: { RequirementTarget },
@@ -382,6 +382,12 @@ local function default_dependency_namespace_for(gov): string
     return (roots[1] or "app") .. ".deps"
 end
 
+-- Scalar dependency options must retain their JSON types (especially false).
+local function parameter_value(value)
+    if type(value) == "boolean" or type(value) == "number" then return value end
+    return tostring(value or "")
+end
+
 function M.normalize_parameters(input): ({ Parameter }?, unknown?)
     if input == nil then return {}, nil end
     if type(input) ~= "table" then
@@ -401,7 +407,7 @@ function M.normalize_parameters(input): ({ Parameter }?, unknown?)
         end
         seen[name] = true
         if value == nil then value = "" end
-        table.insert(out, { name = name, value = tostring(value) })
+        table.insert(out, { name = name, value = parameter_value(value) })
         return nil
     end
 
@@ -1662,7 +1668,7 @@ function Planner:existing_parameter_values()
             if name ~= "" then
                 table.insert(out, {
                     name = name,
-                    value = tostring(param.value or ""),
+                    value = parameter_value(param.value),
                     dependency_id = tostring(dep.id),
                     component = data.component,
                 })
@@ -1679,10 +1685,10 @@ function Planner:plan_requirements(graph, supplied_parameters)
         for _, param in ipairs(supplied_parameters) do
             local param_name = trim(param.name)
             if param_name == full_id then
-                return tostring(param.value or ""), "provided"
+                return parameter_value(param.value), "provided"
             end
             if direct and param_name == name then
-                return tostring(param.value or ""), "provided_bare"
+                return parameter_value(param.value), "provided_bare"
             end
         end
         return nil, nil
@@ -1695,7 +1701,8 @@ function Planner:plan_requirements(graph, supplied_parameters)
         local out = {}
         local seen = {}
         for _, param in ipairs(existing or {}) do
-            local value = trim(param.value)
+            local value = parameter_value(param.value)
+            if type(value) == "string" then value = trim(value) end
             if value ~= "" and param.name == name and (component == nil or param.component == component) and not seen[value] then
                 seen[value] = true
                 table.insert(out, {
@@ -1783,7 +1790,8 @@ function Planner:plan_requirements(graph, supplied_parameters)
     end
 
     local function add_suggestion(suggestions, seen, value, label, source, dependency_id, kind, description)
-        value = trim(value)
+        value = parameter_value(value)
+        if type(value) == "string" then value = trim(value) end
         if value == "" or seen[value] then return end
         seen[value] = true
         table.insert(suggestions, {
@@ -1830,9 +1838,9 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 end
 
                 local function compatible_value(v)
-                    v = trim(v)
-                    if v == "" then return false end
+                    if v == nil or v == "" then return false end
                     if not expected_kind then return true end
+                    v = trim(v)
                     return registry_candidate_set[v] == true
                 end
 
@@ -1843,7 +1851,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                             suggestions,
                             suggestion_seen,
                             match.value,
-                            match.value .. " from " .. tostring(match.dependency_id),
+                            tostring(match.value) .. " from " .. tostring(match.dependency_id),
                             "existing",
                             match.dependency_id,
                             expected_kind
@@ -1862,7 +1870,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                             suggestions,
                             suggestion_seen,
                             match.value,
-                            match.value .. " from " .. tostring(match.dependency_id),
+                            tostring(match.value) .. " from " .. tostring(match.dependency_id),
                             "existing_bare",
                             match.dependency_id,
                             expected_kind
@@ -1870,11 +1878,12 @@ function Planner:plan_requirements(graph, supplied_parameters)
                     end
                 end
 
-                local default_value = trim(req.default)
+                local default_value = parameter_value(req.default)
+                if type(default_value) == "string" then default_value = trim(default_value) end
                 local default_compatible = compatible_value(default_value)
                 local invalid_value = false
                 local invalid_reason = nil
-                if value ~= nil and trim(value) ~= "" and not compatible_value(value) then
+                if value ~= nil and value ~= "" and not compatible_value(value) then
                     invalid_value = true
                     invalid_reason = "value must reference an existing " .. tostring(expected_kind)
                     source = tostring(source or "provided") .. "_invalid"
@@ -1884,7 +1893,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                         suggestions,
                         suggestion_seen,
                         default_value,
-                        "package default: " .. default_value,
+                        "package default: " .. tostring(default_value),
                         "default",
                         nil,
                         expected_kind
@@ -1936,7 +1945,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                         source = "conflict"
                     end
                 end
-                value = value or ""
+                if value == nil then value = "" end
                 values[full_id] = value
 
                 local row = {
@@ -1961,7 +1970,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                     suggestions = suggestions,
                     transitive = node.depth > 0,
                 }
-                row.missing = row.required and (trim(value) == "" or row.invalid == true)
+                row.missing = row.required and (value == "" or row.invalid == true)
                 table.insert(out, row)
             end
             end
@@ -1977,7 +1986,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
     local parameters = {}
     for _, row in ipairs(out) do
         if row.missing then table.insert(missing, row.parameter_name) end
-        if row.transitive ~= true and trim(row.value) ~= "" and row.invalid ~= true then
+        if row.transitive ~= true and row.value ~= "" and row.invalid ~= true then
             table.insert(parameters, { name = row.parameter_name, value = row.value })
         end
     end
