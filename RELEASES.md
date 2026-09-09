@@ -1,5 +1,40 @@
 # Release Notes
 
+## keeper/keeper 0.5.82
+
+`keeper/keeper@0.5.82` runs the migrations of a module the Hub installs. The
+hub service caches one registry-ownership snapshot per request; install
+planning captured it before the governance publish added the module's entries,
+and the `migrations_up` step discovered migrations from that same stale
+snapshot, so every fresh install reported the step ok with zero migrations and
+left them pending (onboarding bundles then failed at first use, for example
+`create_store: no such table: kb10_stores`). The service now drops the cached
+index whenever it commits a registry mutation (dependency publish, version
+restore), so post-apply reads capture the committed state.
+
+This release also lands the two hotfixes previously published straight from
+their branches: 0.5.80 (MCP enabled switch) and 0.5.81 (typed host options).
+
+### Verification
+
+- `keeper.hub:test` gains `runs the migrations of the module the governance
+  apply installs`: the governance publish is what adds the module and its
+  migration entry, and the install result must carry that migration in
+  `entry_ids` with the handler invoked. Keeper Hub tests pass 127/127.
+
+## keeper/keeper 0.5.81
+
+`keeper/keeper@0.5.81` preserves typed host options through Hub install
+planning. Scalar dependency parameters keep their JSON types, so `false`
+defaults survive instead of collapsing to strings, and the dataflow overview
+uses portable aggregate filters that also run on Postgres.
+
+### Verification
+
+- `keeper.hub:test` covers typed option preservation and false defaults.
+- `keeper.internal.flow:repo_test` covers the overview aggregate on both
+  SQL dialects.
+
 ## keeper/keeper 0.5.80
 
 `keeper/keeper@0.5.80` makes `MCP_ENABLED=false` close the MCP transport. The
