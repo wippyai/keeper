@@ -427,12 +427,18 @@ function Service:emit_operation(actor_id, event, operation_id, data)
 end
 
 -- One ownership index per service instance: a single registry scan answers
--- every ownership question for the request that built it.
+-- every ownership question for the request that built it. The index holds
+-- the snapshot it captured, so a registry mutation the service commits drops
+-- it and the next read captures the committed state.
 function Service:ownership_index()
     if not self.__ownership_index then
         self.__ownership_index = self.ownership.new(self.registry)
     end
     return self.__ownership_index
+end
+
+function Service:invalidate_ownership_index()
+    self.__ownership_index = nil
 end
 
 function Service:find_entries(criteria)
@@ -931,6 +937,7 @@ function Service:publish_dependency_changeset(args)
             entry_ids = entry_ids,
         })
     end
+    self:invalidate_ownership_index()
 
     return {
         ok = true,
@@ -1274,6 +1281,7 @@ function Service:restore_registry_version(version, reason)
     if restore_err then
         return nil, err("INTERNAL", "failed to restore registry version " .. tostring(version) .. ": " .. tostring(restore_err))
     end
+    self:invalidate_ownership_index()
     return result or { version = version }, nil
 end
 

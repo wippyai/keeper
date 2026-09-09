@@ -37,8 +37,14 @@ end
 -- the current per-entry registry shape; map selects the released atomic shape
 -- used during a rolling Runtime update.
 local function fake_registry(entries, state_shape)
-    local by_id = {}
-    for _, entry in ipairs(entries or {}) do by_id[entry.id] = entry end
+    -- Lookups read the live entries list, so a publish that appends entries
+    -- is visible to get() the same way it is on the real registry.
+    local function lookup(id)
+        for _, entry in ipairs(entries or {}) do
+            if entry.id == id then return entry end
+        end
+        return nil
+    end
 
     local function entry_provenance(entry)
         if not entry then return nil end
@@ -76,7 +82,7 @@ local function fake_registry(entries, state_shape)
             return out, nil
         end,
         get = function(id)
-            return by_id[id], nil
+            return lookup(id), nil
         end,
         -- One consistent capture, exactly as registry.snapshot() serves it.
         snapshot = function()
@@ -108,7 +114,7 @@ local function fake_registry(entries, state_shape)
             table.sort(modules, function(a, b) return a.name < b.name end)
             return {
                 entries = function() return captured, nil end,
-                get = function(_, id) return by_id[id], nil end,
+                get = function(_, id) return lookup(id), nil end,
                 version = function() return "test-version" end,
                 state = function()
                     local state = {
@@ -5168,6 +5174,70 @@ local function define_tests()
                 test.eq(step_by_name(execution, "governance").status, "rollback_failed")
                 test.eq(step_by_name(execution, "governance").inverse, "restore_registry_version")
                 test.eq(step_by_name(execution, "migrations").status, "failed")
+            end)
+
+            it("runs the migrations of the module the governance apply installs", function()
+                local calls = {} :: any
+                -- The module's entries reach the registry only through the
+                -- governance apply; before it, ownership knows one other root.
+                local entries = concat_entries(
+                    { root_dep("app.deps:kept", "wippy/kept") },
+                    installed_module("wippy/kept", {})
+                )
+                local gov_state = ({ current_version = 60 }) :: any
+                local gov = fake_governance(gov_state)
+                local base_publish = gov.publish
+                gov.publish = function(changeset, options)
+                    local result, publish_err = base_publish(changeset, options)
+                    if not result then return nil, publish_err end
+                    for _, op in ipairs(changeset) do
+                        local entry = deep_copy(op.entry)
+                        entry.provenance = { root = true }
+                        table.insert(entries, entry)
+                    end
+                    for _, entry in ipairs(fixture_entries()) do
+                        if entry.kind ~= "ns.dependency" then table.insert(entries, entry) end
+                    end
+                    return result, nil
+                end
+                local svc = hub.new({
+                    registry = fake_registry(entries),
+                    sql = fake_sql({}),
+                    uuid = fake_uuid(),
+                    governance = gov,
+                    planner = no_requirements_planner(),
+                    funcs = {
+                        new = function()
+                            return {
+                                call = function(_, id, params)
+                                    table.insert(calls, { id = id, params = params })
+                                    if id == hub.MIGRATION_HANDLER_FN then
+                                        return { ok = true, operation = params.operation }, nil
+                                    end
+                                    return nil, "unexpected call"
+                                end,
+                            }, nil
+                        end,
+                    },
+                }) :: any
+
+                local out, err = svc:install({
+                    component = "wippy/foo",
+                    version = "v1.2.3",
+                    migration_policy = "up",
+                }, { actor_id = "admin-1" })
+
+                test.is_nil(err)
+                test.not_nil(out)
+                test.eq(gov_state.publish_calls, 1)
+                test.eq(step_by_name(out.execution, "governance").status, "ok")
+                test.eq(step_by_name(out.execution, "migrations").status, "ok")
+                test.eq(out.migrations.count, 1)
+                test.eq(out.migrations.entry_ids[1], "wippy.foo.migrations:001")
+                test.eq(#calls, 1)
+                test.eq(calls[1].id, hub.MIGRATION_HANDLER_FN)
+                test.eq(calls[1].params.operation, "up")
+                test.eq(calls[1].params.entry_ids[1], "wippy.foo.migrations:001")
             end)
 
         end)
