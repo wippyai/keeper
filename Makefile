@@ -2,7 +2,7 @@
 
 WIPPY ?= wippy
 
-KEEPER_VERSION ?= 0.5.79
+KEEPER_VERSION ?= 0.5.82
 USAGE_VERSION ?= 0.1.1
 
 lint: lint-keeper lint-usage

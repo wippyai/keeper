@@ -50,6 +50,7 @@ entries:
       - uuid
       - registry
       - env
+      - security
     imports:
       mcp_auth: keeper.mcp.auth:auth
       mcp_authorize: keeper.mcp.auth:authorize

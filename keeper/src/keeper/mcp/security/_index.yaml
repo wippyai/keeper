@@ -76,3 +76,16 @@ entries:
         - registry.find
         - registry.get
       effect: allow
+
+  # keeper.mcp.security:endpoint_env_read
+  - name: endpoint_env_read
+    kind: security.policy
+    meta:
+      comment: The public Keeper MCP endpoint may read its transport switch and the public base URL it advertises.
+    policy:
+      resources:
+        - keeper.mcp:enabled
+        - PUBLIC_API_URL
+      actions:
+        - env.get
+      effect: allow

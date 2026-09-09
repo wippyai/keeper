@@ -263,6 +263,12 @@ function M.resolve_dependency_id(args)
     return ns .. ":" .. name, nil
 end
 
+-- Scalar dependency options must retain their JSON types (especially false).
+local function parameter_value(value)
+    if type(value) == "boolean" or type(value) == "number" then return value end
+    return tostring(value or "")
+end
+
 function M.normalize_parameters(input)
     if input == nil then return {}, nil end
     if type(input) ~= "table" then
@@ -282,7 +288,7 @@ function M.normalize_parameters(input)
         end
         seen[name] = true
         if value == nil then value = "" end
-        table.insert(out, { name = name, value = tostring(value) })
+        table.insert(out, { name = name, value = parameter_value(value) })
         return nil
     end
 
@@ -427,12 +433,18 @@ function Service:emit_operation(actor_id, event, operation_id, data)
 end
 
 -- One ownership index per service instance: a single registry scan answers
--- every ownership question for the request that built it.
+-- every ownership question for the request that built it. The index holds
+-- the snapshot it captured, so a registry mutation the service commits drops
+-- it and the next read captures the committed state.
 function Service:ownership_index()
     if not self.__ownership_index then
         self.__ownership_index = self.ownership.new(self.registry)
     end
     return self.__ownership_index
+end
+
+function Service:invalidate_ownership_index()
+    self.__ownership_index = nil
 end
 
 function Service:find_entries(criteria)
@@ -931,6 +943,7 @@ function Service:publish_dependency_changeset(args)
             entry_ids = entry_ids,
         })
     end
+    self:invalidate_ownership_index()
 
     return {
         ok = true,
@@ -1274,6 +1287,7 @@ function Service:restore_registry_version(version, reason)
     if restore_err then
         return nil, err("INTERNAL", "failed to restore registry version " .. tostring(version) .. ": " .. tostring(restore_err))
     end
+    self:invalidate_ownership_index()
     return result or { version = version }, nil
 end
 

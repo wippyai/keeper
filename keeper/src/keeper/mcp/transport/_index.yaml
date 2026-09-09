@@ -79,6 +79,7 @@ entries:
         - keeper.mcp.security:endpoint_db_access
         - keeper.mcp.security:endpoint_actor_create
         - keeper.mcp.security:endpoint_registry_read
+        - keeper.mcp.security:endpoint_env_read
 
   # keeper.mcp.transport:handler.endpoint
   - name: handler.endpoint
@@ -108,6 +109,7 @@ entries:
         - keeper.mcp.security:endpoint_db_access
         - keeper.mcp.security:endpoint_actor_create
         - keeper.mcp.security:endpoint_registry_read
+        - keeper.mcp.security:endpoint_env_read
 
   # keeper.mcp.transport:handler_get.endpoint
   - name: handler_get.endpoint

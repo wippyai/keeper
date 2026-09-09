@@ -8,6 +8,7 @@ local mcp_tokens = require("mcp_tokens")
 local mcp_traits = require("mcp_traits")
 local mcp_consts = require("mcp_consts")
 local mcp_policy = require("mcp_policy")
+local security = require("security")
 local mcp_surface = require("mcp_surface")
 local mcp_meta = require("mcp_meta")
 local mcp_auth = require("mcp_auth")
@@ -1239,6 +1240,26 @@ local function define_tests()
                     end,
                 }
             end
+
+            it("endpoint policies let the transport read its enabled switch", function()
+                local policies = {}
+                for _, id in ipairs({
+                    "keeper.mcp.security:endpoint_db_access",
+                    "keeper.mcp.security:endpoint_actor_create",
+                    "keeper.mcp.security:endpoint_registry_read",
+                    "keeper.mcp.security:endpoint_env_read",
+                }) do
+                    local policy, err = security.policy(id)
+                    test.not_nil(policy, "policy " .. id .. " must exist; err=" .. tostring(err))
+                    policies[#policies + 1] = policy
+                end
+                local scope = security.new_scope(policies)
+                local actor = security.new_actor("keeper.mcp.transport:handler")
+                test.eq(scope:evaluate(actor, "env.get", ENABLED_ENV), "allow",
+                    "transport must be able to read " .. ENABLED_ENV)
+                test.eq(scope:evaluate(actor, "env.get", PUBLIC_API_URL_ENV), "allow",
+                    "transport must be able to read " .. PUBLIC_API_URL_ENV)
+            end)
 
             it("verify_admin_user accepts seeded admin", function()
                 local ok, err = mcp_auth.verify_admin_user(ADMIN_USER)
