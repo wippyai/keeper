@@ -105,13 +105,14 @@ function M.overview(filters, limit)
     local where_sql = #where_parts > 0 and (" WHERE " .. table.concat(where_parts, " AND ")) or ""
     local having_parts = {}
     if filters.has_failures then
-        table.insert(having_parts, "failed_nodes > 0")
+        table.insert(having_parts, "SUM(CASE WHEN n.status = 'failed' THEN 1 ELSE 0 END) > 0")
     end
     if filters.has_running then
-        table.insert(having_parts, "running_nodes > 0")
+        table.insert(having_parts, "SUM(CASE WHEN n.status = 'running' THEN 1 ELSE 0 END) > 0")
     end
     if filters.min_nodes then
-        table.insert(having_parts, "node_count >= " .. tonumber(filters.min_nodes))
+        table.insert(having_parts, "COUNT(n.node_id) >= ?")
+        table.insert(params, tonumber(filters.min_nodes))
     end
     local having_sql = #having_parts > 0 and (" HAVING " .. table.concat(having_parts, " AND ")) or ""
 

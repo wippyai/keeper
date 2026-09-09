@@ -263,6 +263,12 @@ function M.resolve_dependency_id(args)
     return ns .. ":" .. name, nil
 end
 
+-- Scalar dependency options must retain their JSON types (especially false).
+local function parameter_value(value)
+    if type(value) == "boolean" or type(value) == "number" then return value end
+    return tostring(value or "")
+end
+
 function M.normalize_parameters(input)
     if input == nil then return {}, nil end
     if type(input) ~= "table" then
@@ -282,7 +288,7 @@ function M.normalize_parameters(input)
         end
         seen[name] = true
         if value == nil then value = "" end
-        table.insert(out, { name = name, value = tostring(value) })
+        table.insert(out, { name = name, value = parameter_value(value) })
         return nil
     end
 
