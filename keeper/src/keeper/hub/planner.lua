@@ -2015,6 +2015,50 @@ function M.migration_policy_for(args)
     return "up"
 end
 
+-- Runtime links a requirement through its own module's dependency entry.
+-- Inferred values for a new child therefore need a managed root of their own;
+-- putting them on the requested parent's entry cannot configure that child.
+-- Existing modules are never reconfigured here. Defaults need no host binding.
+function Planner:plan_binding_dependencies(requirements, root_entry)
+    local by_module = {}
+    for _, row in ipairs(requirements or {}) do
+        if row.transitive == true and row.value ~= "" and row.invalid ~= true
+            and row.value_source ~= "default" then
+            local parameters = by_module[row.module] or {}
+            by_module[row.module] = parameters
+            table.insert(parameters, { name = row.parameter_name, value = row.value })
+        end
+    end
+    local modules = {}
+    for component in pairs(by_module) do table.insert(modules, component) end
+    table.sort(modules)
+
+    local bindings = {}
+    local destinations = { [root_entry.id] = root_entry.data.component }
+    for _, component in ipairs(modules) do
+        -- The package edges continue to own version constraints. This root
+        -- stores host configuration without pinning future parent updates.
+        local args = { component = component, version = M.DEFAULT_VERSION, parameters = by_module[component] }
+        local destination, dest_err = self:resolve_dependency_destination_args(args)
+        if not destination then return nil, dest_err end
+        local id, id_err = M.resolve_dependency_id(destination)
+        if not id then return nil, id_err end
+        if destinations[id] then
+            args.name = M.sanitize_dependency_name(component:gsub("/", "_"))
+            destination, dest_err = self:resolve_dependency_destination_args(args)
+            if not destination then return nil, dest_err end
+            id, id_err = M.resolve_dependency_id(destination)
+            if not id then return nil, id_err end
+            if destinations[id] then
+                return nil, err("CONFLICT", "dependency binding destination collision: " .. id)
+            end
+        end
+        destinations[id] = component
+        table.insert(bindings, destination)
+    end
+    return bindings, nil
+end
+
 function Planner:plan_install(args)
     args = args or {}
     local planned_args, dest_err = self:resolve_dependency_destination_args(args)
@@ -2038,6 +2082,8 @@ function Planner:plan_install(args)
 
     local req_plan, req_err = self:plan_requirements(graph, data.parameters or {})
     if not req_plan then return nil, req_err end
+    local bindings, bindings_err = self:plan_binding_dependencies(req_plan.requirements, entry)
+    if not bindings then return nil, bindings_err end
 
     return {
         dependency = M.dependency_summary(entry),
@@ -2048,6 +2094,7 @@ function Planner:plan_install(args)
         missing_requirements = req_plan.missing,
         parameter_values = req_plan.values,
         recommended_parameters = req_plan.parameters,
+        binding_dependencies = bindings,
         migration_policy = M.migration_policy_for(planned_args),
         install_payload = {
             id = entry.id,

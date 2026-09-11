@@ -1,5 +1,38 @@
 # Release Notes
 
+## keeper/keeper 0.5.83
+
+Hub installation now applies inferred host bindings for newly installed
+transitive modules together with the requested dependency in one registry
+transaction. Previously a KB10 plan correctly inferred Knowledge's router,
+server, and security bindings, but installation discarded them and failed.
+Single installs and onboarding batches now retain those bindings; explicit
+batch configuration takes precedence over inferred values.
+
+Existing dependency configuration is preserved. Newly inferred binding roots
+use an unrestricted version constraint so the package dependency edges still
+control compatible versions. If another operation creates a binding after
+planning, installation fails with a conflict instead of overwriting it.
+Removing a parent leaves the child's configuration root installed; removing
+a child still required by another module remains blocked.
+
+When migrations are requested, installation discovers pending migrations
+across the selected dependency graph after applying the registry changes.
+An explicitly empty migration selection now runs nothing, rather than falling
+through to all migrations in the application.
+
+### Verification
+
+- Keeper Hub: 141 tests pass, including regressions first observed failing for
+  transitive bindings, batch installation, child migrations, empty migration
+  selection, and concurrent binding creation. Update, rollback, and shared
+  dependency removal are covered.
+- Local Kickside 0.1.131 on runtime 0.3.42a: KB10 installation applies both
+  dependency roots and all five KB10 migrations. Knowledge engine discovery
+  and create/read/delete return HTTP 200. Reinstalling preserves bindings
+  and selects zero already-applied migrations.
+- Existing onboarding frontend suite: 11 tests pass. No frontend assets changed.
+
 ## keeper/keeper 0.5.82
 
 `keeper/keeper@0.5.82` runs the migrations of a module the Hub installs. The
