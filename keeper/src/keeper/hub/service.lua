@@ -574,7 +574,7 @@ function Service:migration_rows(args)
     args = args or {}
     local entries = {}
 
-    if type(args.entry_ids) == "table" and #args.entry_ids > 0 then
+    if type(args.entry_ids) == "table" then
         for _, id in ipairs(args.entry_ids) do
             local entry, get_err = self:get_entry(id)
             if not entry then return nil, get_err end
@@ -802,7 +802,7 @@ function Service:current_registry_version()
     return version, nil
 end
 
-function Service:dependency_create_or_update_op(entry)
+function Service:dependency_create_or_update_op(entry, create_only)
     if not self.registry or not self.registry.get then
         return nil, err("INTERNAL", "registry.get unavailable")
     end
@@ -837,6 +837,10 @@ function Service:dependency_create_or_update_op(entry)
     local existing, get_err = self.registry.get(entry.id)
     if get_err and not is_not_found_error(get_err) then
         return nil, err("INTERNAL", "failed to inspect dependency entry " .. tostring(entry.id) .. ": " .. tostring(get_err))
+    end
+    if existing and create_only then
+        return nil, err("CONFLICT", "dependency binding appeared after planning: " .. tostring(entry.id)
+            .. "; re-plan to preserve its configuration")
     end
     if existing then
         if existing.kind ~= "ns.dependency" then
@@ -912,7 +916,7 @@ function Service:publish_dependency_changeset(args)
         end
 
         for _, entry in ipairs(entries) do
-            local op, op_err = self:dependency_create_or_update_op(entry)
+            local op, op_err = self:dependency_create_or_update_op(entry, args.create_only and args.create_only[entry.id])
             if not op then return nil, op_err end
             table.insert(changeset, op)
             table.insert(entry_ids, entry.id)
@@ -966,6 +970,30 @@ local function batch_item_error(index, service_err)
     return err(code, "dependencies[" .. tostring(index) .. "]: " .. message, details)
 end
 
+local function install_migration_components(plan, component)
+    local components, seen = { component }, { [component] = true }
+    for _, node in ipairs(plan.graph or {}) do
+        if node.module and not seen[node.module] then
+            seen[node.module] = true
+            table.insert(components, node.module)
+        end
+    end
+    return components
+end
+
+local function same_binding_parameters(a, b)
+    local values, count = {}, 0
+    for _, parameter in ipairs(a or {}) do
+        values[parameter.name] = parameter.value
+        count = count + 1
+    end
+    if count ~= #(b or {}) then return false end
+    for _, parameter in ipairs(b or {}) do
+        if values[parameter.name] ~= parameter.value then return false end
+    end
+    return true
+end
+
 function Service:prepare_install(args)
     local plan, plan_err = self:plan_install(args)
     if not plan then return nil, plan_err end
@@ -992,11 +1020,24 @@ function Service:prepare_install(args)
     if not entry then return nil, entry_err end
     local patch, patch_err = M.entry_to_set_patch(entry)
     if not patch then return nil, patch_err end
+    local entries, patches, create_only = { entry }, { patch }, {}
+    for _, binding in ipairs(plan.binding_dependencies or {}) do
+        local child, child_err = M.build_dependency_entry(binding)
+        if not child then return nil, child_err end
+        local child_patch, child_patch_err = M.entry_to_set_patch(child)
+        if not child_patch then return nil, child_patch_err end
+        table.insert(entries, child)
+        table.insert(patches, child_patch)
+        create_only[child.id] = true
+    end
     return {
         args = planned,
         plan = plan,
         entry = entry,
         patch = patch,
+        entries = entries,
+        patches = patches,
+        create_only = create_only,
         policy = planned.migration_policy,
     }, nil
 end
@@ -1053,9 +1094,39 @@ function Service:install_batch(args, opts)
         end
     end
 
+    -- Explicit batch items own their configuration. Add inferred bindings only
+    -- for modules not already present in that batch; shared inferred bindings
+    -- must agree and are committed once.
+    local explicit_count = #prepared
+    local create_only = {}
+    for index = 1, explicit_count do
+        local item = prepared[index]
+        for child_index = 2, #item.entries do
+            local child = item.entries[child_index]
+            local component = child.data.component
+            local existing_index = seen_components[component]
+            if existing_index then
+                if existing_index > explicit_count and not same_binding_parameters(
+                    prepared[existing_index].entry.data.parameters, child.data.parameters) then
+                    return nil, err("CONFLICT", "inferred dependency bindings disagree for " .. component)
+                end
+            else
+                if seen_ids[child.id] then
+                    return nil, err("CONFLICT", "duplicate dependency id: " .. child.id)
+                end
+                table.insert(prepared, {
+                    entry = child, patch = item.patches[child_index], plan = {}, policy = item.policy,
+                })
+                seen_components[component] = #prepared
+                seen_ids[child.id] = #prepared
+                create_only[child.id] = true
+            end
+        end
+    end
+
     local changeset = {}
     for index, item in ipairs(prepared) do
-        local op, op_err = self:dependency_create_or_update_op(item.entry)
+        local op, op_err = self:dependency_create_or_update_op(item.entry, create_only[item.entry.id])
         if not op then return nil, batch_item_error(index, op_err) end
         table.insert(changeset, op)
     end
@@ -1074,7 +1145,11 @@ function Service:install_batch(args, opts)
         table.insert(payload.plans, item.plan)
         table.insert(payload.migration_policy, item.policy)
         table.insert(entries, item.entry)
-        if item.policy == "up" then table.insert(migration_components, item.entry.data.component) end
+        if item.policy == "up" then
+            for _, component in ipairs(install_migration_components(item.plan, item.entry.data.component)) do
+                table.insert(migration_components, component)
+            end
+        end
     end
 
     if args.dry_run == true then
@@ -1103,6 +1178,7 @@ function Service:install_batch(args, opts)
             data = {
                 action = "install",
                 entries = entries,
+                create_only = create_only,
                 message = "hub install " .. tostring(#entries) .. " dependencies",
                 baseline_version = baseline_version,
             },
@@ -1431,6 +1507,7 @@ function Service:install_step_dispatch(opts)
                 action = step.data.action,
                 entry = step.data.entry,
                 entries = step.data.entries,
+                create_only = step.data.create_only,
                 actor_id = opts.actor_id,
                 message = step.data.message,
             })
@@ -1499,15 +1576,17 @@ function Service:install(args, opts)
     local plan = prepared.plan
     local planned = prepared.args
     local entry = prepared.entry
-    local patch = prepared.patch
 
-    local planned_changeset_op, planned_changeset_err = self:dependency_create_or_update_op(entry)
-    if not planned_changeset_op then return nil, planned_changeset_err end
-    local planned_changeset = { planned_changeset_op }
+    local planned_changeset = {}
+    for _, dependency in ipairs(prepared.entries) do
+        local op, op_err = self:dependency_create_or_update_op(dependency, prepared.create_only[dependency.id])
+        if not op then return nil, op_err end
+        table.insert(planned_changeset, op)
+    end
 
     local payload = {
         dependency = M.dependency_summary(entry),
-        patches = { patch },
+        patches = prepared.patches,
         migration_policy = planned.migration_policy or (args.run_migrations == true and "up" or "none"),
         plan = plan,
     }
@@ -1547,14 +1626,17 @@ function Service:install(args, opts)
             op = "governance_apply", label = "governance",
             data = {
                 action = "install",
-                entry = entry,
+                entries = prepared.entries,
+                create_only = prepared.create_only,
                 message = "hub install " .. entry.id .. " " .. entry.data.component .. " " .. entry.data.version,
                 baseline_version = baseline_version,
             },
         },
     }
     if policy == "up" then
-        table.insert(steps, { op = "migrations_up", label = "migrations", data = { component = entry.data.component } })
+        local components = install_migration_components(plan, entry.data.component)
+        local migration_data = #components == 1 and { component = entry.data.component } or { components = components }
+        table.insert(steps, { op = "migrations_up", label = "migrations", data = migration_data })
     end
     local ledger = step_runner.run(steps, { execute = self:install_step_dispatch(opts) })
 

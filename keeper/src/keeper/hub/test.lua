@@ -4523,6 +4523,251 @@ local function define_tests()
             end)
         end)
 
+        describe("autofilled transitive dependency bindings", function()
+            local function setup(extra_entries, governance_state)
+                local profile = root_dep("app.deps:profile", "acme/profile")
+                profile.data.parameters = {
+                    { name = "api_router", value = "app:api" },
+                    { name = "ui_server", value = "app:gateway" },
+                    { name = "user_security_scope", value = "app.security:user" },
+                }
+                local entries = concat_entries({ profile }, extra_entries or {})
+                local registry = fake_registry(entries)
+                local plan_service = planner.new({
+                    registry = registry,
+                    catalog = fake_catalog({
+                        ["acme/engine"] = {{
+                            version = "v2.0.0",
+                            dependencies = {{ org = "acme", name = "knowledge", version = "v1.0.0" }},
+                            requirements = {},
+                        }, {
+                            version = "v1.0.0",
+                            dependencies = {{ org = "acme", name = "knowledge", version = "v1.0.0" }},
+                            requirements = {},
+                        }},
+                        ["acme/knowledge"] = {{
+                            version = "v1.0.0",
+                            requirements = {
+                                { name = "api_router", namespace = "acme.knowledge" },
+                                { name = "ui_server", namespace = "acme.knowledge" },
+                                { name = "user_security_scope", namespace = "acme.knowledge.security" },
+                            },
+                        }},
+                    }),
+                }) :: any
+                local state = (governance_state or {}) :: any
+                local svc = hub.new({
+                    registry = registry,
+                    planner = { plan_install = function(input) return plan_service:plan_install(input) end },
+                    governance = fake_governance(state),
+                    uuid = fake_uuid(),
+                }) :: any
+                return svc, state, plan_service, entries
+            end
+
+            it("publishes the inferred child bindings with the parent in one transaction", function()
+                local svc, state, plan_service = setup()
+                local args = { component = "acme/engine", version = "v1.0.0", migration_policy = "none" }
+                local plan, plan_err = plan_service:plan_install(args)
+                test.is_nil(plan_err)
+                test.eq(#plan.missing_requirements, 0)
+                test.eq(#plan.requirements, 3)
+                local result, install_err = svc:install(args)
+                test.is_nil(install_err)
+                test.not_nil(result)
+                test.eq(state.publish_calls, 1)
+                test.eq(#state.last_changeset, 2)
+                local child
+                for _, op in ipairs(state.last_changeset) do
+                    if op.entry.data.component == "acme/knowledge" then child = op.entry end
+                end
+                test.not_nil(child)
+                test.eq(find_parameter(child.data.parameters, "acme.knowledge:api_router").value, "app:api")
+                test.eq(find_parameter(child.data.parameters, "acme.knowledge:ui_server").value, "app:gateway")
+                test.eq(find_parameter(child.data.parameters, "acme.knowledge.security:user_security_scope").value,
+                    "app.security:user")
+            end)
+
+            it("previews every dependency binding without writing anything", function()
+                local svc, state = setup()
+                local result, install_err = svc:install({ component = "acme/engine", dry_run = true })
+                test.is_nil(install_err)
+                test.eq(#result.patches, 2)
+                test.eq(state.publish_calls or 0, 0)
+                test.eq(state.current_calls or 0, 0)
+            end)
+
+            it("carries child bindings through the batch onboarding path", function()
+                local svc, state = setup()
+                local result, install_err = svc:install({
+                    migration_policy = "none",
+                    dependencies = { { component = "acme/engine" } },
+                })
+                test.is_nil(install_err)
+                test.not_nil(result)
+                test.eq(state.publish_calls, 1)
+                test.eq(#state.last_changeset, 2)
+            end)
+
+            it("preserves an installed child's explicit bindings on parent updates", function()
+                local child = root_dep("app.deps:knowledge", "acme/knowledge")
+                child.data.parameters = { { name = "api_router", value = "app:private_api" } }
+                local parent = root_dep("app.deps:engine", "acme/engine")
+                local svc, state = setup(concat_entries({ child, parent },
+                    installed_module("acme/knowledge", {}), installed_module("acme/engine", { "acme/knowledge" })))
+                local result, install_err = svc:install({ component = "acme/engine", migration_policy = "none" })
+                test.is_nil(install_err)
+                test.not_nil(result)
+                test.eq(#state.last_changeset, 1)
+                test.eq(state.last_changeset[1].kind, "entry.update")
+                test.eq(state.last_changeset[1].entry.id, parent.id)
+                test.eq(result.plan.graph[1].version, "v2.0.0")
+                test.eq(child.data.parameters[1].value, "app:private_api")
+            end)
+
+            it("prefers an explicit child configuration in the same batch", function()
+                local svc, state = setup()
+                local result, install_err = svc:install({
+                    migration_policy = "none",
+                    dependencies = {
+                        { component = "acme/engine" },
+                        { component = "acme/knowledge", parameters = { api_router = "app:private_api" } },
+                    },
+                })
+                test.is_nil(install_err)
+                test.not_nil(result)
+                test.eq(#state.last_changeset, 2)
+                for _, op in ipairs(state.last_changeset) do
+                    if op.entry.data.component == "acme/knowledge" then
+                        test.eq(find_parameter(op.entry.data.parameters, "acme.knowledge:api_router").value,
+                            "app:private_api")
+                    end
+                end
+            end)
+
+            it("refuses to overwrite a child binding installed after planning", function()
+                local svc, state, _, entries = setup()
+                local child = root_dep("app.deps:knowledge", "acme/knowledge")
+                child.data.parameters = { { name = "api_router", value = "app:private_api" } }
+                svc.governance.current_version = function()
+                    table.insert(entries, child)
+                    return 62, nil
+                end
+                local result, install_err = svc:install({ component = "acme/engine", migration_policy = "none" })
+                test.is_nil(result)
+                test.eq(err_code(install_err), "CONFLICT")
+                test.eq(state.publish_calls or 0, 0)
+                test.eq(child.data.parameters[1].value, "app:private_api")
+            end)
+
+            it("restores both newly installed roots when a migration fails", function()
+                local svc, state, _, entries = setup(nil, { current_version = 61 })
+                local baseline = deep_copy(entries)
+                local publish = svc.governance.publish
+                svc.governance.publish = function(changeset, options)
+                    local result, publish_err = publish(changeset, options)
+                    for _, op in ipairs(changeset) do table.insert(entries, deep_copy(op.entry)) end
+                    return result, publish_err
+                end
+                local restore = svc.governance.restore_version
+                svc.governance.restore_version = function(version, reason)
+                    for i = #entries, 1, -1 do entries[i] = nil end
+                    for _, entry in ipairs(baseline) do table.insert(entries, deep_copy(entry)) end
+                    return restore(version, reason)
+                end
+                svc.migration_rows = function(_, args)
+                    return { { id = "acme.knowledge:migration", status = "pending" } }, nil
+                end
+                svc.call_func = function() return nil, "migration failed" end
+                local result, install_err = svc:install({ component = "acme/engine" })
+                test.is_nil(result)
+                test.eq(err_code(install_err), "MIGRATIONS_FAILED")
+                test.eq(state.publish_calls, 1)
+                test.eq(state.restore_calls, 1)
+                test.eq(state.restored_version, 61)
+                test.eq(#entries, #baseline)
+                test.eq(entries[1].id, "app.deps:profile")
+            end)
+
+            it("blocks deleting a shared binding and keeps it when a parent is removed", function()
+                local child = root_dep("app.deps:knowledge", "acme/knowledge")
+                child.data.parameters = { { name = "api_router", value = "app:private_api" } }
+                local parents = {
+                    root_dep("app.deps:engine", "acme/engine"),
+                    root_dep("app.deps:other", "acme/other"), child,
+                }
+                local svc, state = setup(concat_entries(parents,
+                    installed_module("acme/profile", {}),
+                    installed_module("acme/knowledge", {}),
+                    installed_module("acme/engine", { "acme/knowledge" }),
+                    installed_module("acme/other", { "acme/knowledge" })))
+                svc.planner = planner
+                svc.sql = fake_sql({})
+                local result, uninstall_err = svc:uninstall({ component = "acme/knowledge", migration_policy = "leave" })
+                test.is_nil(result)
+                test.eq(err_code(uninstall_err), "DEPENDENCY_REQUIRED")
+                test.eq(state.publish_calls or 0, 0)
+
+                result, uninstall_err = svc:uninstall({ component = "acme/engine", migration_policy = "leave" })
+                test.is_nil(uninstall_err)
+                test.not_nil(result)
+                test.eq(#state.last_changeset, 1)
+                test.eq(state.last_changeset[1].kind, "entry.delete")
+                test.eq(state.last_changeset[1].entry.id, "app.deps:engine")
+                test.eq(child.data.parameters[1].value, "app:private_api")
+                local found = false
+                for _, kept in ipairs(result.preview.kept) do
+                    if kept.name == "acme/knowledge" then found = true end
+                end
+                test.is_true(found)
+            end)
+
+            it("runs newly installed child migrations before reporting success", function()
+                local svc, state = setup()
+                local base_publish = svc.governance.publish
+                local published = false
+                svc.governance.publish = function(changeset, options)
+                    local result, publish_err = base_publish(changeset, options)
+                    published = result ~= nil
+                    return result, publish_err
+                end
+                local migrated = {}
+                svc.migration_rows = function(_, args)
+                    test.is_true(published)
+                    if args.component then
+                        return { { id = args.component .. ":migration", status = "pending" } }, nil
+                    end
+                    local rows = {}
+                    for _, id in ipairs(args.entry_ids or {}) do
+                        table.insert(rows, { id = id, status = "pending" })
+                    end
+                    return rows, nil
+                end
+                svc.call_func = function(_, _, args)
+                    migrated = args.entry_ids
+                    return { ok = true }, nil
+                end
+                local result, install_err = svc:install({ component = "acme/engine" })
+                test.is_nil(install_err)
+                test.not_nil(result)
+                test.eq(state.publish_calls, 1)
+                table.sort(migrated)
+                test.eq(#migrated, 2)
+                test.eq(migrated[1], "acme/engine:migration")
+                test.eq(migrated[2], "acme/knowledge:migration")
+            end)
+
+            it("does not run unrelated migrations when selected modules have none pending", function()
+                local svc = hub.new({
+                    registry = fake_registry(fixture_entries()), sql = fake_sql({}),
+                    funcs = { new = function() error("must not run an unrelated migration") end },
+                }) :: any
+                local result, migration_err = svc:run_migrations_for_components({ "acme/empty" }, {})
+                test.is_nil(migration_err)
+                test.eq(result.count, 0)
+            end)
+        end)
+
         describe("atomic dependency-root install", function()
             local function batch_planner()
                 return {
