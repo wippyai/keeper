@@ -89,3 +89,64 @@ entries:
       actions:
         - env.get
       effect: allow
+
+  # keeper.mcp.security:sse_broker_identity
+  - name: sse_broker_identity
+    kind: security.policy
+    meta:
+      comment: The MCP GET transport spawns its session broker with a fresh context carrying the token subject's actor and scope; the runtime gates with_context on process.context and with_actor/with_scope on process.security.
+    policy:
+      resources:
+        - context
+        - security
+      actions:
+        - process.context
+        - process.security
+      effect: allow
+
+  # keeper.mcp.security:sse_broker_spawn
+  - name: sse_broker_spawn
+    kind: security.policy
+    meta:
+      comment: The MCP GET transport may spawn the per-session SSE broker, and no other process.
+    policy:
+      resources: keeper.mcp.transport:broker
+      actions:
+        - process.spawn
+      effect: allow
+
+  # keeper.mcp.security:sse_broker_host
+  - name: sse_broker_host
+    kind: security.policy
+    meta:
+      comment: The MCP GET transport may place its session broker on Keeper's process host. The resource is bound from the keeper:process_host requirement, so it follows the host the application configures.
+    policy:
+      resources: app:processes
+      actions:
+        - process.host
+      effect: allow
+
+  # keeper.mcp.security:sse_broker_registry
+  - name: sse_broker_registry
+    kind: security.policy
+    meta:
+      comment: The MCP GET transport names each session broker under the mcp.session. prefix (one per token, local registry) and releases the name on reconnect.
+    policy:
+      resources: mcp.session.*
+      actions:
+        - process.registry.register
+        - process.registry.unregister
+      effect: allow
+
+  # keeper.mcp.security:sse_broker_handoff
+  - name: sse_broker_handoff
+    kind: security.policy
+    meta:
+      comment: The broker the transport registers is its own child rather than the handler, and on reconnect it cancels the broker a previous connection registered. The runtime checks both against the target PID, which exists only at run time, so no static resource can narrow them; the registry and spawn policies are what confine the handler to its session brokers.
+    policy:
+      resources: '*'
+      actions:
+        - process.registry.foreign
+        - process.cancel
+      effect: allow
+

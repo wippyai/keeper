@@ -25,10 +25,11 @@ entries:
   - name: router
     kind: http.router
     meta:
-      comment: MCP mount on the app-provided gateway; no token_auth middleware — handler enforces bearer
+      comment: MCP mount on the app-provided gateway; no token_auth middleware — handler enforces bearer. sse_relay takes over the GET / connection handler_get hands off via X-SSE-Relay and writes the event stream.
       server: app:gateway
     middleware:
       - cors
+      - sse_relay
     options:
       allow_credentials: "true"
       allow_headers: Authorization,Content-Type,Mcp-Session-Id,Last-Event-Id,Accept
@@ -56,6 +57,7 @@ entries:
       mcp_authorize: keeper.mcp.auth:authorize
       mcp_consts: keeper.mcp:consts
       mcp_handler_core: keeper.mcp.transport:handler_core
+      keeper_config: keeper:config
       mcp_meta: keeper.mcp.surface:meta
       mcp_policy: keeper.mcp.auth:policy
       mcp_surface: keeper.mcp.surface:surface

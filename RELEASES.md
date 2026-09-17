@@ -1,5 +1,35 @@
 # Release Notes
 
+## keeper/keeper 0.5.84
+
+The Keeper MCP endpoint now serves its Streamable HTTP event stream. A GET to
+the MCP route answered 500 ("not allowed to spawn processes with custom
+context") instead of opening the stream: the handler had no permission to stand
+up its per-session broker, and the router lacked the sse_relay middleware that
+takes over the connection the handler hands off. Clients that tolerate a failed
+stream carried on over POST, so the endpoint looked healthy; clients that wait
+for the stream, such as Microsoft Copilot Studio, stalled on loading tools.
+
+The router now carries sse_relay, and the GET handler declares five narrow
+policies covering exactly what it does: create the broker's context with the
+token subject's actor and scope, spawn keeper.mcp.transport:broker and nothing
+else, place it on the configured process host (bound from keeper:process_host),
+register and release names under mcp.session.*, and adopt or cancel the broker
+a previous connection registered. Applications that added these grants or the
+middleware through their own overrides can remove them.
+
+### Verification
+
+- MCP suite: three new tests pass after failing on 0.5.83 - the router relays
+  the handed-off stream, the handler holds each permission its broker needs,
+  and it holds none for other entries, hosts, or registry names. The suite's
+  four remaining failures are unchanged from 0.5.83 (the test host has no
+  app_users table; one Hub tool lacks an MCP scope mapping).
+- Live, on an application running runtime 0.3.27a with the same transport code:
+  GET returned 500 before; with these policies and middleware it returns 200
+  text/event-stream, a reconnect with the same token returns a new stream, the
+  heartbeat arrives at 25 seconds, and POST initialize still returns 200.
+
 ## keeper/keeper 0.5.83
 
 Hub installation now applies inferred host bindings for newly installed
