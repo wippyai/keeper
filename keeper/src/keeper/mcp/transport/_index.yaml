@@ -110,6 +110,11 @@ entries:
         - keeper.mcp.security:endpoint_actor_create
         - keeper.mcp.security:endpoint_registry_read
         - keeper.mcp.security:endpoint_env_read
+        - keeper.mcp.security:sse_broker_identity
+        - keeper.mcp.security:sse_broker_spawn
+        - keeper.mcp.security:sse_broker_host
+        - keeper.mcp.security:sse_broker_registry
+        - keeper.mcp.security:sse_broker_handoff
 
   # keeper.mcp.transport:handler_get.endpoint
   - name: handler_get.endpoint

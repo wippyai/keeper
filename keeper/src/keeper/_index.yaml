@@ -487,6 +487,8 @@ entries:
     targets:
       - entry: keeper.config:process_host
         path: .default
+      - entry: keeper.mcp.security:sse_broker_host
+        path: .policy.resources
 
   # keeper:dep.wippy.agent
   - name: dep.wippy.agent

@@ -14,6 +14,7 @@ local mcp_meta = require("mcp_meta")
 local mcp_auth = require("mcp_auth")
 local mcp_authorize = require("mcp_authorize")
 local mcp_handler_core = require("mcp_handler_core")
+local keeper_config = require("keeper_config")
 
 local function define_tests()
     describe("MCP", function()
@@ -1259,6 +1260,67 @@ local function define_tests()
                     "transport must be able to read " .. ENABLED_ENV)
                 test.eq(scope:evaluate(actor, "env.get", PUBLIC_API_URL_ENV), "allow",
                     "transport must be able to read " .. PUBLIC_API_URL_ENV)
+            end)
+
+            -- GET / is the Streamable HTTP SSE leg. A client that opens it and gets
+            -- anything but an event stream (or a 405) waits instead of falling back
+            -- to POST, so the leg must be wired end to end by the module itself.
+            local function handler_get_scope()
+                local entry, err = registry.get("keeper.mcp.transport:handler_get")
+                test.not_nil(entry, "handler_get entry must exist; err=" .. tostring(err))
+                local declared = entry.data.security.policies
+                local policies = {}
+                for _, id in ipairs(declared) do
+                    local policy, perr = security.policy(id)
+                    test.not_nil(policy, "policy " .. id .. " must exist; err=" .. tostring(perr))
+                    policies[#policies + 1] = policy
+                end
+                return security.new_scope(policies), security.new_actor("keeper.mcp.transport:handler_get")
+            end
+
+            it("GET transport router relays the SSE stream it hands off", function()
+                local router, err = registry.get("keeper.mcp:router")
+                test.not_nil(router, "keeper.mcp:router must exist; err=" .. tostring(err))
+                local relays = false
+                for _, name in ipairs(router.data.middleware or {}) do
+                    if name == "sse_relay" then relays = true end
+                end
+                test.is_true(relays,
+                    "handler_get hands the connection off via X-SSE-Relay; without sse_relay on the router nothing consumes it")
+            end)
+
+            it("GET transport may spawn, identify and register its session broker", function()
+                local scope, actor = handler_get_scope()
+                local broker_name = mcp_consts.SSE_BROKER_NAME_PREFIX .. "0123abcd"
+                local some_pid = "{node@" .. keeper_config.process_host() .. "|0x00042}"
+                local required = {
+                    { "process.context", "context" },
+                    { "process.security", "security" },
+                    { "process.spawn", "keeper.mcp.transport:broker" },
+                    { "process.host", keeper_config.process_host() },
+                    { "process.registry.register", broker_name },
+                    { "process.registry.foreign", some_pid },
+                    { "process.registry.unregister", broker_name },
+                    { "process.cancel", some_pid },
+                }
+                for _, pair in ipairs(required) do
+                    test.eq(scope:evaluate(actor, pair[1], pair[2]), "allow",
+                        "handler_get needs " .. pair[1] .. " on " .. pair[2])
+                end
+            end)
+
+            it("GET transport grants reach only the session broker", function()
+                local scope, actor = handler_get_scope()
+                local denied = {
+                    { "process.spawn", "keeper.mcp.transport:handler" },
+                    { "process.host", "some.other:host" },
+                    { "process.registry.register", "keeper.other.name" },
+                    { "process.registry.unregister", "keeper.other.name" },
+                }
+                for _, pair in ipairs(denied) do
+                    test.is_true(scope:evaluate(actor, pair[1], pair[2]) ~= "allow",
+                        "handler_get must not hold " .. pair[1] .. " on " .. pair[2])
+                end
             end)
 
             it("verify_admin_user accepts seeded admin", function()
