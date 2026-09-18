@@ -1,4 +1,5 @@
 local registry = require("registry")
+local json = require("json")
 local hub_sdk = require("hub")
 local gov_consts = require("gov_consts")
 local ownership = require("ownership")
@@ -382,10 +383,55 @@ local function default_dependency_namespace_for(gov): string
     return (roots[1] or "app") .. ".deps"
 end
 
--- Scalar dependency options must retain their JSON types (especially false).
+local function deep_copy(value)
+    if type(value) ~= "table" then return value end
+    local out = {}
+    for k, v in pairs(value) do out[k] = deep_copy(v) end
+    return out
+end
+
+-- A requirement parameter carries the shape the module declares: scalars keep
+-- their JSON types (especially false), and an object or array value stays
+-- structured data all the way into the dependency entry.
 local function parameter_value(value)
-    if type(value) == "boolean" or type(value) == "number" then return value end
+    local kind = type(value)
+    if kind == "table" then return deep_copy(value) end
+    if kind == "boolean" or kind == "number" then return value end
     return tostring(value or "")
+end
+
+local function value_is_empty(value): boolean
+    if value == nil then return true end
+    if type(value) == "table" then return next(value) == nil end
+    if type(value) == "string" then return trim(value) == "" end
+    return false
+end
+
+-- Structured values are compared and deduplicated by content: two objects with
+-- the same fields are the same configuration regardless of table identity.
+local function value_key(value): string
+    if type(value) ~= "table" then return type(value) .. ":" .. tostring(value) end
+    local keys = {}
+    for k in pairs(value) do table.insert(keys, k) end
+    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+    local parts = {}
+    for _, k in ipairs(keys) do
+        table.insert(parts, tostring(k) .. "=" .. value_key(value[k]))
+    end
+    return "table:{" .. table.concat(parts, ",") .. "}"
+end
+
+local function value_label(value): string
+    if type(value) ~= "table" then return tostring(value) end
+    local encoded, encode_err = json.encode(value)
+    if encoded and not encode_err then return encoded end
+    return value_key(value)
+end
+
+-- Callers matching a planned parameter against a recorded one compare by
+-- content: a structured value is never the same table on both sides.
+function M.parameter_values_equal(a, b): boolean
+    return value_key(a) == value_key(b)
 end
 
 function M.normalize_parameters(input): ({ Parameter }?, unknown?)
@@ -1703,8 +1749,10 @@ function Planner:plan_requirements(graph, supplied_parameters)
         for _, param in ipairs(existing or {}) do
             local value = parameter_value(param.value)
             if type(value) == "string" then value = trim(value) end
-            if value ~= "" and param.name == name and (component == nil or param.component == component) and not seen[value] then
-                seen[value] = true
+            local key = value_key(value)
+            if not value_is_empty(value) and param.name == name
+                and (component == nil or param.component == component) and not seen[key] then
+                seen[key] = true
                 table.insert(out, {
                     value = value,
                     dependency_id = param.dependency_id,
@@ -1792,11 +1840,12 @@ function Planner:plan_requirements(graph, supplied_parameters)
     local function add_suggestion(suggestions, seen, value, label, source, dependency_id, kind, description)
         value = parameter_value(value)
         if type(value) == "string" then value = trim(value) end
-        if value == "" or seen[value] then return end
-        seen[value] = true
+        local key = value_key(value)
+        if value_is_empty(value) or seen[key] then return end
+        seen[key] = true
         table.insert(suggestions, {
             value = value,
-            label = label or value,
+            label = label or value_label(value),
             source = source,
             dependency_id = dependency_id,
             kind = kind,
@@ -1837,9 +1886,13 @@ function Planner:plan_requirements(graph, supplied_parameters)
                     registry_candidate_set = candidate_set(candidates)
                 end
 
+                -- A declared kind is satisfied by a registry id, so a
+                -- structured value can only satisfy a requirement that names
+                -- no kind: it is a literal the module consumes as written.
                 local function compatible_value(v)
-                    if v == nil or v == "" then return false end
+                    if value_is_empty(v) then return false end
                     if not expected_kind then return true end
+                    if type(v) == "table" then return false end
                     v = trim(v)
                     return registry_candidate_set[v] == true
                 end
@@ -1851,7 +1904,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                             suggestions,
                             suggestion_seen,
                             match.value,
-                            tostring(match.value) .. " from " .. tostring(match.dependency_id),
+                            value_label(match.value) .. " from " .. tostring(match.dependency_id),
                             "existing",
                             match.dependency_id,
                             expected_kind
@@ -1870,7 +1923,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                             suggestions,
                             suggestion_seen,
                             match.value,
-                            tostring(match.value) .. " from " .. tostring(match.dependency_id),
+                            value_label(match.value) .. " from " .. tostring(match.dependency_id),
                             "existing_bare",
                             match.dependency_id,
                             expected_kind
@@ -1883,17 +1936,17 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 local default_compatible = compatible_value(default_value)
                 local invalid_value = false
                 local invalid_reason = nil
-                if value ~= nil and value ~= "" and not compatible_value(value) then
+                if value ~= nil and not value_is_empty(value) and not compatible_value(value) then
                     invalid_value = true
                     invalid_reason = "value must reference an existing " .. tostring(expected_kind)
                     source = tostring(source or "provided") .. "_invalid"
                 end
-                if default_value ~= "" and default_compatible then
+                if not value_is_empty(default_value) and default_compatible then
                     add_suggestion(
                         suggestions,
                         suggestion_seen,
                         default_value,
-                        "package default: " .. tostring(default_value),
+                        "package default: " .. value_label(default_value),
                         "default",
                         nil,
                         expected_kind
@@ -1929,7 +1982,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 -- The module's own declared default outranks bare-name reuse:
                 -- a same-named parameter on another root is a different
                 -- requirement that happens to share a name, not agreement.
-                if value == nil and source ~= "conflict" and default_value ~= "" and default_compatible then
+                if value == nil and source ~= "conflict" and not value_is_empty(default_value) and default_compatible then
                     value = default_value
                     source = "default"
                 end
@@ -1970,7 +2023,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                     suggestions = suggestions,
                     transitive = node.depth > 0,
                 }
-                row.missing = row.required and (value == "" or row.invalid == true)
+                row.missing = row.required and (value_is_empty(value) or row.invalid == true)
                 table.insert(out, row)
             end
             end
@@ -1986,7 +2039,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
     local parameters = {}
     for _, row in ipairs(out) do
         if row.missing then table.insert(missing, row.parameter_name) end
-        if row.transitive ~= true and row.value ~= "" and row.invalid ~= true then
+        if row.transitive ~= true and not value_is_empty(row.value) and row.invalid ~= true then
             table.insert(parameters, { name = row.parameter_name, value = row.value })
         end
     end
@@ -2022,7 +2075,7 @@ end
 function Planner:plan_binding_dependencies(requirements, root_entry)
     local by_module = {}
     for _, row in ipairs(requirements or {}) do
-        if row.transitive == true and row.value ~= "" and row.invalid ~= true
+        if row.transitive == true and not value_is_empty(row.value) and row.invalid ~= true
             and row.value_source ~= "default" then
             local parameters = by_module[row.module] or {}
             by_module[row.module] = parameters

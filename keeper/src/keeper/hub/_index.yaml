@@ -20,6 +20,7 @@ entries:
     modules:
       - registry
       - hub
+      - json
     imports:
       gov_consts: keeper.gov:consts
       ownership: keeper.hub:ownership
