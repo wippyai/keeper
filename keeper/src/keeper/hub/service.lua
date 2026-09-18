@@ -263,81 +263,11 @@ function M.resolve_dependency_id(args)
     return ns .. ":" .. name, nil
 end
 
--- Scalar dependency options must retain their JSON types (especially false).
-local function parameter_value(value)
-    if type(value) == "boolean" or type(value) == "number" then return value end
-    return tostring(value or "")
-end
-
-function M.normalize_parameters(input)
-    if input == nil then return {}, nil end
-    if type(input) ~= "table" then
-        return nil, err("BAD_REQUEST", "parameters must be an array of {name,value} or an object map")
-    end
-
-    local out = {}
-    local seen = {}
-
-    local function add(name, value)
-        name = trim(name)
-        if name == "" then
-            return err("BAD_REQUEST", "parameter name is required")
-        end
-        if seen[name] then
-            return err("BAD_REQUEST", "duplicate parameter: " .. name)
-        end
-        seen[name] = true
-        if value == nil then value = "" end
-        table.insert(out, { name = name, value = parameter_value(value) })
-        return nil
-    end
-
-    if is_array(input) then
-        for i, item in ipairs(input) do
-            if type(item) ~= "table" then
-                return nil, err("BAD_REQUEST", "parameters[" .. i .. "] must be an object")
-            end
-            local add_err = add(item.name, item.value)
-            if add_err then return nil, add_err end
-        end
-    else
-        local keys = {}
-        for k in pairs(input) do table.insert(keys, k) end
-        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
-        for _, k in ipairs(keys) do
-            local add_err = add(k, input[k])
-            if add_err then return nil, add_err end
-        end
-    end
-
-    return out, nil
-end
-
-function M.build_dependency_entry(args)
-    args = args or {}
-    local parsed, comp_err = M.parse_component(args.component)
-    if not parsed then return nil, comp_err end
-
-    local id, id_err = M.resolve_dependency_id(args)
-    if not id then return nil, id_err end
-
-    local parameters, param_err = M.normalize_parameters(args.parameters)
-    if not parameters then return nil, param_err end
-
-    local data = {
-        component = parsed.component,
-        version = trim(args.version) ~= "" and trim(args.version) or M.DEFAULT_VERSION,
-    }
-    if #parameters > 0 then data.parameters = parameters end
-
-    return {
-        id = id,
-        kind = "ns.dependency",
-        dependency_root = true,
-        meta = shallow_copy(args.meta or {}),
-        data = data,
-    }, nil
-end
+-- Dependency parameter normalization and entry construction live in the
+-- planner: the plan and the published entry must serialize a requirement
+-- parameter the same way, structured values included.
+M.normalize_parameters = planner.normalize_parameters
+M.build_dependency_entry = planner.build_dependency_entry
 
 function M.entry_to_set_patch(entry)
     local materialized, mat_err = materialize.entry(entry)
@@ -989,7 +919,7 @@ local function same_binding_parameters(a, b)
     end
     if count ~= #(b or {}) then return false end
     for _, parameter in ipairs(b or {}) do
-        if values[parameter.name] ~= parameter.value then return false end
+        if not planner.parameter_values_equal(values[parameter.name], parameter.value) then return false end
     end
     return true
 end

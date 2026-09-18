@@ -1,5 +1,25 @@
 # Release Notes
 
+## keeper/keeper 0.5.85
+
+Hub install carries a table-valued requirement parameter as structured data. A
+parameter whose value is an object or an array reached the plan, the
+suggestions and the published `ns.dependency` entry as the literal string
+`table: 0x...`: the parameter serializer kept booleans and numbers as they came
+and sent everything else through `tostring`, so a string survived as itself
+while a table became its address. Installing a module that configures a
+structured requirement - a grant appended to `.meta.provision.grants`, for
+instance - replaced the recorded object with that address.
+
+A table now travels through the plan as a copy of itself, and values are
+compared, deduplicated and labelled by content, so the emitted patch renders a
+nested mapping (a sequence when the value is an array) and scalars render
+exactly as before. A requirement that declares `meta.value_kind` still accepts
+only a registry id; a structured literal satisfies only a requirement that
+names no kind. The Hub service no longer carries its own copy of the parameter
+normalizer and entry builder - it uses the planner's, so a plan and the entry
+it publishes cannot serialize the same parameter differently again.
+
 ## keeper/keeper 0.5.84
 
 The Keeper MCP endpoint now serves its Streamable HTTP event stream. A GET to

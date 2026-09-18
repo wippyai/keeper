@@ -873,6 +873,36 @@ local function define_tests()
                 test.eq(result.values["acme.options:enabled"], false)
                 test.eq(find_parameter(result.parameters, "acme.options:enabled").value, false)
             end)
+
+            it("suggests a recorded object value once and labels it by content", function()
+                local pl = planner.new({ registry = fake_registry({}) }) :: any
+                pl.existing_parameter_values = function()
+                    return {
+                        { name = "acme.options:grant", value = { subject_id = "app.security:user", access_mask = 2 },
+                            dependency_id = "app:options", component = "acme/options" },
+                        { name = "acme.options:grant", value = { access_mask = 2, subject_id = "app.security:user" },
+                            dependency_id = "app:other", component = "acme/other" },
+                    }
+                end
+                local graph = {{ module = "acme/options", namespace = "acme.options", version = "1.0.0",
+                    direct = true, depth = 0, requirements = {{ name = "grant" }} }}
+                local result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                local row = find_requirement(result, "acme.options:grant")
+                test.not_nil(row)
+                -- one recorded configuration, recorded twice: content decides
+                -- identity, so the operator sees a single suggestion and the
+                -- value resolves without a conflict.
+                test.eq(#row.suggestions, 1)
+                test.eq(type(row.suggestions[1].value), "table")
+                test.eq(row.suggestions[1].value.subject_id, "app.security:user")
+                test.eq(row.suggestions[1].value.access_mask, 2)
+                test.is_nil(string.find(row.suggestions[1].label, "table: 0x", 1, true))
+                test.is_true(string.find(row.suggestions[1].label, "app.security:user", 1, true) ~= nil)
+                test.eq(row.value_source, "existing")
+                test.eq(type(row.value), "table")
+                test.eq(row.value.access_mask, 2)
+            end)
         end)
 
         describe("dependency entry shape", function()
@@ -2999,6 +3029,99 @@ local function define_tests()
                 test.is_nil(env_storage.expected_kind)
                 test.eq(#env_storage.suggestions, 0)
                 test.eq(env_storage.value_source, "empty")
+            end)
+
+            it("carries an object requirement value through plan, payload, and patch", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/lifecycle"] = {
+                            {
+                                version = "v1.0.0",
+                                requirements = {
+                                    {
+                                        name = "user_lifecycle_grant",
+                                        description = "Structured READ|WRITE grant for the host's user group.",
+                                        targets = {
+                                            { entry = "acme.lifecycle:system", path = ".meta.provision.grants +=" },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    }),
+                    registry = fake_registry({
+                        { id = "app.security:user", kind = "security.scope", meta = {}, data = {} },
+                    }),
+                }) :: any
+
+                local plan, err = svc:plan_install({
+                    component = "acme/lifecycle",
+                    version = "v1.0.0",
+                    parameters = {
+                        {
+                            name = "acme.lifecycle:user_lifecycle_grant",
+                            value = {
+                                subject_id = "app.security:user",
+                                subject_type = "group",
+                                access_mask = 2,
+                            },
+                        },
+                    },
+                })
+
+                test.is_nil(err)
+                local grant = find_requirement(plan, "acme.lifecycle:user_lifecycle_grant")
+                test.not_nil(grant)
+                test.eq(grant.value_source, "provided")
+                test.is_true(grant.missing ~= true)
+                test.eq(type(grant.value), "table")
+                test.eq(grant.value.subject_id, "app.security:user")
+                test.eq(grant.value.subject_type, "group")
+                test.eq(grant.value.access_mask, 2)
+
+                local planned = find_parameter(plan.install_payload.parameters, "acme.lifecycle:user_lifecycle_grant")
+                test.not_nil(planned)
+                test.eq(type(planned.value), "table")
+                test.eq(planned.value.subject_id, "app.security:user")
+                test.eq(planned.value.subject_type, "group")
+                test.eq(planned.value.access_mask, 2)
+
+                local entry, build_err = hub.build_dependency_entry({
+                    component = "acme/lifecycle",
+                    version = "v1.0.0",
+                    parameters = plan.install_payload.parameters,
+                })
+                test.is_nil(build_err)
+                test.eq(type(entry.data.parameters[1].value), "table")
+                test.eq(entry.data.parameters[1].value.access_mask, 2)
+
+                local patch, patch_err = hub.entry_to_set_patch(entry)
+                test.is_nil(patch_err)
+                test.is_nil(string.find(patch.definition, "table: 0x", 1, true))
+                test.is_true(string.find(patch.definition, "subject_id:", 1, true) ~= nil)
+                test.is_true(string.find(patch.definition, "app.security:user", 1, true) ~= nil)
+                test.is_true(string.find(patch.definition, "subject_type: group", 1, true) ~= nil)
+                test.is_true(string.find(patch.definition, "access_mask: 2", 1, true) ~= nil)
+            end)
+
+            it("renders an array requirement value as a patch sequence", function()
+                local entry, build_err = hub.build_dependency_entry({
+                    component = "acme/lifecycle",
+                    version = "v1.0.0",
+                    parameters = {
+                        { name = "acme.lifecycle:audiences", value = { "app.security:user", "app.security:admin" } },
+                    },
+                })
+                test.is_nil(build_err)
+                test.eq(type(entry.data.parameters[1].value), "table")
+                test.eq(entry.data.parameters[1].value[1], "app.security:user")
+                test.eq(entry.data.parameters[1].value[2], "app.security:admin")
+
+                local patch, patch_err = hub.entry_to_set_patch(entry)
+                test.is_nil(patch_err)
+                test.is_nil(string.find(patch.definition, "table: 0x", 1, true))
+                test.is_true(string.find(patch.definition, "- app.security:user", 1, true) ~= nil)
+                test.is_true(string.find(patch.definition, "- app.security:admin", 1, true) ~= nil)
             end)
 
             it("loads selected version detail before building the requirement list", function()
