@@ -2,6 +2,8 @@ directories:
     modules: .wippy
     src: .
 modules:
+    - name: keeper/keeper
+      version: 0.5.86
     - name: userspace/contract
       version: 0.4.1
       hash: c154e2cc11ca94ddd368307aced96cfbbd411a58e74e46339d50b4a9befc1d65
@@ -12,8 +14,8 @@ modules:
       version: 0.4.17
       hash: f8b8ed9f8098e254f7b431ca9f5378672bb5deae33122b777d1714092bcca91a
     - name: wippy/bootloader
-      version: 0.3.14
-      hash: aa5e32807eba6a5ea0e5a224069a006288f58605c4542a444f5469caee862c58
+      version: 0.3.16
+      hash: a31e9c64ec482ced0b0095bc0c85b2a69a7b1361c207ab43ffae807da473f6bc
     - name: wippy/dataflow
       version: 0.7.15
       hash: f0ecb0a9a89c61c516503b86d7d4db564bc597af2218e99c61e1f2dcc6880a72
