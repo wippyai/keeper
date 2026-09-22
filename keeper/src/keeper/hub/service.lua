@@ -11,6 +11,8 @@ local governance = require("governance")
 local gov_consts = require("gov_consts")
 local step_runner = require("step_runner")
 local ownership = require("ownership")
+local bootloader = require("bootloader")
+local bootloader_registry = require("bootloader_registry")
 
 local M = {}
 
@@ -29,6 +31,8 @@ type ServiceDeps = {
     ownership: unknown?,
     governance: unknown?,
     gov_consts: unknown?,
+    bootloader: unknown?,
+    bootloader_registry: unknown?,
 }
 
 type HubService = {
@@ -43,6 +47,8 @@ type HubService = {
     ownership: unknown,
     governance: unknown,
     gov_consts: unknown,
+    bootloader: unknown,
+    bootloader_registry: unknown,
     list_dependencies: (HubService, unknown) -> (unknown, unknown?),
     list_migrations: (HubService, unknown) -> (unknown, unknown?),
     install: (HubService, unknown, unknown?) -> (unknown, unknown?),
@@ -159,6 +165,13 @@ local function validate_resolved_graph(graph)
         end
     end
     return true, nil
+end
+
+local function err_code_of(e: unknown)
+    if e == nil then return nil end
+    local ok, details = pcall(function() return (e :: any):details() end)
+    if ok and type(details) == "table" then return (details :: any).code end
+    return nil
 end
 
 local function error_summary(e: unknown)
@@ -326,6 +339,8 @@ function M.new(deps: ServiceDeps?)
         ownership = deps.ownership or ownership,
         governance = deps.governance or governance,
         gov_consts = deps.gov_consts or gov_consts,
+        bootloader = deps.bootloader or bootloader,
+        bootloader_registry = deps.bootloader_registry or bootloader_registry,
     }, Service) :: HubService
 end
 
@@ -1090,6 +1105,8 @@ function Service:install_batch(args, opts)
     local baseline_version, version_err = self:current_registry_version()
     if not baseline_version then return nil, version_err end
     payload.baseline_version = baseline_version
+    local bootloader_data, bootloader_data_err = self:bootloader_step_data(entries)
+    if not bootloader_data then return nil, bootloader_data_err end
 
     local operation_id = self:new_operation_id()
     payload.operation_id = operation_id
@@ -1120,6 +1137,7 @@ function Service:install_batch(args, opts)
             data = { components = migration_components },
         })
     end
+    table.insert(steps, { op = "bootloaders_run", label = "bootloaders", data = bootloader_data })
 
     local ledger = step_runner.run(steps, { execute = self:install_step_dispatch(opts) })
     if not ledger.success then
@@ -1136,11 +1154,13 @@ function Service:install_batch(args, opts)
     end
     payload.apply = apply_result
     payload.migrations = migration_result
+    payload.bootloaders = self:ledger_result(ledger, "bootloaders_run")
     payload.execution = self:project_ledger(ledger, nil)
     self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FINISHED, operation_id, {
         dependencies = payload.dependencies,
         apply = apply_result,
         migrations = migration_result,
+        bootloaders = payload.bootloaders,
         execution = payload.execution,
     })
     return payload, nil
@@ -1160,6 +1180,93 @@ function Service:run_migrations_for_components(components, opts)
         end
     end
     return self:run_migrations({ entry_ids = entry_ids, operation = "up" }, opts)
+end
+
+-- Components whose dependency root an install creates or re-parameterizes. The
+-- runtime re-materializes such a module with the new values even when its
+-- resolved version stays the same.
+function Service:reconfigured_components(entries)
+    local out = {}
+    for _, entry in ipairs(entries or {}) do
+        local existing, get_err = self:get_entry(entry.id)
+        if not existing and err_code_of(get_err) ~= "NOT_FOUND" then return nil, get_err end
+        if not existing or not same_binding_parameters(
+            existing.data and existing.data.parameters, entry.data and entry.data.parameters) then
+            table.insert(out, tostring(entry.data.component))
+        end
+    end
+    return out, nil
+end
+
+-- The data the bootloader step needs from before the apply: the resolved module
+-- versions the registry holds now and the components the apply reconfigures.
+function Service:bootloader_step_data(entries)
+    local versions, versions_err = self:ownership_index():module_versions()
+    if not versions then return nil, err("INTERNAL", tostring(versions_err)) end
+    local reconfigured, reconfigured_err = self:reconfigured_components(entries)
+    if not reconfigured then return nil, reconfigured_err end
+    return { baseline_modules = versions, reconfigured = reconfigured }, nil
+end
+
+-- Runs the bootloaders of the modules an apply brought online, the way boot runs
+-- them: framework discovery and order, then the framework chain runner with the
+-- same dependency checks and stop-on-error. A module is in scope when its
+-- resolved version differs from the baseline (a new module has none) or its root
+-- was reconfigured. Every other bootloader completed when this runtime booted,
+-- so it satisfies a meta.requires without running again.
+function Service:run_installed_bootloaders(baseline_modules, reconfigured)
+    local index = self:ownership_index()
+    local current, current_err = index:module_versions()
+    if not current then return nil, err("INTERNAL", tostring(current_err)) end
+
+    local scope = {}
+    for name, version in pairs(current) do
+        if (baseline_modules or {})[name] ~= version then scope[name] = true end
+    end
+    for _, component in ipairs(reconfigured or {}) do
+        if current[component] ~= nil then scope[component] = true end
+    end
+    local modules = {}
+    for name in pairs(scope) do table.insert(modules, name) end
+    table.sort(modules)
+
+    local result = { modules = modules, entry_ids = {}, count = 0 }
+    if #modules == 0 then return result, nil end
+
+    local discovered, find_err = self.bootloader_registry.find()
+    if find_err then
+        return nil, err("INTERNAL", "bootloader discovery failed: " .. tostring(find_err))
+    end
+    local chain, satisfied = {}, {}
+    for _, entry in ipairs(discovered or {}) do
+        local owner, _, owner_err = index:owner_of(entry.id)
+        if owner_err then return nil, err("INTERNAL", tostring(owner_err)) end
+        if scope[owner] then
+            table.insert(chain, entry)
+            table.insert(result.entry_ids, tostring(entry.id))
+        else
+            table.insert(satisfied, tostring(entry.id))
+        end
+    end
+    result.count = #chain
+    if #chain == 0 then return result, nil end
+
+    local ok, stats = self.bootloader.run_chain(chain, {}, satisfied)
+    result.stats = stats
+    if ok then return result, nil end
+
+    local rows = type(stats) == "table" and (stats :: any).bootloaders or {}
+    local failed = {}
+    for _, row in ipairs(rows) do
+        if row.status == "error" then failed = row end
+    end
+    return nil, err("BOOTLOADERS_FAILED",
+        "bootloader " .. tostring(failed.id) .. " failed: " .. tostring(failed.message),
+        {
+            bootloader = failed.id,
+            bootloader_message = failed.message,
+            bootloaders = planner.position_keyed(rows),
+        })
 end
 
 local function entry_data(entry)
@@ -1471,6 +1578,13 @@ function Service:install_step_dispatch(opts)
                 op = op, label = step.label, result = migration_result,
                 inverse = { op = "migrations_down", data = { entry_ids = migration_result.entry_ids or {} } },
             }
+        elseif op == "bootloaders_run" then
+            local boot_result, boot_err = svc:run_installed_bootloaders(
+                step.data.baseline_modules, step.data.reconfigured)
+            if not boot_result then
+                return { op = op, label = step.label, error = boot_err }
+            end
+            return { op = op, label = step.label, result = boot_result }
         end
         return { op = op, label = step.label, error = err("INTERNAL", "unknown install step: " .. tostring(op)) }
     end
@@ -1534,6 +1648,8 @@ function Service:install(args, opts)
     local baseline_version, version_err = self:current_registry_version()
     if not baseline_version then return nil, version_err end
     payload.baseline_version = baseline_version
+    local bootloader_data, bootloader_data_err = self:bootloader_step_data(prepared.entries)
+    if not bootloader_data then return nil, bootloader_data_err end
 
     local operation_id = self:new_operation_id()
     payload.operation_id = operation_id
@@ -1543,7 +1659,8 @@ function Service:install(args, opts)
     })
 
     -- Build the ordered install steps. governance_apply is the one atomic
-    -- publish; migrations_up appears only when it has work to do.
+    -- publish; migrations_up appears only when it has work to do; the changed
+    -- modules' bootloaders run last, as they do after migrations at boot.
     local steps = {
         {
             op = "pre_apply_validate", label = "validation",
@@ -1568,6 +1685,7 @@ function Service:install(args, opts)
         local migration_data = #components == 1 and { component = entry.data.component } or { components = components }
         table.insert(steps, { op = "migrations_up", label = "migrations", data = migration_data })
     end
+    table.insert(steps, { op = "bootloaders_run", label = "bootloaders", data = bootloader_data })
     local ledger = step_runner.run(steps, { execute = self:install_step_dispatch(opts) })
 
     if not ledger.success then
@@ -1585,17 +1703,28 @@ function Service:install(args, opts)
     end
     payload.apply = apply_result
     payload.migrations = migration_result
+    payload.bootloaders = self:ledger_result(ledger, "bootloaders_run")
     payload.execution = self:project_ledger(ledger, nil)
 
     self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FINISHED, operation_id, {
         dependency = payload.dependency,
         apply = apply_result,
         migrations = migration_result,
+        bootloaders = payload.bootloaders,
         execution = payload.execution,
     })
 
     return payload, nil
 end
+
+-- Steps that fail after the registry apply: the install restores the baseline
+-- registry version and reports the step's own error under its detail key.
+type PostApplyFailure = { code: string, what: string, detail: string }
+
+local POST_APPLY_FAILURES: { [string]: PostApplyFailure } = {
+    migrations_up = { code = "MIGRATIONS_FAILED", what = "migrations", detail = "migration_error" },
+    bootloaders_run = { code = "BOOTLOADERS_FAILED", what = "bootloaders", detail = "bootloader_error" },
+}
 
 function Service:install_failure(ledger, payload, ctx, opts)
     local rows = ledger.execution.handlers
@@ -1623,28 +1752,28 @@ function Service:install_failure(ledger, payload, ctx, opts)
 
     local restore_ok = restore ~= nil and restore.result ~= nil and restore.error == nil
     local apply_result = self:ledger_result(ledger, "governance_apply")
+    local post_apply = POST_APPLY_FAILURES[tostring(failed_op)] :: PostApplyFailure?
     local failure_err
-    if failed_op == "migrations_up" then
+    if post_apply then
+        local summary = error_summary(failed_err)
+        local details = {
+            baseline_version = ctx.baseline_version,
+            apply = apply_result,
+            execution = execution_details(payload.execution),
+        }
+        details[post_apply.detail] = summary
         if restore_ok then
-            failure_err = err("MIGRATIONS_FAILED",
-                "migrations failed after dependency install; registry restored to baseline",
-                {
-                    migration_error = error_summary(failed_err),
-                    baseline_version = ctx.baseline_version,
-                    rollback = payload.rollback,
-                    apply = apply_result,
-                    execution = execution_details(payload.execution),
-                })
+            details.rollback = payload.rollback
+            failure_err = err(post_apply.code,
+                post_apply.what .. " failed after dependency install; registry restored to baseline: "
+                    .. tostring(summary and summary.message),
+                details)
         else
+            details.rollback_error = payload.rollback_error
             failure_err = err("ROLLBACK_FAILED",
-                "migrations failed after dependency install and registry rollback failed",
-                {
-                    migration_error = error_summary(failed_err),
-                    baseline_version = ctx.baseline_version,
-                    rollback_error = payload.rollback_error,
-                    apply = apply_result,
-                    execution = execution_details(payload.execution),
-                })
+                post_apply.what .. " failed after dependency install and registry rollback failed: "
+                    .. tostring(summary and summary.message),
+                details)
         end
     else
         failure_err = failed_err or err("INTERNAL", "hub install failed")
