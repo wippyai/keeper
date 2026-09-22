@@ -119,20 +119,22 @@ local function run(args)
         if op.entry and op.entry.id then
             local namespace = op.entry.id:match("(.+):.+")
             if namespace then
-                if not summary.namespaces[namespace] then
-                    summary.namespaces[namespace] = {
+                local counts = summary.namespaces[namespace]
+                if not counts then
+                    counts = {
                         create = 0,
                         update = 0,
                         delete = 0
                     }
+                    summary.namespaces[namespace] = counts
                 end
 
                 if op.kind == CONST.OPERATIONS.CREATE then
-                    summary.namespaces[namespace].create = summary.namespaces[namespace].create + 1
+                    counts.create = counts.create + 1
                 elseif op.kind == CONST.OPERATIONS.UPDATE then
-                    summary.namespaces[namespace].update = summary.namespaces[namespace].update + 1
+                    counts.update = counts.update + 1
                 elseif op.kind == CONST.OPERATIONS.DELETE then
-                    summary.namespaces[namespace].delete = summary.namespaces[namespace].delete + 1
+                    counts.delete = counts.delete + 1
                 end
             end
 
