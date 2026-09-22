@@ -498,6 +498,14 @@ entries:
     component: wippy/agent
     version: ">=v0.4.7"
 
+  # keeper:dep.wippy.bootloader
+  - name: dep.wippy.bootloader
+    kind: ns.dependency
+    meta:
+      description: Bootloader chain runner Hub installs use to run installed modules' bootloaders
+    component: wippy/bootloader
+    version: ">=v0.3.16"
+
   # keeper:dep.wippy.dataflow
   - name: dep.wippy.dataflow
     kind: ns.dependency

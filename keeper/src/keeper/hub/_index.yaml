@@ -39,6 +39,8 @@ entries:
       - process
       - system
     imports:
+      bootloader: wippy.bootloader:bootloader
+      bootloader_registry: wippy.bootloader:bootloader_registry
       gov_consts: keeper.gov:consts
       governance: keeper.state.publish:governance
       materialize: keeper.state.persist:materialize

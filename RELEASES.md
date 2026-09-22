@@ -1,5 +1,49 @@
 # Release Notes
 
+## keeper/keeper 0.5.86
+
+Hub install now runs the bootloaders of the modules it brings online. Boot runs
+every `meta.type: bootloader` entry after migrations - cache warms, projection
+reconcile triggers, settings seeds - but a hot install stopped at `migrations_up`,
+so an installed or updated module came up with none of that work done until the
+next restart.
+
+The install ends with a `bootloaders` step after migrations. A module is in
+scope when the apply changed its resolved version (a new module counts) or
+created or re-parameterized its dependency root. Its bootloaders run through the
+framework's own path: `wippy.bootloader:bootloader_registry` discovers and
+orders them by `meta.order`, then id, and `wippy.bootloader:bootloader`
+`run_chain` executes them with the boot chain's `meta.requires` checks, status
+handling and stop-on-error. Bootloaders of modules the apply left unchanged ran
+when the runtime booted; they satisfy a `meta.requires` and are not re-run. A
+failing bootloader fails the install with `BOOTLOADERS_FAILED`, naming the
+bootloader and carrying its message, and the registry is restored to the
+baseline version, as a migration failure is. Migration failures now carry the
+migration's message in the error text as well.
+
+Requires `wippy/bootloader` with `run_chain` (declared as `>=v0.3.16`).
+
+Services still restart at the governance apply, before migrations: the module
+lands atomically through its `ns.dependency` entry, its migrations exist only
+after that apply, and the runtime exposes no way to hold or restart a service
+from Lua. Ordering service start after migrations and bootloaders needs a
+runtime-side completion gate.
+
+### Verification
+
+- Hub suite: four new tests fail on 0.5.85 and pass - the changed module's
+  bootloaders run after its migrations in declared order with every other
+  bootloader passed as satisfied (single and batch install), a failing bootloader
+  fails the install with its message and restores the registry, and an install
+  that changes no module runs none. The install ledger test now expects the
+  fourth `bootloaders` step. 148 of 148 pass against `wippy/bootloader` with
+  `run_chain`.
+- On the test host's real registry and framework, the step scoped to
+  `wippy/bootloader` ran `wippy.bootloader.bootloaders:encryption_key` through
+  `run_chain` and reported success; scoped to `wippy/migration` it ran
+  `wippy.migration:migration_bootloader` with its `encryption_key` prerequisite
+  satisfied and surfaced that bootloader's own failure message.
+
 ## keeper/keeper 0.5.85
 
 Hub install carries a table-valued requirement parameter as structured data. A

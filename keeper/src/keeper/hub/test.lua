@@ -5466,14 +5466,17 @@ local function define_tests()
 
                 test.is_nil(err)
                 test.not_nil(out.execution)
-                -- Migrations run by default: installed code never outruns its schema.
-                test.eq(#out.execution, 3)
+                -- Migrations run by default: installed code never outruns its
+                -- schema, and the changed modules' bootloaders run after them.
+                test.eq(#out.execution, 4)
                 test.eq(out.execution[1].step, "validation")
                 test.eq(out.execution[1].status, "ok")
                 test.eq(out.execution[2].step, "governance")
                 test.eq(out.execution[2].status, "ok")
                 test.eq(out.execution[3].step, "migrations")
                 test.eq(out.execution[3].status, "ok")
+                test.eq(out.execution[4].step, "bootloaders")
+                test.eq(out.execution[4].status, "ok")
             end)
 
             it("returns an ordered ok ledger on a successful uninstall", function()
@@ -5660,6 +5663,227 @@ local function define_tests()
                 test.eq(calls[1].id, hub.MIGRATION_HANDLER_FN)
                 test.eq(calls[1].params.operation, "up")
                 test.eq(calls[1].params.entry_ids[1], "wippy.foo.migrations:001")
+            end)
+
+            -- wippy/foo moves from v1.2.3 to v1.3.0 and ships two bootloaders.
+            -- wippy/other and wippy/migration stay as they are; their
+            -- bootloaders completed when this runtime booted.
+            local function bootloader_install(opts)
+                opts = opts or {}
+                local record = { sequence = {}, chains = {} } :: any
+                local entries = concat_entries(
+                    fixture_entries(),
+                    installed_module("wippy/other", {}),
+                    {
+                        {
+                            id = "wippy.other:boot",
+                            kind = "function.lua",
+                            meta = { type = "bootloader", order = 5 },
+                            provenance = { module = "wippy/other", version = "1.0.0" },
+                            data = {},
+                        },
+                        {
+                            id = "wippy.migration:migration_bootloader",
+                            kind = "function.lua",
+                            meta = { type = "bootloader", order = 20 },
+                            provenance = { module = "wippy/migration", version = "0.3.18" },
+                            data = {},
+                        },
+                    }
+                )
+                record.gov_state = ({ current_version = 70 }) :: any
+                local gov = fake_governance(record.gov_state)
+                local base_publish = gov.publish
+                gov.publish = function(changeset, options)
+                    local result, publish_err = base_publish(changeset, options)
+                    if not result then return nil, publish_err end
+                    if opts.module_version then
+                        for _, entry in ipairs(entries) do
+                            if entry.provenance and entry.provenance.module == "wippy/foo" then
+                                entry.provenance.version = opts.module_version
+                            end
+                        end
+                        table.insert(entries, {
+                            id = "wippy.foo:seed",
+                            kind = "function.lua",
+                            meta = { type = "bootloader", order = 45, requires = { "wippy.foo:warm_cache" } },
+                            provenance = { module = "wippy/foo", version = opts.module_version },
+                            data = {},
+                        })
+                        table.insert(entries, {
+                            id = "wippy.foo:warm_cache",
+                            kind = "function.lua",
+                            meta = {
+                                type = "bootloader",
+                                order = 30,
+                                requires = { "wippy.migration:migration_bootloader" },
+                            },
+                            provenance = { module = "wippy/foo", version = opts.module_version },
+                            data = {},
+                        })
+                    end
+                    return result, nil
+                end
+                local deps = {
+                    registry = fake_registry(entries),
+                    sql = fake_sql({}),
+                    uuid = fake_uuid(),
+                    process = fake_process({}),
+                    governance = gov,
+                    planner = no_requirements_planner(),
+                    funcs = {
+                        new = function()
+                            return {
+                                call = function(_, id, params)
+                                    if id == hub.MIGRATION_HANDLER_FN then
+                                        table.insert(record.sequence, "migrations")
+                                        return { ok = true, operation = params.operation }, nil
+                                    end
+                                    return nil, "unexpected call: " .. tostring(id)
+                                end,
+                            }, nil
+                        end,
+                    },
+                    -- Discovery as the framework serves it: every bootloader in
+                    -- the registry, ordered by meta.order, then id.
+                    bootloader_registry = {
+                        find = function()
+                            local out = {}
+                            for _, entry in ipairs(entries) do
+                                if entry.meta and entry.meta.type == "bootloader" then
+                                    table.insert(out, entry)
+                                end
+                            end
+                            table.sort(out, function(a, b)
+                                if a.meta.order ~= b.meta.order then return a.meta.order < b.meta.order end
+                                return a.id < b.id
+                            end)
+                            return out, nil
+                        end,
+                    },
+                    bootloader = {
+                        run_chain = function(chain, options, satisfied)
+                            table.insert(record.sequence, "bootloaders")
+                            table.insert(record.chains, { chain = chain, options = options, satisfied = satisfied })
+                            local rows = {}
+                            for index, entry in ipairs(chain) do
+                                local failing = opts.fail_id == entry.id
+                                table.insert(rows, {
+                                    id = entry.id,
+                                    order = entry.meta.order,
+                                    status = failing and "error" or "success",
+                                    message = failing and opts.fail_message or "done",
+                                })
+                                if failing then
+                                    return false, {
+                                        success = index - 1, failed = 1, skipped = 0,
+                                        total = #chain, bootloaders = rows,
+                                    }
+                                end
+                            end
+                            return true, {
+                                success = #chain, failed = 0, skipped = 0,
+                                total = #chain, bootloaders = rows,
+                            }
+                        end,
+                    },
+                }
+                return hub.new(deps) :: any, record
+            end
+
+            local function chain_ids(chain)
+                local ids = {}
+                for _, entry in ipairs(chain) do table.insert(ids, entry.id) end
+                return table.concat(ids, ",")
+            end
+
+            it("runs the bootloaders of the module an install changes after its migrations", function()
+                local svc, record = bootloader_install({ module_version = "v1.3.0" })
+
+                local out, err = svc:install({
+                    component = "wippy/foo",
+                    version = "v1.3.0",
+                }, { actor_id = "admin-1" })
+
+                test.is_nil(err)
+                test.not_nil(out)
+                test.eq(table.concat(record.sequence, ","), "migrations,bootloaders")
+                test.eq(#record.chains, 1)
+                local call = record.chains[1]
+                test.eq(chain_ids(call.chain), "wippy.foo:warm_cache,wippy.foo:seed")
+                test.eq(next(call.options), nil)
+                local satisfied = {}
+                for _, id in ipairs(call.satisfied) do satisfied[id] = true end
+                test.is_true(satisfied["wippy.other:boot"] == true)
+                test.is_true(satisfied["wippy.migration:migration_bootloader"] == true)
+                test.is_nil(satisfied["wippy.foo:warm_cache"])
+                test.is_nil(satisfied["wippy.foo:seed"])
+
+                test.eq(out.execution[3].step, "migrations")
+                test.eq(out.execution[4].step, "bootloaders")
+                test.eq(out.execution[4].status, "ok")
+                test.eq(out.bootloaders.count, 2)
+                test.eq(out.bootloaders.entry_ids[1], "wippy.foo:warm_cache")
+                test.eq(out.bootloaders.entry_ids[2], "wippy.foo:seed")
+            end)
+
+            it("runs the bootloaders of the modules a batch install changes", function()
+                local svc, record = bootloader_install({ module_version = "v1.3.0" })
+
+                local out, err = svc:install({
+                    dependencies = {
+                        { id = "app.deps:foo", component = "wippy/foo", version = "v1.3.0" },
+                    },
+                }, { actor_id = "admin-1" })
+
+                test.is_nil(err)
+                test.not_nil(out)
+                test.eq(table.concat(record.sequence, ","), "migrations,bootloaders")
+                test.eq(chain_ids(record.chains[1].chain), "wippy.foo:warm_cache,wippy.foo:seed")
+                test.eq(step_by_name(out.execution, "bootloaders").status, "ok")
+                test.eq(out.bootloaders.count, 2)
+            end)
+
+            it("fails the install with the failing bootloader's message and restores the registry", function()
+                local svc, record = bootloader_install({
+                    module_version = "v1.3.0",
+                    fail_id = "wippy.foo:warm_cache",
+                    fail_message = "cache warm failed: no such column: target",
+                })
+
+                local out, err = svc:install({
+                    component = "wippy/foo",
+                    version = "v1.3.0",
+                }, { actor_id = "admin-1" })
+
+                test.is_nil(out)
+                test.eq(err_code(err), "BOOTLOADERS_FAILED")
+                test.contains(err_message(err), "wippy.foo:warm_cache")
+                test.contains(err_message(err), "cache warm failed: no such column: target")
+                test.eq(record.gov_state.restore_calls, 1)
+                test.eq(record.gov_state.restored_version, 70)
+                local execution = err_details(err).execution
+                test.eq(execution["2"].step, "governance")
+                test.eq(execution["2"].status, "rolled_back")
+                test.eq(execution["3"].step, "migrations")
+                test.eq(execution["3"].status, "ok")
+                test.eq(execution["4"].step, "bootloaders")
+                test.eq(execution["4"].status, "failed")
+            end)
+
+            it("runs no bootloader when the install leaves every module as it was", function()
+                local svc, record = bootloader_install({})
+
+                local out, err = svc:install({
+                    component = "wippy/foo",
+                    version = ">=v1.0.0",
+                }, { actor_id = "admin-1" })
+
+                test.is_nil(err)
+                test.not_nil(out)
+                test.eq(#record.chains, 0)
+                test.eq(step_by_name(out.execution, "bootloaders").status, "ok")
+                test.eq(out.bootloaders.count, 0)
             end)
 
         end)
