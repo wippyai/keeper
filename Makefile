@@ -2,8 +2,9 @@
 
 WIPPY ?= wippy
 
-KEEPER_VERSION ?= 0.5.82
-USAGE_VERSION ?= 0.1.1
+# Published versions come from each module's wippy.yaml.
+KEEPER_VERSION ?= $(shell awk '/^version:/ { print $$2; exit }' keeper/wippy.yaml)
+USAGE_VERSION ?= $(shell awk '/^version:/ { print $$2; exit }' usage/wippy.yaml)
 
 lint: lint-keeper lint-usage
 
