@@ -1029,8 +1029,36 @@ function Service:install_batch(args, opts)
         end
     end
 
+    local function install_steps(baseline_version, bootloader_data)
+        local steps = {
+            {
+                op = "pre_apply_validate", label = "validation",
+                data = { changeset = changeset, planned_entries = planned_entries },
+            },
+            {
+                op = "governance_apply", label = "governance",
+                data = {
+                    action = "install",
+                    entries = entries,
+                    create_only = create_only,
+                    message = "hub install " .. tostring(#entries) .. " dependencies",
+                    baseline_version = baseline_version,
+                },
+            },
+        }
+        if #migration_components > 0 then
+            table.insert(steps, {
+                op = "migrations_up", label = "migrations",
+                data = { components = migration_components, planned = planned_versions },
+            })
+        end
+        table.insert(steps, { op = "bootloaders_run", label = "bootloaders", data = bootloader_data })
+        return steps
+    end
+
     if args.dry_run == true then
         payload.dry_run = true
+        payload.execution = M.planned_execution(install_steps(nil, nil))
         return payload, nil
     end
 
@@ -1047,31 +1075,8 @@ function Service:install_batch(args, opts)
         migration_policy = payload.migration_policy,
     })
 
-    local steps = {
-        {
-            op = "pre_apply_validate", label = "validation",
-            data = { changeset = changeset, planned_entries = planned_entries },
-        },
-        {
-            op = "governance_apply", label = "governance",
-            data = {
-                action = "install",
-                entries = entries,
-                create_only = create_only,
-                message = "hub install " .. tostring(#entries) .. " dependencies",
-                baseline_version = baseline_version,
-            },
-        },
-    }
-    if #migration_components > 0 then
-        table.insert(steps, {
-            op = "migrations_up", label = "migrations",
-            data = { components = migration_components, planned = planned_versions },
-        })
-    end
-    table.insert(steps, { op = "bootloaders_run", label = "bootloaders", data = bootloader_data })
-
-    local ledger = step_runner.run(steps, { execute = self:install_step_dispatch(opts) })
+    local ledger = step_runner.run(install_steps(baseline_version, bootloader_data),
+        { execute = self:install_step_dispatch(opts) })
     if not ledger.success then
         return self:install_failure(ledger, payload, {
             operation_id = operation_id,
@@ -1485,6 +1490,16 @@ function Service:project_ledger(ledger, rollback_ledger)
     return out
 end
 
+-- The steps an install would run, as the execution rows a dry-run reports:
+-- the same labels a finished install's ledger carries, each "planned".
+function M.planned_execution(steps)
+    local out = {}
+    for _, step in ipairs(steps) do
+        table.insert(out, { step = step.label or step.op, status = "planned" })
+    end
+    return out
+end
+
 -- Error details travel through a string-keyed conversion that keeps only
 -- string table keys, so the projected ledger is attached keyed by its 1-based
 -- position rendered as a string; rows keep the shape events carry and the
@@ -1621,15 +1636,50 @@ function Service:install(args, opts)
         plan = plan,
     }
 
-    -- Plan and guards are complete. The dry-run short-circuit is the hard
-    -- boundary before any step runs — dry_run reaches zero steps.
-    if args.dry_run == true then
-        payload.dry_run = true
-        return payload, nil
-    end
-
     local policy = planned.migration_policy
     if args.run_migrations == true then policy = "up" end
+
+    -- The ordered install steps. governance_apply is the one atomic publish;
+    -- migrations_up appears only when it has work to do; the changed modules'
+    -- bootloaders run last, as they do after migrations at boot.
+    local function install_steps(baseline_version, bootloader_data)
+        local steps = {
+            {
+                op = "pre_apply_validate", label = "validation",
+                data = {
+                    changeset = planned_changeset,
+                    planned_entries = plan.planned_entries or plan.entries or {},
+                },
+            },
+            {
+                op = "governance_apply", label = "governance",
+                data = {
+                    action = "install",
+                    entries = prepared.entries,
+                    create_only = prepared.create_only,
+                    message = "hub install " .. entry.id .. " " .. entry.data.component .. " " .. entry.data.version,
+                    baseline_version = baseline_version,
+                },
+            },
+        }
+        if policy == "up" then
+            local components, planned_versions = install_migration_components(plan, entry.data.component)
+            table.insert(steps, {
+                op = "migrations_up", label = "migrations",
+                data = { components = components, planned = planned_versions },
+            })
+        end
+        table.insert(steps, { op = "bootloaders_run", label = "bootloaders", data = bootloader_data })
+        return steps
+    end
+
+    -- Plan and guards are complete. The dry-run short-circuit is the hard
+    -- boundary before any step runs: it reports the steps it would run.
+    if args.dry_run == true then
+        payload.dry_run = true
+        payload.execution = M.planned_execution(install_steps(nil, nil))
+        return payload, nil
+    end
 
     local baseline_version, version_err = self:current_registry_version()
     if not baseline_version then return nil, version_err end
@@ -1644,37 +1694,8 @@ function Service:install(args, opts)
         migration_policy = payload.migration_policy,
     })
 
-    -- Build the ordered install steps. governance_apply is the one atomic
-    -- publish; migrations_up appears only when it has work to do; the changed
-    -- modules' bootloaders run last, as they do after migrations at boot.
-    local steps = {
-        {
-            op = "pre_apply_validate", label = "validation",
-            data = {
-                changeset = planned_changeset,
-                planned_entries = plan.planned_entries or plan.entries or {},
-            },
-        },
-        {
-            op = "governance_apply", label = "governance",
-            data = {
-                action = "install",
-                entries = prepared.entries,
-                create_only = prepared.create_only,
-                message = "hub install " .. entry.id .. " " .. entry.data.component .. " " .. entry.data.version,
-                baseline_version = baseline_version,
-            },
-        },
-    }
-    if policy == "up" then
-        local components, planned = install_migration_components(plan, entry.data.component)
-        table.insert(steps, {
-            op = "migrations_up", label = "migrations",
-            data = { components = components, planned = planned },
-        })
-    end
-    table.insert(steps, { op = "bootloaders_run", label = "bootloaders", data = bootloader_data })
-    local ledger = step_runner.run(steps, { execute = self:install_step_dispatch(opts) })
+    local ledger = step_runner.run(install_steps(baseline_version, bootloader_data),
+        { execute = self:install_step_dispatch(opts) })
 
     if not ledger.success then
         return self:install_failure(ledger, payload, {

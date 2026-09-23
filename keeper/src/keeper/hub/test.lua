@@ -1360,6 +1360,23 @@ local function define_tests()
                 test.eq(out.patches[1].op, "set")
             end)
 
+            it("reports the steps an install would run as a planned execution", function()
+                local svc = hub.new({ planner = no_requirements_planner() }) :: any
+                local out, err = svc:install({
+                    component = "wippy/terminal",
+                    version = ">=v0.0.7",
+                    dry_run = true,
+                    migration_policy = "up",
+                })
+                test.is_nil(err)
+                local steps = {}
+                for _, row in ipairs(out.execution or {}) do
+                    table.insert(steps, row.step .. ":" .. row.status)
+                end
+                test.eq(table.concat(steps, ","),
+                    "validation:planned,governance:planned,migrations:planned,bootloaders:planned")
+            end)
+
             it("commits the dependency through governance without filesystem state", function()
                 local gov_state = ({ current_version = 12 }) :: any
                 local registry, gov = applied_registry({}, gov_state, { ["wippy/dummy"] = "0.1.2" })
@@ -5274,6 +5291,28 @@ local function define_tests()
                 test.eq(governance_state.last_changeset[2].kind, "entry.update")
                 test.eq(out.apply.changeset_count, 2)
                 test.eq(#out.dependencies, 2)
+            end)
+
+            it("reports a batch dry-run's steps as a planned execution", function()
+                local svc = hub.new({
+                    registry = fake_registry({}),
+                    planner = batch_planner(),
+                }) :: any
+                local out, install_err = svc:install({
+                    migration_policy = "none",
+                    dry_run = true,
+                    dependencies = {
+                        { component = "acme/consumer", version = "v2.0.0" },
+                        { component = "acme/provider", version = "v2.0.0" },
+                    },
+                })
+                test.is_nil(install_err)
+                test.is_true(out.dry_run)
+                local steps = {}
+                for _, row in ipairs(out.execution or {}) do
+                    table.insert(steps, row.step .. ":" .. row.status)
+                end
+                test.eq(table.concat(steps, ","), "validation:planned,governance:planned,bootloaders:planned")
             end)
 
             it("validates a contract boundary supplied by another root atomically", function()
