@@ -42,12 +42,23 @@ function Index:capture()
     if type(state) ~= "table" or type(state.entries) ~= "table" then
         return nil, "registry snapshot returned malformed ownership state"
     end
+    local version_reader = snapshot.version
+    local version = type(version_reader) == "function" and version_reader(snapshot) or nil
     self.snapshot = {
         entries = state.entries,
         provenance = state.provenance,
         resolution = state.resolution,
+        version = version and tonumber(version:id()) or nil,
     }
     return self.snapshot, nil
+end
+
+-- Registry version the captured snapshot belongs to.
+function Index:version_id()
+    local snapshot, capture_err = self:capture()
+    if not snapshot then return nil, capture_err end
+    if snapshot.version == nil then return nil, "registry snapshot does not report its version" end
+    return snapshot.version, nil
 end
 
 local function resolved_versions(resolution)
