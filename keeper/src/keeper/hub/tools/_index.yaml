@@ -75,7 +75,7 @@ entries:
               "description": "Hub dependency operation"
             },
             "component": {"type": "string", "description": "Hub component ref in org/name form"},
-            "version": {"type": "string", "description": "Version or semver constraint, e.g. 0.5.0 or >=v0.0.0"},
+            "version": {"type": "string", "description": "Install/plan: the version range the dependency entry declares. An exact release V raises the floor and is declared as >=V (0.1.41 declares >=0.1.41); a range (>=0.1.41, ^0.1.0, =0.1.41 to pin) or an @label is declared as given. Omit it to keep an existing entry's declaration, or to declare any version for a new entry. The runtime keeps an installed module while the declaration admits it and otherwise selects the highest admitted release; the plan reports that selection."},
             "id": {"type": "string", "description": "Explicit ns.dependency entry id for uninstall/list targeting"},
             "namespace": {"type": "string", "description": "Dependency namespace override for install. Omit to reuse an existing dependency entry or choose a managed dependency namespace cluster."},
             "name": {"type": "string", "description": "Dependency entry name for install"},

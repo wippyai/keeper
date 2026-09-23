@@ -57,8 +57,8 @@ type HubService = {
     run_migrations: (HubService, unknown, unknown?) -> (unknown, unknown?),
 }
 
-M.DEFAULT_DEP_NAMESPACE = "app.deps"
-M.DEFAULT_VERSION = ">=v0.0.0"
+M.DEFAULT_DEP_NAMESPACE = planner.DEFAULT_DEP_NAMESPACE
+M.DEFAULT_VERSION = planner.DEFAULT_VERSION
 M.MIGRATION_HANDLER_FN = "keeper.develop.integrate.handlers:migration_handler"
 M.USER_HUB_PREFIX = "user."
 M.EVENT_TOPIC = "keeper.hub"
@@ -133,6 +133,7 @@ local ERROR_KIND_BY_CODE = {
     MIGRATIONS_APPLIED = errors.CONFLICT,
     DEPENDENCY_GRAPH_FAILED = errors.CONFLICT,
     DEPENDENCY_REQUIRED = errors.CONFLICT,
+    MIGRATION_SELECTION_STALE = errors.CONFLICT,
 }
 
 local function err(code, message, details)
@@ -203,84 +204,16 @@ local function is_array(t)
     return true
 end
 
-function M.parse_component(component)
-    component = tostring(trim(component))
-    if component == "" then
-        return nil, err("BAD_REQUEST", "component is required")
-    end
-    local org, name = string.match(component, "^([%w_.-]+)/([%w_.-]+)$")
-    if not org or not name then
-        return nil, err("BAD_REQUEST", "component must be in org/module form")
-    end
-    if org == "" or name == "" then
-        return nil, err("BAD_REQUEST", "component must include both org and module")
-    end
-    return { org = org, module = name, component = org .. "/" .. name }, nil
-end
-
-function M.sanitize_dependency_name(name)
-    name = string.gsub(string.lower(trim(name)), "[^%w_.-]", "_")
-    name = string.gsub(name, "^[_%.%-]+", "")
-    name = string.gsub(name, "[_%.%-]+$", "")
-    if name == "" then return nil end
-    return name
-end
-
-function M.validate_namespace(namespace)
-    namespace = trim(tostring(namespace or ""))
-    if namespace == "" then
-        return nil, err("BAD_REQUEST", "namespace is required")
-    end
-    if string.find(namespace, "..", 1, true) or string.sub(namespace, 1, 1) == "." or string.sub(namespace, -1) == "." then
-        return nil, err("BAD_REQUEST", "namespace must be dot-separated identifiers")
-    end
-    for part in string.gmatch(namespace, "[^.]+") do
-        if not string.match(part, "^[A-Za-z][A-Za-z0-9_]*$") then
-            return nil, err("BAD_REQUEST", "namespace must be dot-separated identifiers")
-        end
-    end
-    if not string.match(namespace, "^[A-Za-z0-9_.]+$") then
-        return nil, err("BAD_REQUEST", "namespace must be dot-separated identifiers")
-    end
-    return namespace, nil
-end
-
-function M.resolve_dependency_id(args)
-    args = args or {}
-    local explicit = tostring(trim(args.id))
-    if explicit ~= "" then
-        local ns, name = string.match(explicit, "^([^:]+):(.+)$")
-        if not ns or not name or name == "" then
-            return nil, err("BAD_REQUEST", "id must be namespace:name")
-        end
-        local ok_ns, ns_err = M.validate_namespace(ns)
-        if not ok_ns then return nil, ns_err end
-        return explicit, nil
-    end
-
-    local parsed, comp_err = M.parse_component(args.component)
-    if not parsed then return nil, comp_err end
-
-    local ns, ns_err = M.validate_namespace(args.namespace or M.DEFAULT_DEP_NAMESPACE)
-    if not ns then return nil, ns_err end
-
-    local name = trim(tostring(args.name or ""))
-    if name == "" then
-        name = M.sanitize_dependency_name(parsed.module)
-    else
-        name = M.sanitize_dependency_name(name)
-    end
-    if not name then
-        return nil, err("BAD_REQUEST", "dependency name cannot be empty")
-    end
-    return ns .. ":" .. name, nil
-end
-
--- Dependency parameter normalization and entry construction live in the
--- planner: the plan and the published entry must serialize a requirement
--- parameter the same way, structured values included.
+-- Dependency identity, parameter normalization and entry construction live in
+-- the planner: the plan and the published entry must name, declare and
+-- serialize a dependency the same way, structured parameter values included.
+M.parse_component = planner.parse_component
+M.sanitize_dependency_name = planner.sanitize_dependency_name
+M.validate_namespace = planner.validate_namespace
+M.resolve_dependency_id = planner.resolve_dependency_id
 M.normalize_parameters = planner.normalize_parameters
 M.build_dependency_entry = planner.build_dependency_entry
+M.dependency_summary = planner.dependency_summary
 
 function M.entry_to_set_patch(entry)
     local materialized, mat_err = materialize.entry(entry)
@@ -308,20 +241,6 @@ local function entry_summary(entry, owner_module, owner_version)
         module_version = owner_version ~= "" and owner_version or nil,
         title = entry.meta and entry.meta.title or nil,
         comment = entry.meta and entry.meta.comment or nil,
-    }
-end
-
-function M.dependency_summary(entry)
-    local data = entry and entry.data or {}
-    return {
-        id = entry.id,
-        namespace = (entry.id and string.match(tostring(entry.id), "^([^:]+):")) or nil,
-        name = (entry.id and string.match(tostring(entry.id), "^[^:]+:(.+)$")) or nil,
-        kind = entry.kind,
-        component = data.component,
-        version = data.version,
-        parameters = data.parameters or {},
-        meta = entry.meta or {},
     }
 end
 
@@ -915,15 +834,25 @@ local function batch_item_error(index, service_err)
     return err(code, "dependencies[" .. tostring(index) .. "]: " .. message, details)
 end
 
-local function install_migration_components(plan, component)
+-- The modules an install runs migrations for -- the installed component and
+-- every module its plan resolved -- and the version the plan resolved for each.
+local function install_migration_components(plan: any, component: string)
     local components, seen = { component }, { [component] = true }
+    local planned = {}
     for _, node in ipairs(plan.graph or {}) do
         if node.module and not seen[node.module] then
             seen[node.module] = true
             table.insert(components, node.module)
         end
+        if node.module and trim(node.version) ~= "" then
+            table.insert(planned, { module = tostring(node.module), version = trim(node.version) })
+        end
     end
-    return components
+    return components, planned
+end
+
+local function release_of(version)
+    return (string.gsub(trim(version), "^v", ""))
 end
 
 local function same_binding_parameters(a, b)
@@ -1084,6 +1013,7 @@ function Service:install_batch(args, opts)
     }
     local entries = {}
     local migration_components = {}
+    local planned_versions = {}
     for _, item in ipairs(prepared) do
         table.insert(payload.dependencies, M.dependency_summary(item.entry))
         table.insert(payload.patches, item.patch)
@@ -1091,9 +1021,11 @@ function Service:install_batch(args, opts)
         table.insert(payload.migration_policy, item.policy)
         table.insert(entries, item.entry)
         if item.policy == "up" then
-            for _, component in ipairs(install_migration_components(item.plan, item.entry.data.component)) do
+            local components, planned = install_migration_components(item.plan, item.entry.data.component)
+            for _, component in ipairs(components) do
                 table.insert(migration_components, component)
             end
+            for _, row in ipairs(planned) do table.insert(planned_versions, row) end
         end
     end
 
@@ -1134,7 +1066,7 @@ function Service:install_batch(args, opts)
     if #migration_components > 0 then
         table.insert(steps, {
             op = "migrations_up", label = "migrations",
-            data = { components = migration_components },
+            data = { components = migration_components, planned = planned_versions },
         })
     end
     table.insert(steps, { op = "bootloaders_run", label = "bootloaders", data = bootloader_data })
@@ -1180,6 +1112,59 @@ function Service:run_migrations_for_components(components, opts)
         end
     end
     return self:run_migrations({ entry_ids = entry_ids, operation = "up" }, opts)
+end
+
+-- Migrations are selected from the registry the governance apply produced.
+-- The ownership index is captured anew and must belong to the applied
+-- registry version or a later one, and every module the plan resolved must be
+-- installed there at the planned version. Selecting from any other snapshot
+-- would run the migrations of modules the apply did not install -- or none of
+-- the ones it did -- so a mismatch fails the install instead.
+function Service:applied_ownership_index(applied_version, planned)
+    self:invalidate_ownership_index()
+    local index = self:ownership_index()
+    local snapshot_version, version_err = index:version_id()
+    if not snapshot_version then return nil, err("INTERNAL", tostring(version_err)) end
+    local required = tonumber(applied_version)
+    if not required then
+        return nil, err("INTERNAL", "migration selection has no applied registry version: " .. tostring(applied_version))
+    end
+    if snapshot_version < required then
+        return nil, err("MIGRATION_SELECTION_STALE",
+            "migration selection read registry version " .. tostring(snapshot_version)
+                .. ", which predates the applied version " .. tostring(required), {
+                snapshot_version = snapshot_version,
+                applied_version = required,
+            })
+    end
+
+    local stale = {}
+    for _, row in ipairs(planned or {}) do
+        local resolved, resolved_err = index:version_of(row.module)
+        if resolved == nil then return nil, err("INTERNAL", tostring(resolved_err)) end
+        if release_of(resolved) ~= release_of(row.version) then
+            table.insert(stale, {
+                module = row.module,
+                planned_version = row.version,
+                installed_version = resolved,
+            })
+        end
+    end
+    if #stale > 0 then
+        local summaries = {}
+        for _, row in ipairs(stale) do
+            local installed = row.installed_version ~= "" and row.installed_version or "nothing"
+            table.insert(summaries, row.module .. " planned " .. row.planned_version .. ", registry holds " .. installed)
+        end
+        return nil, err("MIGRATION_SELECTION_STALE",
+            "registry version " .. tostring(snapshot_version) .. " does not hold the planned modules: "
+                .. table.concat(summaries, "; "), {
+                snapshot_version = snapshot_version,
+                applied_version = required,
+                modules = planner.position_keyed(stale),
+            })
+    end
+    return index, nil
 end
 
 -- Components whose dependency root an install creates or re-parameterizes. The
@@ -1530,6 +1515,10 @@ end
 
 function Service:install_step_dispatch(opts)
     local svc = self
+    -- The registry version the governance apply committed; migrations select
+    -- from a snapshot at or after it. A publish that changed nothing commits no
+    -- version and leaves the baseline current.
+    local applied_version
     return function(step)
         local op = step.op
         if op == "pre_apply_validate" then
@@ -1551,6 +1540,7 @@ function Service:install_step_dispatch(opts)
             if not apply_result then
                 return { op = op, label = step.label, error = apply_err }
             end
+            applied_version = apply_result.version or step.data.baseline_version
             return {
                 op = op, label = step.label, result = apply_result,
                 inverse = { op = "restore_registry_version", data = {
@@ -1561,16 +1551,12 @@ function Service:install_step_dispatch(opts)
                 } },
             }
         elseif op == "migrations_up" then
-            local migration_result, migration_err
-            if type(step.data.components) == "table" then
-                migration_result, migration_err = svc:run_migrations_for_components(
-                    step.data.components, opts)
-            else
-                migration_result, migration_err = svc:run_migrations({
-                    component = step.data.component,
-                    operation = "up",
-                }, opts)
+            local index, index_err = svc:applied_ownership_index(applied_version, step.data.planned)
+            if not index then
+                return { op = op, label = step.label, error = index_err }
             end
+            local migration_result, migration_err = svc:run_migrations_for_components(
+                step.data.components, opts)
             if not migration_result then
                 return { op = op, label = step.label, error = migration_err }
             end
@@ -1681,9 +1667,11 @@ function Service:install(args, opts)
         },
     }
     if policy == "up" then
-        local components = install_migration_components(plan, entry.data.component)
-        local migration_data = #components == 1 and { component = entry.data.component } or { components = components }
-        table.insert(steps, { op = "migrations_up", label = "migrations", data = migration_data })
+        local components, planned = install_migration_components(plan, entry.data.component)
+        table.insert(steps, {
+            op = "migrations_up", label = "migrations",
+            data = { components = components, planned = planned },
+        })
     end
     table.insert(steps, { op = "bootloaders_run", label = "bootloaders", data = bootloader_data })
     local ledger = step_runner.run(steps, { execute = self:install_step_dispatch(opts) })
@@ -1726,6 +1714,12 @@ local POST_APPLY_FAILURES: { [string]: PostApplyFailure } = {
     bootloaders_run = { code = "BOOTLOADERS_FAILED", what = "bootloaders", detail = "bootloader_error" },
 }
 
+-- Post-apply step errors whose own code names the failure more precisely than
+-- the step's generic one, and so becomes the install's error code.
+local POST_APPLY_OWN_CODES = {
+    MIGRATION_SELECTION_STALE = true,
+}
+
 function Service:install_failure(ledger, payload, ctx, opts)
     local rows = ledger.execution.handlers
     local failed = rows[#rows]
@@ -1762,9 +1756,11 @@ function Service:install_failure(ledger, payload, ctx, opts)
             execution = execution_details(payload.execution),
         }
         details[post_apply.detail] = summary
+        local step_code = err_code_of(failed_err)
+        local code = POST_APPLY_OWN_CODES[tostring(step_code)] and tostring(step_code) or post_apply.code
         if restore_ok then
             details.rollback = payload.rollback
-            failure_err = err(post_apply.code,
+            failure_err = err(code,
                 post_apply.what .. " failed after dependency install; registry restored to baseline: "
                     .. tostring(summary and summary.message),
                 details)

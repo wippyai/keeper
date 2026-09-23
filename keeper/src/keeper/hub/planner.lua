@@ -635,6 +635,41 @@ local function is_semver_constraint(constraint: string): boolean
     return false
 end
 
+-- The version an ns.dependency entry declares. The entry is the application's
+-- authored range, and the runtime keeps an installed module while the range
+-- still admits it, so an entry never holds a bare release: an exact release V
+-- raises the floor to >=V (npm install foo@V, cargo add), a range or a @label
+-- is declared as given, and no version declares the default range. The release
+-- is written without a v prefix, the form Hub releases and the application's
+-- own declarations use.
+function M.declared_version(requested): (string?, unknown?)
+    local version = trim(requested)
+    if version == "" then return M.DEFAULT_VERSION, nil end
+    if starts_with(version, "@") then
+        if #version == 1 then
+            return nil, err("BAD_REQUEST", "version label must name a label after @", { version = version }) :: unknown?
+        end
+        return version, nil
+    end
+    if is_semver_constraint(version) then
+        for _, part in ipairs(split_constraint(version)) do
+            if not parse_constraint_part(part) then
+                return nil, err("BAD_REQUEST", "version " .. version
+                    .. " is neither an exact release (0.1.41) nor a range (>=0.1.41, ^0.1.0, =0.1.41)",
+                    { version = version }) :: unknown?
+            end
+        end
+        return version, nil
+    end
+    local release = version_parts(version)
+    if not release then
+        return nil, err("BAD_REQUEST", "version " .. version
+            .. " is neither an exact release (0.1.41) nor a range (>=0.1.41, ^0.1.0, =0.1.41)",
+            { version = version }) :: unknown?
+    end
+    return ">=" .. release.raw, nil
+end
+
 local function version_satisfies(version, constraint): boolean
     local parsed = version_parts(version)
     if not parsed then return false end
@@ -941,12 +976,22 @@ function Planner:resolve_dependency_destination_args(args): (unknown?, unknown?)
                 .. tostring(destination_namespace or ""),
             { id = destination_id, namespace = destination_namespace, component = parsed.component }) :: unknown?
     end
+    local recorded_data = existing and type((existing :: any).data) == "table" and (existing :: any).data or {}
+    -- An update that supplies no version keeps the destination's declared
+    -- range: the declaration is authored application state, and reinstalling
+    -- a component does not rewrite what the application accepts.
+    if trim(out.version) == "" and trim(recorded_data.version) ~= "" then
+        out.version = trim(recorded_data.version)
+    else
+        local declared, version_err = M.declared_version(out.version)
+        if not declared then return nil, version_err end
+        out.version = declared
+    end
     -- An update that supplies no parameters keeps the destination's recorded
     -- ones: absence means unchanged, never re-planned. Re-planning let another
     -- root's same-named parameter replace an operator's recorded value.
     local parameters_empty = type(out.parameters) == "table" and next(out.parameters) == nil
     if out.parameters == nil or parameters_empty then
-        local recorded_data = existing and type((existing :: any).data) == "table" and (existing :: any).data or {}
         local recorded_params = type(recorded_data.parameters) == "table" and recorded_data.parameters or {}
         if #recorded_params > 0 then
             local copied = {}
@@ -1180,7 +1225,7 @@ end
 -- edge constraint. A dependency graph is not a tree: diamonds and cycles can
 -- address the same module more than once, and choosing from only the first edge
 -- makes the plan depend on traversal order.
-function Planner:select_version_for_constraints(component, incoming, preferred, keep_preferred)
+function Planner:select_version_for_constraints(component, incoming, preferred, keep_preferred, installed_version)
     incoming = incoming or {}
     if #incoming == 0 then
         incoming = { { constraint = M.DEFAULT_VERSION, required_by = "root", path = component } }
@@ -1231,10 +1276,26 @@ function Planner:select_version_for_constraints(component, incoming, preferred, 
         return preferred, nil
     end
 
+    -- The runtime resolves a declaration against the versions it has
+    -- installed first: an installed module keeps its version while every
+    -- constraint still admits it, and only a constraint that excludes it moves
+    -- the selection to the highest admitted release. The plan selects the same
+    -- way, so the version it reports is the version the apply installs.
     local selected
-    for _, item in ipairs(versions) do
-        if admits(item) and (not selected or compare_versions(item.version, selected.version) > 0) then
-            selected = item
+    local installed = trim(installed_version) ~= "" and version_parts(installed_version) or nil
+    if installed then
+        for _, item in ipairs(versions) do
+            if compare_versions(item.version, installed) == 0 and admits(item) then
+                selected = item
+                break
+            end
+        end
+    end
+    if not selected then
+        for _, item in ipairs(versions) do
+            if admits(item) and (not selected or compare_versions(item.version, selected.version) > 0) then
+                selected = item
+            end
         end
     end
     if not selected then
@@ -1332,8 +1393,11 @@ function Planner:resolve_install_graph(component, constraint, opts)
 
     local ctx, ctx_err = self:install_graph_context(parsed.component)
     if not ctx then return nil, ctx_err end
-    local installed_constraints, installed_constraints_err = self:installed_constraints(parsed.component)
+    local installed_constraints, installed_constraints_err = self:installed_constraints(
+        parsed.component, opts.dependency_id)
     if not installed_constraints then return nil, installed_constraints_err end
+    local installed_versions, installed_versions_err = self:ownership_index():module_versions()
+    if not installed_versions then return nil, err("INTERNAL", tostring(installed_versions_err)) end
     local max_depth = tonumber(opts.max_depth or M.DEFAULT_PLAN_MAX_DEPTH) or M.DEFAULT_PLAN_MAX_DEPTH
     local max_modules = tonumber(opts.max_modules or M.DEFAULT_PLAN_MAX_MODULES) or M.DEFAULT_PLAN_MAX_MODULES
     local preferred = {}
@@ -1388,7 +1452,7 @@ function Planner:resolve_install_graph(component, constraint, opts)
                         })
                     else
                         local selected, select_err = self:select_version_for_constraints(
-                            ref, incoming_by_ref[ref], preferred[ref], true)
+                            ref, incoming_by_ref[ref], preferred[ref], true, installed_versions[ref])
                         if not selected then
                             table.insert(resolution_errors, {
                                 module = ref,
@@ -1476,7 +1540,7 @@ function Planner:resolve_install_graph(component, constraint, opts)
             end
             node.constraints = effective_constraints
             local selected, select_err = self:select_version_for_constraints(
-                node.module, effective_constraints, node.__selected)
+                node.module, effective_constraints, node.__selected, false, installed_versions[node.module])
             if not selected then
                 table.insert(conflicts, select_err)
             else
@@ -1622,17 +1686,23 @@ local function validate_parameter_targets(graph, parameters)
     return nil
 end
 
--- Version constraints the registry already records offline: deployment roots
--- pin their component and installed modules pin their children through
+-- Version constraints the registry already records offline: every deployment
+-- root pins its component, and installed modules pin their children through
 -- module-owned ns.dependency edges -- the same rows the closure resolver
--- walks. exclude_component drops the root entry being installed or updated,
--- whose recorded constraint this plan replaces.
-function Planner:installed_constraints(exclude_component)
+-- walks. A root is classified before its owner: the runtime marks an
+-- application's own dependency declarations as roots while they stay owned by
+-- the application module, and such a declaration is the application's
+-- constraint, reported by its entry id. The root this plan replaces -- the
+-- destination entry, or any root of the component being installed -- is
+-- dropped: its recorded constraint is the one this plan rewrites.
+function Planner:installed_constraints(exclude_component, exclude_id)
+    exclude_component = trim(exclude_component)
+    exclude_id = trim(exclude_id)
     local roots, roots_err = self:deployment_dependency_entries()
     if not roots then return nil, roots_err end
     local remaining_roots = {}
     for _, root in ipairs(roots) do
-        if dependency_component(root) ~= exclude_component then
+        if dependency_component(root) ~= exclude_component and tostring(root.id) ~= exclude_id then
             table.insert(remaining_roots, root)
         end
     end
@@ -1644,6 +1714,7 @@ function Planner:installed_constraints(exclude_component)
     local index = self:ownership_index()
     local out = {}
     for _, entry in ipairs(rows) do
+        local id = tostring(entry.id)
         local component = dependency_component(entry)
         local constraint = trim(entry.data and entry.data.version)
         local owner, _, owner_err = index:owner_of(entry.id)
@@ -1651,12 +1722,12 @@ function Planner:installed_constraints(exclude_component)
         local is_root, root_err = index:root_of(entry.id)
         if root_err then return nil, err("INTERNAL", tostring(root_err)) end
         if component ~= "" and constraint ~= "" then
-            if owner ~= "" then
-                if reachable[owner] == true then
-                    table.insert(out, { component = component, constraint = constraint, required_by = owner, owner = owner })
+            if is_root then
+                if component ~= exclude_component and id ~= exclude_id then
+                    table.insert(out, { component = component, constraint = constraint, required_by = id, entry_id = id })
                 end
-            elseif is_root and component ~= exclude_component then
-                table.insert(out, { component = component, constraint = constraint, required_by = "root", entry_id = tostring(entry.id) })
+            elseif owner ~= "" and reachable[owner] == true then
+                table.insert(out, { component = component, constraint = constraint, required_by = owner, owner = owner })
             end
         end
     end
@@ -1669,8 +1740,8 @@ end
 -- conflict the install would raise. Edges owned by a module that is itself in
 -- the resolved graph do not bind: this install re-resolves that module and
 -- rewrites its edges.
-function Planner:validate_graph_constraints(graph, component)
-    local constraints, constraints_err = self:installed_constraints(component)
+function Planner:validate_graph_constraints(graph, component, dependency_id)
+    local constraints, constraints_err = self:installed_constraints(component, dependency_id)
     if not constraints then return constraints_err end
 
     local node_by_module = {}
@@ -2124,13 +2195,14 @@ function Planner:plan_install(args)
     local graph, graph_err = self:resolve_install_graph(data.component, data.version, {
         max_depth = planned_args.max_depth,
         max_modules = planned_args.max_modules,
+        dependency_id = entry.id,
     })
     if not graph then return nil, graph_err end
 
     local target_err = validate_parameter_targets(graph, data.parameters or {})
     if target_err then return nil, target_err end
 
-    local constraint_err = self:validate_graph_constraints(graph, data.component)
+    local constraint_err = self:validate_graph_constraints(graph, data.component, entry.id)
     if constraint_err then return nil, constraint_err end
 
     local req_plan, req_err = self:plan_requirements(graph, data.parameters or {})

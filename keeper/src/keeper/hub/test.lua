@@ -35,8 +35,11 @@ end
 
 -- Fixture ownership is kept outside author metadata. The snapshot defaults to
 -- the current per-entry registry shape; map selects the released atomic shape
--- used during a rolling Runtime update.
-local function fake_registry(entries, state_shape)
+-- used during a rolling Runtime update. registry_state.version is the registry
+-- version a snapshot captures; a governance fake that commits a changeset
+-- advances it, as the runtime does.
+local function fake_registry(entries, state_shape, registry_state)
+    registry_state = registry_state or { version = 1 }
     -- Lookups read the live entries list, so a publish that appends entries
     -- is visible to get() the same way it is on the real registry.
     local function lookup(id)
@@ -86,6 +89,7 @@ local function fake_registry(entries, state_shape)
         end,
         -- One consistent capture, exactly as registry.snapshot() serves it.
         snapshot = function()
+            local captured_version = registry_state.version
             local captured = {}
             local captured_provenance = {}
             local versions = {}
@@ -115,7 +119,9 @@ local function fake_registry(entries, state_shape)
             return {
                 entries = function() return captured, nil end,
                 get = function(_, id) return lookup(id), nil end,
-                version = function() return "test-version" end,
+                version = function()
+                    return { id = function() return captured_version end }
+                end,
                 state = function()
                     local state = {
                         entries = captured,
@@ -258,6 +264,72 @@ local function deep_copy(value)
     local out = {}
     for k, v in pairs(value) do out[k] = deep_copy(v) end
     return out
+end
+
+-- Governance that commits each published changeset into the fake registry
+-- the way the runtime applies it: dependency roots are written or removed,
+-- on_apply materializes what the runtime resolves for the new declarations
+-- (a module's entries at their new version), and the registry advances to the
+-- published version before publish returns.
+local function applying_governance(state, entries, registry_state, on_apply)
+    local gov = fake_governance(state)
+    local base_publish = gov.publish
+    gov.publish = function(changeset, options)
+        local result, publish_err = base_publish(changeset, options)
+        if not result then return nil, publish_err end
+        for _, op in ipairs(changeset) do
+            local position
+            for i, entry in ipairs(entries) do
+                if entry.id == op.entry.id then position = i end
+            end
+            if op.kind == gov_consts.REGISTRY_OPERATIONS.DELETE then
+                if position then table.remove(entries, position) end
+            else
+                local entry = deep_copy(op.entry)
+                entry.provenance = position and entries[position].provenance or { root = true }
+                if position then entries[position] = entry else table.insert(entries, entry) end
+            end
+        end
+        if on_apply then on_apply(entries, changeset) end
+        registry_state.version = result.version
+        return result, nil
+    end
+    return gov
+end
+
+-- The registry entries the runtime materializes for resolved modules
+-- (name -> version): every entry a module already owns moves to its version,
+-- and a module new to the registry gains its definition.
+local function install_modules(entries, modules)
+    for name, version in pairs(modules or {}) do
+        local owned = false
+        for _, entry in ipairs(entries) do
+            if entry.provenance and entry.provenance.module == name then
+                entry.provenance.version = version
+                owned = true
+            end
+        end
+        if not owned then
+            table.insert(entries, {
+                id = name .. ":__def",
+                kind = "ns.definition",
+                meta = {},
+                provenance = { module = name, version = version },
+                data = {},
+            })
+        end
+    end
+end
+
+-- A registry fake at the governance baseline version and the governance that
+-- applies to it; each publish installs modules as the runtime's resolution of
+-- the published roots.
+local function applied_registry(entries, gov_state, modules)
+    local registry_state = { version = gov_state.current_version or 41 }
+    return fake_registry(entries, nil, registry_state),
+        applying_governance(gov_state, entries, registry_state, function(current)
+            install_modules(current, modules)
+        end)
 end
 
 local function fake_project_fs(files, opts)
@@ -1290,11 +1362,13 @@ local function define_tests()
 
             it("commits the dependency through governance without filesystem state", function()
                 local gov_state = ({ current_version = 12 }) :: any
+                local registry, gov = applied_registry({}, gov_state, { ["wippy/dummy"] = "0.1.2" })
                 local svc = hub.new({
+                    registry = registry,
                     planner = graph_planner({
                         { module = "wippy/dummy", version = "0.1.2", digest = "abc123" },
                     }),
-                    governance = fake_governance(gov_state),
+                    governance = gov,
                 }) :: any
 
                 local out, err = svc:install({
@@ -4341,7 +4415,7 @@ local function define_tests()
                 test.is_nil(plan)
                 test.eq(err_code(plan_err), "CONFLICT")
                 test.contains(err_message(plan_err), "conflicting version constraints for kickside/component")
-                test.contains(err_message(plan_err), "0.1.2 (required by root)")
+                test.contains(err_message(plan_err), "0.1.2 (required by app.deps:component)")
                 test.contains(err_message(plan_err), "0.1.8 (required by kickside/demo)")
                 local details = err_details(plan_err)
                 test.eq(details.component, "kickside/component")
@@ -4349,7 +4423,7 @@ local function define_tests()
                 test.eq(details.constraints["1"].constraint, "0.1.8")
                 test.eq(details.constraints["1"].required_by, "kickside/demo")
                 test.eq(details.constraints["2"].constraint, "0.1.2")
-                test.eq(details.constraints["2"].required_by, "root")
+                test.eq(details.constraints["2"].required_by, "app.deps:component")
             end)
 
             it("selects the highest version in the intersection with an installed root", function()
@@ -4475,6 +4549,240 @@ local function define_tests()
                 test.is_false(nodes["kickside/demo"].shared)
             end)
 
+        end)
+
+        describe("declared dependency ranges", function()
+            -- Hub releases of kickside/component; the application declares
+            -- >=0.1.36 and the runtime has 0.1.37 installed.
+            local function component_catalog(versions)
+                local items = {}
+                for _, version in ipairs(versions) do table.insert(items, { version = version }) end
+                return fake_catalog({ ["kickside/component"] = items })
+            end
+
+            local function component_root(version)
+                return {
+                    id = "app.deps:kickside_component",
+                    kind = "ns.dependency",
+                    meta = {},
+                    provenance = { root = true },
+                    data = { component = "kickside/component", version = version },
+                }
+            end
+
+            local function component_entries(declared, installed)
+                return concat_entries(
+                    { component_root(declared) },
+                    installed_module("kickside/component", {}, installed)
+                )
+            end
+
+            local function range_service(entries, versions, gov_state, resolved)
+                local registry, gov = applied_registry(entries, gov_state, resolved)
+                local svc = hub.new({
+                    registry = registry,
+                    planner = {
+                        new = function()
+                            return planner.new({ catalog = component_catalog(versions), registry = registry })
+                        end,
+                    },
+                    governance = gov,
+                    sql = fake_sql({}),
+                    uuid = fake_uuid(),
+                    process = fake_process({}),
+                    funcs = {
+                        new = function()
+                            return { call = function() return { ok = true }, nil end }, nil
+                        end,
+                    },
+                    bootloader_registry = { find = function() return {}, nil end },
+                }) :: any
+                return svc
+            end
+
+            it("declares an exact release as a raised floor, never as a bare version", function()
+                local gov_state = ({ current_version = 41 }) :: any
+                local svc = range_service(component_entries(">=0.1.36", "0.1.37"),
+                    { "0.1.36", "0.1.37", "0.1.41" }, gov_state, { ["kickside/component"] = "0.1.41" })
+
+                local out, err = svc:install({ component = "kickside/component", version = "0.1.41" },
+                    { actor_id = "admin-1" })
+
+                test.is_nil(err)
+                test.eq(gov_state.publish_calls, 1)
+                local published = gov_state.last_changeset[1].entry
+                test.eq(published.id, "app.deps:kickside_component")
+                test.eq(published.data.version, ">=0.1.41")
+                test.eq(out.dependency.version, ">=0.1.41")
+                test.eq(out.plan.graph[1].module, "kickside/component")
+                test.eq(out.plan.graph[1].version, "0.1.41")
+
+                local prefixed = planner.new({
+                    catalog = component_catalog({ "0.1.36", "0.1.37", "0.1.41" }),
+                    registry = fake_registry(component_entries(">=0.1.36", "0.1.37")),
+                }) :: any
+                local plan, plan_err = prefixed:plan_install({ component = "kickside/component", version = "v0.1.41" })
+                test.is_nil(plan_err)
+                test.eq(plan.install_payload.version, ">=0.1.41")
+                test.eq(plan.dependency.version, ">=0.1.41")
+            end)
+
+            it("declares a requested range exactly as given", function()
+                for _, range in ipairs({ "^0.1.40", "=0.1.41", ">=0.1.37 <0.1.42", "@stable" }) do
+                    local catalog = component_catalog({ "0.1.36", "0.1.37", "0.1.41" })
+                    catalog.versions.get = function(_, ref)
+                        if ref and ref.label == "stable" then return { version = "0.1.41" }, nil end
+                        return { version = ref and ref.version or "" }, nil
+                    end
+                    local svc = planner.new({
+                        catalog = catalog,
+                        registry = fake_registry(component_entries(">=0.1.36", "0.1.37")),
+                    }) :: any
+                    local plan, plan_err = svc:plan_install({ component = "kickside/component", version = range })
+                    test.is_nil(plan_err)
+                    test.eq(plan.install_payload.version, range)
+                    test.eq(plan.dependency.version, range)
+                end
+            end)
+
+            it("keeps the declared range when an install names no version", function()
+                local gov_state = ({ current_version = 41 }) :: any
+                local svc = range_service(component_entries(">=0.1.36", "0.1.37"),
+                    { "0.1.36", "0.1.37", "0.1.41" }, gov_state, { ["kickside/component"] = "0.1.37" })
+
+                local out, err = svc:install({ component = "kickside/component" }, { actor_id = "admin-1" })
+
+                test.is_nil(err)
+                test.eq(gov_state.last_changeset[1].entry.data.version, ">=0.1.36")
+                test.eq(out.dependency.version, ">=0.1.36")
+                test.eq(out.plan.graph[1].version, "0.1.37")
+
+                local fresh = planner.new({
+                    catalog = component_catalog({ "0.1.41" }),
+                    registry = fake_registry({}),
+                }) :: any
+                local plan, plan_err = fresh:plan_install({ component = "kickside/component" })
+                test.is_nil(plan_err)
+                test.eq(plan.install_payload.version, planner.DEFAULT_VERSION)
+            end)
+
+            it("rejects a version that is neither a release nor a range", function()
+                for _, bad in ipairs({ "latest", "0.1", "next", "@" }) do
+                    local svc = planner.new({
+                        catalog = component_catalog({ "0.1.41" }),
+                        registry = fake_registry(component_entries(">=0.1.36", "0.1.37")),
+                    }) :: any
+                    local plan, plan_err = svc:plan_install({ component = "kickside/component", version = bad })
+                    test.is_nil(plan)
+                    test.eq(err_code(plan_err), "BAD_REQUEST")
+                end
+            end)
+
+            it("keeps an installed release while the declaration admits it, as the runtime does", function()
+                local function plan_for(version)
+                    local svc = planner.new({
+                        catalog = component_catalog({ "0.1.41", "0.1.42", "0.1.43" }),
+                        registry = fake_registry(component_entries(">=0.1.36", "0.1.41")),
+                    }) :: any
+                    local plan, plan_err = svc:plan_install({ component = "kickside/component", version = version })
+                    test.is_nil(plan_err)
+                    return plan
+                end
+
+                local kept = plan_for("0.1.36")
+                test.eq(kept.install_payload.version, ">=0.1.36")
+                test.eq(kept.graph[1].version, "0.1.41")
+
+                local raised = plan_for("0.1.42")
+                test.eq(raised.install_payload.version, ">=0.1.42")
+                test.eq(raised.graph[1].version, "0.1.43")
+            end)
+
+            -- The runtime marks an application's own dependency declarations as
+            -- deployment roots while they stay owned by the application module.
+            local function app_owned_root(id, component, version)
+                return {
+                    id = id,
+                    kind = "ns.dependency",
+                    meta = {},
+                    provenance = { module = "acme/app", version = "1.0.0", root = true },
+                    data = { component = component, version = version },
+                }
+            end
+
+            local function app_catalog(cron_constraint)
+                return fake_catalog({
+                    ["kickside/component"] = {
+                        { version = "0.1.41" },
+                        {
+                            version = "0.1.42",
+                            dependencies = {
+                                { org = "kickside", name = "cron", version_constraint = cron_constraint },
+                            },
+                        },
+                    },
+                    ["kickside/cron"] = { { version = "0.1.37" }, { version = "0.1.38" } },
+                })
+            end
+
+            it("replaces an application-owned root without conflicting with its own declaration", function()
+                local entries = concat_entries(
+                    { root_dep("app:app", "acme/app") },
+                    installed_module("acme/app", {}),
+                    {
+                        app_owned_root("app.deps:kickside_component", "kickside/component", "0.1.41"),
+                        app_owned_root("app.deps:kickside_cron", "kickside/cron", ">=0.1.37"),
+                    },
+                    installed_module("kickside/component", {}, "0.1.41"),
+                    installed_module("kickside/cron", {}, "0.1.38")
+                )
+                local svc = planner.new({
+                    catalog = app_catalog(">=0.1.37"),
+                    registry = fake_registry(entries),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({ component = "kickside/component", version = "0.1.42" })
+
+                test.is_nil(plan_err)
+                test.eq(plan.dependency.id, "app.deps:kickside_component")
+                test.eq(plan.install_payload.version, ">=0.1.42")
+                local nodes = {}
+                for _, node in ipairs(plan.graph) do nodes[node.module] = node end
+                test.eq(nodes["kickside/component"].version, "0.1.42")
+                test.eq(nodes["kickside/cron"].version, "0.1.38")
+
+                local constraints, constraints_err = svc:installed_constraints(
+                    "kickside/component", "app.deps:kickside_component")
+                test.is_nil(constraints_err)
+                local by_component = {}
+                for _, row in ipairs(constraints) do by_component[row.component] = row end
+                test.is_nil(by_component["kickside/component"])
+                test.eq(by_component["kickside/cron"].constraint, ">=0.1.37")
+                test.eq(by_component["kickside/cron"].required_by, "app.deps:kickside_cron")
+            end)
+
+            it("holds a plan to every other application-owned root, naming its entry", function()
+                local entries = concat_entries(
+                    {
+                        app_owned_root("app.deps:kickside_component", "kickside/component", ">=0.1.41"),
+                        app_owned_root("app.deps:kickside_cron", "kickside/cron", "<0.1.38"),
+                    },
+                    installed_module("acme/app", {}),
+                    installed_module("kickside/component", {}, "0.1.41"),
+                    installed_module("kickside/cron", {}, "0.1.37")
+                )
+                local svc = planner.new({
+                    catalog = app_catalog(">=0.1.38"),
+                    registry = fake_registry(entries),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({ component = "kickside/component", version = "0.1.42" })
+
+                test.is_nil(plan)
+                test.eq(err_code(plan_err), "CONFLICT")
+                test.contains(err_message(plan_err), "kickside/cron")
+                test.contains(err_message(plan_err), "<0.1.38 (required by app.deps:kickside_cron)")
+            end)
         end)
 
         describe("migration execution", function()
@@ -4647,7 +4955,9 @@ local function define_tests()
         end)
 
         describe("autofilled transitive dependency bindings", function()
-            local function setup(extra_entries, governance_state)
+            -- resolved is the module selection the runtime installs for a
+            -- publish: the latest acme/engine and its acme/knowledge edge.
+            local function setup(extra_entries, governance_state, resolved)
                 local profile = root_dep("app.deps:profile", "acme/profile")
                 profile.data.parameters = {
                     { name = "api_router", value = "app:api" },
@@ -4655,7 +4965,8 @@ local function define_tests()
                     { name = "user_security_scope", value = "app.security:user" },
                 }
                 local entries = concat_entries({ profile }, extra_entries or {})
-                local registry = fake_registry(entries)
+                local registry_state = { version = 0 }
+                local registry = fake_registry(entries, nil, registry_state)
                 local plan_service = planner.new({
                     registry = registry,
                     catalog = fake_catalog({
@@ -4682,7 +4993,12 @@ local function define_tests()
                 local svc = hub.new({
                     registry = registry,
                     planner = { plan_install = function(input) return plan_service:plan_install(input) end },
-                    governance = fake_governance(state),
+                    governance = applying_governance(state, entries, registry_state, function(current)
+                        install_modules(current, resolved or {
+                            ["acme/engine"] = "v2.0.0",
+                            ["acme/knowledge"] = "v1.0.0",
+                        })
+                    end),
                     uuid = fake_uuid(),
                 }) :: any
                 return svc, state, plan_service, entries
@@ -4738,12 +5054,17 @@ local function define_tests()
                 local parent = root_dep("app.deps:engine", "acme/engine")
                 local svc, state = setup(concat_entries({ child, parent },
                     installed_module("acme/knowledge", {}), installed_module("acme/engine", { "acme/knowledge" })))
-                local result, install_err = svc:install({ component = "acme/engine", migration_policy = "none" })
+                local result, install_err = svc:install({
+                    component = "acme/engine",
+                    version = "v2.0.0",
+                    migration_policy = "none",
+                })
                 test.is_nil(install_err)
                 test.not_nil(result)
                 test.eq(#state.last_changeset, 1)
                 test.eq(state.last_changeset[1].kind, "entry.update")
                 test.eq(state.last_changeset[1].entry.id, parent.id)
+                test.eq(state.last_changeset[1].entry.data.version, ">=2.0.0")
                 test.eq(result.plan.graph[1].version, "v2.0.0")
                 test.eq(child.data.parameters[1].value, "app:private_api")
             end)
@@ -4786,12 +5107,6 @@ local function define_tests()
             it("restores both newly installed roots when a migration fails", function()
                 local svc, state, _, entries = setup(nil, { current_version = 61 })
                 local baseline = deep_copy(entries)
-                local publish = svc.governance.publish
-                svc.governance.publish = function(changeset, options)
-                    local result, publish_err = publish(changeset, options)
-                    for _, op in ipairs(changeset) do table.insert(entries, deep_copy(op.entry)) end
-                    return result, publish_err
-                end
                 local restore = svc.governance.restore_version
                 svc.governance.restore_version = function(version, reason)
                     for i = #entries, 1, -1 do entries[i] = nil end
@@ -4963,10 +5278,11 @@ local function define_tests()
 
             it("validates a contract boundary supplied by another root atomically", function()
                 local governance_state = ({}) :: any
+                local registry, gov = applied_registry({}, governance_state, {})
                 local svc = hub.new({
-                    registry = fake_registry({}),
+                    registry = registry,
                     planner = batch_planner(),
-                    governance = fake_governance(governance_state),
+                    governance = gov,
                 }) :: any
 
                 local out, install_err = svc:install({
@@ -5006,10 +5322,11 @@ local function define_tests()
 
             it("keeps the singular install contract unchanged", function()
                 local governance_state = ({}) :: any
+                local registry, gov = applied_registry({}, governance_state, {})
                 local svc = hub.new({
-                    registry = fake_registry({}),
+                    registry = registry,
                     planner = no_requirements_planner(),
-                    governance = fake_governance(governance_state),
+                    governance = gov,
                 }) :: any
 
                 local out, install_err = svc:install({
@@ -5045,12 +5362,13 @@ local function define_tests()
             it("emits install started and finished around the exact governance publish call", function()
                 local sent = {}
                 local gov_state = ({}) :: any
+                local registry, gov = applied_registry({}, gov_state, {})
                 local svc = hub.new({
-                    registry = fake_registry({}),
+                    registry = registry,
                     process = fake_process(sent),
                     uuid = fake_uuid(),
                     planner = no_requirements_planner(),
-                    governance = fake_governance(gov_state),
+                    governance = gov,
                 }) :: any
 
                 local out, err = svc:install({
@@ -5134,19 +5452,22 @@ local function define_tests()
                         parameters = recorded,
                     },
                 }
-                local registry_state = fake_registry({ installed_root })
                 local gov_state = ({}) :: any
+                local registry, gov = applied_registry({ installed_root }, gov_state, {
+                    ["acme/app"] = "v1.0.0",
+                    ["wippy/bootloader"] = "v0.2.0",
+                })
                 local svc = hub.new({
-                    registry = registry_state,
+                    registry = registry,
                     planner = {
                         new = function()
                             return planner.new({
                                 catalog = planner_catalog(),
-                                registry = registry_state,
+                                registry = registry,
                             })
                         end,
                     },
-                    governance = fake_governance(gov_state),
+                    governance = gov,
                     process = fake_process({}),
                     uuid = fake_uuid(),
                 }) :: any
@@ -5290,12 +5611,13 @@ local function define_tests()
                 local sent = {}
                 local gov_state = { current_version = 77 }
                 local calls = {}
+                local registry, gov = applied_registry(fixture_entries(), gov_state, {})
                 local svc = hub.new({
-                    registry = fake_registry(fixture_entries()),
+                    registry = registry,
                     sql = fake_sql({}),
                     process = fake_process(sent),
                     uuid = fake_uuid(),
-                    governance = fake_governance(gov_state),
+                    governance = gov,
                     planner = no_requirements_planner(),
                     funcs = {
                         new = function()
@@ -5433,7 +5755,9 @@ local function define_tests()
 
             it("publishes an install without inspecting or terminating running services", function()
                 local files = { ["wippy.lock"] = "initial-lock" }
+                local registry, gov = applied_registry({}, { current_version = 12 }, { ["wippy/dummy"] = "0.1.2" })
                 local svc = hub.new({
+                    registry = registry,
                     planner = graph_planner({
                         { module = "wippy/dummy", version = "0.1.2", digest = "abc123" },
                     }),
@@ -5443,7 +5767,7 @@ local function define_tests()
                         modules = {},
                         replacements = {},
                     }),
-                    governance = fake_governance({ current_version = 12 }),
+                    governance = gov,
                     system = {
                         hosts = {
                             list = function()
@@ -5524,14 +5848,14 @@ local function define_tests()
             end)
 
             local function migration_failure_deps(gov_state, order, sent)
-                local gov = fake_governance(gov_state)
+                local registry, gov = applied_registry(fixture_entries(), gov_state, { ["wippy/foo"] = "1.2.3" })
                 local base_restore = gov.restore_version
                 gov.restore_version = function(version, reason)
                     table.insert(order, "registry_restore")
                     return base_restore(version, reason)
                 end
                 return {
-                    registry = fake_registry(fixture_entries()),
+                    registry = registry,
                     sql = fake_sql({}),
                     planner = graph_planner({
                         { module = "wippy/foo", version = "1.2.3", digest = "foo-digest" },
@@ -5610,23 +5934,14 @@ local function define_tests()
                     installed_module("wippy/kept", {})
                 )
                 local gov_state = ({ current_version = 60 }) :: any
-                local gov = fake_governance(gov_state)
-                local base_publish = gov.publish
-                gov.publish = function(changeset, options)
-                    local result, publish_err = base_publish(changeset, options)
-                    if not result then return nil, publish_err end
-                    for _, op in ipairs(changeset) do
-                        local entry = deep_copy(op.entry)
-                        entry.provenance = { root = true }
-                        table.insert(entries, entry)
-                    end
+                local registry_state = { version = 60 }
+                local gov = applying_governance(gov_state, entries, registry_state, function(current)
                     for _, entry in ipairs(fixture_entries()) do
-                        if entry.kind ~= "ns.dependency" then table.insert(entries, entry) end
+                        if entry.kind ~= "ns.dependency" then table.insert(current, entry) end
                     end
-                    return result, nil
-                end
+                end)
                 local svc = hub.new({
-                    registry = fake_registry(entries),
+                    registry = fake_registry(entries, nil, registry_state),
                     sql = fake_sql({}),
                     uuid = fake_uuid(),
                     governance = gov,
@@ -5665,6 +5980,116 @@ local function define_tests()
                 test.eq(calls[1].params.entry_ids[1], "wippy.foo.migrations:001")
             end)
 
+            -- wippy/foo 1.2.3 is installed with its first migration applied;
+            -- the install plans 1.3.0, which ships a second migration.
+            local function selection_install(opts)
+                local gov_state = ({ current_version = 90 }) :: any
+                local registry_state = { version = 90 }
+                local entries = fixture_entries()
+                entries[1].meta = {}
+                entries[1].data.version = ">=1.2.3"
+                local calls = {}
+                local gov
+                if opts.apply == false then
+                    gov = fake_governance(gov_state)
+                else
+                    gov = applying_governance(gov_state, entries, registry_state, function(current)
+                        if opts.installed_version then
+                            install_modules(current, { ["wippy/foo"] = opts.installed_version })
+                        end
+                        if opts.installed_version == "1.3.0" then
+                            table.insert(current, {
+                                id = "wippy.foo.migrations:002",
+                                kind = "function.lua",
+                                meta = {
+                                    type = "migration",
+                                    target_db = "app:db",
+                                    timestamp = "2026-02-01T00:00:00Z",
+                                },
+                                provenance = { module = "wippy/foo", version = "1.3.0" },
+                                data = { method = "migrate" },
+                            })
+                        end
+                    end)
+                end
+                local base_restore = gov.restore_version
+                gov.restore_version = function(version, reason)
+                    table.insert(calls, "restore:" .. tostring(version))
+                    return base_restore(version, reason)
+                end
+                local svc = hub.new({
+                    registry = fake_registry(entries, nil, registry_state),
+                    sql = fake_sql({ ["wippy.foo.migrations:001"] = true }),
+                    uuid = fake_uuid(),
+                    process = fake_process({}),
+                    governance = gov,
+                    planner = graph_planner({
+                        { module = "wippy/foo", version = "1.3.0", digest = "foo-130" },
+                    }),
+                    funcs = {
+                        new = function()
+                            return {
+                                call = function(_, id, params)
+                                    if id == hub.MIGRATION_HANDLER_FN then
+                                        table.insert(calls, "migrate:" .. table.concat(params.entry_ids, ","))
+                                        return { ok = true, operation = params.operation }, nil
+                                    end
+                                    return nil, "unexpected call: " .. tostring(id)
+                                end,
+                            }, nil
+                        end,
+                    },
+                    bootloader_registry = { find = function() return {}, nil end },
+                }) :: any
+                return svc, gov_state, calls
+            end
+
+            it("selects migrations from the snapshot the governance apply produced", function()
+                local svc, gov_state, calls = selection_install({ installed_version = "1.3.0" })
+
+                local out, err = svc:install({ component = "wippy/foo", version = "1.3.0" }, { actor_id = "admin-1" })
+
+                test.is_nil(err)
+                test.eq(gov_state.publish_calls, 1)
+                test.eq(step_by_name(out.execution, "migrations").status, "ok")
+                test.eq(out.migrations.count, 1)
+                test.eq(out.migrations.entry_ids[1], "wippy.foo.migrations:002")
+                test.eq(#calls, 1)
+                test.eq(calls[1], "migrate:wippy.foo.migrations:002")
+            end)
+
+            it("fails and restores the registry when migrations would read a snapshot older than the apply", function()
+                local svc, gov_state, calls = selection_install({ apply = false })
+
+                local out, err = svc:install({ component = "wippy/foo", version = "1.3.0" }, { actor_id = "admin-1" })
+
+                test.is_nil(out)
+                test.eq(err_code(err), "MIGRATION_SELECTION_STALE")
+                test.contains(err_message(err), "predates the applied version 91")
+                test.eq(gov_state.restore_calls, 1)
+                test.eq(gov_state.restored_version, 90)
+                test.eq(#calls, 1)
+                test.eq(calls[1], "restore:90")
+                local execution = err_details(err).execution
+                test.eq(execution["2"].step, "governance")
+                test.eq(execution["2"].status, "rolled_back")
+                test.eq(execution["3"].step, "migrations")
+                test.eq(execution["3"].status, "failed")
+            end)
+
+            it("fails and restores the registry when the applied registry holds another module version", function()
+                local svc, gov_state, calls = selection_install({})
+
+                local out, err = svc:install({ component = "wippy/foo", version = "1.3.0" }, { actor_id = "admin-1" })
+
+                test.is_nil(out)
+                test.eq(err_code(err), "MIGRATION_SELECTION_STALE")
+                test.contains(err_message(err), "wippy/foo planned 1.3.0, registry holds v1.2.3")
+                test.eq(gov_state.restored_version, 90)
+                test.eq(#calls, 1)
+                test.eq(calls[1], "restore:90")
+            end)
+
             -- wippy/foo moves from v1.2.3 to v1.3.0 and ships two bootloaders.
             -- wippy/other and wippy/migration stay as they are; their
             -- bootloaders completed when this runtime booted.
@@ -5692,11 +6117,8 @@ local function define_tests()
                     }
                 )
                 record.gov_state = ({ current_version = 70 }) :: any
-                local gov = fake_governance(record.gov_state)
-                local base_publish = gov.publish
-                gov.publish = function(changeset, options)
-                    local result, publish_err = base_publish(changeset, options)
-                    if not result then return nil, publish_err end
+                local registry_state = { version = 70 }
+                local gov = applying_governance(record.gov_state, entries, registry_state, function()
                     if opts.module_version then
                         for _, entry in ipairs(entries) do
                             if entry.provenance and entry.provenance.module == "wippy/foo" then
@@ -5722,10 +6144,9 @@ local function define_tests()
                             data = {},
                         })
                     end
-                    return result, nil
-                end
+                end)
                 local deps = {
-                    registry = fake_registry(entries),
+                    registry = fake_registry(entries, nil, registry_state),
                     sql = fake_sql({}),
                     uuid = fake_uuid(),
                     process = fake_process({}),

@@ -1,5 +1,57 @@
 # Release Notes
 
+## keeper/keeper 0.5.87
+
+Hub install declares version ranges, replaces an application-owned root
+without conflicting with it, and selects migrations from the registry its apply
+produced.
+
+An install with an exact version wrote that release into the `ns.dependency`
+entry, so `install component=X version=0.1.41` turned the application's
+`>=0.1.36` declaration into a pin, and an install without a version rewrote the
+declaration to `>=v0.0.0`. The entry is the application's authored range, and
+the runtime keeps an installed module while the declaration still admits it.
+Install now declares an exact release V as the raised floor `>=V` (written
+without a `v` prefix), declares a range or an `@label` as given, keeps an
+existing entry's declaration when no version is supplied, and rejects a version
+that is neither a release nor a range. The plan selects versions the way the
+runtime does - an installed module keeps its version while every constraint
+admits it, otherwise the highest admitted release - so the version a plan
+reports is the version the apply installs.
+
+The planner classified installed constraints by owner before root. The runtime
+marks an application's own dependency declarations as roots while they stay
+owned by the application module, so such a root was either dropped (owner not
+reachable) or reported as an edge of the application module, and replacing it
+conflicted with its own recorded version. Roots are now classified first: the
+root being replaced is dropped, every other root constrains the plan and is
+reported by its entry id. Module-owned edges are unchanged. The service's
+duplicate component, id, namespace and summary helpers are the planner's.
+
+`migrations_up` captures the ownership index anew and requires its snapshot to
+be at or after the registry version the governance apply committed, with every
+planned module installed at its planned version. Otherwise the install fails
+with `MIGRATION_SELECTION_STALE`, naming the snapshot, the applied version and
+the mismatched modules, and restores the baseline registry version.
+
+### Verification
+
+- Hub suite: 158 of 158 pass. Ten new or changed tests fail on 0.5.86: an
+  exact release is declared as `>=V`, an install without a version keeps the
+  declaration, an invalid version is rejected, an installed release is kept
+  while admitted, an application-owned root is replaced without conflict and
+  every other application-owned root constrains the plan by entry id, and a
+  stale snapshot or a mismatched module version fails with
+  `MIGRATION_SELECTION_STALE` and restores the registry. Install tests use a
+  governance fake that commits the changeset and advances the registry.
+- On an isolated instance (nightly runtime, Keeper loaded from this source
+  through a workspace replacement): `kickside/cron` pinned with `=0.1.37`, then
+  installed with `version=0.1.38`; `app.deps:kickside_cron` holds `>=0.1.38`,
+  the resolved module is 0.1.38, and the install itself applied
+  `kickside.cron.migrations:03_component_owner`. A reinstall without a version
+  kept `>=0.1.38`. The instance restarted and replayed registry history to
+  version 3 without errors.
+
 ## keeper/keeper 0.5.86
 
 Hub install now runs the bootloaders of the modules it brings online. Boot runs
