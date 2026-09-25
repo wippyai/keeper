@@ -29,11 +29,10 @@ function M._handle(input: unknown?, deps: HandleDeps?)
         end
         return svc.run_migrations(args, { actor_id = deps.actor_id })
     elseif action == "preflight" then
-        local pf = (deps and deps.preflight) or (svc and svc.preflight) or _G["preflight"]
-        if not pf then
+        if not svc or type(svc.check_installed_floors) ~= "function" then
             return nil, "preflight checker unavailable"
         end
-        return pf.check(args)
+        return svc.check_installed_floors()
     end
 
     return nil, "unknown Hub migration action: " .. tostring(action)

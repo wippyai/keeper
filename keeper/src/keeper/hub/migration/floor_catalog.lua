@@ -14,7 +14,7 @@ local function trim(val)
     return string.match(tostring(val or ""), "^%s*(.-)%s*$") or ""
 end
 
-M.CERTIFIED_HASHES = {
+local CERTIFIED_HASHES = {
     -- Userspace core modules
     ["c154e2cc11ca94ddd368307aced96cfbbd411a58e74e46339d50b4a9befc1d65"] = {
         name = "userspace/contract", version = "0.4.1", min_runtime = "0.3.40a",
@@ -124,7 +124,7 @@ M.CERTIFIED_HASHES = {
     ["6349517c1302a4a61f453c8ad8a0c039070a10b131df3d33e6b9df6982f3d909"] = {
         name = "kickside/component", version = "0.1.45", min_runtime = "0.3.42a",
     },
-    ["c0mp0n3nt0144hash000000000000000000000000000000000000000000000000"] = {
+    ["b4278cc7250e306ebb1bfdf882c377f3187d44a6525e31075e15463c35157a4c"] = {
         name = "kickside/component", version = "0.1.44", min_runtime = "0.3.42a",
     },
     ["4e22c7609509ebadbec132afee14ee7791b2cac6507e41671f50317d71947f35"] = {
@@ -223,15 +223,16 @@ M.CERTIFIED_HASHES = {
 }
 
 function M.lookup(hash)
-    local key = trim(hash)
+    local key = trim(hash):gsub("^sha256:", "")
     if key == "" then
         return nil, "artifact hash is required"
     end
-    local entry = M.CERTIFIED_HASHES[key]
+    local entry = CERTIFIED_HASHES[key]
     if not entry then
         return nil, "UNKNOWN_HASH: artifact hash '" .. key .. "' not found in certified floor catalog"
     end
-    return entry, nil
+    return { name = entry.name, version = entry.version,
+        min_runtime = entry.min_runtime }, nil
 end
 
 function M.get_floor(artifact)
@@ -249,6 +250,16 @@ function M.get_floor(artifact)
     if hash ~= "" then
         local entry, err = M.lookup(hash)
         if entry then
+            local name = trim(artifact.name or artifact.module)
+            local version = trim(artifact.version):gsub("^v", "")
+            if name ~= "" and entry.name ~= name then
+                return nil, "HASH_MISMATCH: certified hash belongs to " .. entry.name
+                    .. ", not " .. name
+            end
+            if version ~= "" and trim(entry.version):gsub("^v", "") ~= version then
+                return nil, "HASH_MISMATCH: certified hash belongs to version " .. entry.version
+                    .. ", not " .. version
+            end
             return entry.min_runtime, nil
         end
         return nil, err
@@ -257,15 +268,6 @@ function M.get_floor(artifact)
     -- 3. Artifact has neither declared min_runtime nor certified hash
     local identifier = tostring(artifact.name or artifact.id or artifact.module or "unknown")
     return nil, "UNKNOWN_HASH: artifact '" .. identifier .. "' has no declared min_runtime and no hash"
-end
-
-function M.register(hash, entry)
-    local key = trim(hash)
-    if key == "" or type(entry) ~= "table" then
-        return false, "invalid hash or entry table"
-    end
-    M.CERTIFIED_HASHES[key] = entry
-    return true, nil
 end
 
 return M

@@ -2,6 +2,7 @@ local security = require("security")
 local hub = require("hub")
 local audit = require("audit")
 local helpers = require("helpers")
+local floor_catalog = require("floor_catalog")
 
 local M = {}
 local TOOL_ID = "keeper.hub.tools:catalog"
@@ -91,7 +92,7 @@ function M._handle(input: unknown?, deps: CatalogDeps?)
     end
 
     if action == "floor" or action == "certified_catalog" then
-        local cat = (deps and deps.floor_catalog) or _G["floor_catalog"]
+        local cat = (deps and deps.floor_catalog) or floor_catalog
         if not cat then
             return nil, "floor catalog unavailable"
         end

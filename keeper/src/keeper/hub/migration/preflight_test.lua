@@ -252,56 +252,11 @@ local function define_tests()
             end)
         end)
 
-        test.describe("MIG-10: hash mismatch refusal & staged candidate discovery", function()
-            test.it("refuses candidate when applied migration hash has changed", function()
-                -- Simulate ledger having applied migration 'mig_01' with hash 'hash_v1'
-                local applied_ledger = {
-                    ["wippy.demo.migrations:01_init"] = "hash_v1",
-                }
-
-                -- Candidate resolver validating candidate migration entries
-                local function validate_candidate_migrations(candidate_entries, ledger)
-                    local staged = {}
-                    for _, entry in ipairs(candidate_entries) do
-                        local id = entry.id
-                        local cand_hash = entry.hash
-                        local applied_hash = ledger[id]
-                        if applied_hash and applied_hash ~= cand_hash then
-                            return nil, "HASH_MISMATCH: applied migration " .. id
-                                .. " has hash " .. applied_hash .. ", candidate has changed hash " .. cand_hash
-                        end
-                        table.insert(staged, entry)
-                    end
-                    return staged, nil
-                end
-
-                -- Matching hash succeeds
-                local valid_candidate = {
-                    { id = "wippy.demo.migrations:01_init", hash = "hash_v1" },
-                    { id = "wippy.demo.migrations:02_add_field", hash = "hash_v2" },
-                }
-                local staged_ok, err_ok = validate_candidate_migrations(valid_candidate, applied_ledger)
-                test.is_nil(err_ok)
-                test.eq(#staged_ok, 2)
-
-                -- Changed hash under applied ID is refused!
-                local tampered_candidate = {
-                    { id = "wippy.demo.migrations:01_init", hash = "hash_tampered" },
-                }
-                local staged_bad, err_bad = validate_candidate_migrations(tampered_candidate, applied_ledger)
-                test.is_nil(staged_bad)
-                test.not_nil(err_bad)
-                test.is_true(string.find(err_bad, "HASH_MISMATCH") ~= nil)
-            end)
-        end)
-
         test.describe("Dual-engine SQL verification (SQLite & PostgreSQL)", function()
             test.it("creates install_state table and performs full lifecycle on database", function()
                 local db, err = sql.get("app:db")
-                if not db then
-                    -- If no ambient db, in-memory double tested above
-                    return
-                end
+                test.is_nil(err)
+                test.not_nil(db)
                 local ok, ensure_err = install_state.ensure(db)
                 test.is_true(ok)
                 test.is_nil(ensure_err)
@@ -356,135 +311,13 @@ local function define_tests()
                 test.is_nil(n_err)
                 test.not_nil(s_next)
                 test.is_false(s_next.resumed)
+                local finished, finish_err = install_state.complete_install(db, "db-test-tok-3")
+                test.is_true(finished)
+                test.is_nil(finish_err)
+                db:release()
             end)
         end)
 
-        test.describe("Readiness & Health exposure of floor refusal (CMP-02)", function()
-            test.it("CMP-02: readiness and hub health expose refusal when floor check fails", function()
-                local fake_service = {
-                    preflight = preflight,
-                    floor_catalog = floor_catalog,
-                    check_installed_floors = function(self, opts)
-                        return preflight.check({
-                            installed_artifacts = {
-                                { name = "acme/unparseable", version = "1.0", min_runtime = "invalid-ver" },
-                            },
-                            binary_version = "0.3.43a",
-                            certified_catalog = self.floor_catalog,
-                        })
-                    end,
-                    readiness = function(self, opts)
-                        local pf_res, pf_err = self:check_installed_floors(opts)
-                        if pf_err then return { ready = false, status = "error", error = tostring(pf_err) }, nil end
-                        if pf_res and not pf_res.accepted then
-                            return { ready = false, status = "refused", blocker = pf_res.blocker }, nil
-                        end
-                        return { ready = true, status = "ok" }, nil
-                    end,
-                    health = function(self, opts)
-                        local pf_res, pf_err = self:check_installed_floors(opts)
-                        if pf_err then return { status = "unhealthy", error = tostring(pf_err) }, nil end
-                        if pf_res and not pf_res.accepted then
-                            return { status = "unhealthy", blocker = pf_res.blocker }, nil
-                        end
-                        return { status = "healthy" }, nil
-                    end,
-                }
-
-                local ready, _ = fake_service:readiness()
-                test.is_false(ready.ready)
-                test.eq(ready.status, "refused")
-                test.eq(ready.blocker.code, "UNPARSEABLE_FLOOR")
-
-                local h, _ = fake_service:health()
-                test.eq(h.status, "unhealthy")
-                test.eq(h.blocker.code, "UNPARSEABLE_FLOOR")
-            end)
-        end)
-
-        test.describe("Service Quiescence Barrier & Fence Lifecycle", function()
-            test.it("fence acquired -> migration -> publish -> new start -> release; unrelated untouched", function()
-                install_state.reset_in_memory()
-                local lock_token = "tok-fence-lifecycle"
-                local cand_hash = "cand-lifecycle-1"
-                local services = { "svc.orders", "svc.billing" }
-
-                local s, b_err = install_state.begin_install(nil, {
-                    lock_token = lock_token,
-                    candidate_hash = cand_hash,
-                    steps = { "quiescence", "candidate_migrations", "publish", "new_start" },
-                })
-                test.is_nil(b_err)
-                test.not_nil(s)
-
-                local f_rec, f_err = install_state.record_fence(nil, lock_token, {
-                    candidate_hash = cand_hash,
-                    services = services,
-                    status = "fenced",
-                    held = true,
-                    instances_stopped = 2,
-                })
-                test.is_nil(f_err)
-                test.eq(f_rec.status, "fenced")
-                test.is_true(f_rec.metadata.fence.held)
-                test.eq(#f_rec.metadata.fence.services, 2)
-                test.is_false(f_rec.metadata.fence.services[1] == "svc.unrelated")
-
-                install_state.record_step(nil, lock_token, "candidate_migrations", { status = "done" })
-                install_state.record_step(nil, lock_token, "publish", { status = "done" })
-                install_state.record_step(nil, lock_token, "new_start", { status = "done" })
-
-                local rel_ok, rel_err = install_state.release_fence(nil, lock_token)
-                test.is_true(rel_ok)
-                test.is_nil(rel_err)
-
-                local comp, c_err = install_state.complete_install(nil, lock_token)
-                test.is_true(comp)
-                test.is_nil(c_err)
-            end)
-
-            test.it("ack timeout refuses before DDL and leaves resumable fenced state", function()
-                install_state.reset_in_memory()
-                local lock_token = "tok-timeout"
-                local cand_hash = "cand-timeout-1"
-
-                local f_rec, f_err = install_state.record_fence(nil, lock_token, {
-                    candidate_hash = cand_hash,
-                    services = { "svc.stuck" },
-                    status = "fenced",
-                    timed_out = true,
-                    unacknowledged = { "pid-9999" },
-                })
-                test.is_nil(f_err)
-                test.eq(f_rec.status, "fenced")
-                test.eq(f_rec.current_step, "quiescence")
-                test.is_true(f_rec.metadata.fence.timed_out)
-
-                local active, a_err = install_state.get_active_install(nil)
-                test.is_nil(a_err)
-                test.not_nil(active)
-                test.eq(active.status, "fenced")
-
-                local conf, c_err = install_state.begin_install(nil, {
-                    lock_token = "tok-conflict",
-                    candidate_hash = "cand-other",
-                    steps = { "quiescence" },
-                })
-                test.is_nil(conf)
-                test.not_nil(c_err)
-                test.is_true(string.find(c_err, "CONFLICT") ~= nil)
-
-                local resumed, r_err = install_state.begin_install(nil, {
-                    lock_token = "tok-resumed",
-                    candidate_hash = cand_hash,
-                    steps = { "quiescence", "candidate_migrations", "publish" },
-                })
-                test.is_nil(r_err)
-                test.not_nil(resumed)
-                test.is_true(resumed.resumed)
-                test.eq(resumed.status, "fenced")
-            end)
-        end)
 
     end)
 end

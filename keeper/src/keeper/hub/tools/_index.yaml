@@ -50,6 +50,7 @@ entries:
     imports:
       audit: keeper.task:audit
       helpers: keeper.hub.tools:helpers
+      floor_catalog: keeper.hub:floor_catalog
     method: handler
     pool:
       size: 2

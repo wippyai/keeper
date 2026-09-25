@@ -213,11 +213,23 @@ function M.check(args)
         local required_floor = trim(cand.min_runtime or cand.min_version)
 
         -- If not declared in manifest, check certified catalog by hash
-        if required_floor == "" and trim(cand.hash) ~= "" and catalog and catalog.lookup then
-            local entry = catalog.lookup(cand.hash)
-            if entry and entry.min_runtime then
-                required_floor = trim(entry.min_runtime)
+        if required_floor == "" and trim(cand.hash) ~= "" then
+            local entry, lookup_err
+            if catalog and type(catalog.get_floor) == "function" then
+                local floor
+                floor, lookup_err = catalog.get_floor({ name = mod_label,
+                    version = cand.version, hash = cand.hash })
+                if floor then entry = { min_runtime = floor } end
             end
+            if not entry or trim(entry.min_runtime) == "" then
+                return { accepted = false, blocker = {
+                    code = "UNKNOWN_HASH",
+                    reason = "candidate module '" .. mod_label .. "' has no declared floor and its hash is not certified",
+                    module = mod_label, version = cand.version, hash = cand.hash,
+                    error = lookup_err or "catalog unavailable or floor absent",
+                } }, nil
+            end
+            required_floor = trim(entry.min_runtime)
         end
 
         if required_floor ~= "" then
