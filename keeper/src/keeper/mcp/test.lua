@@ -1573,18 +1573,26 @@ local function define_tests()
                     local fake_time = {
                         timer = function()
                             timer_count = timer_count + 1
-                            local timer = { deadline = now + 100 }
+                            local timer = {
+                                deadline = now + 100,
+                                active = true,
+                                closed = false,
+                                stopped = false,
+                            }
                             timer.case_receive = function(self) return self end
                             timer.channel = function(self) return self end
                             timer.reset = function(self)
                                 timer_resets = timer_resets + 1
+                                if self.stopped or self.closed then return false end
                                 self.deadline = now + 100
                                 self.active = true
                                 return true
                             end
                             timer.stop = function(self)
                                 timer_stops = timer_stops + 1
+                                self.stopped = true
                                 self.active = false
+                                self.closed = true
                                 return true
                             end
                             return timer
@@ -1598,6 +1606,12 @@ local function define_tests()
                     end
                     local fake_channel = {
                         select = function(cases)
+                            for _, candidate in ipairs(cases) do
+                                if candidate.closed then
+                                    timer_fired_at = now
+                                    return { channel = candidate, value = nil }
+                                end
+                            end
                             local next_event_index
                             for index, event in ipairs(queue) do
                                 if not next_event_index or event.at < queue[next_event_index].at then
@@ -1662,12 +1676,37 @@ local function define_tests()
                     })
                 test.eq(stream_expiry, 130,
                     "the idle window must restart when the attached stream leaves")
-                test.eq(stream_timers, 1)
-                test.eq(stream_resets, 1,
+                test.eq(stream_timers, 2,
+                    "the final stream detach must allocate a fresh idle timer")
+                test.eq(stream_resets, 0,
                     "activity while a stream is attached must not reset an idle timer")
                 test.eq(stream_stops, 1,
                     "attaching an SSE stream must stop the idle timer")
                 test.eq(stream_state.activity_count, 1)
+
+                local detached_expiry, detached_timers, detached_resets, detached_stops =
+                    simulate_broker({ 40, 70 }, {
+                        { at = 10, topic = "sse.join", value = stream_message("stream-pid") },
+                        { at = 30, topic = "sse.leave", value = stream_message("stream-pid") },
+                    })
+                test.eq(detached_expiry, 170,
+                    "POST touches after detach must extend the fresh idle timer")
+                test.eq(detached_timers, 2,
+                    "detached POST touches must reuse the new timer")
+                test.eq(detached_resets, 2)
+                test.eq(detached_stops, 1)
+
+                local cycle_expiry, cycle_timers, _, cycle_stops = simulate_broker({}, {
+                    { at = 10, topic = "sse.join", value = stream_message("first-stream") },
+                    { at = 30, topic = "sse.leave", value = stream_message("first-stream") },
+                    { at = 80, topic = "sse.join", value = stream_message("second-stream") },
+                    { at = 90, topic = "sse.leave", value = stream_message("second-stream") },
+                })
+                test.eq(cycle_expiry, 190,
+                    "each final detach must start a full idle retention window")
+                test.eq(cycle_timers, 3,
+                    "each attach/detach cycle must replace its stopped timer")
+                test.eq(cycle_stops, 2)
             end)
 
             it("a broker that exits before readiness cannot reserve a slot", function()
@@ -1737,6 +1776,154 @@ local function define_tests()
                 end
                 test.eq(next(names), nil, "a dead child must never leave session or slot names")
                 test.eq(#cancelled, cap + 1, "each timed-out broker must be cancelled")
+            end)
+
+            it("lost broker readiness times out, releases both names, and permits replacement initialize", function()
+                local token_session = {
+                    token_hash = "lost-readiness-token",
+                    label = "lost-readiness",
+                    identity = ADMIN_USER,
+                }
+                local names = {}
+                local pending_cancels = {}
+                local spawn_records = {}
+                local readiness_messages = {}
+                local channels = {}
+                local spawn_count = 0
+                local both_names_registered_at_timeout = false
+
+                local function channel_for(topic)
+                    if not channels[topic] then
+                        channels[topic] = {
+                            topic = topic,
+                            case_receive = function(self) return self end,
+                        }
+                    end
+                    return channels[topic]
+                end
+
+                local runtime
+                runtime = {
+                    registry = {
+                        lookup = function(name) return names[name] end,
+                        register = function(name, pid)
+                            if names[name] then return nil, "already exists" end
+                            names[name] = pid
+                            return true
+                        end,
+                        unregister = function(name) names[name] = nil; return true end,
+                    },
+                    listen = channel_for,
+                    pid = function() return "handler-pid" end,
+                    cancel = function(pid) pending_cancels[#pending_cancels + 1] = pid end,
+                    send = function(_, topic, payload)
+                        if spawn_count > 1 then readiness_messages[topic] = payload end
+                        return true
+                    end,
+                    with_context = function()
+                        local context = {}
+                        context.with_actor = function(self) return self end
+                        context.with_scope = function(self) return self end
+                        context.spawn = function(_, _, _, args)
+                            spawn_count = spawn_count + 1
+                            local pid = "readiness-broker-" .. tostring(spawn_count)
+                            local slot_name
+                            for index = 1, args.slot_count do
+                                local candidate = args.slot_prefix .. tostring(index)
+                                if runtime.registry.register(candidate, pid) then
+                                    slot_name = candidate
+                                    break
+                                end
+                            end
+                            if not slot_name then return nil, "MCP_SESSION_LIMIT" end
+                            if not runtime.registry.register(args.session_name, pid) then
+                                runtime.registry.unregister(slot_name)
+                                return nil, "broker register failed"
+                            end
+                            spawn_records[spawn_count] = {
+                                pid = pid,
+                                slot_name = slot_name,
+                                session_name = args.session_name,
+                                ready_topic = args.ready_topic,
+                            }
+
+                            -- The first broker's accepted ready reply is lost before the
+                            -- handler can receive it; the replacement reply is delivered.
+                            runtime.send(args.ready_to, args.ready_topic, { success = true })
+                            return pid
+                        end
+                        return context
+                    end,
+                }
+
+                local fake_channel = {
+                    select = function(cases)
+                        local ready = readiness_messages[cases[1].topic]
+                        if ready then
+                            readiness_messages[cases[1].topic] = nil
+                            return { channel = cases[1], value = ready }
+                        end
+                        if spawn_count == 1 then
+                            local lost = spawn_records[1]
+                            both_names_registered_at_timeout = names[lost.slot_name] == lost.pid
+                                and names[lost.session_name] == lost.pid
+                        end
+                        return { channel = cases[2], value = true }
+                    end,
+                }
+                local fake_time = {
+                    timer = function()
+                        local timeout_channel = { case_receive = function(self) return self end }
+                        return {
+                            channel = function() return timeout_channel end,
+                            stop = function() return true end,
+                        }
+                    end,
+                }
+                local function response()
+                    local res = {}
+                    function res:set_status(status) self.status = status end
+                    function res:write_json(body) self.body = body end
+                    function res:set_header(name, value)
+                        self.headers = self.headers or {}
+                        self.headers[name] = value
+                    end
+                    return res
+                end
+                local request = { header = function() return nil end }
+                local identity = function() return "actor", "scope" end
+
+                local timed_out = response()
+                test.is_false(mcp_handler_core._bind_session(request, timed_out, "initialize",
+                    token_session, 71, runtime, identity, keeper_config.process_host(),
+                    fake_channel, fake_time))
+                test.eq(timed_out.status, 500)
+                test.eq(timed_out.body.error.message, "broker readiness timed out")
+                test.is_true(both_names_registered_at_timeout,
+                    "the lost reply must occur after the broker owns its slot and session name")
+                test.eq(#pending_cancels, 1)
+                test.eq(pending_cancels[1], spawn_records[1].pid)
+                test.not_nil(names[spawn_records[1].slot_name],
+                    "names remain owned until the broker processes cancellation")
+                test.not_nil(names[spawn_records[1].session_name])
+
+                local cancelled_pid = table.remove(pending_cancels, 1)
+                local cancelled_record = spawn_records[1]
+                test.eq(cancelled_pid, cancelled_record.pid)
+                names[cancelled_record.slot_name] = nil
+                names[cancelled_record.session_name] = nil
+                test.eq(next(names), nil,
+                    "processing readiness-timeout cancellation must release both broker names")
+
+                local replacement = response()
+                test.is_true(mcp_handler_core._bind_session(request, replacement, "initialize",
+                    token_session, 72, runtime, identity, keeper_config.process_host(),
+                    fake_channel, fake_time))
+                local replacement_id = replacement.headers["Mcp-Session-Id"]
+                test.not_nil(replacement_id,
+                    "a replacement initialize must receive a session ID")
+                test.eq(names[spawn_records[2].slot_name], spawn_records[2].pid)
+                test.eq(names[spawn_records[2].session_name], spawn_records[2].pid)
             end)
 
             it("broker startup releases slot and session names across registration crashes", function()

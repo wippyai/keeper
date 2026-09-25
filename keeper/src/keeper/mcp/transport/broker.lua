@@ -77,18 +77,28 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
 
     local function reset_idle_timer()
         if state.idle_timer then
-            state.idle_timer:reset(transport_consts.SSE_IDLE_TIMEOUT)
-        else
-            state.idle_timer = time_api.timer(transport_consts.SSE_IDLE_TIMEOUT)
-            idle_channel = state.idle_timer:channel()
-            state.idle_channel = idle_channel
+            local reset = state.idle_timer:reset(transport_consts.SSE_IDLE_TIMEOUT)
+            if reset ~= false then
+                state.idle_active = true
+                return
+            end
+            state.idle_timer = nil
+            state.idle_channel = nil
+            idle_channel = nil
         end
+
+        state.idle_timer = time_api.timer(transport_consts.SSE_IDLE_TIMEOUT)
+        idle_channel = state.idle_timer:channel()
+        state.idle_channel = idle_channel
         state.idle_active = true
     end
 
     local function stop_idle_timer()
-        if state.idle_timer and state.idle_active then
-            state.idle_timer:stop()
+        if state.idle_timer then
+            if state.idle_active then state.idle_timer:stop() end
+            state.idle_timer = nil
+            state.idle_channel = nil
+            idle_channel = nil
         end
         state.idle_active = false
     end
