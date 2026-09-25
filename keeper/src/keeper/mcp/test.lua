@@ -18,6 +18,8 @@ local mcp_auth = require("mcp_auth")
 local mcp_authorize = require("mcp_authorize")
 local mcp_handler_core = require("mcp_handler_core")
 local mcp_handler_get_core = require("mcp_handler_get_core")
+local mcp_sessions = require("mcp_sessions")
+local mcp_broker = require("mcp_broker")
 local mcp_stream_targets = require("mcp_stream_targets")
 local keeper_config = require("keeper_config")
 
@@ -1320,6 +1322,7 @@ local function define_tests()
                     registry_names[mcp_consts.SSE_BROKER_NAME_PREFIX .. token_session.token_hash .. "." .. id] = "broker-" .. id
                 end
                 local cancelled = {}
+                local sent = {}
                 local spawned = 0
                 local runtime = {
                     registry = {
@@ -1328,6 +1331,10 @@ local function define_tests()
                         register = function(name, pid) registry_names[name] = pid; return true end,
                     },
                     cancel = function(pid) cancelled[#cancelled + 1] = pid end,
+                    send = function(pid, topic, payload)
+                        sent[#sent + 1] = { pid = pid, topic = topic, payload = payload }
+                        return true
+                    end,
                     with_context = function()
                         return {
                             with_actor = function(self) return self end,
@@ -1357,7 +1364,7 @@ local function define_tests()
                     mcp_handler_get_core._serve_get(request_for(id), response, token_session, runtime)
                     return response
                 end
-                return get, cancelled, runtime, token_session, response_for_get, request_for
+                return get, cancelled, runtime, token_session, response_for_get, request_for, sent
             end
 
             local session_a = string.rep("a", 64)
@@ -1447,6 +1454,151 @@ local function define_tests()
                 test.eq(foreign.status, 404)
             end)
 
+            it("POST activity touches the resolved session broker", function()
+                local _, _, runtime, token_session, new_response, request_for, sent = get_fixture({ session_a })
+                test.is_true(mcp_handler_core._bind_session(request_for(session_a), new_response(), "ping",
+                    token_session, 9, runtime))
+                test.eq(#sent, 1)
+                test.eq(sent[1].pid, "broker-" .. session_a)
+                test.eq(sent[1].topic, "mcp.activity")
+            end)
+
+            it("POST activity keeps an unstreamed broker alive past its idle window, then idle expires", function()
+                local function simulate_broker(activity_times)
+                    local now = 0
+                    local timer_fired_at
+                    local timer_count = 0
+                    local channels = {}
+                    local queue = {}
+                    for _, at in ipairs(activity_times) do
+                        queue[#queue + 1] = { at = at, topic = "mcp.activity", value = {} }
+                    end
+                    local function channel_for(topic)
+                        if not channels[topic] then
+                            channels[topic] = {
+                                topic = topic,
+                                case_receive = function(self) return self end,
+                            }
+                        end
+                        return channels[topic]
+                    end
+                    local fake_process = {
+                        listen = function(topic) return channel_for(topic) end,
+                        events = function() return channel_for("process.events") end,
+                    }
+                    local fake_time = {
+                        after = function()
+                            timer_count = timer_count + 1
+                            local timer = { deadline = now + 100 }
+                            timer.case_receive = function(self) return self end
+                            return timer
+                        end,
+                    }
+                    local fake_channel = {
+                        select = function(cases)
+                            local next_event_index
+                            for index, event in ipairs(queue) do
+                                if not next_event_index or event.at < queue[next_event_index].at then
+                                    next_event_index = index
+                                end
+                            end
+                            local timer
+                            for _, candidate in ipairs(cases) do
+                                if candidate.deadline then timer = candidate end
+                            end
+                            if next_event_index and queue[next_event_index].at < timer.deadline then
+                                local event = table.remove(queue, next_event_index)
+                                now = event.at
+                                return { channel = channel_for(event.topic), value = event.value }
+                            end
+                            now = timer.deadline
+                            timer_fired_at = now
+                            return { channel = timer, value = nil }
+                        end,
+                    }
+                    mcp_broker._run_with(fake_channel, fake_time, mcp_stream_targets, {
+                        SSE_IDLE_TIMEOUT = "test",
+                        MCP_ACTIVITY_TOPIC = "mcp.activity",
+                        MCP_NOTIFY_TOPIC = "mcp.notify",
+                        SSE_MESSAGE_TOPIC = "message",
+                    }, fake_process)
+                    return timer_fired_at, timer_count
+                end
+
+                local active_expiry, active_timers = simulate_broker({ 90, 180 })
+                test.eq(active_expiry, 280,
+                    "the first POST must refresh expiry beyond the original 100ms idle window")
+                test.eq(active_timers, 3)
+                local idle_expiry, idle_timers = simulate_broker({})
+                test.eq(idle_expiry, 100)
+                test.eq(idle_timers, 1)
+            end)
+
+            it("session creation accepts the per-token cap and rejects the next session without eviction", function()
+                local cap = keeper_config.mcp_max_sessions_per_token()
+                test.is_true(cap >= 1)
+                local token_session = { token_hash = "cap-test-token", label = "cap-test", identity = ADMIN_USER }
+                local names = {}
+                local spawned = 0
+                local cancelled = {}
+                local runtime = {
+                    registry = {
+                        lookup = function(name) return names[name] end,
+                        register = function(name, pid)
+                            if names[name] then return nil, "already exists" end
+                            names[name] = pid
+                            return true
+                        end,
+                        unregister = function(name) names[name] = nil; return true end,
+                    },
+                    cancel = function(pid)
+                        cancelled[#cancelled + 1] = pid
+                        for name, registered_pid in pairs(names) do
+                            if registered_pid == pid then names[name] = nil end
+                        end
+                    end,
+                    with_context = function()
+                        return {
+                            with_actor = function(self) return self end,
+                            with_scope = function(self) return self end,
+                            spawn = function()
+                                spawned = spawned + 1
+                                return "cap-broker-" .. spawned
+                            end,
+                        }
+                    end,
+                }
+                local identity = function() return "actor", "scope" end
+                local ids = {}
+                for _ = 1, cap do
+                    local id, err = mcp_sessions.create(token_session, runtime, identity,
+                        keeper_config.process_host())
+                    test.not_nil(id, tostring(err))
+                    ids[#ids + 1] = id
+                end
+                local rejected, limit_err = mcp_sessions.create(token_session, runtime, identity,
+                    keeper_config.process_host())
+                test.is_nil(rejected)
+                test.eq(limit_err, "MCP_SESSION_LIMIT")
+                local response = {}
+                function response:set_status(status) self.status = status end
+                function response:write_json(body) self.body = body end
+                function response:set_header(name, value) self.headers = self.headers or {}; self.headers[name] = value end
+                local request = { header = function() return nil end }
+                test.is_false(mcp_handler_core._bind_session(request, response, "initialize",
+                    token_session, 18, runtime, identity, keeper_config.process_host()))
+                test.eq(response.status, 429)
+                test.eq(response.body.jsonrpc, "2.0")
+                test.eq(response.body.id, 18)
+                test.eq(response.body.error.code, -32000)
+                test.eq(response.body.error.message, "Maximum active MCP sessions per token reached")
+                test.eq(#cancelled, 2, "only rejected new brokers may be cancelled")
+                for _, id in ipairs(ids) do
+                    test.not_nil(mcp_sessions.lookup(token_session, id, runtime),
+                        "reaching the cap must leave every existing session registered")
+                end
+            end)
+
             it("DELETE terminates one session and later GET and POST return HTTP 404", function()
                 local get, cancelled, runtime, token_session, new_response, request_for =
                     get_fixture({ session_a, session_b })
@@ -1489,6 +1641,7 @@ local function define_tests()
                     { "process.registry.foreign", some_pid },
                     { "process.registry.unregister", broker_name },
                     { "process.cancel", some_pid },
+                    { "process.send", some_pid },
                 }
                 for _, pair in ipairs(required) do
                     test.eq(scope:evaluate(actor, pair[1], pair[2]), "allow",
@@ -1615,14 +1768,14 @@ local function define_tests()
                 end
                 local first, first_err = initialize(1)
                 test.is_nil(first_err)
-                test.eq(first.status_code, 200)
+                test.eq(first.status_code, 200, "first initialize")
                 local first_id = response_header(first, "Mcp-Session-Id")
                 test.not_nil(first_id)
                 test.eq(#first_id, 64)
 
                 local second, second_err = initialize(2)
                 test.is_nil(second_err)
-                test.eq(second.status_code, 200)
+                test.eq(second.status_code, 200, "second initialize")
                 local second_id = response_header(second, "Mcp-Session-Id")
                 test.not_nil(second_id)
                 test.is_true(first_id ~= second_id)
@@ -1632,7 +1785,7 @@ local function define_tests()
                     body = json.encode({ jsonrpc = "2.0", id = 3, method = "ping" }),
                 })
                 test.is_nil(ping_err)
-                test.eq(ping.status_code, 200)
+                test.eq(ping.status_code, 200, "first ping after initialize")
 
                 local deleted, delete_err = http_client.delete(endpoint, { headers = headers(first_id) })
                 test.is_nil(delete_err)
@@ -1655,7 +1808,7 @@ local function define_tests()
                     body = json.encode({ jsonrpc = "2.0", id = 4, method = "ping" }),
                 })
                 test.is_nil(second_ping_err)
-                test.eq(second_ping.status_code, 200)
+                test.eq(second_ping.status_code, 200, "second session ping")
                 local second_deleted, second_delete_err = http_client.delete(endpoint, {
                     headers = headers(second_id),
                 })

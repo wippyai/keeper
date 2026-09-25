@@ -254,10 +254,14 @@ local function bind_session(req, res, method, session, msg_id, runtime, identity
             res:write_json(jsonrpc_error(msg_id, -32600, "initialize must not carry Mcp-Session-Id"))
             return false
         end
-        local created_id, _, create_err = sessions.create(session, runtime, identity, host)
+        local created_id, broker_pid_or_err, create_err = sessions.create(session, runtime, identity, host)
+        create_err = create_err or broker_pid_or_err
         if not created_id then
-            res:set_status(http.STATUS.INTERNAL_SERVER_ERROR)
-            res:write_json(jsonrpc_error(msg_id, -32000, create_err or "MCP session creation failed"))
+            local over_limit = create_err == "MCP_SESSION_LIMIT"
+            res:set_status(over_limit and 429 or http.STATUS.INTERNAL_SERVER_ERROR)
+            res:write_json(jsonrpc_error(msg_id, -32000, over_limit and
+                "Maximum active MCP sessions per token reached" or
+                create_err or "MCP session creation failed"))
             return false
         end
         session.mcp_session_id = created_id
@@ -270,7 +274,14 @@ local function bind_session(req, res, method, session, msg_id, runtime, identity
         res:write_json(jsonrpc_error(msg_id, -32000, "Mcp-Session-Id required"))
         return false
     end
-    if not sessions.lookup(session, session_id, runtime) then
+    local broker_pid = sessions.lookup(session, session_id, runtime)
+    if not broker_pid then
+        res:set_status(http.STATUS.NOT_FOUND)
+        res:write_json(jsonrpc_error(msg_id, -32000, "MCP session not found"))
+        return false
+    end
+    local touched = sessions.touch(broker_pid, runtime)
+    if not touched then
         res:set_status(http.STATUS.NOT_FOUND)
         res:write_json(jsonrpc_error(msg_id, -32000, "MCP session not found"))
         return false

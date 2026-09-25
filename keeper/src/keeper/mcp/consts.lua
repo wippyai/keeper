@@ -38,6 +38,7 @@ M.CAPABILITIES = {
 -- the token hash and session ID so sessions sharing a token stay separate.
 M.SSE_BROKER_NAME_PREFIX = "mcp.session."
 M.SSE_MESSAGE_TOPIC = "message"
+M.MCP_ACTIVITY_TOPIC = "mcp.activity"
 M.SSE_IDLE_TIMEOUT = "30m"
 
 -- Topic POST handlers publish on to reach the per-session broker; the

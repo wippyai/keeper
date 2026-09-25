@@ -21,6 +21,28 @@ local function new_id()
     return table.concat(hex)
 end
 
+local function slot_name(session, index)
+    local token_key = authorize.broker_key(session)
+    if not token_key then return nil end
+    return consts.SSE_BROKER_NAME_PREFIX .. token_key .. ".slot." .. tostring(index)
+end
+
+local function reserve_slot(session, broker_pid, runtime)
+    local cap = config.mcp_max_sessions_per_token()
+    for index = 1, cap do
+        local name = slot_name(session, index)
+        if not name then return nil, "session broker key unavailable" end
+        local registered, register_err = runtime.registry.register(name, broker_pid)
+        if registered then return name end
+
+        local current_pid = runtime.registry.lookup(name)
+        if not current_pid then
+            return nil, "session slot registration failed: " .. tostring(register_err)
+        end
+    end
+    return nil, "MCP_SESSION_LIMIT"
+end
+
 function M.name(session, id)
     if type(id) ~= "string" or #id ~= 64 or id:find("[^0-9a-f]") then return nil end
     local token_key = authorize.broker_key(session)
@@ -56,12 +78,25 @@ function M.create(session, runtime, identity, host)
         return nil, "broker spawn failed: " .. tostring(spawn_err)
     end
 
+    local slot, slot_err = reserve_slot(session, broker_pid, runtime)
+    if not slot then
+        runtime.cancel(broker_pid, 0)
+        return nil, slot_err
+    end
+
     local reg_ok, reg_err = runtime.registry.register(name, broker_pid)
     if not reg_ok then
+        runtime.registry.unregister(slot)
         runtime.cancel(broker_pid, 0)
         return nil, "broker register failed: " .. tostring(reg_err)
     end
     return id, broker_pid
+end
+
+function M.touch(broker_pid, runtime)
+    if type(broker_pid) ~= "string" then return false, "session broker unavailable" end
+    runtime = runtime or process
+    return runtime.send(broker_pid, consts.MCP_ACTIVITY_TOPIC, {})
 end
 
 function M.terminate(session, id, runtime)

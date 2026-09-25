@@ -14,13 +14,20 @@ local time = require("time")
 local consts = require("mcp_consts")
 local stream_targets = require("mcp_stream_targets")
 
-local function run()
-    local streams = stream_targets.new()
+local function run(channel_api, time_api, stream_targets_api, transport_consts, process_api)
+    channel_api = channel_api or channel
+    time_api = time_api or time
+    stream_targets_api = stream_targets_api or stream_targets
+    transport_consts = transport_consts or consts
+    process_api = process_api or process
 
-    local joins = process.listen("sse.join", { message = true })
-    local leaves = process.listen("sse.leave", { message = true })
-    local notifies = process.listen(consts.MCP_NOTIFY_TOPIC, { message = true })
-    local events = process.events()
+    local streams = stream_targets_api.new()
+
+    local joins = process_api.listen("sse.join", { message = true })
+    local leaves = process_api.listen("sse.leave", { message = true })
+    local notifies = process_api.listen(transport_consts.MCP_NOTIFY_TOPIC, { message = true })
+    local activity = process_api.listen(transport_consts.MCP_ACTIVITY_TOPIC, { message = true })
+    local events = process_api.events()
     local idle_timeout
 
     while true do
@@ -28,15 +35,16 @@ local function run()
             joins:case_receive(),
             leaves:case_receive(),
             notifies:case_receive(),
+            activity:case_receive(),
             events:case_receive(),
         }
         if streams:current() then
             idle_timeout = nil
         else
-            idle_timeout = idle_timeout or time.after(consts.SSE_IDLE_TIMEOUT)
+            idle_timeout = idle_timeout or time_api.after(transport_consts.SSE_IDLE_TIMEOUT)
             cases[#cases + 1] = idle_timeout:case_receive()
         end
-        local result = channel.select(cases)
+        local result = channel_api.select(cases)
 
         if result.channel == joins then
             local msg = result.value
@@ -52,8 +60,12 @@ local function run()
             local msg = result.value
             local stream_pid = streams:current()
             if msg and stream_pid then
-                process.send(stream_pid, consts.SSE_MESSAGE_TOPIC, msg:payload():data())
+                process_api.send(stream_pid, transport_consts.SSE_MESSAGE_TOPIC, msg:payload():data())
             end
+        elseif result.channel == activity then
+            -- A POST is real session activity even when the client does not
+            -- maintain an SSE GET stream. Re-arm the detached-session timer.
+            idle_timeout = nil
         elseif result.channel == events then
             local ev = result.value
             if ev and (ev.kind == process.event.CANCEL or ev.kind == process.event.EXIT) then
@@ -65,4 +77,4 @@ local function run()
     end
 end
 
-return { run = run }
+return { run = run, _run_with = run }

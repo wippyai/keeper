@@ -153,9 +153,10 @@ entries:
   - name: sse_broker_handoff
     kind: security.policy
     meta:
-      comment: MCP initialization cancels a broker if registration fails, and DELETE cancels the broker for the terminated session.
+      comment: MCP transport handlers signal session activity and cancel brokers during failed initialization or DELETE.
     policy:
       resources: '*'
       actions:
         - process.cancel
+        - process.send
       effect: allow

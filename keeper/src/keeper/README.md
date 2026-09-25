@@ -21,6 +21,7 @@ their own runtime resources without editing Keeper entries:
 - `keeper:env_storage` stores Keeper settings and MCP flags. Default: `app.env:store`.
 - `keeper:public_gateway` hosts the Keeper MCP HTTP router. Default: `app:gateway`.
 - `keeper:mcp_route` controls the MCP client path. Default: `/keeper-mcp/`.
+- `keeper:mcp_max_sessions_per_token` limits concurrent MCP sessions per bearer token. Default: `16`.
 - `keeper:ui_server` serves embedded Keeper UI assets. Default: `app:gateway`.
 - `keeper:process_host` runs Keeper-spawned runtime work. Default: `app:processes`.
 

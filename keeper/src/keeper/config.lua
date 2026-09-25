@@ -63,4 +63,13 @@ function M.mcp_route(): string
     return read_default("mcp_route")
 end
 
+function M.mcp_max_sessions_per_token(): integer
+    local raw = read_default("mcp_max_sessions_per_token")
+    local value = tonumber(raw)
+    if not value or value < 1 or value % 1 ~= 0 then
+        error("Keeper configuration mcp_max_sessions_per_token must be a positive integer")
+    end
+    return value
+end
+
 return M
