@@ -33,6 +33,10 @@ type ServiceDeps = {
     gov_consts: unknown?,
     bootloader: unknown?,
     bootloader_registry: unknown?,
+    preflight: unknown?,
+    floor_catalog: unknown?,
+    install_state: unknown?,
+    candidate_migrations_up: unknown?,
 }
 
 type HubService = {
@@ -49,12 +53,20 @@ type HubService = {
     gov_consts: unknown,
     bootloader: unknown,
     bootloader_registry: unknown,
+    preflight: unknown?,
+    floor_catalog: unknown?,
+    install_state: unknown?,
+    candidate_migrations_up: unknown?,
     list_dependencies: (HubService, unknown) -> (unknown, unknown?),
     list_migrations: (HubService, unknown) -> (unknown, unknown?),
     install: (HubService, unknown, unknown?) -> (unknown, unknown?),
     uninstall: (HubService, unknown, unknown?) -> (unknown, unknown?),
     migration_rows: (HubService, unknown) -> (unknown, unknown?),
     run_migrations: (HubService, unknown, unknown?) -> (unknown, unknown?),
+    check_installed_floors: (HubService, unknown?) -> (unknown, unknown?),
+    readiness: (HubService, unknown?) -> (unknown, unknown?),
+    health: (HubService, unknown?) -> (unknown, unknown?),
+    service_quiescence_barrier: (HubService, unknown?, unknown?) -> (unknown, unknown?),
 }
 
 M.DEFAULT_DEP_NAMESPACE = planner.DEFAULT_DEP_NAMESPACE
@@ -260,6 +272,10 @@ function M.new(deps: ServiceDeps?)
         gov_consts = deps.gov_consts or gov_consts,
         bootloader = deps.bootloader or bootloader,
         bootloader_registry = deps.bootloader_registry or bootloader_registry,
+        preflight = deps.preflight or _G["preflight"],
+        floor_catalog = deps.floor_catalog or _G["floor_catalog"],
+        install_state = deps.install_state or _G["install_state"],
+        candidate_migrations_up = deps.candidate_migrations_up,
     }, Service) :: HubService
 end
 
@@ -873,6 +889,38 @@ function Service:prepare_install(args)
     if not plan then return nil, plan_err end
     local graph_ok, graph_err = validate_resolved_graph(plan.graph)
     if not graph_ok then return nil, graph_err end
+
+    if self.preflight then
+        local installed_arts = {}
+        local inventory, _, _ = self:installed_module_inventory()
+        for _, m in ipairs(inventory or {}) do
+            table.insert(installed_arts, { name = m.name, version = m.version, hash = m.hash })
+        end
+        local candidate_closure = {}
+        for _, node in ipairs(plan.graph or {}) do
+            table.insert(candidate_closure, {
+                module = node.module,
+                version = node.version,
+                min_runtime = node.min_runtime or (node.meta and node.meta.min_runtime),
+                hash = node.hash,
+            })
+        end
+        local binary_ver = args.binary_version or (self.system and self.system.version and self.system.version())
+        local pf_res, pf_err = self.preflight.check({
+            candidate_closure = candidate_closure,
+            installed_artifacts = installed_arts,
+            binary_version = binary_ver,
+            certified_catalog = self.floor_catalog,
+        })
+        if pf_err then
+            return nil, err("PREFLIGHT_FAILED", tostring(pf_err))
+        end
+        if pf_res and not pf_res.accepted then
+            local blocker = pf_res.blocker or {}
+            return nil, err("INCOMPATIBLE_RUNTIME_FLOOR", blocker.reason or "runtime floor check failed", blocker)
+        end
+    end
+
     if #(plan.missing_requirements or {}) > 0 then
         return nil, err("REQUIREMENTS_MISSING", "Hub dependency requires explicit configuration", {
             dependency = plan.dependency,
@@ -2261,6 +2309,67 @@ end
 
 function M.list_migrations(args)
     return M.new():list_migrations(args)
+end
+
+function Service:check_installed_floors(opts)
+    opts = opts or {}
+    local pf = self.preflight or _G["preflight"]
+    if not pf then
+        return { accepted = true, note = "preflight checker unavailable" }, nil
+    end
+    local installed_arts = {}
+    local inventory, _, inv_err = self:installed_module_inventory()
+    if inv_err then return nil, inv_err end
+    for _, m in ipairs(inventory or {}) do
+        table.insert(installed_arts, { name = m.name, version = m.version, hash = m.hash })
+    end
+    local binary_ver = opts.binary_version or (self.system and self.system.version and self.system.version())
+    return pf.check({
+        installed_artifacts = installed_arts,
+        binary_version = binary_ver,
+        certified_catalog = self.floor_catalog or _G["floor_catalog"],
+    })
+end
+
+function Service:readiness(opts)
+    local pf_res, pf_err = self:check_installed_floors(opts)
+    if pf_err then
+        return { ready = false, status = "error", error = tostring(pf_err) }, nil
+    end
+    if pf_res and not pf_res.accepted then
+        return { ready = false, status = "refused", blocker = pf_res.blocker }, nil
+    end
+    return { ready = true, status = "ok" }, nil
+end
+
+function Service:health(opts)
+    local pf_res, pf_err = self:check_installed_floors(opts)
+    if pf_err then
+        return { status = "unhealthy", error = tostring(pf_err) }, nil
+    end
+    if pf_res and not pf_res.accepted then
+        return { status = "unhealthy", blocker = pf_res.blocker }, nil
+    end
+    return { status = "healthy" }, nil
+end
+
+-- Service quiescence barrier seam.
+-- Pending adjudication between framework runner and installer (see impl/B-report.md).
+-- Do not implement until adjudication lands; currently pass-through.
+function Service:service_quiescence_barrier(candidate_closure, opts)
+    return { status = "quiescence_pass_through", pending_adjudication = true }, nil
+end
+
+function M.check_installed_floors(opts)
+    return M.new():check_installed_floors(opts)
+end
+
+function M.readiness(opts)
+    return M.new():readiness(opts)
+end
+
+function M.health(opts)
+    return M.new():health(opts)
 end
 
 function M.run_migrations(args, opts)
