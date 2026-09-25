@@ -78,12 +78,15 @@ entries:
     kind: function.lua
     meta:
       type: test
-      comment: Pure tests for flow repo helpers (decode_content, adjacency, ancestors)
+      comment: Tests for flow repo helpers and reference-row resolution
       suite: internal.flow
     source: file://repo_test.lua
     modules:
       - json
+      - sql
+      - uuid
     imports:
+      keeper_config: keeper:config
       repo: keeper.internal.flow:repo
       test: wippy.test:test
     method: define_tests
