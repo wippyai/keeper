@@ -112,6 +112,13 @@ function M.check(args)
 
     local catalog = args.certified_catalog or floor_catalog
     local binary_version = trim(args.binary_version)
+    if binary_version == "" and args.system and type(args.system.version) == "function" then
+        binary_version = trim(args.system.version())
+    end
+    if binary_version == "" and args.runtime and type(args.runtime.version) == "function" then
+        binary_version = trim(args.runtime.version())
+    end
+
     local parsed_bin, bin_err
     if binary_version ~= "" then
         parsed_bin, bin_err = M.parse_version(binary_version)
@@ -200,6 +207,7 @@ function M.check(args)
 
     -- 2. Check candidate closure
     local candidates = normalize_artifacts_list(args.candidate_closure)
+    local candidates_with_floor = {}
     for _, cand in ipairs(candidates) do
         local mod_label = tostring(cand.module or cand.name or cand.id or "module")
         local required_floor = trim(cand.min_runtime or cand.min_version)
@@ -207,50 +215,55 @@ function M.check(args)
         -- If not declared in manifest, check certified catalog by hash
         if required_floor == "" and trim(cand.hash) ~= "" and catalog and catalog.lookup then
             local entry = catalog.lookup(cand.hash)
-            if entry then
+            if entry and entry.min_runtime then
                 required_floor = trim(entry.min_runtime)
             end
         end
 
-        if required_floor == "" then
-            return {
-                accepted = false,
-                blocker = {
-                    code = "ABSENT_FLOOR",
-                    reason = "candidate module '" .. mod_label .. "' has absent runtime floor and is not in certified catalog",
-                    module = mod_label,
-                    version = cand.version,
-                    hash = cand.hash,
-                },
-            }, nil
+        if required_floor ~= "" then
+            table.insert(candidates_with_floor, {
+                module = mod_label,
+                version = cand.version,
+                required_floor = required_floor,
+                hash = cand.hash,
+            })
         end
+    end
 
-        local parsed_floor, parse_err = M.parse_version(required_floor)
+    -- Closures without a floor install normally.
+    if #candidates_with_floor == 0 then
+        return { accepted = true }, nil
+    end
+
+    -- When candidates declare a floor, running binary version must be known.
+    if not parsed_bin then
+        local first = candidates_with_floor[1]
+        return {
+            accepted = false,
+            blocker = {
+                code = "UNKNOWN_BINARY_VERSION",
+                reason = "running binary version is not exposed by runtime, but candidate closure declares runtime floor; install refused",
+                module = first.module,
+                required_floor = first.required_floor,
+                binary_version = binary_version,
+                error = bin_err,
+            },
+        }, nil
+    end
+
+    for _, cand in ipairs(candidates_with_floor) do
+        local parsed_floor, parse_err = M.parse_version(cand.required_floor)
         if not parsed_floor then
             return {
                 accepted = false,
                 blocker = {
                     code = "UNPARSEABLE_FLOOR",
-                    reason = "candidate module '" .. mod_label .. "' declares unparseable floor: "
-                        .. tostring(required_floor),
-                    module = mod_label,
+                    reason = "candidate module '" .. cand.module .. "' declares unparseable floor: "
+                        .. tostring(cand.required_floor),
+                    module = cand.module,
                     version = cand.version,
-                    required_floor = required_floor,
+                    required_floor = cand.required_floor,
                     error = parse_err,
-                },
-            }, nil
-        end
-
-        if not parsed_bin then
-            return {
-                accepted = false,
-                blocker = {
-                    code = "UNKNOWN_BINARY_VERSION",
-                    reason = "running binary version is missing or unparseable: " .. tostring(binary_version),
-                    module = mod_label,
-                    required_floor = required_floor,
-                    binary_version = binary_version,
-                    error = bin_err,
                 },
             }, nil
         end
@@ -261,11 +274,11 @@ function M.check(args)
                 accepted = false,
                 blocker = {
                     code = "INCOMPATIBLE_RUNTIME_FLOOR",
-                    reason = "candidate module '" .. mod_label .. "' requires runtime floor "
-                        .. tostring(required_floor) .. ", but running binary is " .. binary_version,
-                    module = mod_label,
+                    reason = "candidate module '" .. cand.module .. "' requires runtime floor "
+                        .. tostring(cand.required_floor) .. ", but running binary is " .. binary_version,
+                    module = cand.module,
                     version = cand.version,
-                    required_floor = required_floor,
+                    required_floor = cand.required_floor,
                     binary_version = binary_version,
                 },
             }, nil

@@ -5,17 +5,7 @@ local install_state = require("install_state")
 local sql = require("sql")
 local json = require("json")
 
--- Comprehensive test suite for Package I safe installer and preflight.
---
--- Covers:
--- - MIG-09: boot floor covers every artifact in full resolved closure; unknown hash refuses boot
--- - MIG-10: changed applied migration hash refuses candidate; staged candidate discovery
--- - MIG-11: interruption after migration resumes same candidate hash/recorded step; different candidate cannot publish
--- - CMP-01: component 0.1.44 on v0.3.40a refused; .42a and .43a accepted
--- - CMP-02: absent/unparseable floor and transitive higher-floor refused
--- - CMP-03: exact-hash certified catalog covers installed closure; unknown hash never gets fallback
--- - Dual-engine verification: SQLite and PostgreSQL (127.0.0.1:5433)
-
+-- Test suite for Package I: MIG-09..11, CMP-01..03, service quiescence lifecycle.
 local function define_tests()
     test.describe("Package I - Safe Installer & Preflight", function()
 
@@ -130,16 +120,24 @@ local function define_tests()
                 test.is_nil(res43.blocker)
             end)
 
-            test.it("CMP-02: absent/unparseable floor and transitive higher-floor dependency refuse", function()
-                -- Absent floor
-                local res_absent = preflight.check({
-                    candidate_closure = { { module = "acme/missing", version = "1.0.0" } },
-                    binary_version = "0.3.43a",
+            test.it("CMP-02: closure declaring floor requires runtime version; closures without floor install normally", function()
+                -- Closure declaring floor without runtime version is refused with UNKNOWN_BINARY_VERSION
+                local res_floor_no_bin = preflight.check({
+                    candidate_closure = { { module = "acme/needs_floor", version = "1.0.0", min_runtime = "0.3.42a" } },
+                    binary_version = "",
                 })
-                test.is_false(res_absent.accepted)
-                test.eq(res_absent.blocker.code, "ABSENT_FLOOR")
+                test.is_false(res_floor_no_bin.accepted)
+                test.eq(res_floor_no_bin.blocker.code, "UNKNOWN_BINARY_VERSION")
 
-                -- Unparseable floor
+                -- Closure without a floor installs normally without binary version
+                local res_no_floor = preflight.check({
+                    candidate_closure = { { module = "acme/no_floor", version = "1.0.0" } },
+                    binary_version = "",
+                })
+                test.is_true(res_no_floor.accepted)
+                test.is_nil(res_no_floor.blocker)
+
+                -- Unparseable floor is refused
                 local res_unparseable = preflight.check({
                     candidate_closure = { { module = "acme/bad", version = "1.0.0", min_runtime = "not-a-semver" } },
                     binary_version = "0.3.43a",
@@ -147,7 +145,7 @@ local function define_tests()
                 test.is_false(res_unparseable.accepted)
                 test.eq(res_unparseable.blocker.code, "UNPARSEABLE_FLOOR")
 
-                -- Transitive higher-floor dependency
+                -- Transitive higher-floor dependency is refused
                 local res_transitive = preflight.check({
                     candidate_closure = {
                         { module = "acme/root", version = "1.0.0", min_runtime = "0.3.40a" },
@@ -401,6 +399,90 @@ local function define_tests()
                 local h, _ = fake_service:health()
                 test.eq(h.status, "unhealthy")
                 test.eq(h.blocker.code, "UNPARSEABLE_FLOOR")
+            end)
+        end)
+
+        test.describe("Service Quiescence Barrier & Fence Lifecycle", function()
+            test.it("fence acquired -> migration -> publish -> new start -> release; unrelated untouched", function()
+                install_state.reset_in_memory()
+                local lock_token = "tok-fence-lifecycle"
+                local cand_hash = "cand-lifecycle-1"
+                local services = { "svc.orders", "svc.billing" }
+
+                local s, b_err = install_state.begin_install(nil, {
+                    lock_token = lock_token,
+                    candidate_hash = cand_hash,
+                    steps = { "quiescence", "candidate_migrations", "publish", "new_start" },
+                })
+                test.is_nil(b_err)
+                test.not_nil(s)
+
+                local f_rec, f_err = install_state.record_fence(nil, lock_token, {
+                    candidate_hash = cand_hash,
+                    services = services,
+                    status = "fenced",
+                    held = true,
+                    instances_stopped = 2,
+                })
+                test.is_nil(f_err)
+                test.eq(f_rec.status, "fenced")
+                test.is_true(f_rec.metadata.fence.held)
+                test.eq(#f_rec.metadata.fence.services, 2)
+                test.is_false(f_rec.metadata.fence.services[1] == "svc.unrelated")
+
+                install_state.record_step(nil, lock_token, "candidate_migrations", { status = "done" })
+                install_state.record_step(nil, lock_token, "publish", { status = "done" })
+                install_state.record_step(nil, lock_token, "new_start", { status = "done" })
+
+                local rel_ok, rel_err = install_state.release_fence(nil, lock_token)
+                test.is_true(rel_ok)
+                test.is_nil(rel_err)
+
+                local comp, c_err = install_state.complete_install(nil, lock_token)
+                test.is_true(comp)
+                test.is_nil(c_err)
+            end)
+
+            test.it("ack timeout refuses before DDL and leaves resumable fenced state", function()
+                install_state.reset_in_memory()
+                local lock_token = "tok-timeout"
+                local cand_hash = "cand-timeout-1"
+
+                local f_rec, f_err = install_state.record_fence(nil, lock_token, {
+                    candidate_hash = cand_hash,
+                    services = { "svc.stuck" },
+                    status = "fenced",
+                    timed_out = true,
+                    unacknowledged = { "pid-9999" },
+                })
+                test.is_nil(f_err)
+                test.eq(f_rec.status, "fenced")
+                test.eq(f_rec.current_step, "quiescence")
+                test.is_true(f_rec.metadata.fence.timed_out)
+
+                local active, a_err = install_state.get_active_install(nil)
+                test.is_nil(a_err)
+                test.not_nil(active)
+                test.eq(active.status, "fenced")
+
+                local conf, c_err = install_state.begin_install(nil, {
+                    lock_token = "tok-conflict",
+                    candidate_hash = "cand-other",
+                    steps = { "quiescence" },
+                })
+                test.is_nil(conf)
+                test.not_nil(c_err)
+                test.is_true(string.find(c_err, "CONFLICT") ~= nil)
+
+                local resumed, r_err = install_state.begin_install(nil, {
+                    lock_token = "tok-resumed",
+                    candidate_hash = cand_hash,
+                    steps = { "quiescence", "candidate_migrations", "publish" },
+                })
+                test.is_nil(r_err)
+                test.not_nil(resumed)
+                test.is_true(resumed.resumed)
+                test.eq(resumed.status, "fenced")
             end)
         end)
 

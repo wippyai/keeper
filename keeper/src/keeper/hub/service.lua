@@ -67,6 +67,9 @@ type HubService = {
     readiness: (HubService, unknown?) -> (unknown, unknown?),
     health: (HubService, unknown?) -> (unknown, unknown?),
     service_quiescence_barrier: (HubService, unknown?, unknown?) -> (unknown, unknown?),
+    release_quiescence_fence: (HubService, unknown?, unknown?) -> (unknown, unknown?),
+    is_admission_closed: (HubService, string) -> boolean,
+    is_fence_held: (HubService, string) -> boolean,
 }
 
 M.DEFAULT_DEP_NAMESPACE = planner.DEFAULT_DEP_NAMESPACE
@@ -905,11 +908,16 @@ function Service:prepare_install(args)
                 hash = node.hash,
             })
         end
-        local binary_ver = args.binary_version or (self.system and self.system.version and self.system.version())
+        -- Never trust caller-supplied binary version for a safety gate.
+        -- Runtime version must come from runtime itself (self.system.version).
+        local binary_ver = (self.system and type(self.system.version) == "function" and self.system.version())
+            or (self.runtime and type(self.runtime.version) == "function" and self.runtime.version())
         local pf_res, pf_err = self.preflight.check({
             candidate_closure = candidate_closure,
             installed_artifacts = installed_arts,
             binary_version = binary_ver,
+            system = self.system,
+            runtime = self.runtime,
             certified_catalog = self.floor_catalog,
         })
         if pf_err then
@@ -917,7 +925,8 @@ function Service:prepare_install(args)
         end
         if pf_res and not pf_res.accepted then
             local blocker = pf_res.blocker or {}
-            return nil, err("INCOMPATIBLE_RUNTIME_FLOOR", blocker.reason or "runtime floor check failed", blocker)
+            local code = blocker.code or "INCOMPATIBLE_RUNTIME_FLOOR"
+            return nil, err(code, blocker.reason or "runtime floor check failed", blocker)
         end
     end
 
@@ -1692,6 +1701,33 @@ function Service:install(args, opts)
         migration_policy = payload.migration_policy,
     })
 
+    local candidate_closure = {}
+    for _, node in ipairs(plan.graph or {}) do
+        table.insert(candidate_closure, {
+            module = node.module,
+            version = node.version,
+            hash = node.hash,
+            min_runtime = node.min_runtime or (node.meta and node.meta.min_runtime),
+            meta = node.meta,
+            migrations = node.migrations,
+        })
+    end
+
+    local candidate_hash = (payload.dependency and payload.dependency.component or "install") .. ":" .. tostring(planned.version or "0")
+    local fence_res, fence_err = self:service_quiescence_barrier(candidate_closure, {
+        lock_token = operation_id,
+        candidate_hash = candidate_hash,
+        db = self.sql,
+        actor_id = opts.actor_id,
+    })
+    if fence_err then
+        self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FAILED, operation_id, {
+            dependency = payload.dependency,
+            error = error_summary(fence_err),
+        })
+        return nil, fence_err
+    end
+
     -- Build the ordered install steps. governance_apply is the one atomic
     -- publish; migrations_up appears only when it has work to do; the changed
     -- modules' bootloaders run last, as they do after migrations at boot.
@@ -1730,6 +1766,12 @@ function Service:install(args, opts)
             baseline_version = baseline_version,
         }, opts)
     end
+
+    -- Release quiescence fence now that migrations, publication, and new startup succeeded
+    self:release_quiescence_fence(candidate_closure, {
+        lock_token = operation_id,
+        db = self.sql,
+    })
 
     -- Lift the step results into the payload for API back-compat.
     local apply_result, migration_result
@@ -2271,6 +2313,23 @@ function Service:run_migrations(args, opts)
     if args.only_pending ~= nil then call_params.only_pending = args.only_pending end
     if args.only_applied ~= nil then call_params.only_applied = args.only_applied end
 
+    if operation == "up" then
+        local fence_res, fence_err = self:service_quiescence_barrier(rows, {
+            lock_token = operation_id,
+            candidate_hash = "migrations_up:" .. table.concat(ids, ","),
+            db = self.sql,
+            actor_id = opts.actor_id,
+        })
+        if fence_err then
+            self:emit_operation(opts.actor_id, M.EVENTS.MIGRATIONS_FAILED, operation_id, {
+                operation = operation,
+                entry_ids = ids,
+                error = error_summary(fence_err),
+            })
+            return nil, fence_err
+        end
+    end
+
     local result, call_err = self:call_func(M.MIGRATION_HANDLER_FN, call_params)
     if not result then
         self:emit_operation(opts.actor_id, M.EVENTS.MIGRATIONS_FAILED, operation_id, {
@@ -2279,6 +2338,13 @@ function Service:run_migrations(args, opts)
             error = error_summary(call_err),
         })
         return nil, call_err
+    end
+
+    if operation == "up" then
+        self:release_quiescence_fence(rows, {
+            lock_token = operation_id,
+            db = self.sql,
+        })
     end
     payload.result = result
     self:emit_operation(opts.actor_id, M.EVENTS.MIGRATIONS_FINISHED, operation_id, {
@@ -2353,11 +2419,319 @@ function Service:health(opts)
     return { status = "healthy" }, nil
 end
 
--- Service quiescence barrier seam.
--- Pending adjudication between framework runner and installer (see impl/B-report.md).
--- Do not implement until adjudication lands; currently pass-through.
+local function find_service_instances(system_mod, service_id)
+    local instances = {}
+    if not system_mod then return instances end
+    if system_mod.hosts and type(system_mod.hosts.list) == "function" then
+        local hosts, _ = system_mod.hosts.list()
+        for _, host in ipairs(hosts or {}) do
+            local h_id = type(host) == "table" and host.id or host
+            if h_id and system_mod.hosts.processes then
+                local procs, _ = system_mod.hosts.processes(h_id)
+                for _, p in ipairs(procs or {}) do
+                    local src = tostring(p.source or p.name or p.service or p.service_id or "")
+                    local pid = tostring(p.pid or p.id or "")
+                    if (src == service_id or string.find(src, service_id, 1, true)) and pid ~= "" then
+                        local st = tostring(p.state or p.status or "running")
+                        if st ~= "exited" and st ~= "terminated" and st ~= "stopped" then
+                            table.insert(instances, { pid = pid, host = h_id, source = src, state = st })
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return instances
+end
+
+local function is_supervisor_running(system_mod, service_id)
+    if not system_mod or not system_mod.supervisor then return false end
+    if type(system_mod.supervisor.state) == "function" then
+        local st, _ = system_mod.supervisor.state(service_id)
+        if st and type(st) == "table" then
+            local status = tostring(st.status or "")
+            return status == "running" or status == "starting"
+        end
+    end
+    return false
+end
+
+local function stop_service_and_instances(system_mod, process_mod, service_id, instances)
+    if system_mod and system_mod.supervisor and type(system_mod.supervisor.stop) == "function" then
+        system_mod.supervisor.stop(service_id)
+    end
+    if process_mod and type(process_mod.terminate) == "function" then
+        for _, inst in ipairs(instances) do
+            process_mod.terminate(inst.pid)
+        end
+    elseif process_mod and type(process_mod.cancel) == "function" then
+        for _, inst in ipairs(instances) do
+            process_mod.cancel(inst.pid)
+        end
+    end
+end
+
+local function verify_positive_exit(system_mod, service_id)
+    local alive = {}
+    local current_instances = find_service_instances(system_mod, service_id)
+    for _, inst in ipairs(current_instances) do
+        table.insert(alive, inst.pid)
+    end
+    if is_supervisor_running(system_mod, service_id) then
+        table.insert(alive, "supervisor:" .. service_id)
+    end
+    return #alive == 0, alive
+end
+
+local function collect_quiesce_services(svc, candidate_closure, opts)
+    local services = {}
+    local seen = {}
+
+    local function add_service(s)
+        local id = trim(s)
+        if id ~= "" and not seen[id] then
+            seen[id] = true
+            table.insert(services, id)
+        end
+    end
+
+    local function inspect_meta(meta)
+        if type(meta) ~= "table" then return end
+        local qs = meta.quiesce_services
+        if type(qs) == "table" then
+            for _, s in ipairs(qs) do add_service(s) end
+        elseif type(qs) == "string" then
+            add_service(qs)
+        end
+    end
+
+    if type(candidate_closure) == "table" then
+        for _, item in ipairs(candidate_closure) do
+            if type(item) == "table" then
+                inspect_meta(item.meta)
+                inspect_meta(item)
+                if type(item.migrations) == "table" then
+                    for _, m in ipairs(item.migrations) do
+                        if type(m) == "table" then
+                            inspect_meta(m.meta)
+                            inspect_meta(m)
+                        end
+                    end
+                end
+                if type(item.entries) == "table" then
+                    for _, e in ipairs(item.entries) do
+                        if type(e) == "table" then
+                            inspect_meta(e.meta)
+                            inspect_meta(e)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if type(opts) == "table" and type(opts.migrations) == "table" then
+        for _, m in ipairs(opts.migrations) do
+            if type(m) == "table" and m.status ~= "applied" then
+                inspect_meta(m.meta)
+                inspect_meta(m)
+            end
+        end
+    end
+
+    return services
+end
+
+-- Service quiescence barrier.
+-- Authority: ADJUDICATION.md ("P1 versus P2 acknowledgement", "installer/Hub/keeper operation owning admission...")
+-- and amended design §12.8 in FINAL-DESIGN-v4.md.
 function Service:service_quiescence_barrier(candidate_closure, opts)
-    return { status = "quiescence_pass_through", pending_adjudication = true }, nil
+    opts = opts or {}
+    local services = collect_quiesce_services(self, candidate_closure, opts)
+    if #services == 0 then
+        return {
+            status = "no_quiescence_needed",
+            services = {},
+            instances_stopped = 0,
+            fence_held = false,
+        }, nil
+    end
+
+    local lock_token = opts.lock_token or opts.operation_id or "quiescence_fence"
+    local candidate_hash = opts.candidate_hash or "cand_fence"
+    local db = opts.db or self.sql
+
+    -- 1. Close admission for those services
+    self._admission_closed = self._admission_closed or {}
+    for _, s in ipairs(services) do
+        self._admission_closed[s] = true
+        if self.system and self.system.supervisor and type(self.system.supervisor.set_admission) == "function" then
+            self.system.supervisor.set_admission(s, false)
+        end
+    end
+
+    -- 2. Stop running instances through supervisor / process APIs
+    local all_instances = {}
+    for _, s in ipairs(services) do
+        local insts = find_service_instances(self.system, s)
+        for _, inst in ipairs(insts) do
+            table.insert(all_instances, inst)
+        end
+        stop_service_and_instances(self.system, self.process, s, insts)
+    end
+
+    -- 3. Require positive process-exit acknowledgement for every instance
+    local timeout_s = (opts.ack_timeout_ms or 5000) / 1000
+    local max_polls = opts.max_ack_polls or 10
+    local start_time = os.time()
+    local poll_count = 0
+    local all_acked = false
+    local unacked_all = {}
+
+    while poll_count < max_polls do
+        poll_count = poll_count + 1
+        local current_unacked = {}
+        for _, s in ipairs(services) do
+            local acked, unacked = verify_positive_exit(self.system, s)
+            if not acked then
+                for _, u in ipairs(unacked) do table.insert(current_unacked, u) end
+            end
+        end
+
+        if #current_unacked == 0 then
+            all_acked = true
+            break
+        end
+        unacked_all = current_unacked
+
+        if self.system and self.system.sleep then
+            self.system.sleep(opts.poll_interval_ms or 50)
+        end
+        if (os.time() - start_time) >= timeout_s then
+            break
+        end
+    end
+
+    if not all_acked then
+        -- Refuse visibly BEFORE any DDL and leave a resumable fenced state in install_state
+        local state_mod = self.install_state or _G["install_state"]
+        if state_mod and type(state_mod.record_fence) == "function" then
+            state_mod.record_fence(db, lock_token, {
+                candidate_hash = candidate_hash,
+                services = services,
+                status = "fenced",
+                timed_out = true,
+                unacknowledged = unacked_all,
+            })
+            if type(state_mod.record_step) == "function" then
+                state_mod.record_step(db, lock_token, "quiescence", {
+                    status = "fenced",
+                    error = "process-exit ack timed out",
+                })
+            end
+        end
+
+        return nil, err("QUIESCENCE_TIMEOUT",
+            "timed out waiting for process-exit acknowledgement for service(s): " .. table.concat(services, ", "),
+            {
+                code = "QUIESCENCE_TIMEOUT",
+                services = services,
+                unacknowledged = unacked_all,
+                blocker = "PROCESS_EXIT_TIMEOUT",
+                candidate_hash = candidate_hash,
+                lock_token = lock_token,
+                fenced = true,
+            })
+    end
+
+    -- Positive acknowledgement received: fence is acquired and held
+    self._fence_held = self._fence_held or {}
+    for _, s in ipairs(services) do
+        self._fence_held[s] = true
+    end
+
+    local state_mod = self.install_state or _G["install_state"]
+    if state_mod and type(state_mod.record_fence) == "function" then
+        state_mod.record_fence(db, lock_token, {
+            candidate_hash = candidate_hash,
+            services = services,
+            status = "fenced",
+            held = true,
+            instances_stopped = #all_instances,
+        })
+        if type(state_mod.record_step) == "function" then
+            state_mod.record_step(db, lock_token, "quiescence", {
+                status = "done",
+                result = { fence = "acquired", services = services },
+            })
+        end
+    end
+
+    return {
+        status = "fence_acquired",
+        services = services,
+        instances_stopped = #all_instances,
+        admission_closed = true,
+        fence_held = true,
+    }, nil
+end
+
+function Service:release_quiescence_fence(candidate_closure, opts)
+    opts = opts or {}
+    local services = collect_quiesce_services(self, candidate_closure, opts)
+    if #services == 0 and self._fence_held then
+        for s, _ in pairs(self._fence_held) do
+            table.insert(services, s)
+        end
+    end
+
+    self._fence_held = self._fence_held or {}
+    self._admission_closed = self._admission_closed or {}
+
+    for _, s in ipairs(services) do
+        self._fence_held[s] = nil
+        self._admission_closed[s] = nil
+        if self.system and self.system.supervisor and type(self.system.supervisor.set_admission) == "function" then
+            self.system.supervisor.set_admission(s, true)
+        end
+    end
+
+    local lock_token = opts.lock_token or opts.operation_id
+    local db = opts.db or self.sql
+    local state_mod = self.install_state or _G["install_state"]
+    if state_mod and lock_token and type(state_mod.release_fence) == "function" then
+        state_mod.release_fence(db, lock_token)
+    end
+
+    return {
+        status = "fence_released",
+        services = services,
+        admission_reopened = true,
+    }, nil
+end
+
+function Service:is_admission_closed(service_id)
+    return self._admission_closed and self._admission_closed[service_id] == true
+end
+
+function Service:is_fence_held(service_id)
+    return self._fence_held and self._fence_held[service_id] == true
+end
+
+function M.service_quiescence_barrier(candidate_closure, opts)
+    return M.new():service_quiescence_barrier(candidate_closure, opts)
+end
+
+function M.release_quiescence_fence(candidate_closure, opts)
+    return M.new():release_quiescence_fence(candidate_closure, opts)
+end
+
+function M.is_admission_closed(service_id)
+    return M.new():is_admission_closed(service_id)
+end
+
+function M.is_fence_held(service_id)
+    return M.new():is_fence_held(service_id)
 end
 
 function M.check_installed_floors(opts)

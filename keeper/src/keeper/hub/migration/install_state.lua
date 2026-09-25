@@ -89,7 +89,7 @@ end
 function M.get_active_install(db)
     if not db then
         for _, rec in pairs(in_memory_store) do
-            if rec.status == "in_progress" then
+            if rec.status == "in_progress" or rec.status == "fenced" then
                 return rec, nil
             end
         end
@@ -99,7 +99,7 @@ function M.get_active_install(db)
     local query = [[
         SELECT lock_token, candidate_hash, status, current_step, steps_json, metadata_json, created_at, updated_at
         FROM keeper_hub_install_state
-        WHERE status = 'in_progress'
+        WHERE status IN ('in_progress', 'fenced')
         LIMIT 1
     ]]
     local rows, q_err = exec_query(db, query, {})
@@ -156,6 +156,7 @@ function M.begin_install(db, args)
         if active.candidate_hash == candidate_hash then
             return {
                 resumed = true,
+                status = active.status,
                 lock_token = active.lock_token,
                 candidate_hash = active.candidate_hash,
                 current_step = active.current_step,
@@ -368,6 +369,104 @@ function M.release_lock(db, lock_token)
     local _, err = exec_statement(db, update_sql, { updated_at, lock_token })
     if err then
         return nil, "failed to release install lock: " .. tostring(err)
+    end
+    return true, nil
+end
+
+function M.record_fence(db, lock_token, fence_data)
+    lock_token = trim(lock_token)
+    fence_data = fence_data or {}
+    local updated_at = now_iso()
+
+    if not db then
+        local rec = in_memory_store[lock_token]
+        if not rec then
+            rec = {
+                lock_token = lock_token,
+                candidate_hash = fence_data.candidate_hash or "cand_fence",
+                status = "fenced",
+                current_step = "quiescence",
+                steps = {},
+                metadata = {},
+                created_at = updated_at,
+                updated_at = updated_at,
+            }
+            in_memory_store[lock_token] = rec
+        end
+        rec.status = "fenced"
+        rec.current_step = "quiescence"
+        rec.updated_at = updated_at
+        rec.metadata = rec.metadata or {}
+        rec.metadata.fence = fence_data
+        return rec, nil
+    end
+
+    local check_query = "SELECT metadata_json FROM keeper_hub_install_state WHERE lock_token = ?"
+    local rows, q_err = exec_query(db, check_query, { lock_token })
+    local meta = {}
+    if rows and #rows > 0 and rows[1].metadata_json and rows[1].metadata_json ~= "" then
+        meta = json.decode(rows[1].metadata_json) or {}
+    end
+    meta.fence = fence_data
+
+    if rows and #rows > 0 then
+        local update_sql = [[
+            UPDATE keeper_hub_install_state
+            SET status = 'fenced', current_step = 'quiescence', metadata_json = ?, updated_at = ?
+            WHERE lock_token = ?
+        ]]
+        local _, u_err = exec_statement(db, update_sql, { json.encode(meta), updated_at, lock_token })
+        if u_err then return nil, "failed to record fence: " .. tostring(u_err) end
+    else
+        local insert_sql = [[
+            INSERT INTO keeper_hub_install_state
+            (lock_token, candidate_hash, status, current_step, steps_json, metadata_json, created_at, updated_at)
+            VALUES (?, ?, 'fenced', 'quiescence', '[]', ?, ?, ?)
+        ]]
+        local _, ins_err = exec_statement(db, insert_sql, {
+            lock_token, fence_data.candidate_hash or "cand_fence", json.encode(meta), updated_at, updated_at,
+        })
+        if ins_err then return nil, "failed to record fence: " .. tostring(ins_err) end
+    end
+
+    return {
+        lock_token = lock_token,
+        status = "fenced",
+        current_step = "quiescence",
+        metadata = meta,
+        updated_at = updated_at,
+    }, nil
+end
+
+function M.release_fence(db, lock_token)
+    lock_token = trim(lock_token)
+    local updated_at = now_iso()
+
+    if not db then
+        local rec = in_memory_store[lock_token]
+        if rec and rec.metadata and rec.metadata.fence then
+            rec.metadata.fence.held = false
+            rec.metadata.fence.released = true
+            rec.metadata.fence.released_at = updated_at
+        end
+        return true, nil
+    end
+
+    local check_query = "SELECT metadata_json FROM keeper_hub_install_state WHERE lock_token = ?"
+    local rows, q_err = exec_query(db, check_query, { lock_token })
+    if rows and #rows > 0 and rows[1].metadata_json then
+        local meta = json.decode(rows[1].metadata_json) or {}
+        if meta.fence then
+            meta.fence.held = false
+            meta.fence.released = true
+            meta.fence.released_at = updated_at
+        end
+        local update_sql = [[
+            UPDATE keeper_hub_install_state
+            SET metadata_json = ?, updated_at = ?
+            WHERE lock_token = ?
+        ]]
+        exec_statement(db, update_sql, { json.encode(meta), updated_at, lock_token })
     end
     return true, nil
 end
