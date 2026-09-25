@@ -1532,12 +1532,13 @@ local function define_tests()
             end)
 
             it("POST activity keeps an unstreamed broker alive past its idle window, then idle expires", function()
-                local function simulate_broker(activity_times, other_events)
+                local function simulate_broker(activity_times, other_events, reset_fire_race)
                     local now = 0
                     local timer_fired_at
                     local timer_count = 0
                     local timer_resets = 0
                     local timer_stops = 0
+                    local timer_subscriptions = 0
                     local channels = {}
                     local queue = {}
                     for _, at in ipairs(activity_times) do
@@ -1573,23 +1574,35 @@ local function define_tests()
                     local fake_time = {
                         timer = function()
                             timer_count = timer_count + 1
+                            timer_subscriptions = timer_subscriptions + 1
                             local timer = {
                                 deadline = now + 100,
                                 active = true,
                                 closed = false,
                                 stopped = false,
+                                generation = 0,
                             }
                             timer.case_receive = function(self) return self end
                             timer.channel = function(self) return self end
                             timer.reset = function(self)
                                 timer_resets = timer_resets + 1
                                 if self.stopped or self.closed then return false end
+                                self.generation = self.generation + 1
+                                if reset_fire_race and now >= self.deadline then
+                                    self.fired = true
+                                    self.stale_frame_discarded = true
+                                    self.active = false
+                                    return false
+                                end
                                 self.deadline = now + 100
                                 self.active = true
                                 return true
                             end
                             timer.stop = function(self)
                                 timer_stops = timer_stops + 1
+                                if not self.stopped then
+                                    timer_subscriptions = timer_subscriptions - 1
+                                end
                                 self.stopped = true
                                 self.active = false
                                 self.closed = true
@@ -1622,7 +1635,8 @@ local function define_tests()
                             for _, candidate in ipairs(cases) do
                                 if candidate.deadline and candidate.active ~= false then timer = candidate end
                             end
-                            if next_event_index and (not timer or queue[next_event_index].at < timer.deadline) then
+                            if next_event_index and (not timer or queue[next_event_index].at < timer.deadline
+                                or (reset_fire_race and queue[next_event_index].at == timer.deadline)) then
                                 local event = table.remove(queue, next_event_index)
                                 now = event.at
                                 return { channel = channel_for(event.topic), value = event.value }
@@ -1630,6 +1644,9 @@ local function define_tests()
                             if not timer then error("fake select has no active timer or queued event") end
                             now = timer.deadline
                             timer_fired_at = now
+                            timer.active = false
+                            timer.closed = true
+                            if not timer.stopped then timer_subscriptions = timer_subscriptions - 1 end
                             return { channel = timer, value = nil }
                         end,
                     }
@@ -1649,7 +1666,7 @@ local function define_tests()
                         "the broker state must account for every POST touch")
                     test.not_nil(state.idle_timer,
                         "the broker state must retain its idle timer")
-                    return timer_fired_at, timer_count, timer_resets, timer_stops, state
+                    return timer_fired_at, timer_count, timer_resets, timer_stops, state, timer_subscriptions
                 end
 
                 local activity_times = {}
@@ -1707,6 +1724,18 @@ local function define_tests()
                 test.eq(cycle_timers, 3,
                     "each attach/detach cycle must replace its stopped timer")
                 test.eq(cycle_stops, 2)
+
+                local race_expiry, race_timers, race_resets, race_stops, _, race_subscriptions =
+                    simulate_broker({ 100 }, nil, true)
+                test.eq(race_expiry, 200,
+                    "a POST touch racing timer expiry must start a fresh idle window")
+                test.eq(race_timers, 2,
+                    "a failed reset after the timer fires must allocate a replacement timer")
+                test.eq(race_resets, 1)
+                test.eq(race_subscriptions, 0,
+                    "the reset/fire race must leave no orphan timer subscriptions")
+                test.eq(race_stops, 1,
+                    "the broker must stop the timer whose reset loses a race with expiry")
             end)
 
             it("a broker that exits before readiness cannot reserve a slot", function()

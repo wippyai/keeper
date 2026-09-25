@@ -82,6 +82,7 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
                 state.idle_active = true
                 return
             end
+            state.idle_timer:stop()
             state.idle_timer = nil
             state.idle_channel = nil
             idle_channel = nil
