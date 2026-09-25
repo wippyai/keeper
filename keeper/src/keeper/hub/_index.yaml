@@ -126,14 +126,22 @@ entries:
     kind: library.lua
     source: file://install/resolver.lua
 
-  - name: install_test
+  - name: install_test_support
+    kind: library.lua
+    source: file://install/install_test_support.lua
+    modules:
+      - sql
+    imports:
+      test: wippy.test:test
+      hub_service: keeper.hub:service
+      install_state: keeper.hub:install_state
+
+  - name: install_staging_test
     kind: function.lua
     meta:
       type: test
       suite: hub
-    source: file://install/install_test.lua
-    modules:
-      - sql
+    source: file://install/install_staging_test.lua
     imports:
       test: wippy.test:test
       hub_service: keeper.hub:service
@@ -141,8 +149,35 @@ entries:
       install_candidate: keeper.hub:install_candidate
       install_digest: keeper.hub:install_digest
       install_resolver: keeper.hub:install_resolver
-      install_state: keeper.hub:install_state
       candidate_runner: wippy.migration:candidate
+      install_test_support: keeper.hub:install_test_support
+    method: define_tests
+
+  - name: install_flow_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub
+    source: file://install/install_flow_test.lua
+    modules:
+      - sql
+    imports:
+      test: wippy.test:test
+      install_test_support: keeper.hub:install_test_support
+    method: define_tests
+
+  - name: install_real_runner_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub
+    source: file://install/install_real_runner_test.lua
+    modules:
+      - sql
+    imports:
+      test: wippy.test:test
+      install_test_support: keeper.hub:install_test_support
+      sql_dialect: keeper.internal:sql_dialect
     method: define_tests
 
   - name: preflight_bootloader
