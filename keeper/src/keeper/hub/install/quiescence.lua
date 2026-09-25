@@ -1,7 +1,40 @@
 local M = {}
 
-local function failure(code, message, details)
-    return { code = code, message = message, details = details }
+local ERROR_KIND = {
+    BAD_REQUEST = errors.INVALID,
+    BAD_SERVICE = errors.INVALID,
+    FENCE_INVALID = errors.INVALID,
+    NOT_FOUND = errors.NOT_FOUND,
+    CONFLICT = errors.CONFLICT,
+    FENCE_OWNER_MISMATCH = errors.CONFLICT,
+    SUPERVISOR_UNAVAILABLE = errors.UNAVAILABLE,
+    SERVICE_UNAVAILABLE = errors.UNAVAILABLE,
+    INSTALL_STATE_UNAVAILABLE = errors.UNAVAILABLE,
+    QUIESCENCE_TIMEOUT = errors.TIMEOUT,
+}
+
+-- The scheduler reports live processes as running, ready, blocked, or
+-- idle; only terminal states mean an instance is not up.
+local TERMINAL_PROCESS_STATES = {
+    exited = true,
+    stopped = true,
+    complete = true,
+    unknown = true,
+}
+
+local function process_live(proc_state)
+    return proc_state ~= nil and not TERMINAL_PROCESS_STATES[proc_state]
+end
+
+local function failure(code, message, info)
+    local details = { code = code }
+    if type(info) == "table" then
+        for key, value in pairs(info) do details[key] = value end
+    elseif info ~= nil then
+        details.cause = tostring(info)
+    end
+    return errors.new({ kind = ERROR_KIND[code] or errors.INTERNAL,
+        message = message, details = details })
 end
 
 local function inspect_services(items)
@@ -26,6 +59,16 @@ end
 
 M.collect = inspect_services
 
+-- Registry process refs are short names in their own namespace while the
+-- runtime reports namespace-qualified process sources. A ref without a
+-- namespace resolves against the service entry's namespace.
+local function qualify_process(entry_id, source)
+    if source:find(":", 1, true) then return source end
+    local namespace = string.match(entry_id or "", "^([^:]+):")
+    if namespace and namespace ~= "" then return namespace .. ":" .. source end
+    return source
+end
+
 local function configured_process(registry, id)
     if not registry or type(registry.get) ~= "function" then
         return nil, failure("SUPERVISOR_UNAVAILABLE", "registry.get unavailable")
@@ -41,7 +84,7 @@ local function configured_process(registry, id)
     if type(source) ~= "string" or source == "" then
         return nil, failure("BAD_SERVICE", id .. " has no configured process")
     end
-    return source, nil
+    return qualify_process(id, source), nil
 end
 
 local function observe(runtime, id, source)
@@ -91,8 +134,10 @@ local function wait_for(runtime, id, source, predicate, limit)
         last = snapshot
         if predicate(snapshot) then return snapshot, nil end
         if attempt < (limit or 100) then
-            local slept, sleep_err = sleeper("50ms")
-            if not slept or sleep_err then
+            -- The real time.sleep returns nothing on success; only a
+            -- returned error means the wait itself failed.
+            local _, sleep_err = sleeper("50ms")
+            if sleep_err then
                 return nil, failure("INSPECTION_FAILED", "acknowledgement wait failed", sleep_err)
             end
         end
@@ -135,7 +180,11 @@ function M.acquire(runtime, db, token, candidate_hash, items)
         if not sent then return nil, send_err end
         local source = records[id].source
         local stopped, stop_err = wait_for(runtime, id, source, function(snapshot)
-            if snapshot.state.desired ~= "stopped" or snapshot.state.status ~= "stopped" then
+            if snapshot.state.desired ~= "stopped" then return false end
+            -- A stopped service reports status stopped while its process
+            -- shuts down and exited once the process is gone; either one
+            -- with desired stopped proves the old instance is quiesced.
+            if snapshot.state.status ~= "stopped" and snapshot.state.status ~= "exited" then
                 return false
             end
             for pid in pairs(records[id].old_pids) do
@@ -172,7 +221,7 @@ function M.start(runtime, db, token, fence)
         local started, start_err = wait_for(runtime, id, record.source, function(snapshot)
             if snapshot.state.desired ~= "running" or snapshot.state.status ~= "running" then return false end
             for pid, proc_state in pairs(snapshot.pids) do
-                if not record.old_pids[pid] and proc_state == "running" then
+                if not record.old_pids[pid] and process_live(proc_state) then
                     record.new_pid = pid
                     return true
                 end
@@ -199,7 +248,7 @@ function M.release(runtime, db, token, fence)
         local snapshot, inspect_err = observe(runtime, id, record.source)
         if not snapshot then return nil, inspect_err end
         if snapshot.state.desired ~= "running" or snapshot.state.status ~= "running"
-            or snapshot.pids[record.new_pid] ~= "running" then
+            or not process_live(snapshot.pids[record.new_pid]) then
             return nil, failure("STARTUP_UNACKNOWLEDGED", "new service instance not running for " .. id)
         end
     end

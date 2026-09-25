@@ -3,6 +3,13 @@ local sql_dialect = require("sql_dialect")
 
 local M = {}
 
+local function failure(code, message, cause)
+    local kinds = { BAD_REQUEST = errors.INVALID, NOT_FOUND = errors.NOT_FOUND,
+        CONFLICT = errors.CONFLICT }
+    return errors.new({ kind = kinds[code] or errors.INTERNAL,
+        message = message, details = { code = code, cause = cause and tostring(cause) or nil } })
+end
+
 -- Durable install state and single installer lock management.
 --
 -- Authority: FINAL-DESIGN-v4.md §12.1 lines 840-843 and ACCEPTANCE-IDS.md (MIG-11).
@@ -30,26 +37,32 @@ end
 
 local function exec_query(db, statement, params)
     if not db or type(db.query) ~= "function" then
-        return nil, "database handle with query method required"
+        return nil, failure("BAD_REQUEST", "database handle with query method required")
     end
     if sql_dialect and sql_dialect.query then
-        return sql_dialect.query(db, statement, params or {})
+        local rows, err = sql_dialect.query(db, statement, params or {})
+        if err then return nil, failure("DATABASE_FAILED", "database query failed", err) end
+        return rows, nil
     end
-    return db:query(statement, params or {})
+    local rows, err = db:query(statement, params or {})
+    if err then return nil, failure("DATABASE_FAILED", "database query failed", err) end
+    return rows, nil
 end
 
 local function exec_statement(db, statement, params)
     if not db or type(db.execute) ~= "function" then
-        return nil, "database handle with execute method required"
+        return nil, failure("BAD_REQUEST", "database handle with execute method required")
     end
     if params and #params > 0 and sql_dialect and sql_dialect.bind_postgres_placeholders then
         if sql_dialect.is_postgres and sql_dialect.is_postgres(db) then
             local bound, bind_err = sql_dialect.bind_postgres_placeholders(statement, params)
-            if not bound then return nil, bind_err end
+            if not bound then return nil, failure("DATABASE_FAILED", "database bind failed", bind_err) end
             statement = bound
         end
     end
-    return db:execute(statement, params or {})
+    local result, err = db:execute(statement, params or {})
+    if err then return nil, failure("DATABASE_FAILED", "database statement failed", err) end
+    return result, nil
 end
 
 function M.ensure(db)
@@ -71,7 +84,7 @@ function M.ensure(db)
     ]]
     local _, err = exec_statement(db, ddl, {})
     if err then
-        return nil, "failed to create keeper_hub_install_state: " .. tostring(err)
+        return nil, failure("DATABASE_FAILED", "failed to create keeper_hub_install_state", err)
     end
 
     -- Both PostgreSQL and SQLite enforce one active row at INSERT time.
@@ -83,7 +96,7 @@ function M.ensure(db)
     ]]
     local _, idx_err = exec_statement(db, idx_ddl, {})
     if idx_err then
-        return nil, "failed to create index on keeper_hub_install_state: " .. tostring(idx_err)
+        return nil, failure("DATABASE_FAILED", "failed to create index on keeper_hub_install_state", idx_err)
     end
 
     return true, nil
@@ -107,7 +120,7 @@ function M.get_active_install(db)
     ]]
     local rows, q_err = exec_query(db, query, {})
     if q_err then
-        return nil, "failed to query active install: " .. tostring(q_err)
+        return nil, failure("DATABASE_FAILED", "failed to query active install", q_err)
     end
     if not rows or #rows == 0 then
         return nil, nil
@@ -137,15 +150,15 @@ end
 
 function M.begin_install(db, args)
     if type(args) ~= "table" then
-        return nil, "BAD_REQUEST: args must be a table"
+        return nil, failure("BAD_REQUEST", "args must be a table")
     end
     local lock_token = trim(args.lock_token)
     if lock_token == "" then
-        return nil, "BAD_REQUEST: lock_token is required"
+        return nil, failure("BAD_REQUEST", "lock_token is required")
     end
     local candidate_hash = trim(args.candidate_hash)
     if candidate_hash == "" then
-        return nil, "BAD_REQUEST: candidate_hash is required"
+        return nil, failure("BAD_REQUEST", "candidate_hash is required")
     end
 
     if not db then
@@ -153,7 +166,7 @@ function M.begin_install(db, args)
         if active_err then return nil, active_err end
         if active then
             if active.candidate_hash ~= candidate_hash then
-                return nil, "CONFLICT: installer lock held by different candidate"
+                return nil, failure("CONFLICT", "installer lock held by different candidate")
             end
             return {
                 resumed = true, status = active.status, lock_token = active.lock_token,
@@ -209,14 +222,13 @@ function M.begin_install(db, args)
         lock_token, candidate_hash, current_step, steps_json, metadata_json, created_at, created_at,
     })
     if ins_err then
-        return nil, "failed to record install state: " .. tostring(ins_err)
+        return nil, failure("DATABASE_FAILED", "failed to record install state", ins_err)
     end
     local active, active_err = M.get_active_install(db)
     if active_err then return nil, active_err end
-    if not active then return nil, "CONFLICT: install row was not acquired" end
+    if not active then return nil, failure("CONFLICT", "install row was not acquired") end
     if active.candidate_hash ~= candidate_hash then
-        return nil, "CONFLICT: installer lock held by different candidate (active="
-            .. tostring(active.candidate_hash) .. ", requested=" .. candidate_hash .. ")"
+        return nil, failure("CONFLICT", "installer lock held by different candidate", { active = active.candidate_hash, requested = candidate_hash })
     end
     return {
         resumed = insertion.rows_affected == 0,
@@ -237,7 +249,7 @@ function M.record_step(db, lock_token, step_name, outcome)
 
     if not db then
         local rec = in_memory_store[lock_token]
-        if not rec then return nil, "install record not found for lock_token " .. lock_token end
+        if not rec then return nil, failure("NOT_FOUND", "install record not found for lock_token " .. lock_token) end
         rec.current_step = step_name
         rec.updated_at = updated_at
         for _, s in ipairs(rec.steps) do
@@ -254,7 +266,7 @@ function M.record_step(db, lock_token, step_name, outcome)
     local query = "SELECT steps_json FROM keeper_hub_install_state WHERE lock_token = ?"
     local rows, q_err = exec_query(db, query, { lock_token })
     if q_err or not rows or #rows == 0 then
-        return nil, "install record not found: " .. tostring(q_err or "no rows")
+        return nil, failure(q_err and "DATABASE_FAILED" or "NOT_FOUND", "install record not found", q_err)
     end
 
     local steps = json.decode(rows[1].steps_json or "[]") or {}
@@ -288,7 +300,7 @@ function M.record_step(db, lock_token, step_name, outcome)
         step_name, json.encode(steps), updated_at, lock_token,
     })
     if u_err then
-        return nil, "failed to update install step: " .. tostring(u_err)
+        return nil, failure("DATABASE_FAILED", "failed to update install step", u_err)
     end
 
     return {
@@ -321,7 +333,7 @@ function M.complete_install(db, lock_token, result)
     ]]
     local updated, err = exec_statement(db, update_sql, { updated_at, lock_token })
     if err or not updated or updated.rows_affected ~= 1 then
-        return nil, "failed to complete install: " .. tostring(err or "active owner not found")
+        return nil, failure(err and "DATABASE_FAILED" or "CONFLICT", "failed to complete install", err)
     end
     return true, nil
 end
@@ -347,7 +359,7 @@ function M.fail_install(db, lock_token, err_message)
     ]]
     local _, err = exec_statement(db, update_sql, { updated_at, lock_token })
     if err then
-        return nil, "failed to mark install failed: " .. tostring(err)
+        return nil, failure("DATABASE_FAILED", "failed to mark install failed", err)
     end
     return true, nil
 end
@@ -368,7 +380,7 @@ function M.release_lock(db, lock_token)
     ]]
     local _, err = exec_statement(db, update_sql, { updated_at, lock_token })
     if err then
-        return nil, "failed to release install lock: " .. tostring(err)
+        return nil, failure("DATABASE_FAILED", "failed to release install lock", err)
     end
     return true, nil
 end
@@ -403,8 +415,8 @@ function M.record_fence(db, lock_token, fence_data)
 
     local check_query = "SELECT metadata_json FROM keeper_hub_install_state WHERE lock_token = ?"
     local rows, q_err = exec_query(db, check_query, { lock_token })
-    if q_err then return nil, "failed to read fence owner: " .. tostring(q_err) end
-    if not rows or #rows == 0 then return nil, "install lock not found for fence" end
+    if q_err then return nil, failure("DATABASE_FAILED", "failed to read fence owner", q_err) end
+    if not rows or #rows == 0 then return nil, failure("NOT_FOUND", "install lock not found for fence") end
     local meta = {}
     if rows and #rows > 0 and rows[1].metadata_json and rows[1].metadata_json ~= "" then
         meta = json.decode(rows[1].metadata_json) or {}
@@ -418,7 +430,7 @@ function M.record_fence(db, lock_token, fence_data)
     ]]
     local updated, u_err = exec_statement(db, update_sql, { json.encode(meta), updated_at, lock_token })
     if u_err or not updated or updated.rows_affected ~= 1 then
-        return nil, "failed to record fence: " .. tostring(u_err or "owner is not active")
+        return nil, failure(u_err and "DATABASE_FAILED" or "CONFLICT", "failed to record fence", u_err)
     end
 
     return {
@@ -447,11 +459,11 @@ function M.release_fence(db, lock_token)
     local check_query = "SELECT metadata_json FROM keeper_hub_install_state WHERE lock_token = ?"
     local rows, q_err = exec_query(db, check_query, { lock_token })
     if q_err or not rows or #rows == 0 then
-        return nil, "fence owner not found: " .. tostring(q_err or "no row")
+        return nil, failure(q_err and "DATABASE_FAILED" or "NOT_FOUND", "fence owner not found", q_err)
     end
     local meta = json.decode(rows[1].metadata_json or "{}") or {}
     if not meta.fence or not meta.fence.held then
-        return nil, "held fence not found for owner"
+        return nil, failure("CONFLICT", "held fence not found for owner")
     end
     meta.fence.held = false
     meta.fence.released = true
@@ -464,7 +476,7 @@ function M.release_fence(db, lock_token)
     local updated, update_err = exec_statement(db, update_sql,
         { json.encode(meta), updated_at, lock_token })
     if update_err or not updated or updated.rows_affected ~= 1 then
-        return nil, "failed to release fence: " .. tostring(update_err or "owner is not fenced")
+        return nil, failure(update_err and "DATABASE_FAILED" or "CONFLICT", "failed to release fence", update_err)
     end
     return true, nil
 end

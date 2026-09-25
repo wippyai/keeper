@@ -49,6 +49,7 @@ entries:
       install_quiescence: keeper.hub:install_quiescence
       install_candidate: keeper.hub:install_candidate
       install_runner: keeper.hub:install_runner
+      install_digest: keeper.hub:install_digest
       keeper_config: keeper:config
       gov_consts: keeper.gov:consts
       governance: keeper.state.publish:governance

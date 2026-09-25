@@ -8,6 +8,7 @@ local function fixture(label, fail_migration, mode)
     local observed = { "pid-old" }
     local state = { status = "running", desired = "running" }
     local trace = {}
+    local receipts = {}
     local entry = { id = "app.deps:example", kind = "ns.dependency",
         data = { component = "example/pkg", version = "1.0.0", parameters = {} }, meta = {} }
     local migration = { id = "example.migrations:01", kind = "function.lua",
@@ -20,10 +21,13 @@ local function fixture(label, fail_migration, mode)
         config = { app_db = function() return "app:db" end },
         uuid = { v4 = function() return "installer-" .. label end },
         registry = { get = function(id)
+            if receipts[id] then return receipts[id], nil end
             if id == "app:worker" then
-                return { id = id, kind = "process.service", data = { process = "app:worker.run" } }, nil
+                -- Short same-namespace ref, as real service entries declare
+                -- it; quiescence qualifies it against the service namespace.
+                return { id = id, kind = "process.service", data = { process = "worker.run" } }, nil
             end
-            return nil, "missing"
+            return nil, nil
         end },
         system = {
             version = function() return "0.3.43a" end,
@@ -88,8 +92,13 @@ local function fixture(label, fail_migration, mode)
     svc.migration_status = function()
         return mode == "applied_hash_changed" and "applied" or "pending", nil
     end
-    svc.publish_dependency_changeset = function()
+    svc.publish_dependency_changeset = function(self, args)
         trace[#trace + 1] = "publication"
+        if mode ~= "publish_never_commits" then
+            local receipt, receipt_err = self:publication_receipt(args.lock_token, args.candidate_hash, args.entries)
+            test.is_nil(receipt_err)
+            receipts[receipt.entry.id] = receipt.entry
+        end
         return { version = 2 }, nil
     end
     svc.run_installed_bootloaders = function()
@@ -143,7 +152,150 @@ local function define_tests()
                 { module = "example/pkg", version = "1", digest = "selected-digest" },
             })
             test.is_nil(staged)
-            test.eq(stage_err.code, "CANDIDATE_HASH_MISMATCH")
+            test.eq(stage_err:details().code, "CANDIDATE_HASH_MISMATCH")
+        end)
+
+        test.it("quiescence wait accepts the real sleep nil return", function()
+            local svc, _ = fixture("round3-sleep-nil", false, "fence")
+            local calls = 0
+            local token = "sleep-nil-token"
+            local runtime = {
+                registry = { get = function(id)
+                    return { id = id, kind = "process.service",
+                        data = { process = "app:worker.run" } }, nil
+                end },
+                system = {
+                    supervisor = { state = function()
+                        calls = calls + 1
+                        if calls < 3 then
+                            return { desired = "running", status = "running" }, nil
+                        end
+                        return { desired = "stopped", status = "stopped" }, nil
+                    end },
+                    hosts = {
+                        list = function() return {}, nil end,
+                        processes = function() return {}, nil end,
+                    },
+                },
+                events = { send = function() return true, nil end },
+                -- The real time.sleep returns nothing on success.
+                time = { sleep = function() return nil, nil end },
+                install_state = {
+                    record_fence = function() return true, nil end,
+                    get_active_install = function()
+                        return { lock_token = token }, nil
+                    end,
+                },
+            }
+            local fence, fence_err = svc.install_quiescence.acquire(runtime, {}, token,
+                "sleep-nil", { { id = "m", meta = { quiesce_services = { "app:worker" } },
+                    status = "pending" } })
+            test.is_nil(fence_err)
+            test.not_nil(fence)
+            test.is_true(fence.held)
+            test.is_true(calls >= 3)
+        end)
+
+        test.it("start accepts a scheduler idle state for the new PID", function()
+            local svc, _ = fixture("round3-idle-start", false, "fence")
+            local phase = "stopping"
+            local token = "idle-start-token"
+            local runtime = {
+                registry = { get = function(id)
+                    return { id = id, kind = "process.service",
+                        data = { process = "worker.run" } }, nil
+                end },
+                system = {
+                    supervisor = { state = function()
+                        if phase == "stopping" then
+                            return { desired = "stopped", status = "stopped" }, nil
+                        end
+                        return { desired = "running", status = "running" }, nil
+                    end },
+                    hosts = {
+                        list = function() return { { id = "h" } }, nil end,
+                        processes = function()
+                            if phase == "stopping" then return {}, nil end
+                            return { { pid = "pid-new", source = "app:worker.run",
+                                state = "idle" } }, nil
+                        end,
+                    },
+                },
+                events = { send = function() return true, nil end },
+                time = { sleep = function() return nil, nil end },
+                install_state = {
+                    record_fence = function() return true, nil end,
+                    get_active_install = function()
+                        return { lock_token = token }, nil
+                    end,
+                },
+            }
+            local fence, fence_err = svc.install_quiescence.acquire(runtime, {}, token,
+                "idle-start", { { id = "m", meta = { quiesce_services = { "app:worker" } },
+                    status = "pending" } })
+            test.is_nil(fence_err)
+            test.not_nil(fence)
+            phase = "running"
+            local started, start_err = svc.install_quiescence.start(runtime, {}, token, fence)
+            test.is_nil(start_err)
+            test.is_true(started.started)
+            test.eq(fence.records["app:worker"].new_pid, "pid-new")
+        end)
+
+        test.it("stop accepts a supervisor exited status for the old PID", function()
+            local svc, _ = fixture("round4-exited-stop", false, "fence")
+            local token = "exited-stop-token"
+            local runtime = {
+                registry = { get = function(id)
+                    return { id = id, kind = "process.service",
+                        data = { process = "worker.run" } }, nil
+                end },
+                system = {
+                    supervisor = { state = function()
+                        -- The runtime reports exited once the stopped
+                        -- service process is gone; desired stays stopped.
+                        return { desired = "stopped", status = "exited" }, nil
+                    end },
+                    hosts = {
+                        list = function() return { { id = "h" } }, nil end,
+                        processes = function() return {}, nil end,
+                    },
+                },
+                events = { send = function() return true, nil end },
+                time = { sleep = function() return nil, nil end },
+                install_state = {
+                    record_fence = function() return true, nil end,
+                    get_active_install = function()
+                        return { lock_token = token }, nil
+                    end,
+                },
+            }
+            local fence, fence_err = svc.install_quiescence.acquire(runtime, {}, token,
+                "exited-stop", { { id = "m", meta = { quiesce_services = { "app:worker" } },
+                    status = "pending" } })
+            test.is_nil(fence_err)
+            test.not_nil(fence)
+            test.is_true(fence.held)
+        end)
+
+        test.it("helper failures are typed errors with kinds", function()
+            local _, unavailable = install_candidate.stage({ new = function() return {
+                catalog = { versions = { open = function() return nil, "gone" end } },
+            } end }, {
+                { module = "example/pkg", version = "1", digest = "d" },
+            })
+            test.eq(unavailable:details().code, "CANDIDATE_UNAVAILABLE")
+            test.eq(unavailable:kind(), errors.UNAVAILABLE)
+            local _, mismatch = install_candidate.stage({ new = function() return {
+                catalog = { versions = { open = function()
+                    return { digest = "other", entries = function() return {}, nil end,
+                        close = function() return true, nil end }, nil
+                end } },
+            } end }, {
+                { module = "example/pkg", version = "1", digest = "d" },
+            })
+            test.eq(mismatch:details().code, "CANDIDATE_HASH_MISMATCH")
+            test.eq(mismatch:kind(), errors.CONFLICT)
         end)
 
         test.it("public caller version cannot override runtime floor refusal", function()
@@ -192,6 +344,7 @@ local function define_tests()
             test.eq(table.concat(trace, ","),
                 "validation,service.stop,migration,publication,bootloaders,service.start")
             test.eq(result.fence.records["app:worker"].new_pid, "pid-new")
+            test.not_nil(result.fence.records["app:worker"].old_pids["pid-old"])
             local db = sql.get("app:db")
             local active = svc.install_state.get_active_install(db)
             test.is_nil(active)
@@ -251,7 +404,7 @@ local function define_tests()
             local second = fixture("round3-competing", false)
             local other, conflict = second:install({ component = "example/pkg" }, {})
             test.is_nil(other)
-            test.eq(conflict.code, "INSTALL_CONFLICT")
+            test.eq(conflict:details().code, "INSTALL_CONFLICT")
             local cleanup = sql.get("app:db")
             first.install_state.fail_install(cleanup, active.lock_token, "test cleanup")
             cleanup:release()
@@ -301,7 +454,7 @@ local function define_tests()
             end }, { __index = base_state })
             local first, first_err = svc:install({ component = "example/pkg" }, {})
             test.is_nil(first)
-            test.eq(first_err.code, "INSTALL_STATE_FAILED")
+            test.eq(first_err:details().code, "INSTALL_STATE_FAILED")
             local resumed, resume_err = svc:install({ component = "example/pkg" }, {})
             test.is_nil(resume_err)
             test.not_nil(resumed)
@@ -310,8 +463,8 @@ local function define_tests()
                 "validation,service.stop,migration,publication,bootloaders,service.start")
         end)
 
-        test.it("uncertain publication outcome stays fenced without a second request", function()
-            local svc, trace = fixture("round3-publish-unknown", false)
+        test.it("absent publication receipt retries the same governance request", function()
+            local svc, trace = fixture("round3-publish-unknown", false, "publish_never_commits")
             local base_state = svc.install_state
             local fail_once = true
             svc.install_state = setmetatable({ record_step = function(db, token, name, outcome)
@@ -323,23 +476,19 @@ local function define_tests()
             end }, { __index = base_state })
             local first, first_err = svc:install({ component = "example/pkg" }, {})
             test.is_nil(first)
-            test.eq(first_err.code, "INSTALL_STATE_FAILED")
+            test.eq(first_err:details().code, "INSTALL_STATE_FAILED")
             local second, second_err = svc:install({ component = "example/pkg" }, {})
-            test.is_nil(second)
-            test.eq(second_err.code, "PUBLICATION_OUTCOME_UNKNOWN")
-            test.eq(table.concat(trace, ","), "validation,service.stop,migration,publication")
-            local db = sql.get("app:db")
-            local active = svc.install_state.get_active_install(db)
-            test.eq(active.metadata.fence.held, true)
-            svc.install_state.fail_install(db, active.lock_token, "test cleanup")
-            db:release()
+            test.is_nil(second_err)
+            test.not_nil(second)
+            test.eq(table.concat(trace, ","),
+                "validation,service.stop,migration,publication,publication,bootloaders,service.start")
         end)
 
         test.it("changed already applied migration hash refuses before publication", function()
             local svc, trace = fixture("round3-changed-applied", true, "applied_hash_changed")
             local result, install_err = svc:install({ component = "example/pkg" }, {})
             test.is_nil(result)
-            test.eq(install_err.code, "CANDIDATE_MIGRATIONS_FAILED")
+            test.eq(install_err:details().code, "CANDIDATE_MIGRATIONS_FAILED")
             test.eq(table.concat(trace, ","), "validation,migration")
             local db = sql.get("app:db")
             local active = svc.install_state.get_active_install(db)
@@ -352,7 +501,7 @@ local function define_tests()
             local svc, trace = fixture("round3-timeout", false, "stop_timeout")
             local result, install_err = svc:install({ component = "example/pkg" }, {})
             test.is_nil(result)
-            test.eq(install_err.code, "QUIESCENCE_TIMEOUT")
+            test.eq(install_err:details().code, "QUIESCENCE_TIMEOUT")
             test.eq(table.concat(trace, ","), "validation,service.stop")
             local db = sql.get("app:db")
             local active = svc.install_state.get_active_install(db)
@@ -366,7 +515,7 @@ local function define_tests()
             local svc, trace = fixture("round3-inspection", false, "inspection_error")
             local result, install_err = svc:install({ component = "example/pkg" }, {})
             test.is_nil(result)
-            test.eq(install_err.code, "INSPECTION_FAILED")
+            test.eq(install_err:details().code, "INSPECTION_FAILED")
             test.eq(table.concat(trace, ","), "validation")
             local db = sql.get("app:db")
             local active = svc.install_state.get_active_install(db)
@@ -379,7 +528,7 @@ local function define_tests()
             local svc, trace = fixture("round3-old-pid", false, "old_pid_start")
             local result, install_err = svc:install({ component = "example/pkg" }, {})
             test.is_nil(result)
-            test.eq(install_err.code, "QUIESCENCE_TIMEOUT")
+            test.eq(install_err:details().code, "QUIESCENCE_TIMEOUT")
             test.eq(table.concat(trace, ","),
                 "validation,service.stop,migration,publication,bootloaders,service.start")
             local db = sql.get("app:db")

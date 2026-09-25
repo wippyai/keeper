@@ -3,8 +3,43 @@ local digest = require("install_digest")
 
 local M = {}
 
-local function failure(code, message, detail)
-    return { code = code, message = message, detail = detail }
+local ERROR_KIND = {
+    BAD_REQUEST = errors.INVALID,
+    NOT_FOUND = errors.NOT_FOUND,
+    CONFLICT = errors.CONFLICT,
+    INSTALL_CONFLICT = errors.CONFLICT,
+    MIGRATIONS_REQUIRED = errors.CONFLICT,
+    MIGRATION_STATUS_UNKNOWN = errors.UNKNOWN,
+    CANDIDATE_RUNNER_UNAVAILABLE = errors.UNAVAILABLE,
+    INSTALL_STATE_UNAVAILABLE = errors.UNAVAILABLE,
+}
+
+local function failure(code, message, info)
+    local details = { code = code }
+    if type(info) == "table" then
+        for key, value in pairs(info) do details[key] = value end
+    elseif info ~= nil then
+        details.cause = tostring(info)
+    end
+    return errors.new({ kind = ERROR_KIND[code] or errors.INTERNAL,
+        message = message, details = details })
+end
+
+local function error_text(value)
+    if type(value) == "table" then return tostring(value.message or value) end
+    if type(value) == "userdata" then return tostring(value:message()) end
+    return tostring(value)
+end
+
+local function event_error(value)
+    if type(value) == "table" then return { code = value.code, message = value.message } end
+    return { message = error_text(value) }
+end
+
+local function dependency_summary(entries)
+    local first = entries and entries[1]
+    local data = first and first.data or {}
+    return { id = first and first.id or nil, component = data.component, version = data.version }
 end
 
 local STEPS = { "preflight", "quiescence", "candidate_migrations",
@@ -33,7 +68,7 @@ local function merge_candidates(prepared)
     table.sort(identity)
     if #identity == 0 then return nil, failure("CANDIDATE_UNAVAILABLE", "resolved closure is empty") end
     local digest, digest_err = hash.sha256(table.concat(identity, "\n"))
-    if not digest then return nil, failure("CANDIDATE_HASH_FAILED", tostring(digest_err)) end
+    if not digest then return nil, failure("CANDIDATE_HASH_FAILED", error_text(digest_err)) end
     return { closure = closure, hash = digest }, nil
 end
 
@@ -43,7 +78,7 @@ local function staged_migrations(svc, closure)
         for _, entry in ipairs(artifact.migrations or {}) do
             local content_hash, digest_err = digest.sha256({ id = entry.id, kind = entry.kind,
                 meta = entry.meta, data = entry.data })
-            if not content_hash then return nil, nil, failure("CANDIDATE_HASH_FAILED", tostring(digest_err)) end
+            if not content_hash then return nil, nil, failure("CANDIDATE_HASH_FAILED", error_text(digest_err)) end
             if expected[entry.id] and expected[entry.id] ~= content_hash then
                 return nil, nil, failure("CANDIDATE_HASH_MISMATCH", "duplicate migration id changed", entry.id)
             end
@@ -93,36 +128,6 @@ local function run_candidate_migrations(svc, candidate, rows, expected, token)
     return all, nil
 end
 
--- A governance request may commit immediately before the caller crashes or
--- fails to record the step. Reconcile exact dependency entries on retry; an
--- uncertain outcome must stay locked instead of sending a second request.
-local function publication_visible(svc, entries)
-    if not svc or type(svc.get_entry) ~= "function" then
-        return nil, failure("PUBLICATION_OUTCOME_UNKNOWN", "registry inspection unavailable")
-    end
-    for _, expected in ipairs(entries or {}) do
-        local actual, get_err = svc:get_entry(expected.id)
-        if not actual then
-            return nil, failure("PUBLICATION_OUTCOME_UNKNOWN",
-                "cannot confirm published dependency " .. tostring(expected.id), get_err)
-        end
-        local wanted, wanted_err = digest.sha256({ id = expected.id, kind = expected.kind,
-            meta = expected.meta, data = expected.data })
-        local present, present_err = digest.sha256({ id = actual.id, kind = actual.kind,
-            meta = actual.meta, data = actual.data })
-        if not wanted or not present then
-            return nil, failure("PUBLICATION_OUTCOME_UNKNOWN",
-                "cannot compare published dependency " .. tostring(expected.id),
-                wanted_err or present_err)
-        end
-        if wanted ~= present then
-            return nil, failure("PUBLICATION_OUTCOME_UNKNOWN",
-                "published dependency differs from locked candidate", expected.id)
-        end
-    end
-    return { reconciled = true, entry_count = #(entries or {}) }, nil
-end
-
 function M.run(svc, input, opts)
     opts = opts or {}
     local candidate, candidate_err = merge_candidates(input.prepared)
@@ -162,23 +167,39 @@ function M.run(svc, input, opts)
         candidate_hash = candidate.hash, steps = STEPS })
     if not started then return close(nil, failure("INSTALL_CONFLICT", "installer lock unavailable", begin_err)) end
     local token = started.lock_token
+    -- Operator lifecycle events are best-effort: a missing user hub never
+    -- fails the install. Direct migration runs emit no install events.
+    local summary = dependency_summary(input.entries)
+    local function fail(run_err)
+        if not input.direct then
+            svc:emit_operation(opts.actor_id, "hub.install.failed", token, {
+                dependency = summary, candidate_hash = candidate.hash,
+                error = event_error(run_err) })
+        end
+        return close(nil, run_err)
+    end
+    if not input.direct then
+        svc:emit_operation(opts.actor_id, "hub.install.started", token, {
+            dependency = summary, candidate_hash = candidate.hash,
+            entry_count = input.entries and #input.entries or 0 })
+    end
     local completed = {}
     for _, row in ipairs(started.steps or {}) do completed[row.name] = row end
     local function step(name, fn)
         local prior = completed[name]
         if prior and prior.status == "done" then return prior.result, nil end
         local running, running_err = state.record_step(db, token, name, { status = "running" })
-        if not running then return nil, failure("INSTALL_STATE_FAILED", "cannot persist " .. name, running_err) end
+        if not running then return fail(failure("INSTALL_STATE_FAILED", "cannot persist " .. name, running_err)) end
         local result, run_err = fn()
         if not result then
             local blocked, blocked_err = state.record_step(db, token, name,
                 { status = "blocked", error = run_err })
-            if not blocked then return nil, failure("INSTALL_STATE_FAILED", "cannot persist blocker", blocked_err) end
-            return nil, run_err
+            if not blocked then return fail(failure("INSTALL_STATE_FAILED", "cannot persist blocker", blocked_err)) end
+            return fail(run_err)
         end
         local done, done_err = state.record_step(db, token, name,
             { status = "done", result = result, step_hash = candidate.hash })
-        if not done then return nil, failure("INSTALL_STATE_FAILED", "cannot persist " .. name, done_err) end
+        if not done then return fail(failure("INSTALL_STATE_FAILED", "cannot persist " .. name, done_err)) end
         completed[name] = { status = "done", result = result }
         return result, nil
     end
@@ -186,53 +207,59 @@ function M.run(svc, input, opts)
         if input.direct then return { ok = true }, nil end
         return svc:validate_planned_entries(input.changeset, input.planned_entries)
     end)
-    if not preflight then return close(nil, preflight_err) end
+    if not preflight then return fail(preflight_err) end
     local rows, expected, rows_err = staged_migrations(svc, candidate.closure)
-    if not rows then return close(nil, rows_err) end
+    if not rows then return fail(rows_err) end
     local pending = {}
     for _, row in ipairs(rows) do if row.status ~= "applied" then pending[#pending + 1] = row end end
     if #pending > 0 and not input.run_migrations then
-        return close(nil, failure("MIGRATIONS_REQUIRED", "candidate has pending migrations"))
+        return fail(failure("MIGRATIONS_REQUIRED", "candidate has pending migrations"))
     end
     if #rows > 0 and (not svc.candidate_migrations_up or not svc.candidate_resolver) then
-        return close(nil, failure("CANDIDATE_RUNNER_UNAVAILABLE", "staged migration runner unavailable"))
+        return fail(failure("CANDIDATE_RUNNER_UNAVAILABLE", "staged migration runner unavailable"))
     end
     local fence, fence_err = step("quiescence", function()
         return svc.install_quiescence.acquire(svc, db, token, candidate.hash, pending)
     end)
-    if not fence then return close(nil, fence_err) end
+    if not fence then return fail(fence_err) end
     local migrations, migration_err = step("candidate_migrations", function()
         return run_candidate_migrations(svc, candidate, rows, expected, token)
     end)
-    if not migrations then return close(nil, migration_err) end
+    if not migrations then return fail(migration_err) end
     local publication, publish_err = step("publication", function()
         if input.direct then return { skipped = true }, nil end
-        local prior = completed.publication
-        if prior and prior.status ~= "pending" then
-            return publication_visible(svc, input.entries)
+        local receipt, receipt_err = svc:publication_receipt(token, candidate.hash, input.entries)
+        if not receipt then return nil, receipt_err end
+        if receipt.committed then
+            return { reconciled = true, receipt_id = receipt.entry.id }, nil
         end
         return svc:publish_dependency_changeset({ action = "install", entries = input.entries,
             create_only = input.create_only, actor_id = opts.actor_id,
-            message = input.message })
+            message = input.message, lock_token = token, candidate_hash = candidate.hash })
     end)
-    if not publication then return close(nil, publish_err) end
+    if not publication then return fail(publish_err) end
     local bootloaders, boot_err = step("bootloaders", function()
         if input.direct then return { skipped = true }, nil end
         return svc:run_installed_bootloaders(input.bootloader_data.baseline_modules,
             input.bootloader_data.reconfigured)
     end)
-    if not bootloaders then return close(nil, boot_err) end
+    if not bootloaders then return fail(boot_err) end
     local startup, startup_err = step("startup", function()
         return svc.install_quiescence.start(svc, db, token, fence)
     end)
-    if not startup then return close(nil, startup_err) end
+    if not startup then return fail(startup_err) end
     local released, release_err = step("fence_release", function()
         return svc.install_quiescence.release(svc, db, token, startup.fence)
     end)
-    if not released then return close(nil, release_err) end
+    if not released then return fail(release_err) end
     local completed_ok, complete_err = state.complete_install(db, token,
         { candidate_hash = candidate.hash })
-    if not completed_ok then return close(nil, failure("INSTALL_STATE_FAILED", "cannot complete install", complete_err)) end
+    if not completed_ok then return fail(failure("INSTALL_STATE_FAILED", "cannot complete install", complete_err)) end
+    if not input.direct then
+        svc:emit_operation(opts.actor_id, "hub.install.finished", token, {
+            dependency = summary, candidate_hash = candidate.hash,
+            apply = publication, migrations = migrations, bootloaders = bootloaders })
+    end
     return close({ operation_id = token, candidate_hash = candidate.hash,
         apply = publication, migrations = migrations, bootloaders = bootloaders,
         fence = startup.fence, resumed = started.resumed }, nil)

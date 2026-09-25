@@ -22,10 +22,15 @@ local function trim(val)
     return string.match(tostring(val or ""), "^%s*(.-)%s*$") or ""
 end
 
+local function failure(code, message)
+    local kind = code == "BAD_REQUEST" and errors.INVALID or errors.INTERNAL
+    return errors.new({ kind = kind, message = message, details = { code = code } })
+end
+
 function M.parse_version(raw)
     local s = trim(raw)
     if s == "" then
-        return nil, "empty version string"
+        return nil, failure("BAD_REQUEST", "empty version string")
     end
     s = string.gsub(s, "^[vV]", "")
     local maj, min, patch, suffix = string.match(s, "^(%d+)%.(%d+)%.(%d+)(.*)$")
@@ -34,7 +39,7 @@ function M.parse_version(raw)
         patch = 0
     end
     if not maj then
-        return nil, "unparseable version: " .. tostring(raw)
+        return nil, failure("BAD_REQUEST", "unparseable version: " .. tostring(raw))
     end
     return {
         major = tonumber(maj) or 0,
@@ -107,7 +112,7 @@ end
 
 function M.check(args)
     if type(args) ~= "table" then
-        return nil, "BAD_REQUEST: preflight args must be a table"
+        return nil, failure("BAD_REQUEST", "preflight args must be a table")
     end
 
     local catalog = args.certified_catalog or floor_catalog

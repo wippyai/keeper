@@ -2,8 +2,25 @@ local hash = require("hash")
 
 local M = {}
 
-local function failure(code, message, details)
-    return { code = code, message = message, details = details }
+local ERROR_KIND = {
+    BAD_REQUEST = errors.INVALID,
+    CANDIDATE_INVALID = errors.INVALID,
+    NOT_FOUND = errors.NOT_FOUND,
+    CONFLICT = errors.CONFLICT,
+    CANDIDATE_HASH_MISMATCH = errors.CONFLICT,
+    CANDIDATE_UNAVAILABLE = errors.UNAVAILABLE,
+    INSTALLED_CLOSURE_UNAVAILABLE = errors.UNAVAILABLE,
+}
+
+local function failure(code, message, info)
+    local details = { code = code }
+    if type(info) == "table" then
+        for key, value in pairs(info) do details[key] = value end
+    elseif info ~= nil then
+        details.cause = tostring(info)
+    end
+    return errors.new({ kind = ERROR_KIND[code] or errors.INTERNAL,
+        message = message, details = details })
 end
 
 local function trim(value)

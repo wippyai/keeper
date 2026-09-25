@@ -2,20 +2,25 @@ local hash = require("hash")
 
 local M = {}
 
+local function failure(code, message)
+    return errors.new({ kind = errors.INVALID, message = message,
+        details = { code = code } })
+end
+
 local function canonical(value, seen)
     local kind = type(value)
     if kind == "nil" then return "n" end
     if kind == "boolean" then return value and "b1" or "b0" end
     if kind == "number" then return "d" .. tostring(value) .. ";" end
     if kind == "string" then return "s" .. tostring(#value) .. ":" .. value end
-    if kind ~= "table" then return nil, "unsupported candidate value: " .. kind end
-    if seen[value] then return nil, "candidate contains a cycle" end
+    if kind ~= "table" then return nil, failure("BAD_REQUEST", "unsupported candidate value: " .. kind) end
+    if seen[value] then return nil, failure("BAD_REQUEST", "candidate contains a cycle") end
     seen[value] = true
     local keys = {}
     for key in pairs(value) do
         if type(key) ~= "string" and type(key) ~= "number" then
             seen[value] = nil
-            return nil, "unsupported candidate key"
+            return nil, failure("BAD_REQUEST", "unsupported candidate key")
         end
         keys[#keys + 1] = key
     end

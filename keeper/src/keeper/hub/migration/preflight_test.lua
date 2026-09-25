@@ -28,12 +28,12 @@ local function define_tests()
                 local entry, err = floor_catalog.lookup(unknown_hash)
                 test.is_nil(entry)
                 test.not_nil(err)
-                test.is_true(string.find(err, "UNKNOWN_HASH") ~= nil)
+                test.eq(err:details().code, "UNKNOWN_HASH")
 
                 local floor, floor_err = floor_catalog.get_floor({ hash = unknown_hash, name = "unknown/pkg" })
                 test.is_nil(floor)
                 test.not_nil(floor_err)
-                test.is_true(string.find(floor_err, "UNKNOWN_HASH") ~= nil)
+                test.eq(floor_err:details().code, "UNKNOWN_HASH")
             end)
 
             test.it("prefers declared manifest min_runtime when present", function()
@@ -188,6 +188,21 @@ local function define_tests()
         end)
 
         test.describe("install_state & single installer lock (MIG-11)", function()
+            test.it("returns typed invalid and conflict errors to direct callers", function()
+                install_state.reset_in_memory()
+                local _, invalid = install_state.begin_install(nil, {})
+                test.eq(invalid:kind(), errors.INVALID)
+                test.eq(invalid:details().code, "BAD_REQUEST")
+                local first = install_state.begin_install(nil, {
+                    lock_token = "typed-a", candidate_hash = "typed-one",
+                })
+                test.not_nil(first)
+                local _, conflict = install_state.begin_install(nil, {
+                    lock_token = "typed-b", candidate_hash = "typed-two",
+                })
+                test.eq(conflict:kind(), errors.CONFLICT)
+                test.eq(conflict:details().code, "CONFLICT")
+            end)
             test.it("MIG-11: single installer lock prevents concurrent conflicting install", function()
                 install_state.reset_in_memory()
                 local s1, err1 = install_state.begin_install(nil, {
@@ -208,7 +223,7 @@ local function define_tests()
                 })
                 test.is_nil(s2)
                 test.not_nil(err2)
-                test.is_true(string.find(err2, "CONFLICT") ~= nil)
+                test.eq(err2:details().code, "CONFLICT")
             end)
 
             test.it("MIG-11: interruption resumes same candidate hash and recorded step", function()
@@ -278,7 +293,7 @@ local function define_tests()
                     steps = { "preflight", "publish" },
                 })
                 test.not_nil(conf_err)
-                test.is_true(string.find(conf_err, "CONFLICT") ~= nil)
+                test.eq(conf_err:details().code, "CONFLICT")
 
                 -- Record step progress
                 local updated, rec_err = install_state.record_step(db, "db-test-tok", "preflight", {

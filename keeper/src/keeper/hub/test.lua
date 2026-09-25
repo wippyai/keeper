@@ -107,13 +107,13 @@ local function fake_registry(entries, state_shape, registry_state)
                     row.registry = { owner = record.module, root = record.root }
                 end
                 if record.module ~= "" and record.version ~= "" then
-                    versions[record.module] = record.version
+                    versions[record.module] = { version = record.version, digest = record.digest }
                 end
                 table.insert(captured, row)
             end
             local modules = {}
-            for name, version in pairs(versions) do
-                table.insert(modules, { name = name, version = version })
+            for name, record in pairs(versions) do
+                table.insert(modules, { name = name, version = record.version, digest = record.digest })
             end
             table.sort(modules, function(a, b) return a.name < b.name end)
             return {
@@ -187,6 +187,19 @@ local function fake_system(hosts, processes_by_host)
                 return {}, nil
             end,
         },
+    }
+end
+
+-- Sequential installs share one database and lock_token is the primary key,
+-- so every install test takes its own token. A fresh counter per test would
+-- reuse op-1 and collide with earlier completed rows.
+local install_uuid_seq = 0
+local function install_uuid()
+    install_uuid_seq = install_uuid_seq + 1
+    local token = "install-op-" .. install_uuid_seq
+    return {
+        v7 = function() return token end,
+        v4 = function() return token end,
     }
 end
 
@@ -425,17 +438,122 @@ local function no_requirements_planner()
     }
 end
 
+-- The staged installer only opens the exact digests the plan resolved, so an
+-- install test planner must serve both halves: the plan and the matching
+-- staged artifact. This wrapper delegates planning to the inner planner,
+-- stamps the staging fields a retired-behavior plan leaves implicit (node
+-- digest, selected ref, synthesized single-node graph), and serves the
+-- recorded digests through the planner catalog seam. opts.entries_by_module
+-- maps module -> staged entries; tests driving staged migrations put their
+-- migration entries there and inject the candidate seam.
+local function staged_planner(inner, opts)
+    opts = opts or {}
+    local entries_by_module = opts.entries_by_module or {}
+    local digests = {}
+    local function delegate(plan_args, registry)
+        if type(inner) == "table" and inner.new then
+            return inner.new({ registry = registry }):plan_install(plan_args)
+        elseif type(inner) == "table" and inner.plan_install then
+            return inner.plan_install(plan_args)
+        end
+        error("staged planner needs an inner planner with new or plan_install")
+    end
+    local function stamp(plan)
+        local graph = plan.graph or {}
+        if #graph == 0 and plan.install_payload then
+            local payload = plan.install_payload
+            graph = { { module = payload.component, version = payload.version } }
+            plan.graph = graph
+        end
+        for _, node in ipairs(graph) do
+            local key = tostring(node.module or node.name)
+            if (node.digest or "") == "" then
+                node.digest = "test-digest-" .. key
+            end
+            if node.__selected == nil then
+                node.__selected = { version = node.version }
+            end
+            digests[key] = node.digest
+        end
+        return plan
+    end
+    local function catalog()
+        return { versions = { open = function(module)
+            local key = tostring(module)
+            local digest = digests[key] or ("test-digest-" .. key)
+            digests[key] = digest
+            return { digest = digest,
+                entries = function() return entries_by_module[key] or {}, nil end,
+                close = function() return true, nil end }, nil
+        end } }
+    end
+    local wrapper = {}
+    function wrapper.plan_install(args)
+        local plan, plan_err = delegate(args, nil)
+        if not plan then return nil, plan_err end
+        return stamp(plan), nil
+    end
+    function wrapper.new(new_args)
+        local registry = type(new_args) == "table" and new_args.registry or nil
+        local instance = { catalog = catalog() }
+        function instance:plan_install(args)
+            local plan, plan_err = delegate(args, registry)
+            if not plan then return nil, plan_err end
+            return stamp(plan), nil
+        end
+        function instance:resolve_dependency_closure(args)
+            if type(inner) == "table" and inner.new then
+                return inner.new({ registry = registry }):resolve_dependency_closure(args)
+            elseif type(inner) == "table" and type(inner.resolve_dependency_closure) == "function" then
+                return inner.resolve_dependency_closure(args)
+            end
+            error("staged planner inner cannot resolve the installed closure")
+        end
+        return instance
+    end
+    return wrapper
+end
+
+-- The certified floor catalog cannot know fictional test modules. Install flow
+-- tests certify their staged digests here; floor semantics stay covered by the
+-- preflight suite against the production catalog.
+local function test_floor_catalog()
+    return { get_floor = function(artifact)
+        local hash = tostring(artifact and artifact.hash or "")
+        if hash:sub(1, 11) == "test-digest" then return "0.3.40a", nil end
+        return nil, "uncertified test hash " .. hash
+    end }
+end
+
+local function test_system_version()
+    return { version = function() return "0.3.43a" end }
+end
+
+local function test_install_config()
+    return { app_db = function() return "app:db" end }
+end
+
+-- A failed install keeps its lock row fenced for the operator. Tests that
+-- assert a failure release it so the next test starts unlocked.
+local function fail_install_cleanup(svc)
+    local db = sql.get("app:db")
+    local active = svc.install_state.get_active_install(db)
+    if active then svc.install_state.fail_install(db, active.lock_token, "test cleanup") end
+    db:release()
+end
+
 -- Builds the registry entries an installed module contributes: a definition
 -- marker (so the module reads as installed) plus one module-owned ns.dependency
 -- per child component (provenance owner == module, data.component == child). This is
 -- the installed dependency-edge shape the closure resolver walks.
 local function installed_module(module, children, version)
     version = version or "1.0.0"
+    local digest = "test-digest-" .. module
     local entries = {
         {
             id = module .. ":__def",
             kind = "ns.definition",
-            meta = {}, provenance = { module = module, version = version },
+            meta = {}, provenance = { module = module, version = version, digest = digest },
             data = {},
         },
     }
@@ -443,7 +561,7 @@ local function installed_module(module, children, version)
         table.insert(entries, {
             id = module .. ":dep." .. child,
             kind = "ns.dependency",
-            meta = {}, provenance = { module = module, version = version },
+            meta = {}, provenance = { module = module, version = version, digest = digest },
             data = { component = child, version = ">=v0.0.0" },
         })
     end
@@ -738,7 +856,7 @@ local function fixture_entries()
         {
             id = "wippy.foo:lib",
             kind = "library.lua",
-            meta = {}, provenance = { module = "wippy/foo", version = "v1.2.3" },
+            meta = {}, provenance = { module = "wippy/foo", version = "v1.2.3", digest = "test-digest-wippy/foo" },
             data = {},
         },
         {
@@ -749,7 +867,7 @@ local function fixture_entries()
                 target_db = "app:db",
                 timestamp = "2026-01-01T00:00:00Z",
             },
-            provenance = { module = "wippy/foo", version = "v1.2.3" },
+            provenance = { module = "wippy/foo", version = "v1.2.3", digest = "test-digest-wippy/foo" },
             data = { method = "migrate" },
         },
     }
@@ -1348,7 +1466,14 @@ local function define_tests()
 
         describe("install and uninstall plans", function()
             it("dry-runs install without calling the registry", function()
-                local svc = hub.new({ planner = no_requirements_planner() }) :: any
+                local svc = hub.new({
+                    registry = fake_registry({}),
+                    planner = staged_planner(no_requirements_planner()),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
+                }) :: any
                 local out, err = svc:install({
                     component = "wippy/terminal",
                     version = ">=v0.0.7",
@@ -1365,9 +1490,13 @@ local function define_tests()
                 local registry, gov = applied_registry({}, gov_state, { ["wippy/dummy"] = "0.1.2" })
                 local svc = hub.new({
                     registry = registry,
-                    planner = graph_planner({
-                        { module = "wippy/dummy", version = "0.1.2", digest = "abc123" },
-                    }),
+                    planner = staged_planner(graph_planner({
+                        { module = "wippy/dummy", version = "0.1.2", digest = "test-digest-wippy/dummy" },
+                    })),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
                     governance = gov,
                 }) :: any
 
@@ -1378,7 +1507,7 @@ local function define_tests()
                 })
 
                 test.is_nil(err)
-                test.eq(gov_state.current_calls, 1)
+                test.eq(gov_state.current_calls or 0, 0)
                 test.eq(gov_state.publish_calls, 1)
                 test.eq(gov_state.last_changeset[1].kind, "entry.create")
                 test.eq(gov_state.last_changeset[1].entry.id, "app.deps:dummy")
@@ -1386,6 +1515,8 @@ local function define_tests()
                 test.is_nil(gov_state.last_changeset[1].entry.meta.hub)
                 test.is_nil(gov_state.last_options.branch)
                 test.is_nil(out.lock)
+                test.eq(#gov_state.last_changeset, 2)
+                test.eq(gov_state.last_changeset[2].entry.meta.type, "keeper.install.receipt")
             end)
 
             it("uses an update op when publishing an existing dependency", function()
@@ -1450,7 +1581,7 @@ local function define_tests()
                 local gov_state = ({ current_version = 25 }) :: any
                 local svc = hub.new({
                     planner = graph_planner({
-                        { module = "wippy/dummy", version = "0.1.2", digest = "abc123" },
+                        { module = "wippy/dummy", version = "0.1.2", digest = "test-digest-wippy/dummy" },
                         { module = "wippy/dummy", version = "0.1.3", digest = "def456" },
                     }),
                     governance = fake_governance(gov_state),
@@ -1533,18 +1664,30 @@ local function define_tests()
 
             it("re-applies down migrations if registry uninstall fails", function()
                 local calls = {} :: any
+                local restored = {}
                 local gov_state = ({ publish_error = "apply boom" }) :: any
+                local staged = {
+                    id = "wippy.foo.migrations:001",
+                    kind = "function.lua",
+                    meta = { type = "migration", target_db = "app:db" },
+                    data = { method = "migrate" },
+                }
                 local svc = hub.new({
                     registry = fake_registry(fixture_entries()),
-                    sql = fake_sql({ ["wippy.foo.migrations:001"] = true }),
                     fs = fake_project_fs({ ["wippy.lock"] = "initial-lock" }),
-                    planner = planner,
+                    planner = staged_planner(planner, {
+                        entries_by_module = { ["wippy/foo"] = { staged } },
+                    }),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
                     yaml = fake_yaml_for_lock({
                         directories = { modules = ".wippy", src = "./src/app" },
                         modules = {},
                         replacements = {},
                     }),
-                    uuid = fake_uuid(),
+                    uuid = install_uuid(),
                     governance = fake_governance(gov_state),
                     funcs = {
                         new = function()
@@ -1559,8 +1702,19 @@ local function define_tests()
                             }, nil
                         end,
                     },
+                    candidate_resolver = { staged = true },
+                    candidate_migrations_up = function(args)
+                        restored = args
+                        return { applied = { { id = staged.id,
+                            hash = args.expected_hashes[staged.id] } }, skipped = {} }, nil
+                    end,
                 }) :: any
-
+                -- The applied bit lives in the test database the real
+                -- installer owns; the fake SQL table cannot answer it.
+                svc.migration_status = function(_, entry)
+                    if entry.id == "wippy.foo.migrations:001" then return "applied", nil end
+                    return "pending", nil
+                end
                 local out, err = svc:uninstall({
                     component = "wippy/foo",
                     migration_policy = "down",
@@ -1573,11 +1727,17 @@ local function define_tests()
                 test.eq(calls[1].params.operation, "down")
                 test.eq(calls[1].params.entry_ids[1], "wippy.foo.migrations:001")
                 test.eq(gov_state.publish_calls, 1)
-                test.eq(calls[2].id, hub.MIGRATION_HANDLER_FN)
-                test.eq(calls[2].params.operation, "up")
-                test.eq(calls[2].params.only_pending, false)
-                test.eq(calls[2].params.entry_ids[1], "wippy.foo.migrations:001")
-                test.eq(err_details(err).migration_restore.operation, "up")
+                test.eq(restored.target_db, "app:db")
+                test.not_nil(restored.expected_hashes["wippy.foo.migrations:001"])
+                -- The runtime errors module keeps only string keys in error
+                -- details, so the restore payload is asserted through the
+                -- fields that survive: operation, count, and operation id.
+                -- The seam recording above proves which migration ran.
+                local restore = err_details(err).migration_restore
+                test.not_nil(restore)
+                test.eq(restore.operation, "up")
+                test.eq(restore.count, 1)
+                test.not_nil(restore.operation_id)
             end)
 
             it("reports the uninstalled module from registry closure after apply", function()
@@ -4556,7 +4716,13 @@ local function define_tests()
             -- >=0.1.36 and the runtime has 0.1.37 installed.
             local function component_catalog(versions)
                 local items = {}
-                for _, version in ipairs(versions) do table.insert(items, { version = version }) end
+                for _, version in ipairs(versions) do
+                    table.insert(items, {
+                        version = version,
+                        digest = "test-digest-kickside/component-" .. version,
+                        open = { entries = {} },
+                    })
+                end
                 return fake_catalog({ ["kickside/component"] = items })
             end
 
@@ -4581,20 +4747,22 @@ local function define_tests()
                 local registry, gov = applied_registry(entries, gov_state, resolved)
                 local svc = hub.new({
                     registry = registry,
-                    planner = {
+                    planner = staged_planner({
                         new = function()
                             return planner.new({ catalog = component_catalog(versions), registry = registry })
                         end,
-                    },
+                    }),
                     governance = gov,
-                    sql = fake_sql({}),
-                    uuid = fake_uuid(),
+                    uuid = install_uuid(),
                     process = fake_process({}),
                     funcs = {
                         new = function()
                             return { call = function() return { ok = true }, nil end }, nil
                         end,
                     },
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
                     bootloader_registry = { find = function() return {}, nil end },
                 }) :: any
                 return svc
@@ -4801,35 +4969,39 @@ local function define_tests()
                 test.eq(out.entry_ids[1], "wippy.foo.migrations:001")
             end)
 
-            it("calls the canonical integrate migration handler", function()
-                local called = {}
+            it("runs direct up through the staged candidate seam", function()
+                local staged = {
+                    id = "wippy.foo.migrations:001",
+                    kind = "function.lua",
+                    meta = { type = "migration", target_db = "app:db" },
+                    data = { method = "migrate" },
+                }
+                local applied = {}
                 local svc = hub.new({
                     registry = fake_registry(fixture_entries()),
-                    sql = fake_sql({}),
-                    funcs = {
-                        new = function()
-                            return {
-                                call = function(_, id, params)
-                                    called.id = id
-                                    called.params = params
-                                    return { { id = params.entry_ids[1], success = true } }, nil
-                                end,
-                            }, nil
-                        end,
-                    },
+                    planner = staged_planner(no_requirements_planner(), {
+                        entries_by_module = { ["wippy/foo"] = { staged } },
+                    }),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
+                    candidate_resolver = { staged = true },
+                    candidate_migrations_up = function(args)
+                        applied = args.expected_hashes
+                        test.eq(args.target_db, "app:db")
+                        test.not_nil(args.installer_lock_token)
+                        return { applied = { { id = staged.id,
+                            hash = args.expected_hashes[staged.id] } }, skipped = {} }, nil
+                    end,
                 }) :: any
                 local out, err = svc:run_migrations({
                     component = "wippy/foo",
                     operation = "up",
                 })
                 test.is_nil(err)
-                if not called then error("expected migration handler call") end
-                local called_params = called.params :: any
-                if not called_params then error("expected migration handler params") end
-                test.eq(called.id, hub.MIGRATION_HANDLER_FN)
-                test.eq(called_params.operation, "up")
-                test.eq(called_params.entry_ids[1], "wippy.foo.migrations:001")
-                test.eq(out.result[1].success, true)
+                test.not_nil(applied[staged.id])
+                test.eq(out.result.applied[1].id, staged.id)
             end)
         end)
 
@@ -4957,7 +5129,7 @@ local function define_tests()
         describe("autofilled transitive dependency bindings", function()
             -- resolved is the module selection the runtime installs for a
             -- publish: the latest acme/engine and its acme/knowledge edge.
-            local function setup(extra_entries, governance_state, resolved)
+            local function setup(extra_entries, governance_state, resolved, staged_opts)
                 local profile = root_dep("app.deps:profile", "acme/profile")
                 profile.data.parameters = {
                     { name = "api_router", value = "app:api" },
@@ -4992,14 +5164,20 @@ local function define_tests()
                 local state = (governance_state or {}) :: any
                 local svc = hub.new({
                     registry = registry,
-                    planner = { plan_install = function(input) return plan_service:plan_install(input) end },
+                    planner = staged_planner(
+                        { plan_install = function(input) return plan_service:plan_install(input) end },
+                        staged_opts),
                     governance = applying_governance(state, entries, registry_state, function(current)
                         install_modules(current, resolved or {
                             ["acme/engine"] = "v2.0.0",
                             ["acme/knowledge"] = "v1.0.0",
                         })
                     end),
-                    uuid = fake_uuid(),
+                    uuid = install_uuid(),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
                 }) :: any
                 return svc, state, plan_service, entries
             end
@@ -5015,11 +5193,12 @@ local function define_tests()
                 test.is_nil(install_err)
                 test.not_nil(result)
                 test.eq(state.publish_calls, 1)
-                test.eq(#state.last_changeset, 2)
+                test.eq(#state.last_changeset, 3)
                 local child
                 for _, op in ipairs(state.last_changeset) do
                     if op.entry.data.component == "acme/knowledge" then child = op.entry end
                 end
+                test.eq(state.last_changeset[3].entry.meta.type, "keeper.install.receipt")
                 test.not_nil(child)
                 test.eq(find_parameter(child.data.parameters, "acme.knowledge:api_router").value, "app:api")
                 test.eq(find_parameter(child.data.parameters, "acme.knowledge:ui_server").value, "app:gateway")
@@ -5045,7 +5224,7 @@ local function define_tests()
                 test.is_nil(install_err)
                 test.not_nil(result)
                 test.eq(state.publish_calls, 1)
-                test.eq(#state.last_changeset, 2)
+                test.eq(#state.last_changeset, 3)
             end)
 
             it("preserves an installed child's explicit bindings on parent updates", function()
@@ -5061,7 +5240,7 @@ local function define_tests()
                 })
                 test.is_nil(install_err)
                 test.not_nil(result)
-                test.eq(#state.last_changeset, 1)
+                test.eq(#state.last_changeset, 2)
                 test.eq(state.last_changeset[1].kind, "entry.update")
                 test.eq(state.last_changeset[1].entry.id, parent.id)
                 test.eq(state.last_changeset[1].entry.data.version, ">=2.0.0")
@@ -5080,7 +5259,7 @@ local function define_tests()
                 })
                 test.is_nil(install_err)
                 test.not_nil(result)
-                test.eq(#state.last_changeset, 2)
+                test.eq(#state.last_changeset, 3)
                 for _, op in ipairs(state.last_changeset) do
                     if op.entry.data.component == "acme/knowledge" then
                         test.eq(find_parameter(op.entry.data.parameters, "acme.knowledge:api_router").value,
@@ -5093,38 +5272,44 @@ local function define_tests()
                 local svc, state, _, entries = setup()
                 local child = root_dep("app.deps:knowledge", "acme/knowledge")
                 child.data.parameters = { { name = "api_router", value = "app:private_api" } }
-                svc.governance.current_version = function()
+                -- The binding lands after planning but before publication, as
+                -- it did through the old current_version race window.
+                local base_validate = svc.validate_planned_entries
+                svc.validate_planned_entries = function(self, changeset, planned)
                     table.insert(entries, child)
-                    return 62, nil
+                    return base_validate(self, changeset, planned)
                 end
                 local result, install_err = svc:install({ component = "acme/engine", migration_policy = "none" })
                 test.is_nil(result)
                 test.eq(err_code(install_err), "CONFLICT")
                 test.eq(state.publish_calls or 0, 0)
                 test.eq(child.data.parameters[1].value, "app:private_api")
+                fail_install_cleanup(svc)
             end)
 
-            it("restores both newly installed roots when a migration fails", function()
-                local svc, state, _, entries = setup(nil, { current_version = 61 })
-                local baseline = deep_copy(entries)
-                local restore = svc.governance.restore_version
-                svc.governance.restore_version = function(version, reason)
-                    for i = #entries, 1, -1 do entries[i] = nil end
-                    for _, entry in ipairs(baseline) do table.insert(entries, deep_copy(entry)) end
-                    return restore(version, reason)
-                end
-                svc.migration_rows = function(_, args)
-                    return { { id = "acme.knowledge:migration", status = "pending" } }, nil
-                end
-                svc.call_func = function() return nil, "migration failed" end
+            it("holds the fence when a staged migration fails before publication", function()
+                local staged = {
+                    id = "acme.knowledge:migration",
+                    kind = "function.lua",
+                    meta = { type = "migration", target_db = "app:db" },
+                    data = {},
+                }
+                local svc, state = setup(nil, { current_version = 61 }, nil, {
+                    entries_by_module = { ["acme/knowledge"] = { staged } },
+                })
+                svc.candidate_resolver = { staged = true }
+                svc.candidate_migrations_up = function() return nil, "migration failed" end
                 local result, install_err = svc:install({ component = "acme/engine" })
                 test.is_nil(result)
-                test.eq(err_code(install_err), "MIGRATIONS_FAILED")
-                test.eq(state.publish_calls, 1)
-                test.eq(state.restore_calls, 1)
-                test.eq(state.restored_version, 61)
-                test.eq(#entries, #baseline)
-                test.eq(entries[1].id, "app.deps:profile")
+                test.eq(err_code(install_err), "CANDIDATE_MIGRATIONS_FAILED")
+                test.eq(state.publish_calls or 0, 0)
+                test.eq(state.restore_calls or 0, 0)
+                local db = sql.get("app:db")
+                local active = svc.install_state.get_active_install(db)
+                test.not_nil(active)
+                test.eq(active.status, "in_progress")
+                db:release()
+                fail_install_cleanup(svc)
             end)
 
             it("blocks deleting a shared binding and keeps it when a parent is removed", function()
@@ -5161,29 +5346,31 @@ local function define_tests()
             end)
 
             it("runs newly installed child migrations before reporting success", function()
-                local svc, state = setup()
-                local base_publish = svc.governance.publish
-                local published = false
-                svc.governance.publish = function(changeset, options)
-                    local result, publish_err = base_publish(changeset, options)
-                    published = result ~= nil
-                    return result, publish_err
-                end
+                local engine_migration = {
+                    id = "acme/engine:migration",
+                    kind = "function.lua",
+                    meta = { type = "migration", target_db = "app:db" },
+                    data = {},
+                }
+                local knowledge_migration = {
+                    id = "acme/knowledge:migration",
+                    kind = "function.lua",
+                    meta = { type = "migration", target_db = "app:db" },
+                    data = {},
+                }
+                local svc, state = setup(nil, nil, nil, { entries_by_module = {
+                    ["acme/engine"] = { engine_migration },
+                    ["acme/knowledge"] = { knowledge_migration },
+                } })
                 local migrated = {}
-                svc.migration_rows = function(_, args)
-                    test.is_true(published)
-                    if args.component then
-                        return { { id = args.component .. ":migration", status = "pending" } }, nil
-                    end
-                    local rows = {}
-                    for _, id in ipairs(args.entry_ids or {}) do
-                        table.insert(rows, { id = id, status = "pending" })
-                    end
-                    return rows, nil
-                end
-                svc.call_func = function(_, _, args)
-                    migrated = args.entry_ids
-                    return { ok = true }, nil
+                svc.candidate_resolver = { staged = true }
+                svc.candidate_migrations_up = function(args)
+                    for id in pairs(args.expected_hashes) do table.insert(migrated, id) end
+                    test.eq(args.target_db, "app:db")
+                    return { applied = {
+                        { id = engine_migration.id, hash = args.expected_hashes[engine_migration.id] },
+                        { id = knowledge_migration.id, hash = args.expected_hashes[knowledge_migration.id] },
+                    }, skipped = {} }, nil
                 end
                 local result, install_err = svc:install({ component = "acme/engine" })
                 test.is_nil(install_err)
@@ -5193,6 +5380,8 @@ local function define_tests()
                 test.eq(#migrated, 2)
                 test.eq(migrated[1], "acme/engine:migration")
                 test.eq(migrated[2], "acme/knowledge:migration")
+                test.eq(result.migrations.applied[1].id, "acme/engine:migration")
+                test.eq(result.migrations.applied[2].id, "acme/knowledge:migration")
             end)
 
             it("does not run unrelated migrations when selected modules have none pending", function()
@@ -5200,7 +5389,7 @@ local function define_tests()
                     registry = fake_registry(fixture_entries()), sql = fake_sql({}),
                     funcs = { new = function() error("must not run an unrelated migration") end },
                 }) :: any
-                local result, migration_err = svc:run_migrations_for_components({ "acme/empty" }, {})
+                local result, migration_err = svc:run_migrations({ component = "acme/empty", operation = "up" })
                 test.is_nil(migration_err)
                 test.eq(result.count, 0)
             end)
@@ -5253,9 +5442,13 @@ local function define_tests()
                 local governance_state = ({ current_version = 19 }) :: any
                 local svc = hub.new({
                     registry = fake_registry(entries),
-                    planner = batch_planner(),
+                    planner = staged_planner(batch_planner()),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
                     governance = fake_governance(governance_state),
-                    uuid = fake_uuid(),
+                    uuid = install_uuid(),
                 }) :: any
 
                 local out, install_err = svc:install({
@@ -5269,10 +5462,11 @@ local function define_tests()
                 test.is_nil(install_err)
                 test.not_nil(out)
                 test.eq(governance_state.publish_calls, 1)
-                test.eq(#governance_state.last_changeset, 2)
+                test.eq(#governance_state.last_changeset, 3)
                 test.eq(governance_state.last_changeset[1].kind, "entry.update")
                 test.eq(governance_state.last_changeset[2].kind, "entry.update")
-                test.eq(out.apply.changeset_count, 2)
+                test.eq(governance_state.last_changeset[3].entry.meta.type, "keeper.install.receipt")
+                test.eq(out.apply.changeset_count, 3)
                 test.eq(#out.dependencies, 2)
             end)
 
@@ -5281,7 +5475,11 @@ local function define_tests()
                 local registry, gov = applied_registry({}, governance_state, {})
                 local svc = hub.new({
                     registry = registry,
-                    planner = batch_planner(),
+                    planner = staged_planner(batch_planner()),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
                     governance = gov,
                 }) :: any
 
@@ -5295,14 +5493,18 @@ local function define_tests()
                 test.is_nil(install_err)
                 test.not_nil(out)
                 test.eq(governance_state.publish_calls, 1)
-                test.eq(#governance_state.last_changeset, 2)
+                test.eq(#governance_state.last_changeset, 3)
             end)
 
             it("rejects duplicate components before governance publish", function()
                 local governance_state = ({}) :: any
                 local svc = hub.new({
                     registry = fake_registry({}),
-                    planner = no_requirements_planner(),
+                    planner = staged_planner(no_requirements_planner()),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
                     governance = fake_governance(governance_state),
                 }) :: any
 
@@ -5325,7 +5527,11 @@ local function define_tests()
                 local registry, gov = applied_registry({}, governance_state, {})
                 local svc = hub.new({
                     registry = registry,
-                    planner = no_requirements_planner(),
+                    planner = staged_planner(no_requirements_planner()),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
                     governance = gov,
                 }) :: any
 
@@ -5339,7 +5545,7 @@ local function define_tests()
                 test.not_nil(out.dependency)
                 test.is_nil(out.dependencies)
                 test.eq(governance_state.publish_calls, 1)
-                test.eq(#governance_state.last_changeset, 1)
+                test.eq(#governance_state.last_changeset, 2)
             end)
         end)
 
@@ -5366,8 +5572,12 @@ local function define_tests()
                 local svc = hub.new({
                     registry = registry,
                     process = fake_process(sent),
-                    uuid = fake_uuid(),
-                    planner = no_requirements_planner(),
+                    uuid = install_uuid(),
+                    planner = staged_planner(no_requirements_planner()),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
                     governance = gov,
                 }) :: any
 
@@ -5377,7 +5587,7 @@ local function define_tests()
                 }, { actor_id = "admin-1" })
 
                 test.is_nil(err)
-                test.eq(out.operation_id, "op-1")
+                test.not_nil(out.operation_id)
                 test.eq(gov_state.publish_calls, 1)
                 test.eq(gov_state.last_options.user_id, "admin-1")
                 test.eq(gov_state.last_changeset[1].kind, "entry.create")
@@ -5386,16 +5596,17 @@ local function define_tests()
                 local started = sent[1] :: any
                 local finished = sent[2] :: any
                 test.eq(started.payload.event, hub.EVENTS.INSTALL_STARTED)
-                test.eq(started.payload.data.operation_id, "op-1")
+                test.eq(started.payload.data.operation_id, out.operation_id)
                 test.eq(finished.payload.event, hub.EVENTS.INSTALL_FINISHED)
-                test.eq(finished.payload.data.operation_id, "op-1")
+                test.eq(finished.payload.data.operation_id, out.operation_id)
                 test.eq(finished.payload.data.dependency.component, "wippy/terminal")
             end)
 
             it("publishes the planner install payload parameters", function()
                 local gov_state = ({}) :: any
                 local svc = hub.new({
-                    planner = {
+                    registry = fake_registry({}),
+                    planner = staged_planner({
                         plan_install = function(args)
                             local entry, build_err = hub.build_dependency_entry(args)
                             if not entry then return nil, build_err end
@@ -5416,7 +5627,11 @@ local function define_tests()
                                 },
                             }, nil
                         end,
-                    },
+                    }),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
                     governance = fake_governance(gov_state),
                 }) :: any
 
@@ -5459,17 +5674,21 @@ local function define_tests()
                 })
                 local svc = hub.new({
                     registry = registry,
-                    planner = {
+                    planner = staged_planner({
                         new = function()
                             return planner.new({
                                 catalog = planner_catalog(),
                                 registry = registry,
                             })
                         end,
-                    },
+                    }),
                     governance = gov,
                     process = fake_process({}),
-                    uuid = fake_uuid(),
+                    uuid = install_uuid(),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
                 }) :: any
 
                 local out, install_err = svc:install({
@@ -5480,7 +5699,7 @@ local function define_tests()
                 test.is_nil(install_err)
                 test.not_nil(out)
                 test.eq(gov_state.publish_calls, 1)
-                test.eq(#gov_state.last_changeset, 1)
+                test.eq(#gov_state.last_changeset, 2)
                 test.eq(gov_state.last_changeset[1].entry.id, "app.deps:app")
                 test.eq(#(gov_state.last_changeset[1].entry.data.parameters or {}), 0)
                 test.eq(#installed_root.data.parameters, 1)
@@ -5492,7 +5711,11 @@ local function define_tests()
                 local gov_state = ({}) :: any
                 local svc = hub.new({
                     registry = fake_registry({}),
-                    planner = {
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
+                    planner = staged_planner({
                         plan_install = function(args)
                             local entry, build_err = hub.build_dependency_entry(args)
                             if not entry then return nil, build_err end
@@ -5523,7 +5746,7 @@ local function define_tests()
                                 },
                             }, nil
                         end,
-                    },
+                    }),
                     governance = fake_governance(gov_state),
                 }) :: any
 
@@ -5540,6 +5763,7 @@ local function define_tests()
                 test.not_nil(details)
                 test.eq(details.issue_count, 1)
                 test.eq(details.issues_by_entry["wippy.bad:driver"].reference, "wippy.missing:contract")
+                fail_install_cleanup(svc)
             end)
 
             it("allows valid planned bindings and requirement targets before publish", function()
@@ -5548,7 +5772,11 @@ local function define_tests()
                     registry = fake_registry({
                         { id = "wippy.good:contract", kind = "contract.definition", meta = {}, data = {} },
                     }),
-                    planner = {
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
+                    planner = staged_planner({
                         plan_install = function(args)
                             local entry, build_err = hub.build_dependency_entry(args)
                             if not entry then return nil, build_err end
@@ -5593,7 +5821,7 @@ local function define_tests()
                                 },
                             }, nil
                         end,
-                    },
+                    }),
                     governance = fake_governance(gov_state),
                 }) :: any
 
@@ -5607,31 +5835,30 @@ local function define_tests()
                 test.eq(gov_state.publish_calls, 1)
             end)
 
-            it("snapshots before install migrations and restores on migration failure", function()
+            it("fences the install and emits failure when a staged migration fails", function()
                 local sent = {}
                 local gov_state = { current_version = 77 }
-                local calls = {}
+                local staged = {
+                    id = "wippy.foo.migrations:001",
+                    kind = "function.lua",
+                    meta = { type = "migration", target_db = "app:db" },
+                    data = { method = "migrate" },
+                }
                 local registry, gov = applied_registry(fixture_entries(), gov_state, {})
                 local svc = hub.new({
                     registry = registry,
-                    sql = fake_sql({}),
                     process = fake_process(sent),
-                    uuid = fake_uuid(),
+                    uuid = install_uuid(),
                     governance = gov,
-                    planner = no_requirements_planner(),
-                    funcs = {
-                        new = function()
-                            return {
-                                call = function(_, id, params)
-                                    table.insert(calls, { id = id, params = params })
-                                    if id == hub.MIGRATION_HANDLER_FN then
-                                        return nil, "migration boom"
-                                    end
-                                    return nil, "unexpected call"
-                                end,
-                            }, nil
-                        end,
-                    },
+                    planner = staged_planner(no_requirements_planner(), {
+                        entries_by_module = { ["wippy/foo"] = { staged } },
+                    }),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
+                    candidate_resolver = { staged = true },
+                    candidate_migrations_up = function() return nil, "migration boom" end,
                 }) :: any
 
                 local out, err = svc:install({
@@ -5642,15 +5869,9 @@ local function define_tests()
 
                 test.is_nil(out)
                 test.not_nil(err)
-                test.eq(err_code(err), "MIGRATIONS_FAILED")
-                test.eq(err_details(err).baseline_version, 77)
-                test.eq((gov_state :: any).current_calls, 1)
-                test.eq((gov_state :: any).restore_calls, 1)
-                test.eq((gov_state :: any).restored_version, 77)
-                local migration_call = calls[1] :: any
-                test.not_nil(migration_call)
-                test.eq((gov_state :: any).publish_calls, 1)
-                test.eq(migration_call.id, hub.MIGRATION_HANDLER_FN)
+                test.eq(err_code(err), "CANDIDATE_MIGRATIONS_FAILED")
+                test.eq((gov_state :: any).publish_calls or 0, 0)
+                test.eq((gov_state :: any).restore_calls or 0, 0)
 
                 local failed_event
                 for _, item in ipairs(sent) do
@@ -5659,26 +5880,33 @@ local function define_tests()
                     end
                 end
                 test.not_nil(failed_event)
-                test.eq(failed_event.data.rollback.version, 77)
+                test.not_nil(failed_event.data.operation_id)
+                fail_install_cleanup(svc)
             end)
 
-            it("does not publish when install migrations need a rollback snapshot but snapshot fails", function()
-                local called = {}
+            it("does not publish when the staged migration seam refuses", function()
+                local seam_calls = {}
+                local staged = {
+                    id = "wippy.foo.migrations:001",
+                    kind = "function.lua",
+                    meta = { type = "migration", target_db = "app:db" },
+                    data = { method = "migrate" },
+                }
                 local svc = hub.new({
                     registry = fake_registry(fixture_entries()),
-                    sql = fake_sql({}),
-                    governance = fake_governance({ current_error = "registry offline" }),
-                    planner = no_requirements_planner(),
-                    funcs = {
-                        new = function()
-                            return {
-                                call = function(_, id, params)
-                                    table.insert(called, { id = id, params = params })
-                                    return { ok = true }, nil
-                                end,
-                            }, nil
-                        end,
-                    },
+                    governance = fake_governance({}),
+                    planner = staged_planner(no_requirements_planner(), {
+                        entries_by_module = { ["wippy/foo"] = { staged } },
+                    }),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
+                    candidate_resolver = { staged = true },
+                    candidate_migrations_up = function(args)
+                        table.insert(seam_calls, args)
+                        return nil, "candidate runner offline"
+                    end,
                 }) :: any
 
                 local out, err = svc:install({
@@ -5689,13 +5917,19 @@ local function define_tests()
 
                 test.is_nil(out)
                 test.not_nil(err)
-                test.eq(err_code(err), "INTERNAL")
-                test.eq(#called, 0)
+                test.eq(err_code(err), "CANDIDATE_MIGRATIONS_FAILED")
+                test.eq(#seam_calls, 1)
+                fail_install_cleanup(svc)
             end)
 
             it("rejects install when planner reports unresolved requirements", function()
                 local svc = hub.new({
-                    planner = {
+                    registry = fake_registry({}),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
+                    planner = staged_planner({
                         plan_install = function(args)
                             local entry, build_err = hub.build_dependency_entry(args)
                             if not entry then return nil, build_err end
@@ -5721,7 +5955,7 @@ local function define_tests()
                                 },
                             }, nil
                         end,
-                    },
+                    }),
                 }) :: any
 
                 local out, err = svc:install({
@@ -5758,9 +5992,13 @@ local function define_tests()
                 local registry, gov = applied_registry({}, { current_version = 12 }, { ["wippy/dummy"] = "0.1.2" })
                 local svc = hub.new({
                     registry = registry,
-                    planner = graph_planner({
-                        { module = "wippy/dummy", version = "0.1.2", digest = "abc123" },
-                    }),
+                    planner = staged_planner(graph_planner({
+                        { module = "wippy/dummy", version = "0.1.2", digest = "test-digest-wippy/dummy" },
+                    })),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
                     fs = fake_project_fs(files),
                     yaml = fake_yaml_for_lock({
                         directories = { modules = ".wippy", src = "./src/app" },
@@ -5768,19 +6006,18 @@ local function define_tests()
                         replacements = {},
                     }),
                     governance = gov,
-                    system = {
-                        hosts = {
-                            list = function()
-                                error("Hub installs must not inspect running processes")
-                            end,
-                        },
-                    },
-                    process = {
-                        terminate = function()
-                            error("Hub installs must not terminate running processes")
-                        end,
-                    },
                 }) :: any
+
+                -- The staged candidate declares no quiesce_services, so the
+                -- barrier passes without supervisor inspection or control.
+                local quiesced = svc.install_quiescence
+                local inspected = false
+                svc.install_quiescence = setmetatable({ acquire = function(_, _, _, _, items)
+                    local services = quiesced.collect(items)
+                    test.eq(#services, 0)
+                    inspected = true
+                    return quiesced.acquire(_, _, _, _, items)
+                end }, { __index = quiesced })
 
                 local out, err = svc:install({
                     component = "wippy/dummy",
@@ -5789,18 +6026,12 @@ local function define_tests()
                 })
 
                 test.is_nil(err)
-                test.not_nil(out.execution)
-                -- Migrations run by default: installed code never outruns its
-                -- schema, and the changed modules' bootloaders run after them.
-                test.eq(#out.execution, 4)
-                test.eq(out.execution[1].step, "validation")
-                test.eq(out.execution[1].status, "ok")
-                test.eq(out.execution[2].step, "governance")
-                test.eq(out.execution[2].status, "ok")
-                test.eq(out.execution[3].step, "migrations")
-                test.eq(out.execution[3].status, "ok")
-                test.eq(out.execution[4].step, "bootloaders")
-                test.eq(out.execution[4].status, "ok")
+                test.is_true(inspected)
+                test.not_nil(out.operation_id)
+                test.is_true(out.apply.ok)
+                test.eq(#out.migrations.applied, 0)
+                test.eq(#out.migrations.skipped, 0)
+                test.eq(out.bootloaders.count, 0)
             end)
 
             it("returns an ordered ok ledger on a successful uninstall", function()
@@ -5854,31 +6085,30 @@ local function define_tests()
                     table.insert(order, "registry_restore")
                     return base_restore(version, reason)
                 end
+                local staged = {
+                    id = "wippy.foo.migrations:001",
+                    kind = "function.lua",
+                    meta = { type = "migration", target_db = "app:db" },
+                    data = { method = "migrate" },
+                }
                 return {
                     registry = registry,
-                    sql = fake_sql({}),
-                    planner = graph_planner({
-                        { module = "wippy/foo", version = "1.2.3", digest = "foo-digest" },
-                    }),
+                    planner = staged_planner(graph_planner({
+                        { module = "wippy/foo", version = "1.2.3", digest = "test-digest-wippy/foo" },
+                    }), { entries_by_module = { ["wippy/foo"] = { staged } } }),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
                     governance = gov,
                     process = fake_process(sent),
-                    uuid = fake_uuid(),
-                    funcs = {
-                        new = function()
-                            return {
-                                call = function(_, id)
-                                    if id == hub.MIGRATION_HANDLER_FN then
-                                        return nil, "migration boom"
-                                    end
-                                    return nil, "unexpected call"
-                                end,
-                            }, nil
-                        end,
-                    },
+                    uuid = install_uuid(),
+                    candidate_resolver = { staged = true },
+                    candidate_migrations_up = function() return nil, "migration boom" end,
                 }
             end
 
-            it("restores the registry when install migrations fail", function()
+            it("holds the fence without registry restore when install migrations fail", function()
                 local order = {}
                 local svc = hub.new(migration_failure_deps({ current_version = 55 }, order, {})) :: any
 
@@ -5889,22 +6119,20 @@ local function define_tests()
                 }, { actor_id = "admin-1" })
 
                 test.is_nil(out)
-                test.eq(err_code(err), "MIGRATIONS_FAILED")
-                test.eq(#order, 1)
-                test.eq(order[1], "registry_restore")
-                local execution = err_details(err).execution
-                test.eq(execution["1"].step, "validation")
-                test.eq(execution["2"].step, "governance")
-                test.eq(execution["2"].status, "rolled_back")
-                test.eq(execution["3"].step, "migrations")
-                test.eq(execution["3"].status, "failed")
+                test.eq(err_code(err), "CANDIDATE_MIGRATIONS_FAILED")
+                test.eq(#order, 0)
+                local db = sql.get("app:db")
+                local active = svc.install_state.get_active_install(db)
+                test.not_nil(active)
+                test.eq(active.status, "in_progress")
+                db:release()
+                fail_install_cleanup(svc)
             end)
 
-            it("marks the step rollback_failed when the install registry restore fails", function()
+            it("emits install failed without registry restore when staged migrations fail", function()
                 local order = {}
                 local sent = {}
-                local svc = hub.new(migration_failure_deps(
-                    { current_version = 55, restore_error = "registry offline" }, order, sent)) :: any
+                local svc = hub.new(migration_failure_deps({ current_version = 55 }, order, sent)) :: any
 
                 local out, err = svc:install({
                     component = "wippy/foo",
@@ -5913,19 +6141,18 @@ local function define_tests()
                 }, { actor_id = "admin-1" })
 
                 test.is_nil(out)
-                test.eq(err_code(err), "ROLLBACK_FAILED")
-                test.eq(order[1], "registry_restore")
+                test.eq(err_code(err), "CANDIDATE_MIGRATIONS_FAILED")
+                test.eq(#order, 0)
 
                 local failed = last_event(sent, hub.EVENTS.INSTALL_FAILED)
                 test.not_nil(failed)
-                local execution = failed.data.execution
-                test.not_nil(execution)
-                test.eq(step_by_name(execution, "governance").status, "rollback_failed")
-                test.eq(step_by_name(execution, "governance").inverse, "restore_registry_version")
-                test.eq(step_by_name(execution, "migrations").status, "failed")
+                local started = last_event(sent, hub.EVENTS.INSTALL_STARTED)
+                test.not_nil(started)
+                test.eq(failed.data.operation_id, started.data.operation_id)
+                fail_install_cleanup(svc)
             end)
 
-            it("runs the migrations of the module the governance apply installs", function()
+            it("runs the staged migrations of the module the install publishes", function()
                 local calls = {} :: any
                 -- The module's entries reach the registry only through the
                 -- governance apply; before it, ownership knows one other root.
@@ -5940,25 +6167,29 @@ local function define_tests()
                         if entry.kind ~= "ns.dependency" then table.insert(current, entry) end
                     end
                 end)
+                local staged = {
+                    id = "wippy.foo.migrations:001",
+                    kind = "function.lua",
+                    meta = { type = "migration", target_db = "app:db" },
+                    data = { method = "migrate" },
+                }
                 local svc = hub.new({
                     registry = fake_registry(entries, nil, registry_state),
-                    sql = fake_sql({}),
-                    uuid = fake_uuid(),
+                    uuid = install_uuid(),
                     governance = gov,
-                    planner = no_requirements_planner(),
-                    funcs = {
-                        new = function()
-                            return {
-                                call = function(_, id, params)
-                                    table.insert(calls, { id = id, params = params })
-                                    if id == hub.MIGRATION_HANDLER_FN then
-                                        return { ok = true, operation = params.operation }, nil
-                                    end
-                                    return nil, "unexpected call"
-                                end,
-                            }, nil
-                        end,
-                    },
+                    planner = staged_planner(no_requirements_planner(), {
+                        entries_by_module = { ["wippy/foo"] = { staged } },
+                    }),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
+                    candidate_resolver = { staged = true },
+                    candidate_migrations_up = function(args)
+                        table.insert(calls, args)
+                        return { applied = { { id = staged.id,
+                            hash = args.expected_hashes[staged.id] } }, skipped = {} }, nil
+                    end,
                 }) :: any
 
                 local out, err = svc:install({
@@ -5970,124 +6201,115 @@ local function define_tests()
                 test.is_nil(err)
                 test.not_nil(out)
                 test.eq(gov_state.publish_calls, 1)
-                test.eq(step_by_name(out.execution, "governance").status, "ok")
-                test.eq(step_by_name(out.execution, "migrations").status, "ok")
-                test.eq(out.migrations.count, 1)
-                test.eq(out.migrations.entry_ids[1], "wippy.foo.migrations:001")
+                test.is_true(out.apply.ok)
+                test.eq(out.migrations.applied[1].id, "wippy.foo.migrations:001")
                 test.eq(#calls, 1)
-                test.eq(calls[1].id, hub.MIGRATION_HANDLER_FN)
-                test.eq(calls[1].params.operation, "up")
-                test.eq(calls[1].params.entry_ids[1], "wippy.foo.migrations:001")
+                test.eq(calls[1].target_db, "app:db")
+                test.not_nil(calls[1].expected_hashes["wippy.foo.migrations:001"])
             end)
 
-            -- wippy/foo 1.2.3 is installed with its first migration applied;
-            -- the install plans 1.3.0, which ships a second migration.
+            -- wippy/foo 1.2.3 is installed; the install stages 1.3.0, which
+            -- ships a second migration through the candidate seam.
             local function selection_install(opts)
+                opts = opts or {}
                 local gov_state = ({ current_version = 90 }) :: any
                 local registry_state = { version = 90 }
                 local entries = fixture_entries()
                 entries[1].meta = {}
                 entries[1].data.version = ">=1.2.3"
                 local calls = {}
-                local gov
-                if opts.apply == false then
-                    gov = fake_governance(gov_state)
-                else
-                    gov = applying_governance(gov_state, entries, registry_state, function(current)
-                        if opts.installed_version then
-                            install_modules(current, { ["wippy/foo"] = opts.installed_version })
-                        end
-                        if opts.installed_version == "1.3.0" then
-                            table.insert(current, {
-                                id = "wippy.foo.migrations:002",
-                                kind = "function.lua",
-                                meta = {
-                                    type = "migration",
-                                    target_db = "app:db",
-                                    timestamp = "2026-02-01T00:00:00Z",
-                                },
-                                provenance = { module = "wippy/foo", version = "1.3.0" },
-                                data = { method = "migrate" },
-                            })
-                        end
-                    end)
-                end
-                local base_restore = gov.restore_version
-                gov.restore_version = function(version, reason)
-                    table.insert(calls, "restore:" .. tostring(version))
-                    return base_restore(version, reason)
-                end
+                local gov = applying_governance(gov_state, entries, registry_state, function(current)
+                    install_modules(current, { ["wippy/foo"] = "1.3.0" })
+                end)
+                local staged = {
+                    id = "wippy.foo.migrations:002",
+                    kind = "function.lua",
+                    meta = { type = "migration", target_db = "app:db",
+                        timestamp = "2026-02-01T00:00:00Z" },
+                    data = { method = "migrate" },
+                }
                 local svc = hub.new({
                     registry = fake_registry(entries, nil, registry_state),
-                    sql = fake_sql({ ["wippy.foo.migrations:001"] = true }),
-                    uuid = fake_uuid(),
+                    uuid = install_uuid(),
                     process = fake_process({}),
                     governance = gov,
-                    planner = graph_planner({
-                        { module = "wippy/foo", version = "1.3.0", digest = "foo-130" },
-                    }),
-                    funcs = {
-                        new = function()
-                            return {
-                                call = function(_, id, params)
-                                    if id == hub.MIGRATION_HANDLER_FN then
-                                        table.insert(calls, "migrate:" .. table.concat(params.entry_ids, ","))
-                                        return { ok = true, operation = params.operation }, nil
-                                    end
-                                    return nil, "unexpected call: " .. tostring(id)
-                                end,
-                            }, nil
-                        end,
-                    },
+                    planner = staged_planner(graph_planner({
+                        { module = "wippy/foo", version = "1.3.0", digest = "test-digest-wippy/foo-1.3.0" },
+                    }), { entries_by_module = { ["wippy/foo"] = { staged } } }),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
                     bootloader_registry = { find = function() return {}, nil end },
+                    candidate_resolver = { staged = true },
+                    candidate_migrations_up = function(args)
+                        table.insert(calls, args)
+                        if opts.seam_error then return nil, opts.seam_error end
+                        return { applied = { { id = staged.id,
+                            hash = args.expected_hashes[staged.id] } }, skipped = {} }, nil
+                    end,
                 }) :: any
-                return svc, gov_state, calls
+                if opts.publish_error then gov_state.publish_error = opts.publish_error end
+                return svc, gov_state, calls, staged
             end
 
-            it("selects migrations from the snapshot the governance apply produced", function()
-                local svc, gov_state, calls = selection_install({ installed_version = "1.3.0" })
+            it("runs the staged migration the candidate ships", function()
+                local svc, gov_state, calls, staged = selection_install({})
 
                 local out, err = svc:install({ component = "wippy/foo", version = "1.3.0" }, { actor_id = "admin-1" })
 
                 test.is_nil(err)
                 test.eq(gov_state.publish_calls, 1)
-                test.eq(step_by_name(out.execution, "migrations").status, "ok")
-                test.eq(out.migrations.count, 1)
-                test.eq(out.migrations.entry_ids[1], "wippy.foo.migrations:002")
+                test.eq(out.migrations.applied[1].id, "wippy.foo.migrations:002")
                 test.eq(#calls, 1)
-                test.eq(calls[1], "migrate:wippy.foo.migrations:002")
+                test.not_nil(calls[1].expected_hashes[staged.id])
             end)
 
-            it("fails and restores the registry when migrations would read a snapshot older than the apply", function()
-                local svc, gov_state, calls = selection_install({ apply = false })
+            it("holds the fence for retry when governance publish fails", function()
+                local svc, gov_state, calls = selection_install({ publish_error = "registry offline" })
 
                 local out, err = svc:install({ component = "wippy/foo", version = "1.3.0" }, { actor_id = "admin-1" })
 
                 test.is_nil(out)
-                test.eq(err_code(err), "MIGRATION_SELECTION_STALE")
-                test.contains(err_message(err), "predates the applied version 91")
-                test.eq(gov_state.restore_calls, 1)
-                test.eq(gov_state.restored_version, 90)
+                test.not_nil(err)
+                test.eq(err_code(err), "CONFLICT")
+                test.eq(gov_state.publish_calls, 1)
                 test.eq(#calls, 1)
-                test.eq(calls[1], "restore:90")
-                local execution = err_details(err).execution
-                test.eq(execution["2"].step, "governance")
-                test.eq(execution["2"].status, "rolled_back")
-                test.eq(execution["3"].step, "migrations")
-                test.eq(execution["3"].status, "failed")
+                local db = sql.get("app:db")
+                local active = svc.install_state.get_active_install(db)
+                test.not_nil(active)
+                test.eq(active.status, "in_progress")
+                db:release()
+                fail_install_cleanup(svc)
             end)
 
-            it("fails and restores the registry when the applied registry holds another module version", function()
-                local svc, gov_state, calls = selection_install({})
+            it("refuses when the staged artifact digest differs from the plan", function()
+                local svc = hub.new({
+                    registry = fake_registry(fixture_entries()),
+                    planner = { new = function()
+                        local instance = { catalog = { versions = { open = function()
+                            return { digest = "other-digest",
+                                entries = function() return {}, nil end,
+                                close = function() return true, nil end }, nil
+                        end } } }
+                        function instance:plan_install()
+                            return { graph = { { module = "wippy/foo", version = "1.3.0",
+                                digest = "test-digest-wippy/foo-1.3.0",
+                                __selected = { version = "1.3.0" } } } }, nil
+                        end
+                        return instance
+                    end },
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
+                    bootloader_registry = { find = function() return {}, nil end },
+                }) :: any
 
-                local out, err = svc:install({ component = "wippy/foo", version = "1.3.0" }, { actor_id = "admin-1" })
+                local out, err = svc:install({ component = "wippy/foo", version = "1.3.0" })
 
                 test.is_nil(out)
-                test.eq(err_code(err), "MIGRATION_SELECTION_STALE")
-                test.contains(err_message(err), "wippy/foo planned 1.3.0, registry holds v1.2.3")
-                test.eq(gov_state.restored_version, 90)
-                test.eq(#calls, 1)
-                test.eq(calls[1], "restore:90")
+                test.not_nil(err)
+                test.eq(err_code(err), "CANDIDATE_HASH_MISMATCH")
+                test.eq(err_kind(err), errors.CONFLICT)
             end)
 
             -- wippy/foo moves from v1.2.3 to v1.3.0 and ships two bootloaders.
@@ -6104,14 +6326,16 @@ local function define_tests()
                             id = "wippy.other:boot",
                             kind = "function.lua",
                             meta = { type = "bootloader", order = 5 },
-                            provenance = { module = "wippy/other", version = "1.0.0" },
+                            provenance = { module = "wippy/other", version = "1.0.0",
+                                digest = "test-digest-wippy/other" },
                             data = {},
                         },
                         {
                             id = "wippy.migration:migration_bootloader",
                             kind = "function.lua",
                             meta = { type = "bootloader", order = 20 },
-                            provenance = { module = "wippy/migration", version = "0.3.18" },
+                            provenance = { module = "wippy/migration", version = "0.3.18",
+                                digest = "test-digest-wippy/migration" },
                             data = {},
                         },
                     }
@@ -6147,24 +6371,13 @@ local function define_tests()
                 end)
                 local deps = {
                     registry = fake_registry(entries, nil, registry_state),
-                    sql = fake_sql({}),
-                    uuid = fake_uuid(),
+                    uuid = install_uuid(),
                     process = fake_process({}),
                     governance = gov,
-                    planner = no_requirements_planner(),
-                    funcs = {
-                        new = function()
-                            return {
-                                call = function(_, id, params)
-                                    if id == hub.MIGRATION_HANDLER_FN then
-                                        table.insert(record.sequence, "migrations")
-                                        return { ok = true, operation = params.operation }, nil
-                                    end
-                                    return nil, "unexpected call: " .. tostring(id)
-                                end,
-                            }, nil
-                        end,
-                    },
+                    planner = staged_planner(no_requirements_planner()),
+                    floor_catalog = test_floor_catalog(),
+                    system = test_system_version(),
+                    config = test_install_config(),
                     -- Discovery as the framework serves it: every bootloader in
                     -- the registry, ordered by meta.order, then id.
                     bootloader_registry = {
@@ -6218,7 +6431,7 @@ local function define_tests()
                 return table.concat(ids, ",")
             end
 
-            it("runs the bootloaders of the module an install changes after its migrations", function()
+            it("runs the bootloaders of the module an install changes", function()
                 local svc, record = bootloader_install({ module_version = "v1.3.0" })
 
                 local out, err = svc:install({
@@ -6228,7 +6441,7 @@ local function define_tests()
 
                 test.is_nil(err)
                 test.not_nil(out)
-                test.eq(table.concat(record.sequence, ","), "migrations,bootloaders")
+                test.eq(table.concat(record.sequence, ","), "bootloaders")
                 test.eq(#record.chains, 1)
                 local call = record.chains[1]
                 test.eq(chain_ids(call.chain), "wippy.foo:warm_cache,wippy.foo:seed")
@@ -6240,9 +6453,7 @@ local function define_tests()
                 test.is_nil(satisfied["wippy.foo:warm_cache"])
                 test.is_nil(satisfied["wippy.foo:seed"])
 
-                test.eq(out.execution[3].step, "migrations")
-                test.eq(out.execution[4].step, "bootloaders")
-                test.eq(out.execution[4].status, "ok")
+                test.is_true(out.apply.ok)
                 test.eq(out.bootloaders.count, 2)
                 test.eq(out.bootloaders.entry_ids[1], "wippy.foo:warm_cache")
                 test.eq(out.bootloaders.entry_ids[2], "wippy.foo:seed")
@@ -6259,13 +6470,12 @@ local function define_tests()
 
                 test.is_nil(err)
                 test.not_nil(out)
-                test.eq(table.concat(record.sequence, ","), "migrations,bootloaders")
+                test.eq(table.concat(record.sequence, ","), "bootloaders")
                 test.eq(chain_ids(record.chains[1].chain), "wippy.foo:warm_cache,wippy.foo:seed")
-                test.eq(step_by_name(out.execution, "bootloaders").status, "ok")
                 test.eq(out.bootloaders.count, 2)
             end)
 
-            it("fails the install with the failing bootloader's message and restores the registry", function()
+            it("fails the install with the failing bootloader's message and holds the lock", function()
                 local svc, record = bootloader_install({
                     module_version = "v1.3.0",
                     fail_id = "wippy.foo:warm_cache",
@@ -6281,15 +6491,9 @@ local function define_tests()
                 test.eq(err_code(err), "BOOTLOADERS_FAILED")
                 test.contains(err_message(err), "wippy.foo:warm_cache")
                 test.contains(err_message(err), "cache warm failed: no such column: target")
-                test.eq(record.gov_state.restore_calls, 1)
-                test.eq(record.gov_state.restored_version, 70)
-                local execution = err_details(err).execution
-                test.eq(execution["2"].step, "governance")
-                test.eq(execution["2"].status, "rolled_back")
-                test.eq(execution["3"].step, "migrations")
-                test.eq(execution["3"].status, "ok")
-                test.eq(execution["4"].step, "bootloaders")
-                test.eq(execution["4"].status, "failed")
+                test.eq(record.gov_state.restore_calls or 0, 0)
+                test.eq(err_details(err).bootloader, "wippy.foo:warm_cache")
+                fail_install_cleanup(svc)
             end)
 
             it("runs no bootloader when the install leaves every module as it was", function()
@@ -6303,7 +6507,6 @@ local function define_tests()
                 test.is_nil(err)
                 test.not_nil(out)
                 test.eq(#record.chains, 0)
-                test.eq(step_by_name(out.execution, "bootloaders").status, "ok")
                 test.eq(out.bootloaders.count, 0)
             end)
 

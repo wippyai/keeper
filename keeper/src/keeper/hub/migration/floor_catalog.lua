@@ -222,14 +222,19 @@ local CERTIFIED_HASHES = {
     },
 }
 
+local function failure(code, message)
+    local kind = code == "BAD_REQUEST" and errors.INVALID or errors.INTERNAL
+    return errors.new({ kind = kind, message = message, details = { code = code } })
+end
+
 function M.lookup(hash)
     local key = trim(hash):gsub("^sha256:", "")
     if key == "" then
-        return nil, "artifact hash is required"
+        return nil, failure("BAD_REQUEST", "artifact hash is required")
     end
     local entry = CERTIFIED_HASHES[key]
     if not entry then
-        return nil, "UNKNOWN_HASH: artifact hash '" .. key .. "' not found in certified floor catalog"
+        return nil, failure("UNKNOWN_HASH", "artifact hash '" .. key .. "' not found in certified floor catalog")
     end
     return { name = entry.name, version = entry.version,
         min_runtime = entry.min_runtime }, nil
@@ -237,7 +242,7 @@ end
 
 function M.get_floor(artifact)
     if type(artifact) ~= "table" then
-        return nil, "artifact must be a table"
+        return nil, failure("BAD_REQUEST", "artifact must be a table")
     end
     -- 1. If declared in artifact manifest
     local declared = trim(artifact.min_runtime or artifact.min_version)
@@ -253,12 +258,12 @@ function M.get_floor(artifact)
             local name = trim(artifact.name or artifact.module)
             local version = trim(artifact.version):gsub("^v", "")
             if name ~= "" and entry.name ~= name then
-                return nil, "HASH_MISMATCH: certified hash belongs to " .. entry.name
-                    .. ", not " .. name
+                return nil, failure("HASH_MISMATCH", "certified hash belongs to " .. entry.name
+                    .. ", not " .. name)
             end
             if version ~= "" and trim(entry.version):gsub("^v", "") ~= version then
-                return nil, "HASH_MISMATCH: certified hash belongs to version " .. entry.version
-                    .. ", not " .. version
+                return nil, failure("HASH_MISMATCH", "certified hash belongs to version " .. entry.version
+                    .. ", not " .. version)
             end
             return entry.min_runtime, nil
         end
@@ -267,7 +272,7 @@ function M.get_floor(artifact)
 
     -- 3. Artifact has neither declared min_runtime nor certified hash
     local identifier = tostring(artifact.name or artifact.id or artifact.module or "unknown")
-    return nil, "UNKNOWN_HASH: artifact '" .. identifier .. "' has no declared min_runtime and no hash"
+    return nil, failure("UNKNOWN_HASH", "artifact '" .. identifier .. "' has no declared min_runtime and no hash")
 end
 
 return M

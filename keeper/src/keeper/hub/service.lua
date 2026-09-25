@@ -21,6 +21,7 @@ local events = require("events")
 local time = require("time")
 local install_candidate = require("install_candidate")
 local install_runner = require("install_runner")
+local install_digest = require("install_digest")
 local keeper_config = require("keeper_config")
 
 local M = {}
@@ -191,6 +192,12 @@ local function validate_resolved_graph(graph)
         end
     end
     return true, nil
+end
+
+local function error_message(e: unknown)
+    if type(e) == "table" then return tostring((e :: any).message or e) end
+    if type(e) == "userdata" then return tostring((e :: any):message()) end
+    return tostring(e)
 end
 
 local function err_code_of(e: unknown)
@@ -777,6 +784,40 @@ function Service:dependency_create_or_update_op(entry, create_only)
     return { kind = op, entry = entry }, nil
 end
 
+-- This entry is committed in the same registry version as the dependency roots.
+-- Its identity is stable across a lost reply or a lost local step record.
+function Service:publication_receipt(lock_token, candidate_hash, entries)
+    if trim(lock_token) == "" or trim(candidate_hash) == "" or not entries or not entries[1] then
+        return nil, err("BAD_REQUEST", "publication receipt needs lock token, candidate hash and entries")
+    end
+    local namespace = entry_namespace(entries[1])
+    if not namespace then return nil, err("BAD_REQUEST", "publication receipt has no namespace") end
+    local key, key_err = install_digest.sha256({ lock_token = lock_token, candidate_hash = candidate_hash })
+    if not key then return nil, err("INTERNAL", "cannot hash publication receipt key", key_err) end
+    local payload_hash, payload_err = install_digest.sha256(entries)
+    if not payload_hash then return nil, err("INTERNAL", "cannot hash publication payload", payload_err) end
+    local receipt = { id = namespace .. ":keeper_install_receipt_" .. key,
+        kind = "registry.entry", meta = { type = "keeper.install.receipt" },
+        data = { lock_token = lock_token, candidate_hash = candidate_hash,
+            payload_hash = payload_hash } }
+    if not self.registry or type(self.registry.get) ~= "function" then
+        return nil, err("PUBLICATION_OUTCOME_UNKNOWN", "registry receipt lookup unavailable")
+    end
+    local existing, get_err = self.registry.get(receipt.id)
+    if get_err and not is_not_found_error(get_err) then
+        return nil, err("PUBLICATION_OUTCOME_UNKNOWN", "cannot inspect publication receipt", get_err)
+    end
+    if existing then
+        local data = existing.data or {}
+        if existing.kind ~= receipt.kind or data.lock_token ~= lock_token
+            or data.candidate_hash ~= candidate_hash or data.payload_hash ~= payload_hash then
+            return nil, err("CONFLICT", "publication receipt differs from locked candidate")
+        end
+        return { committed = true, entry = receipt }, nil
+    end
+    return { committed = false, entry = receipt }, nil
+end
+
 function Service:publish_dependency_changeset(args)
     args = args or {}
     if not self.governance or not self.governance.publish then
@@ -841,6 +882,17 @@ function Service:publish_dependency_changeset(args)
         return nil, err("BAD_REQUEST", "dependency publish action must be install or uninstall")
     end
 
+    if args.action == "install" and args.lock_token then
+        local receipt, receipt_err = self:publication_receipt(args.lock_token, args.candidate_hash, args.entries)
+        if not receipt then return nil, receipt_err end
+        if receipt.committed then
+            return { ok = true, stage = "governance", action = "install",
+                entry_ids = entry_ids, reconciled = true, receipt_id = receipt.entry.id }, nil
+        end
+        local registry_ops = self.gov_consts and self.gov_consts.REGISTRY_OPERATIONS
+        if not registry_ops then return nil, err("INTERNAL", "governance operation constants unavailable") end
+        changeset[#changeset + 1] = { kind = registry_ops.CREATE, entry = receipt.entry }
+    end
     local publish_options = {
         user_id = args.actor_id,
         message = args.message,
@@ -849,6 +901,14 @@ function Service:publish_dependency_changeset(args)
     }
     local result, publish_err = self.governance.publish(changeset, publish_options)
     if publish_err then
+        if args.action == "install" and args.lock_token then
+            local receipt, receipt_err = self:publication_receipt(args.lock_token, args.candidate_hash, args.entries)
+            if receipt and receipt.committed then
+                return { ok = true, stage = "governance", action = "install",
+                    entry_ids = entry_ids, reconciled = true, receipt_id = receipt.entry.id }, nil
+            end
+            if receipt_err then return nil, receipt_err end
+        end
         return nil, err("CONFLICT", "registry publish failed: " .. tostring(publish_err), {
             action = args.action,
             entry_ids = entry_ids,
@@ -928,7 +988,7 @@ function Service:prepare_install(args)
         binary_version = binary_ver,
         certified_catalog = self.floor_catalog,
     })
-    if pf_err then return nil, err("PREFLIGHT_FAILED", tostring(pf_err)) end
+    if pf_err then return nil, err("PREFLIGHT_FAILED", error_message(pf_err)) end
     if not pf_res or not pf_res.accepted then
         local blocker = pf_res and pf_res.blocker or {}
         return nil, err(blocker.code or "PREFLIGHT_FAILED",
