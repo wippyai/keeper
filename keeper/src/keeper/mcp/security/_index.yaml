@@ -141,7 +141,7 @@ entries:
   - name: sse_broker_cancel
     kind: security.policy
     meta:
-      comment: POST cancels a broker when it fails readiness; DELETE cancels its authenticated session broker.
+      comment: POST cancels a broker on readiness timeout or missing reply; DELETE cancels its authenticated session broker.
     policy:
       resources: '*'
       actions:

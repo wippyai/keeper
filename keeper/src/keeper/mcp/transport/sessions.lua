@@ -91,9 +91,14 @@ function M.create(session, runtime, identity, host, channel_api, time_api)
     end
 
     local ready = result.value
-    if not ready or not ready.success then
+    if not ready then
         runtime.cancel(broker_pid, 0)
-        return nil, (ready and ready.error) or "broker readiness failed"
+        return nil, "broker readiness failed"
+    end
+    if not ready.success then
+        -- The broker sends a failed readiness reply only on its way out. It
+        -- owns and releases any names it registered before that reply.
+        return nil, ready.error or "broker readiness failed"
     end
 
     return id, broker_pid

@@ -2090,6 +2090,7 @@ local function define_tests()
                 test.is_true(cap >= 1)
                 local token_session = { token_hash = "cap-test-token", label = "cap-test", identity = ADMIN_USER }
                 local names = {}
+                local live = {}
                 local spawned = 0
                 local cancelled = {}
                 local ready_messages = {}
@@ -2133,9 +2134,12 @@ local function define_tests()
                     pid = function() return "handler-pid" end,
                     cancel = function(pid)
                         cancelled[#cancelled + 1] = pid
+                        if not live[pid] then return nil, "process not found" end
+                        live[pid] = nil
                         for name, registered_pid in pairs(names) do
                             if registered_pid == pid then names[name] = nil end
                         end
+                        return true
                     end,
                     send = function(pid, topic, payload)
                         if pid == "handler-pid" then ready_messages[topic] = payload end
@@ -2148,6 +2152,7 @@ local function define_tests()
                             spawn = function(_, _, _, args)
                                 spawned = spawned + 1
                                 local pid = "cap-broker-" .. spawned
+                                live[pid] = true
                                 local slot_name
                                 for index = 1, args.slot_count do
                                     local candidate = args.slot_prefix .. tostring(index)
@@ -2164,12 +2169,14 @@ local function define_tests()
                                             success = false,
                                             error = "broker session registration failed",
                                         })
+                                        live[pid] = nil
                                     end
                                 else
                                     runtime.send(args.ready_to, args.ready_topic, {
                                         success = false,
                                         error = "MCP_SESSION_LIMIT",
                                     })
+                                    live[pid] = nil
                                 end
                                 return pid
                             end,
@@ -2203,7 +2210,8 @@ local function define_tests()
                 test.eq(response.body.id, 18)
                 test.eq(response.body.error.code, -32000)
                 test.eq(response.body.error.message, "Maximum active MCP sessions per token reached")
-                test.eq(#cancelled, 2, "only rejected new brokers may be cancelled")
+                test.eq(#cancelled, 0,
+                    "a rejected broker exits after its readiness failure; cancelling its dead PID logs an error")
                 for _, id in ipairs(ids) do
                     test.not_nil(mcp_sessions.lookup(token_session, id, runtime),
                         "reaching the cap must leave every existing session registered")
