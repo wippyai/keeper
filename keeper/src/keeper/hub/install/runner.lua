@@ -99,6 +99,13 @@ local function run_candidate_migrations(svc, candidate, rows, expected, token)
     if #rows == 0 then return { applied = {}, skipped = {} }, nil end
     local runner = svc.candidate_migrations_up
     local resolver = svc.candidate_resolver
+    if not resolver and type(svc.candidate_resolver_for) == "function" then
+        local bound, bound_err = svc.candidate_resolver_for(candidate.closure)
+        if not bound then
+            return nil, failure("CANDIDATE_RUNNER_UNAVAILABLE", "staged resolver unavailable", bound_err)
+        end
+        resolver = bound
+    end
     if not runner or not resolver then
         return nil, failure("CANDIDATE_RUNNER_UNAVAILABLE", "staged migration runner and resolver required")
     end
@@ -215,7 +222,9 @@ function M.run(svc, input, opts)
     if #pending > 0 and not input.run_migrations then
         return fail(failure("MIGRATIONS_REQUIRED", "candidate has pending migrations"))
     end
-    if #rows > 0 and (not svc.candidate_migrations_up or not svc.candidate_resolver) then
+    if #rows > 0 and (not svc.candidate_migrations_up
+        or (not svc.candidate_resolver
+            and type(svc.candidate_resolver_for) ~= "function")) then
         return fail(failure("CANDIDATE_RUNNER_UNAVAILABLE", "staged migration runner unavailable"))
     end
     local fence, fence_err = step("quiescence", function()

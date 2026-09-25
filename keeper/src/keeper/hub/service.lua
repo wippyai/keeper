@@ -22,6 +22,8 @@ local time = require("time")
 local install_candidate = require("install_candidate")
 local install_runner = require("install_runner")
 local install_digest = require("install_digest")
+local install_resolver = require("install_resolver")
+local candidate_runner = require("candidate_runner")
 local keeper_config = require("keeper_config")
 
 local M = {}
@@ -47,6 +49,8 @@ type ServiceDeps = {
     floor_catalog: unknown?,
     install_state: unknown?,
     candidate_migrations_up: unknown?,
+    candidate_resolver: unknown?,
+    candidate_resolver_for: unknown?,
     events: unknown?,
     time: unknown?,
 }
@@ -69,6 +73,8 @@ type HubService = {
     floor_catalog: unknown?,
     install_state: unknown?,
     candidate_migrations_up: unknown?,
+    candidate_resolver: unknown?,
+    candidate_resolver_for: unknown?,
     list_dependencies: (HubService, unknown) -> (unknown, unknown?),
     list_migrations: (HubService, unknown) -> (unknown, unknown?),
     install: (HubService, unknown, unknown?) -> (unknown, unknown?),
@@ -303,9 +309,14 @@ function M.new(deps: ServiceDeps?)
         install_runner = deps.install_runner or install_runner,
         config = deps.config or keeper_config,
         candidate_resolver = deps.candidate_resolver,
+        candidate_resolver_for = deps.candidate_resolver_for or install_resolver.for_closure,
         events = deps.events or events,
         time = deps.time or time,
-        candidate_migrations_up = deps.candidate_migrations_up,
+        -- Production default is the real framework staged-migration runner
+        -- (wippy.migration:candidate); tests inject a double only where the
+        -- real one cannot run (failure injection the runner cannot produce).
+        candidate_migrations_up = deps.candidate_migrations_up
+            or candidate_runner.candidate_migrations_up,
     }, Service) :: HubService
 end
 

@@ -58,6 +58,8 @@ entries:
       ownership: keeper.hub:ownership
       sql_dialect: keeper.internal:sql_dialect
       step_runner: keeper.develop.integrate.pipeline:step_runner
+      candidate_runner: wippy.migration:candidate
+      install_resolver: keeper.hub:install_resolver
 
   # keeper.hub:security_scan
   - name: floor_catalog
@@ -120,6 +122,10 @@ entries:
     modules:
       - hash
 
+  - name: install_resolver
+    kind: library.lua
+    source: file://install/resolver.lua
+
   - name: install_test
     kind: function.lua
     meta:
@@ -133,6 +139,10 @@ entries:
       hub_service: keeper.hub:service
       preflight: keeper.hub:preflight
       install_candidate: keeper.hub:install_candidate
+      install_digest: keeper.hub:install_digest
+      install_resolver: keeper.hub:install_resolver
+      install_state: keeper.hub:install_state
+      candidate_runner: wippy.migration:candidate
     method: define_tests
 
   - name: preflight_bootloader

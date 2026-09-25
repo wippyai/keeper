@@ -3,6 +3,42 @@ local sql = require("sql")
 local hub_service = require("hub_service")
 local preflight = require("preflight")
 local install_candidate = require("install_candidate")
+local install_digest = require("install_digest")
+local install_resolver = require("install_resolver")
+local install_state = require("install_state")
+local candidate_runner = require("candidate_runner")
+
+local function real_migration_source(statement)
+    return [[return require("migration").define(function()
+        migration("installer e2e fixture", function()
+            database("sqlite", function()
+                up(function(db)
+                    local _, err = db:execute(]] .. string.format("%q", statement) .. [[)
+                    if err then error(err) end
+                end)
+            end)
+            database("postgres", function()
+                up(function(db)
+                    local _, err = db:execute(]] .. string.format("%q", statement) .. [[)
+                    if err then error(err) end
+                end)
+            end)
+        end)
+    end)]]
+end
+
+local function real_migration(id, timestamp, statement, quiesce)
+    return {
+        id = id, kind = "function.lua",
+        meta = { type = "migration", target_db = "app:db", timestamp = timestamp,
+            quiesce_services = quiesce and { "app:worker" } or nil },
+        data = {
+            source = real_migration_source(statement),
+            imports = { migration = "wippy.migration:migration" },
+            method = "migrate",
+        },
+    }
+end
 
 local function fixture(label, fail_migration, mode)
     local observed = { "pid-old" }
@@ -11,12 +47,17 @@ local function fixture(label, fail_migration, mode)
     local receipts = {}
     local entry = { id = "app.deps:example", kind = "ns.dependency",
         data = { component = "example/pkg", version = "1.0.0", parameters = {} }, meta = {} }
+    local real = mode == "real"
     local migration = { id = "example.migrations:01", kind = "function.lua",
         meta = { type = "migration", target_db = "app:db",
             quiesce_services = { "app:worker" } }, data = { code = "return true" } }
+    if real then
+        migration = real_migration("example.migrations:01", "2026-03",
+            "CREATE TABLE IF NOT EXISTS r5e2e_probe (id TEXT PRIMARY KEY)", true)
+    end
     local candidate = { closure = { { module = "example/pkg", version = label,
         hash = label, min_runtime = "0.3.40a", migrations = { migration } } } }
-    local svc = hub_service.new({
+    local deps = {
         sql = sql,
         config = { app_db = function() return "app:db" end },
         uuid = { v4 = function() return "installer-" .. label end },
@@ -64,16 +105,24 @@ local function fixture(label, fail_migration, mode)
             return true, nil
         end },
         time = { sleep = function() return true, nil end },
-        candidate_resolver = { staged = true },
-        candidate_migrations_up = function(args)
+    }
+    local svc
+    if not real then
+        -- Failure injection the real runner cannot produce stays on the
+        -- test-only double; real-mode fixtures use the production defaults.
+        svc = hub_service.new(deps)
+        svc.candidate_resolver = { staged = true }
+        svc.candidate_migrations_up = function(args)
             trace[#trace + 1] = "migration"
             test.eq(args.target_db, "app:db")
             test.eq(args.installer_lock_token, "installer-" .. label)
             test.not_nil(args.expected_hashes[migration.id])
             if fail_migration then return nil, "injected migration failure" end
             return { applied = { { id = migration.id, hash = args.expected_hashes[migration.id] } }, skipped = {} }, nil
-        end,
-    })
+        end
+    else
+        svc = hub_service.new(deps)
+    end
     svc.prepare_install = function()
         return { candidate = candidate, plan = { graph = {} }, args = { migration_policy = "up" },
             entry = entry, entries = { entry }, create_only = {}, patches = {}, patch = {},
@@ -89,8 +138,10 @@ local function fixture(label, fail_migration, mode)
         trace[#trace + 1] = "validation"
         return { ok = true }, nil
     end
-    svc.migration_status = function()
-        return mode == "applied_hash_changed" and "applied" or "pending", nil
+    if not real then
+        svc.migration_status = function()
+            return mode == "applied_hash_changed" and "applied" or "pending", nil
+        end
     end
     svc.publish_dependency_changeset = function(self, args)
         trace[#trace + 1] = "publication"
@@ -537,6 +588,187 @@ local function define_tests()
             test.eq(active.metadata.fence.held, true)
             svc.install_state.fail_install(db, active.lock_token, "test cleanup")
             db:release()
+        end)
+
+        test.it("production resolver serves staged bytes filtered by target DB", function()
+            local first = { id = "b:mig", kind = "function.lua",
+                meta = { type = "migration", target_db = "app:db" }, data = { source = "s" } }
+            local second = { id = "a:mig", kind = "function.lua",
+                meta = { type = "migration", target_db = "app:db" }, data = { source = "s" } }
+            local other = { id = "c:mig", kind = "function.lua",
+                meta = { type = "migration", target_db = "app:other" }, data = { source = "s" } }
+            local plain = { id = "not-a-migration", kind = "function.lua",
+                meta = { type = "page" }, data = {} }
+            local fourth = { id = "d:mig", kind = "function.lua",
+                meta = { type = "migration", target_db = "app:db" }, data = { source = "s" } }
+            local closure = {
+                { module = "example/pkg", version = "1", hash = "h",
+                    migrations = { first, second, other } },
+                { module = "example/legacy", version = "1", hash = "h",
+                    entries = { plain, fourth } },
+            }
+            local resolver, resolver_err = install_resolver.for_closure(closure)
+            test.is_nil(resolver_err)
+            test.not_nil(resolver)
+            local rows, find_err = resolver:find({ target_db = "app:db" })
+            test.is_nil(find_err)
+            test.eq(#rows, 3)
+            test.eq(rows[1].id, "a:mig")
+            test.eq(rows[2].id, "b:mig")
+            test.eq(rows[3].id, "d:mig")
+            test.is_true(rows[1] == second)
+            test.is_true(rows[2] == first)
+            test.is_true(rows[3] == fourth)
+            local all, all_err = resolver:find({})
+            test.is_nil(all_err)
+            test.eq(#all, 4)
+            local none, none_err = resolver:find({ target_db = "app:missing" })
+            test.is_nil(none_err)
+            test.eq(#none, 0)
+            local missing, missing_err = install_resolver.for_closure(nil)
+            test.is_nil(missing)
+            test.eq(missing_err:details().code, "CANDIDATE_UNAVAILABLE")
+        end)
+
+        test.it("production resolver orders staged entries by timestamp then id", function()
+            local early_id_late_ts = { id = "a:mig", kind = "function.lua",
+                meta = { type = "migration", target_db = "app:db", timestamp = "2026-05" },
+                data = { source = "s" } }
+            local late_id_early_ts = { id = "z:mig", kind = "function.lua",
+                meta = { type = "migration", target_db = "app:db", timestamp = "2026-01" },
+                data = { source = "s" } }
+            local untimestamped = { id = "m:mig", kind = "function.lua",
+                meta = { type = "migration", target_db = "app:db" }, data = { source = "s" } }
+            local closure = { { module = "example/pkg", version = "1", hash = "h",
+                migrations = { early_id_late_ts, late_id_early_ts, untimestamped } } }
+            local resolver, resolver_err = install_resolver.for_closure(closure)
+            test.is_nil(resolver_err)
+            local rows, find_err = resolver:find({ target_db = "app:db" })
+            test.is_nil(find_err)
+            test.eq(#rows, 3)
+            test.eq(rows[1].id, "m:mig")
+            test.eq(rows[2].id, "z:mig")
+            test.eq(rows[3].id, "a:mig")
+        end)
+
+        test.it("keeper digest matches the framework entry hash byte for byte", function()
+            local entry = real_migration("r5e2e:parity", "2026-03",
+                "CREATE TABLE IF NOT EXISTS r5e2e_parity (id TEXT PRIMARY KEY)", true)
+            local keeper_hash, keeper_err = install_digest.sha256({
+                id = entry.id, kind = entry.kind,
+                meta = entry.meta, data = entry.data,
+            })
+            test.is_nil(keeper_err)
+            local framework_hash, framework_err = candidate_runner.entry_hash(entry)
+            test.is_nil(framework_err)
+            test.eq(keeper_hash, framework_hash)
+        end)
+
+        test.it("real runner applies a staged quiesced migration end to end", function()
+            local svc, trace = fixture("r5-real-success", false, "real")
+            local result, install_err = svc:install({ component = "example/pkg" }, {})
+            test.is_nil(install_err)
+            test.not_nil(result)
+            test.eq(table.concat(trace, ","),
+                "validation,service.stop,publication,bootloaders,service.start")
+            test.eq(#result.migrations.applied, 1)
+            test.eq(result.migrations.applied[1].id, "example.migrations:01")
+            test.eq(result.fence.records["app:worker"].new_pid, "pid-new")
+            local db = sql.get("app:db")
+            local probe = db:query("SELECT id, content_hash FROM _migrations WHERE id = ?",
+                { "example.migrations:01" })
+            test.eq(#probe, 1)
+            test.not_nil(probe[1].content_hash)
+            test.eq(probe[1].content_hash, result.migrations.applied[1].hash)
+            local active = svc.install_state.get_active_install(db)
+            test.is_nil(active)
+            db:release()
+        end)
+
+        test.it("real runner refuses changed source under an applied id", function()
+            local svc, _ = fixture("r5-real-changed", false, "real")
+            local first, first_err = svc:install({ component = "example/pkg" }, {})
+            test.is_nil(first_err)
+            test.not_nil(first)
+            local changed = real_migration("example.migrations:01", "2026-03",
+                "CREATE TABLE r5e2e_changed (id TEXT PRIMARY KEY)", true)
+            local second, _ = fixture("r5-real-changed-v2", false, "real")
+            second.prepare_install = function()
+                return { candidate = { closure = { { module = "example/pkg",
+                    version = "r5-real-changed-v2", hash = "r5-real-changed-v2",
+                    min_runtime = "0.3.40a", migrations = { changed } } } },
+                    plan = { graph = {} }, args = { migration_policy = "up" },
+                    entry = { id = "app.deps:example", kind = "ns.dependency",
+                        data = { component = "example/pkg", version = "1.0.0",
+                            parameters = {} }, meta = {} },
+                    entries = {}, create_only = {}, patches = {}, patch = {},
+                    policy = "up" }, nil
+            end
+            second.dependency_create_or_update_op = function(_, row)
+                return { kind = "entry.create", entry = row }, nil
+            end
+            second.bootloader_step_data = function()
+                return { baseline_modules = {}, reconfigured = {} }, nil
+            end
+            second.validate_planned_entries = function() return { ok = true }, nil end
+            local result, install_err = second:install({ component = "example/pkg" }, {})
+            test.is_nil(result)
+            test.not_nil(install_err)
+            test.eq(install_err:details().code, "CANDIDATE_MIGRATIONS_FAILED")
+            local db = sql.get("app:db")
+            local active = svc.install_state.get_active_install(db)
+            test.not_nil(active)
+            svc.install_state.fail_install(db, active.lock_token, "test cleanup")
+            db:release()
+        end)
+
+        test.it("real runner resumes a crashed candidate without reapplying", function()
+            local good = real_migration("r5e2e:resume-01", "2026-03",
+                "CREATE TABLE IF NOT EXISTS r5e2e_resume (id TEXT PRIMARY KEY)", false)
+            local bad = real_migration("r5e2e:resume-02", "2026-04",
+                "INSERT INTO r5e2e_missing_table VALUES ('x')", false)
+            local fixed = real_migration("r5e2e:resume-02", "2026-04",
+                "INSERT INTO r5e2e_resume VALUES ('two')", false)
+            local function resume_fixture(second)
+                local svc, _ = fixture("r5-real-resume", false, "real")
+                local base = svc.prepare_install()
+                base.candidate = { closure = { { module = "example/pkg",
+                    version = "r5-real-resume", hash = "r5-real-resume",
+                    min_runtime = "0.3.40a",
+                    migrations = { good, second } } } }
+                svc.prepare_install = function() return base, nil end
+                return svc
+            end
+            local crashing = resume_fixture(bad)
+            local first, first_err = crashing:install({ component = "example/pkg" }, {})
+            test.is_nil(first)
+            test.eq(first_err:details().code, "CANDIDATE_MIGRATIONS_FAILED")
+            local db = sql.get("app:db")
+            local partial = db:query("SELECT id FROM _migrations WHERE id LIKE ?",
+                { "r5e2e:resume%" })
+            test.eq(#partial, 1)
+            test.eq(partial[1].id, "r5e2e:resume-01")
+            db:release()
+            local resuming = resume_fixture(fixed)
+            local resumed, resume_err = resuming:install({ component = "example/pkg" }, {})
+            test.is_nil(resume_err)
+            test.not_nil(resumed)
+            test.is_true(resumed.resumed)
+            test.eq(resumed.operation_id, "installer-r5-real-resume")
+            test.eq(#resumed.migrations.applied, 1)
+            test.eq(resumed.migrations.applied[1].id, "r5e2e:resume-02")
+            test.eq(#resumed.migrations.skipped, 1)
+            test.eq(resumed.migrations.skipped[1].id, "r5e2e:resume-01")
+            local check = sql.get("app:db")
+            local rows = check:query("SELECT id FROM r5e2e_resume ORDER BY id")
+            test.eq(#rows, 1)
+            test.eq(rows[1].id, "two")
+            local ledger = check:query("SELECT id FROM _migrations WHERE id LIKE ?",
+                { "r5e2e:resume%" })
+            test.eq(#ledger, 2)
+            local active = resuming.install_state.get_active_install(check)
+            test.is_nil(active)
+            check:release()
         end)
     end)
 end
