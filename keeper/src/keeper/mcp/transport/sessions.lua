@@ -1,7 +1,9 @@
 -- MCP transport sessions are distinct from bearer-token identities. The token
 -- selects the actor and scopes; the issued session ID selects one live broker.
 
+local channel = require("channel")
 local crypto = require("crypto")
+local time = require("time")
 
 local auth = require("mcp_auth")
 local authorize = require("mcp_authorize")
@@ -21,26 +23,10 @@ local function new_id()
     return table.concat(hex)
 end
 
-local function slot_name(session, index)
+local function slot_prefix(session)
     local token_key = authorize.broker_key(session)
     if not token_key then return nil end
-    return consts.SSE_BROKER_NAME_PREFIX .. token_key .. ".slot." .. tostring(index)
-end
-
-local function reserve_slot(session, broker_pid, runtime)
-    local cap = config.mcp_max_sessions_per_token()
-    for index = 1, cap do
-        local name = slot_name(session, index)
-        if not name then return nil, "session broker key unavailable" end
-        local registered, register_err = runtime.registry.register(name, broker_pid)
-        if registered then return name end
-
-        local current_pid = runtime.registry.lookup(name)
-        if not current_pid then
-            return nil, "session slot registration failed: " .. tostring(register_err)
-        end
-    end
-    return nil, "MCP_SESSION_LIMIT"
+    return consts.SSE_BROKER_NAME_PREFIX .. token_key .. ".slot."
 end
 
 function M.name(session, id)
@@ -56,40 +42,60 @@ function M.lookup(session, id, runtime)
     return (runtime or process).registry.lookup(name)
 end
 
-function M.create(session, runtime, identity, host)
+function M.create(session, runtime, identity, host, channel_api, time_api)
     runtime = runtime or process
     identity = identity or auth.admin_identity
     host = host or config.process_host()
+    channel_api = channel_api or channel
+    time_api = time_api or time
 
     local id, id_err = new_id()
     if not id then return nil, "session ID generation failed: " .. tostring(id_err) end
     local name = M.name(session, id)
-    if not name then return nil, "session broker key unavailable" end
+    local prefix = slot_prefix(session)
+    if not name or not prefix then return nil, "session broker key unavailable" end
 
     local actor, scope, ident_err = identity(session, "mcp.sse")
     if ident_err then return nil, ident_err end
+
+    local ready_topic = consts.SSE_BROKER_READY_TOPIC_PREFIX .. id
+    local ready_channel = runtime.listen(ready_topic)
+    local broker_args = {
+        session_name = name,
+        slot_prefix = prefix,
+        slot_count = config.mcp_max_sessions_per_token(),
+        ready_to = runtime.pid(),
+        ready_topic = ready_topic,
+    }
 
     local broker_pid, spawn_err = runtime
         .with_context({})
         :with_actor(actor)
         :with_scope(scope)
-        :spawn(BROKER_ID, host)
+        :spawn(BROKER_ID, host, broker_args)
     if spawn_err or not broker_pid then
         return nil, "broker spawn failed: " .. tostring(spawn_err)
     end
 
-    local slot, slot_err = reserve_slot(session, broker_pid, runtime)
-    if not slot then
+    local ready_timeout = time_api.timer(consts.SSE_BROKER_READY_TIMEOUT)
+    local timeout_channel = ready_timeout:channel()
+    local result = channel_api.select({
+        ready_channel:case_receive(),
+        timeout_channel:case_receive(),
+    })
+    ready_timeout:stop()
+
+    if result.channel == timeout_channel then
         runtime.cancel(broker_pid, 0)
-        return nil, slot_err
+        return nil, "broker readiness timed out"
     end
 
-    local reg_ok, reg_err = runtime.registry.register(name, broker_pid)
-    if not reg_ok then
-        runtime.registry.unregister(slot)
+    local ready = result.value
+    if not ready or not ready.success then
         runtime.cancel(broker_pid, 0)
-        return nil, "broker register failed: " .. tostring(reg_err)
+        return nil, (ready and ready.error) or "broker readiness failed"
     end
+
     return id, broker_pid
 end
 

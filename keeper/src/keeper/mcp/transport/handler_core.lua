@@ -246,7 +246,7 @@ end
 
 -- HTTP handler
 
-local function bind_session(req, res, method, session, msg_id, runtime, identity, host)
+local function bind_session(req, res, method, session, msg_id, runtime, identity, host, channel_api, time_api)
     local session_id = req:header("Mcp-Session-Id")
     if method == "initialize" then
         if session_id and session_id ~= "" then
@@ -254,7 +254,8 @@ local function bind_session(req, res, method, session, msg_id, runtime, identity
             res:write_json(jsonrpc_error(msg_id, -32600, "initialize must not carry Mcp-Session-Id"))
             return false
         end
-        local created_id, broker_pid_or_err, create_err = sessions.create(session, runtime, identity, host)
+        local created_id, broker_pid_or_err, create_err = sessions.create(
+            session, runtime, identity, host, channel_api, time_api)
         create_err = create_err or broker_pid_or_err
         if not created_id then
             local over_limit = create_err == "MCP_SESSION_LIMIT"

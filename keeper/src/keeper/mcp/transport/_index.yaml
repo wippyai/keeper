@@ -17,7 +17,9 @@ entries:
     source: file://sessions.lua
     modules:
       - crypto
+      - channel
       - process
+      - time
     imports:
       mcp_auth: keeper.mcp.auth:auth
       mcp_authorize: keeper.mcp.auth:authorize
@@ -32,6 +34,7 @@ entries:
     source: file://broker.lua
     modules:
       - channel
+      - process
       - time
     imports:
       mcp_consts: keeper.mcp:consts
@@ -55,9 +58,11 @@ entries:
       comment: MCP JSON-RPC POST transport implementation
     source: file://handler_core.lua
     modules:
+      - channel
       - http
       - json
       - process
+      - time
     imports:
       mcp_auth: keeper.mcp.auth:auth
       mcp_authorize: keeper.mcp.auth:authorize
@@ -107,9 +112,8 @@ entries:
         - keeper.mcp.security:sse_broker_identity
         - keeper.mcp.security:sse_broker_spawn
         - keeper.mcp.security:sse_broker_host
-        - keeper.mcp.security:sse_broker_registry
-        - keeper.mcp.security:sse_broker_lookup
-        - keeper.mcp.security:sse_broker_handoff
+        - keeper.mcp.security:sse_broker_cancel
+        - keeper.mcp.security:sse_broker_send
 
   # keeper.mcp.transport:handler.endpoint
   - name: handler.endpoint
@@ -137,10 +141,8 @@ entries:
         id: keeper.mcp.transport:handler_get
       policies:
         - keeper.mcp.security:endpoint_db_access
-        - keeper.mcp.security:endpoint_actor_create
         - keeper.mcp.security:endpoint_registry_read
         - keeper.mcp.security:endpoint_env_read
-        - keeper.mcp.security:sse_broker_lookup
 
   # keeper.mcp.transport:handler_get.endpoint
   - name: handler_get.endpoint
@@ -168,12 +170,10 @@ entries:
         id: keeper.mcp.transport:handler_delete
       policies:
         - keeper.mcp.security:endpoint_db_access
-        - keeper.mcp.security:endpoint_actor_create
         - keeper.mcp.security:endpoint_registry_read
         - keeper.mcp.security:endpoint_env_read
-        - keeper.mcp.security:sse_broker_registry
-        - keeper.mcp.security:sse_broker_lookup
-        - keeper.mcp.security:sse_broker_handoff
+        - keeper.mcp.security:sse_broker_unregister
+        - keeper.mcp.security:sse_broker_cancel
 
   # keeper.mcp.transport:handler_delete.endpoint
   - name: handler_delete.endpoint

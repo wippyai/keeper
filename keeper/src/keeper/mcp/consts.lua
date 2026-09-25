@@ -37,6 +37,8 @@ M.CAPABILITIES = {
 -- GET / attaches SSE streams to it via sse_relay. The broker name combines
 -- the token hash and session ID so sessions sharing a token stay separate.
 M.SSE_BROKER_NAME_PREFIX = "mcp.session."
+M.SSE_BROKER_READY_TOPIC_PREFIX = "mcp.broker.ready."
+M.SSE_BROKER_READY_TIMEOUT = "5s"
 M.SSE_MESSAGE_TOPIC = "message"
 M.MCP_ACTIVITY_TOPIC = "mcp.activity"
 M.SSE_IDLE_TIMEOUT = "30m"

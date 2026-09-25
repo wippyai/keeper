@@ -1324,14 +1324,59 @@ local function define_tests()
                 local cancelled = {}
                 local sent = {}
                 local spawned = 0
-                local runtime = {
+                local ready_messages = {}
+                local ready_channels = {}
+                local runtime
+                local fake_channel = {
+                    select = function(cases)
+                        local ready = ready_messages[cases[1].topic]
+                        if ready then return { channel = cases[1], value = ready } end
+                        return { channel = cases[2], value = true }
+                    end,
+                }
+                local fake_time = {
+                    timer = function()
+                        local timeout_channel = { case_receive = function(self) return self end }
+                        return {
+                            channel = function() return timeout_channel end,
+                            stop = function() return true end,
+                        }
+                    end,
+                }
+                runtime = {
                     registry = {
                         lookup = function(name) return registry_names[name] end,
-                        unregister = function(name) registry_names[name] = nil end,
-                        register = function(name, pid) registry_names[name] = pid; return true end,
+                        unregister = function(name)
+                            registry_names[name] = nil
+                            return true
+                        end,
+                        register = function(name, pid)
+                            if registry_names[name] then return nil, "already exists" end
+                            registry_names[name] = pid
+                            return true
+                        end,
                     },
-                    cancel = function(pid) cancelled[#cancelled + 1] = pid end,
+                    listen = function(topic)
+                        if not ready_channels[topic] then
+                            ready_channels[topic] = {
+                                topic = topic,
+                                case_receive = function(self) return self end,
+                            }
+                        end
+                        return ready_channels[topic]
+                    end,
+                    pid = function() return "handler-pid" end,
+                    cancel = function(pid)
+                        cancelled[#cancelled + 1] = pid
+                        for name, registered_pid in pairs(registry_names) do
+                            if registered_pid == pid then registry_names[name] = nil end
+                        end
+                    end,
                     send = function(pid, topic, payload)
+                        if pid == "handler-pid" then
+                            ready_messages[topic] = payload
+                            return true
+                        end
                         sent[#sent + 1] = { pid = pid, topic = topic, payload = payload }
                         return true
                     end,
@@ -1339,13 +1384,34 @@ local function define_tests()
                         return {
                             with_actor = function(self) return self end,
                             with_scope = function(self) return self end,
-                            spawn = function()
+                            spawn = function(_, _, _, args)
                                 spawned = spawned + 1
-                                return "spawned-" .. spawned
+                                local pid = "spawned-" .. spawned
+                                local slot_name
+                                for index = 1, args.slot_count do
+                                    local candidate = args.slot_prefix .. tostring(index)
+                                    if not registry_names[candidate] then
+                                        local registered = runtime.registry.register(candidate, pid)
+                                        if registered then slot_name = candidate; break end
+                                    end
+                                end
+                                if slot_name and not registry_names[args.session_name] then
+                                    runtime.registry.register(args.session_name, pid)
+                                    runtime.send(args.ready_to, args.ready_topic, { success = true })
+                                else
+                                    if slot_name then runtime.registry.unregister(slot_name) end
+                                    runtime.send(args.ready_to, args.ready_topic, {
+                                        success = false,
+                                        error = slot_name and "broker register failed" or "MCP_SESSION_LIMIT",
+                                    })
+                                end
+                                return pid
                             end,
                         }
                     end,
                 }
+                runtime.channel_api = fake_channel
+                runtime.time_api = fake_time
                 local function response_for_get()
                     local response = { headers = {} }
                     function response:set_status(status) self.status = status end
@@ -1422,9 +1488,11 @@ local function define_tests()
                 local second = new_response()
                 local identity = function() return "actor", "scope" end
                 test.is_true(mcp_handler_core._bind_session(request_for(nil), first, "initialize",
-                    token_session, 1, runtime, identity, keeper_config.process_host()))
+                    token_session, 1, runtime, identity, keeper_config.process_host(),
+                    runtime.channel_api, runtime.time_api))
                 test.is_true(mcp_handler_core._bind_session(request_for(nil), second, "initialize",
-                    token_session, 2, runtime, identity, keeper_config.process_host()))
+                    token_session, 2, runtime, identity, keeper_config.process_host(),
+                    runtime.channel_api, runtime.time_api))
                 local first_id = first.headers["Mcp-Session-Id"]
                 local second_id = second.headers["Mcp-Session-Id"]
                 test.is_true(type(first_id) == "string" and first_id:match("^[0-9a-f]+$") ~= nil)
@@ -1464,15 +1532,18 @@ local function define_tests()
             end)
 
             it("POST activity keeps an unstreamed broker alive past its idle window, then idle expires", function()
-                local function simulate_broker(activity_times)
+                local function simulate_broker(activity_times, other_events)
                     local now = 0
                     local timer_fired_at
                     local timer_count = 0
+                    local timer_resets = 0
+                    local timer_stops = 0
                     local channels = {}
                     local queue = {}
                     for _, at in ipairs(activity_times) do
                         queue[#queue + 1] = { at = at, topic = "mcp.activity", value = {} }
                     end
+                    for _, event in ipairs(other_events or {}) do queue[#queue + 1] = event end
                     local function channel_for(topic)
                         if not channels[topic] then
                             channels[topic] = {
@@ -1482,18 +1553,49 @@ local function define_tests()
                         end
                         return channels[topic]
                     end
+                    local registry_names = {}
                     local fake_process = {
+                        event = { CANCEL = "cancel", EXIT = "exit" },
+                        pid = function() return "broker-pid" end,
+                        registry = {
+                            register = function(name)
+                                if registry_names[name] then return nil, "already exists" end
+                                registry_names[name] = "broker-pid"
+                                return true
+                            end,
+                            lookup = function(name) return registry_names[name] end,
+                            unregister = function(name) registry_names[name] = nil; return true end,
+                        },
                         listen = function(topic) return channel_for(topic) end,
                         events = function() return channel_for("process.events") end,
+                        send = function() return true end,
                     }
                     local fake_time = {
-                        after = function()
+                        timer = function()
                             timer_count = timer_count + 1
                             local timer = { deadline = now + 100 }
                             timer.case_receive = function(self) return self end
+                            timer.channel = function(self) return self end
+                            timer.reset = function(self)
+                                timer_resets = timer_resets + 1
+                                self.deadline = now + 100
+                                self.active = true
+                                return true
+                            end
+                            timer.stop = function(self)
+                                timer_stops = timer_stops + 1
+                                self.active = false
+                                return true
+                            end
                             return timer
                         end,
                     }
+                    fake_time.after = function()
+                        timer_count = timer_count + 1
+                        local timer = { deadline = now + 100 }
+                        timer.case_receive = function(self) return self end
+                        return timer
+                    end
                     local fake_channel = {
                         select = function(cases)
                             local next_event_index
@@ -1504,43 +1606,81 @@ local function define_tests()
                             end
                             local timer
                             for _, candidate in ipairs(cases) do
-                                if candidate.deadline then timer = candidate end
+                                if candidate.deadline and candidate.active ~= false then timer = candidate end
                             end
-                            if next_event_index and queue[next_event_index].at < timer.deadline then
+                            if next_event_index and (not timer or queue[next_event_index].at < timer.deadline) then
                                 local event = table.remove(queue, next_event_index)
                                 now = event.at
                                 return { channel = channel_for(event.topic), value = event.value }
                             end
+                            if not timer then error("fake select has no active timer or queued event") end
                             now = timer.deadline
                             timer_fired_at = now
                             return { channel = timer, value = nil }
                         end,
                     }
-                    mcp_broker._run_with(fake_channel, fake_time, mcp_stream_targets, {
+                    local state = mcp_broker._run_with(fake_channel, fake_time, mcp_stream_targets, {
                         SSE_IDLE_TIMEOUT = "test",
                         MCP_ACTIVITY_TOPIC = "mcp.activity",
                         MCP_NOTIFY_TOPIC = "mcp.notify",
                         SSE_MESSAGE_TOPIC = "message",
-                    }, fake_process)
-                    return timer_fired_at, timer_count
+                    }, fake_process, {
+                        session_name = "mcp.session.token.id",
+                        slot_prefix = "mcp.session.token.slot.",
+                        slot_count = 1,
+                        ready_to = "handler-pid",
+                        ready_topic = "mcp.ready.id",
+                    })
+                    test.eq(state.activity_count, #activity_times,
+                        "the broker state must account for every POST touch")
+                    test.not_nil(state.idle_timer,
+                        "the broker state must retain its idle timer")
+                    return timer_fired_at, timer_count, timer_resets, timer_stops, state
                 end
 
-                local active_expiry, active_timers = simulate_broker({ 90, 180 })
-                test.eq(active_expiry, 280,
-                    "the first POST must refresh expiry beyond the original 100ms idle window")
-                test.eq(active_timers, 3)
+                local activity_times = {}
+                for at = 1, 1000 do activity_times[#activity_times + 1] = at end
+                local active_expiry, active_timers, active_resets, _, active_state = simulate_broker(activity_times)
+                test.eq(active_expiry, 1100,
+                    "the most recent POST must refresh expiry beyond the original idle window")
+                test.eq(active_timers, 1,
+                    "1,000 POST touches must reuse the broker's one idle timer")
+                test.eq(active_resets, 1000)
+                test.eq(active_state.idle_timer, active_state.idle_channel,
+                    "the broker must keep the same timer channel while resetting its timer")
                 local idle_expiry, idle_timers = simulate_broker({})
                 test.eq(idle_expiry, 100)
                 test.eq(idle_timers, 1)
+
+                local function stream_message(pid)
+                    return { from = function() return pid end }
+                end
+                local stream_expiry, stream_timers, stream_resets, stream_stops, stream_state =
+                    simulate_broker({ 20 }, {
+                        { at = 10, topic = "sse.join", value = stream_message("stream-pid") },
+                        { at = 30, topic = "sse.leave", value = stream_message("stream-pid") },
+                    })
+                test.eq(stream_expiry, 130,
+                    "the idle window must restart when the attached stream leaves")
+                test.eq(stream_timers, 1)
+                test.eq(stream_resets, 1,
+                    "activity while a stream is attached must not reset an idle timer")
+                test.eq(stream_stops, 1,
+                    "attaching an SSE stream must stop the idle timer")
+                test.eq(stream_state.activity_count, 1)
             end)
 
-            it("session creation accepts the per-token cap and rejects the next session without eviction", function()
+            it("a broker that exits before readiness cannot reserve a slot", function()
                 local cap = keeper_config.mcp_max_sessions_per_token()
-                test.is_true(cap >= 1)
-                local token_session = { token_hash = "cap-test-token", label = "cap-test", identity = ADMIN_USER }
+                local token_session = { token_hash = "dead-broker-token", label = "dead-broker", identity = ADMIN_USER }
                 local names = {}
-                local spawned = 0
                 local cancelled = {}
+                local ready_channel = { case_receive = function(self) return self end }
+                local timeout_channel = { case_receive = function(self) return self end }
+                local timeout_timer = {
+                    channel = function() return timeout_channel end,
+                    stop = function() return true end,
+                }
                 local runtime = {
                     registry = {
                         lookup = function(name) return names[name] end,
@@ -1551,6 +1691,8 @@ local function define_tests()
                         end,
                         unregister = function(name) names[name] = nil; return true end,
                     },
+                    listen = function() return ready_channel end,
+                    pid = function() return "handler-pid" end,
                     cancel = function(pid)
                         cancelled[#cancelled + 1] = pid
                         for name, registered_pid in pairs(names) do
@@ -1561,23 +1703,275 @@ local function define_tests()
                         return {
                             with_actor = function(self) return self end,
                             with_scope = function(self) return self end,
-                            spawn = function()
+                            spawn = function() return "dead-broker" end,
+                        }
+                    end,
+                }
+                local fake_channel = {
+                    select = function(cases)
+                        return { channel = cases[2], value = true }
+                    end,
+                }
+                local fake_time = { timer = function() return timeout_timer end }
+                local identity = function() return "actor", "scope" end
+                local response = {}
+                function response:set_status(status) self.status = status end
+                function response:write_json(body) self.body = body end
+                function response:set_header(name, value)
+                    self.headers = self.headers or {}
+                    self.headers[name] = value
+                end
+                local request = { header = function() return nil end }
+
+                test.is_false(mcp_handler_core._bind_session(request, response, "initialize",
+                    token_session, 42, runtime, identity, keeper_config.process_host(),
+                    fake_channel, fake_time))
+                test.eq(response.status, 500)
+                test.eq(response.body.error.message, "broker readiness timed out")
+
+                for _ = 1, cap do
+                    local id, err = mcp_sessions.create(token_session, runtime, identity,
+                        keeper_config.process_host(), fake_channel, fake_time)
+                    test.is_nil(id, tostring(err))
+                    test.eq(err, "broker readiness timed out")
+                end
+                test.eq(next(names), nil, "a dead child must never leave session or slot names")
+                test.eq(#cancelled, cap + 1, "each timed-out broker must be cancelled")
+            end)
+
+            it("broker startup releases slot and session names across registration crashes", function()
+                local names = {}
+                local args = {
+                    session_name = "mcp.session.crash-test.id",
+                    slot_prefix = "mcp.session.crash-test.slot.",
+                    slot_count = 1,
+                    ready_to = "handler-pid",
+                    ready_topic = "mcp.ready.crash-test",
+                }
+
+                local function run_startup(failure_stage)
+                    local pid = "crash-test-broker-" .. tostring(failure_stage or "healthy")
+                    local ready_payload
+                    local listeners_ready_at_ack = false
+                    local process_dead = false
+                    local channels = {}
+                    local function channel_for(topic)
+                        if not channels[topic] then
+                            channels[topic] = {
+                                topic = topic,
+                                case_receive = function(self) return self end,
+                            }
+                        end
+                        return channels[topic]
+                    end
+                    local function cleanup_owner()
+                        local owned = {}
+                        for name, owner in pairs(names) do
+                            if owner == pid then owned[#owned + 1] = name end
+                        end
+                        for _, name in ipairs(owned) do names[name] = nil end
+                    end
+                    local fake_process = {
+                        event = { CANCEL = "cancel", EXIT = "exit" },
+                        registry = {
+                            register = function(name)
+                                if failure_stage == "before_slot" and name == args.slot_prefix .. "1" then
+                                    return nil, "simulated exit before slot registration"
+                                end
+                                if failure_stage == "after_slot" and name == args.session_name then
+                                    process_dead = true
+                                    cleanup_owner()
+                                    return nil, "simulated exit after slot registration"
+                                end
+                                if failure_stage == "before_session" and name == args.session_name then
+                                    return nil, "simulated exit after slot registration"
+                                end
+                                if names[name] then return nil, "already exists" end
+                                names[name] = pid
+                                if failure_stage == "after_session" and name == args.session_name then
+                                    process_dead = true
+                                    cleanup_owner()
+                                    return nil, "simulated exit after session registration"
+                                end
+                                return true
+                            end,
+                            lookup = function(name) return names[name] end,
+                            unregister = function(name)
+                                if names[name] == pid then names[name] = nil end
+                                return true
+                            end,
+                        },
+                        listen = function(topic) return channel_for(topic) end,
+                        events = function() return channel_for("process.events") end,
+                        send = function(to, topic, payload)
+                            if process_dead then return false end
+                            if failure_stage == "before_ready" and payload.success then
+                                process_dead = true
+                                cleanup_owner()
+                                return false
+                            end
+                            if payload.success then
+                                listeners_ready_at_ack = channels["sse.join"] ~= nil
+                                    and channels["sse.leave"] ~= nil
+                                    and channels["mcp.notify"] ~= nil
+                                    and channels["mcp.activity"] ~= nil
+                            end
+                            ready_payload = payload
+                            return true
+                        end,
+                    }
+                    local fake_time = {
+                        timer = function()
+                            local timer_channel = { case_receive = function(self) return self end }
+                            return {
+                                channel = function() return timer_channel end,
+                                reset = function() return true end,
+                                stop = function() return true end,
+                            }
+                        end,
+                    }
+                    local events = channel_for("process.events")
+                    local fake_channel = {
+                        select = function()
+                            return { channel = events, value = { kind = "exit" } }
+                        end,
+                    }
+                    local state = mcp_broker._run_with(fake_channel, fake_time, mcp_stream_targets, {
+                        SSE_IDLE_TIMEOUT = "test",
+                        MCP_ACTIVITY_TOPIC = "mcp.activity",
+                        MCP_NOTIFY_TOPIC = "mcp.notify",
+                        SSE_MESSAGE_TOPIC = "message",
+                    }, fake_process, args)
+                    cleanup_owner()
+                    return state, ready_payload, process_dead, listeners_ready_at_ack
+                end
+
+                for _, stage in ipairs({
+                    "before_slot", "after_slot", "before_session", "after_session", "before_ready",
+                }) do
+                    local failed = run_startup(stage)
+                    test.eq(next(names), nil, "crash at " .. stage .. " must release every owned name")
+                    test.not_nil(failed.startup_error,
+                        "crash at " .. stage .. " must fail broker startup")
+                    local healthy, ready, _, listeners_ready = run_startup(nil)
+                    test.is_true(ready and ready.success,
+                        "a new broker must claim the freed slot after " .. stage)
+                    test.not_nil(healthy.slot_name)
+                    test.is_true(listeners_ready,
+                        "a broker must have its stream and activity listeners before readiness")
+                    test.eq(next(names), nil, "exiting healthy broker must release its slot and session name")
+                end
+
+                local exited, ready, _, listeners_ready = run_startup("after_ready")
+                test.is_true(ready and ready.success)
+                test.is_true(listeners_ready)
+                test.eq(exited.exit_kind, "exit")
+                test.eq(next(names), nil, "exit after readiness must release both names")
+            end)
+
+            it("session creation accepts the per-token cap and rejects the next session without eviction", function()
+                local cap = keeper_config.mcp_max_sessions_per_token()
+                test.is_true(cap >= 1)
+                local token_session = { token_hash = "cap-test-token", label = "cap-test", identity = ADMIN_USER }
+                local names = {}
+                local spawned = 0
+                local cancelled = {}
+                local ready_messages = {}
+                local ready_channels = {}
+                local runtime
+                local fake_channel = {
+                    select = function(cases)
+                        local ready = ready_messages[cases[1].topic]
+                        if ready then return { channel = cases[1], value = ready } end
+                        return { channel = cases[2], value = true }
+                    end,
+                }
+                local fake_time = {
+                    timer = function()
+                        local timeout_channel = { case_receive = function(self) return self end }
+                        return {
+                            channel = function() return timeout_channel end,
+                            stop = function() return true end,
+                        }
+                    end,
+                }
+                runtime = {
+                    registry = {
+                        lookup = function(name) return names[name] end,
+                        register = function(name, pid)
+                            if names[name] then return nil, "already exists" end
+                            names[name] = pid
+                            return true
+                        end,
+                        unregister = function(name) names[name] = nil; return true end,
+                    },
+                    listen = function(topic)
+                        if not ready_channels[topic] then
+                            ready_channels[topic] = {
+                                topic = topic,
+                                case_receive = function(self) return self end,
+                            }
+                        end
+                        return ready_channels[topic]
+                    end,
+                    pid = function() return "handler-pid" end,
+                    cancel = function(pid)
+                        cancelled[#cancelled + 1] = pid
+                        for name, registered_pid in pairs(names) do
+                            if registered_pid == pid then names[name] = nil end
+                        end
+                    end,
+                    send = function(pid, topic, payload)
+                        if pid == "handler-pid" then ready_messages[topic] = payload end
+                        return true
+                    end,
+                    with_context = function()
+                        return {
+                            with_actor = function(self) return self end,
+                            with_scope = function(self) return self end,
+                            spawn = function(_, _, _, args)
                                 spawned = spawned + 1
-                                return "cap-broker-" .. spawned
+                                local pid = "cap-broker-" .. spawned
+                                local slot_name
+                                for index = 1, args.slot_count do
+                                    local candidate = args.slot_prefix .. tostring(index)
+                                    local registered = runtime.registry.register(candidate, pid)
+                                    if registered then slot_name = candidate; break end
+                                end
+                                if slot_name then
+                                    local registered = runtime.registry.register(args.session_name, pid)
+                                    if registered then
+                                        runtime.send(args.ready_to, args.ready_topic, { success = true })
+                                    else
+                                        runtime.registry.unregister(slot_name)
+                                        runtime.send(args.ready_to, args.ready_topic, {
+                                            success = false,
+                                            error = "broker session registration failed",
+                                        })
+                                    end
+                                else
+                                    runtime.send(args.ready_to, args.ready_topic, {
+                                        success = false,
+                                        error = "MCP_SESSION_LIMIT",
+                                    })
+                                end
+                                return pid
                             end,
                         }
                     end,
                 }
+                runtime.channel_api = fake_channel
+                runtime.time_api = fake_time
                 local identity = function() return "actor", "scope" end
                 local ids = {}
                 for _ = 1, cap do
                     local id, err = mcp_sessions.create(token_session, runtime, identity,
-                        keeper_config.process_host())
+                        keeper_config.process_host(), fake_channel, fake_time)
                     test.not_nil(id, tostring(err))
                     ids[#ids + 1] = id
                 end
                 local rejected, limit_err = mcp_sessions.create(token_session, runtime, identity,
-                    keeper_config.process_host())
+                    keeper_config.process_host(), fake_channel, fake_time)
                 test.is_nil(rejected)
                 test.eq(limit_err, "MCP_SESSION_LIMIT")
                 local response = {}
@@ -1586,7 +1980,8 @@ local function define_tests()
                 function response:set_header(name, value) self.headers = self.headers or {}; self.headers[name] = value end
                 local request = { header = function() return nil end }
                 test.is_false(mcp_handler_core._bind_session(request, response, "initialize",
-                    token_session, 18, runtime, identity, keeper_config.process_host()))
+                    token_session, 18, runtime, identity, keeper_config.process_host(),
+                    fake_channel, fake_time))
                 test.eq(response.status, 429)
                 test.eq(response.body.jsonrpc, "2.0")
                 test.eq(response.body.id, 18)
@@ -1628,7 +2023,7 @@ local function define_tests()
                 test.eq(post.status, 404)
             end)
 
-            it("POST initialize may spawn, identify and register its session broker", function()
+            it("POST gets startup, readiness failure, and broker send permissions only", function()
                 local scope, actor = transport_scope("keeper.mcp.transport:handler")
                 local broker_name = mcp_consts.SSE_BROKER_NAME_PREFIX .. "0123abcd." .. session_a
                 local some_pid = "{node@" .. keeper_config.process_host() .. "|0x00042}"
@@ -1637,9 +2032,6 @@ local function define_tests()
                     { "process.security", "security" },
                     { "process.spawn", "keeper.mcp.transport:broker" },
                     { "process.host", keeper_config.process_host() },
-                    { "process.registry.register", broker_name },
-                    { "process.registry.foreign", some_pid },
-                    { "process.registry.unregister", broker_name },
                     { "process.cancel", some_pid },
                     { "process.send", some_pid },
                 }
@@ -1647,22 +2039,52 @@ local function define_tests()
                     test.eq(scope:evaluate(actor, pair[1], pair[2]), "allow",
                         "handler needs " .. pair[1] .. " on " .. pair[2])
                 end
+                local denied = {
+                    { "process.registry.register", broker_name },
+                    { "process.registry.unregister", broker_name },
+                    { "process.registry.foreign", some_pid },
+                }
+                for _, pair in ipairs(denied) do
+                    test.is_true(scope:evaluate(actor, pair[1], pair[2]) ~= "allow",
+                        "POST handler must not hold " .. pair[1])
+                end
             end)
 
-            it("GET transport can resolve a broker without spawning or cancelling one", function()
+            it("GET resolves a broker without foreign, send, spawn, or cancel permission", function()
                 local scope, actor = transport_scope("keeper.mcp.transport:handler_get")
                 local some_pid = "{node@" .. keeper_config.process_host() .. "|0x00042}"
-                test.eq(scope:evaluate(actor, "process.registry.foreign", some_pid), "allow")
+                test.is_true(scope:evaluate(actor, "process.registry.foreign", some_pid) ~= "allow")
                 local denied = {
                     { "process.spawn", "keeper.mcp.transport:handler" },
                     { "process.spawn", "keeper.mcp.transport:broker" },
                     { "process.cancel", some_pid },
+                    { "process.send", some_pid },
                     { "process.registry.register", "keeper.other.name" },
                     { "process.registry.unregister", "keeper.other.name" },
                 }
                 for _, pair in ipairs(denied) do
                     test.is_true(scope:evaluate(actor, pair[1], pair[2]) ~= "allow",
                         "handler_get must not hold " .. pair[1] .. " on " .. pair[2])
+                end
+            end)
+
+            it("DELETE gets only session unregister and broker cancel permissions", function()
+                local scope, actor = transport_scope("keeper.mcp.transport:handler_delete")
+                local some_pid = "{node@" .. keeper_config.process_host() .. "|0x00042}"
+                local session_name = mcp_consts.SSE_BROKER_NAME_PREFIX .. "test-token.session-id"
+                test.eq(scope:evaluate(actor, "process.registry.unregister", session_name), "allow")
+                test.eq(scope:evaluate(actor, "process.cancel", some_pid), "allow")
+                local denied = {
+                    { "process.registry.register", session_name },
+                    { "process.registry.foreign", some_pid },
+                    { "process.send", some_pid },
+                    { "process.spawn", "keeper.mcp.transport:broker" },
+                    { "process.context", "context" },
+                    { "process.security", "security" },
+                }
+                for _, pair in ipairs(denied) do
+                    test.is_true(scope:evaluate(actor, pair[1], pair[2]) ~= "allow",
+                        "DELETE handler must not hold " .. pair[1])
                 end
             end)
 
@@ -1789,7 +2211,8 @@ local function define_tests()
 
                 local deleted, delete_err = http_client.delete(endpoint, { headers = headers(first_id) })
                 test.is_nil(delete_err)
-                test.eq(deleted.status_code, 204)
+                test.eq(deleted.status_code, 204,
+                    "DELETE response body: " .. json.encode(deleted.body or {}))
 
                 local expired, expired_err = http_client.get(endpoint, {
                     headers = headers(first_id),

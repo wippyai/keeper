@@ -126,37 +126,35 @@ entries:
         - process.host
       effect: allow
 
-  # keeper.mcp.security:sse_broker_registry
-  - name: sse_broker_registry
+  # keeper.mcp.security:sse_broker_unregister
+  - name: sse_broker_unregister
     kind: security.policy
     meta:
-      comment: MCP initialization and termination name each broker under the mcp.session. prefix using token hash and session ID.
+      comment: DELETE may unregister its authenticated session name. Brokers register their own session and slot names during startup.
     policy:
       resources: mcp.session.*
       actions:
-        - process.registry.register
         - process.registry.unregister
       effect: allow
 
-  # keeper.mcp.security:sse_broker_lookup
-  - name: sse_broker_lookup
+  # keeper.mcp.security:sse_broker_cancel
+  - name: sse_broker_cancel
     kind: security.policy
     meta:
-      comment: MCP transport handlers may resolve the broker named by an authenticated token and session ID.
-    policy:
-      resources: '*'
-      actions:
-        - process.registry.foreign
-      effect: allow
-
-  # keeper.mcp.security:sse_broker_handoff
-  - name: sse_broker_handoff
-    kind: security.policy
-    meta:
-      comment: MCP transport handlers signal session activity and cancel brokers during failed initialization or DELETE.
+      comment: POST cancels a broker when it fails readiness; DELETE cancels its authenticated session broker.
     policy:
       resources: '*'
       actions:
         - process.cancel
+      effect: allow
+
+  # keeper.mcp.security:sse_broker_send
+  - name: sse_broker_send
+    kind: security.policy
+    meta:
+      comment: POST sends session activity and tool-surface notifications to the resolved MCP broker.
+    policy:
+      resources: '*'
+      actions:
         - process.send
       effect: allow
