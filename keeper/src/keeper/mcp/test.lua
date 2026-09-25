@@ -9,11 +9,16 @@ local mcp_traits = require("mcp_traits")
 local mcp_consts = require("mcp_consts")
 local mcp_policy = require("mcp_policy")
 local security = require("security")
+local http_client = require("http_client")
+local json = require("json")
+local api_test = require("api_test")
 local mcp_surface = require("mcp_surface")
 local mcp_meta = require("mcp_meta")
 local mcp_auth = require("mcp_auth")
 local mcp_authorize = require("mcp_authorize")
 local mcp_handler_core = require("mcp_handler_core")
+local mcp_handler_get_core = require("mcp_handler_get_core")
+local mcp_stream_targets = require("mcp_stream_targets")
 local keeper_config = require("keeper_config")
 
 local function define_tests()
@@ -1224,6 +1229,25 @@ local function define_tests()
             before_all(function()
                 saved_enabled = env.get(ENABLED_ENV)
                 saved_public_api_url = env.get(PUBLIC_API_URL_ENV)
+                local db = open_db()
+                local _, users_err = db:execute([[CREATE TABLE IF NOT EXISTS app_users (
+                    user_id TEXT PRIMARY KEY, status TEXT NOT NULL
+                )]])
+                test.is_nil(users_err)
+                local _, groups_err = db:execute([[CREATE TABLE IF NOT EXISTS app_user_groups (
+                    user_id TEXT NOT NULL, group_id TEXT NOT NULL,
+                    PRIMARY KEY (user_id, group_id)
+                )]])
+                test.is_nil(groups_err)
+                local _, user_err = db:execute(
+                    "INSERT OR IGNORE INTO app_users (user_id, status) VALUES (?, ?)",
+                    { ADMIN_USER, "active" })
+                test.is_nil(user_err)
+                local _, group_err = db:execute(
+                    "INSERT OR IGNORE INTO app_user_groups (user_id, group_id) VALUES (?, ?)",
+                    { ADMIN_USER, keeper_config.admin_scope() })
+                test.is_nil(group_err)
+                db:release()
             end)
 
             after_all(function()
@@ -1265,9 +1289,9 @@ local function define_tests()
             -- GET / is the Streamable HTTP SSE leg. A client that opens it and gets
             -- anything but an event stream (or a 405) waits instead of falling back
             -- to POST, so the leg must be wired end to end by the module itself.
-            local function handler_get_scope()
-                local entry, err = registry.get("keeper.mcp.transport:handler_get")
-                test.not_nil(entry, "handler_get entry must exist; err=" .. tostring(err))
+            local function transport_scope(entry_id)
+                local entry, err = registry.get(entry_id)
+                test.not_nil(entry, entry_id .. " entry must exist; err=" .. tostring(err))
                 local declared = entry.data.security.policies
                 local policies = {}
                 for _, id in ipairs(declared) do
@@ -1275,7 +1299,7 @@ local function define_tests()
                     test.not_nil(policy, "policy " .. id .. " must exist; err=" .. tostring(perr))
                     policies[#policies + 1] = policy
                 end
-                return security.new_scope(policies), security.new_actor("keeper.mcp.transport:handler_get")
+                return security.new_scope(policies), security.new_actor(entry_id)
             end
 
             it("GET transport router relays the SSE stream it hands off", function()
@@ -1289,9 +1313,172 @@ local function define_tests()
                     "handler_get hands the connection off via X-SSE-Relay; without sse_relay on the router nothing consumes it")
             end)
 
-            it("GET transport may spawn, identify and register its session broker", function()
-                local scope, actor = handler_get_scope()
-                local broker_name = mcp_consts.SSE_BROKER_NAME_PREFIX .. "0123abcd"
+            local function get_fixture(session_ids)
+                local token_session = { token_hash = "test-token-hash", label = "test", identity = ADMIN_USER }
+                local registry_names = {}
+                for _, id in ipairs(session_ids) do
+                    registry_names[mcp_consts.SSE_BROKER_NAME_PREFIX .. token_session.token_hash .. "." .. id] = "broker-" .. id
+                end
+                local cancelled = {}
+                local spawned = 0
+                local runtime = {
+                    registry = {
+                        lookup = function(name) return registry_names[name] end,
+                        unregister = function(name) registry_names[name] = nil end,
+                        register = function(name, pid) registry_names[name] = pid; return true end,
+                    },
+                    cancel = function(pid) cancelled[#cancelled + 1] = pid end,
+                    with_context = function()
+                        return {
+                            with_actor = function(self) return self end,
+                            with_scope = function(self) return self end,
+                            spawn = function()
+                                spawned = spawned + 1
+                                return "spawned-" .. spawned
+                            end,
+                        }
+                    end,
+                }
+                local function response_for_get()
+                    local response = { headers = {} }
+                    function response:set_status(status) self.status = status end
+                    function response:set_content_type(content_type) self.content_type = content_type end
+                    function response:write_json(body) self.body = body end
+                    function response:set_header(name, value) self.headers[name] = value end
+                    return response
+                end
+                local function request_for(id)
+                    return { header = function(_, name)
+                        if name == "Mcp-Session-Id" then return id end
+                    end }
+                end
+                local function get(id)
+                    local response = response_for_get()
+                    mcp_handler_get_core._serve_get(request_for(id), response, token_session, runtime)
+                    return response
+                end
+                return get, cancelled, runtime, token_session, response_for_get, request_for
+            end
+
+            local session_a = string.rep("a", 64)
+            local session_b = string.rep("b", 64)
+            local unknown_session = string.rep("c", 64)
+
+            it("GET streams for two sessions with one token keep both brokers alive", function()
+                local get, cancelled = get_fixture({ session_a, session_b })
+                local first = get(session_a)
+                local second = get(session_b)
+                test.not_nil(first.headers["X-SSE-Relay"])
+                test.not_nil(second.headers["X-SSE-Relay"])
+                test.is_true(first.headers["X-SSE-Relay"]:find("broker-" .. session_a, 1, true) ~= nil)
+                test.is_true(second.headers["X-SSE-Relay"]:find("broker-" .. session_b, 1, true) ~= nil)
+                test.eq(#cancelled, 0, "a second client's GET must not cancel the first broker")
+            end)
+
+            it("GET with an unknown session returns HTTP 404", function()
+                local get = get_fixture({ session_a })
+                local response = get(unknown_session)
+                test.eq(response.status, 404)
+                test.is_nil(response.headers["X-SSE-Relay"])
+            end)
+
+            it("GET reconnect of one session reuses its broker without cancellation", function()
+                local get, cancelled = get_fixture({ session_a })
+                local first = get(session_a)
+                local second = get(session_a)
+                test.is_true(first.headers["X-SSE-Relay"]:find("broker-" .. session_a, 1, true) ~= nil)
+                test.is_true(second.headers["X-SSE-Relay"]:find("broker-" .. session_a, 1, true) ~= nil)
+                test.eq(#cancelled, 0, "reconnect must not cancel the session broker")
+            end)
+
+            it("one session routes each notification to one stream and survives leaves", function()
+                local streams = mcp_stream_targets.new()
+                streams:join("stream-one")
+                test.eq(streams:current(), "stream-one")
+                streams:join("stream-two")
+                test.eq(streams:current(), "stream-two")
+                streams:leave("stream-one")
+                test.eq(streams:current(), "stream-two")
+                streams:join("stream-one")
+                test.eq(streams:current(), "stream-one")
+                streams:leave("stream-one")
+                test.eq(streams:current(), "stream-two")
+                streams:leave("stream-two")
+                test.is_nil(streams:current())
+                streams:join("stream-three")
+                test.eq(streams:current(), "stream-three")
+            end)
+
+            it("initialize issues distinct session IDs and POST binds to the issued broker", function()
+                local get, cancelled, runtime, token_session, new_response, request_for = get_fixture({})
+                local first = new_response()
+                local second = new_response()
+                local identity = function() return "actor", "scope" end
+                test.is_true(mcp_handler_core._bind_session(request_for(nil), first, "initialize",
+                    token_session, 1, runtime, identity, keeper_config.process_host()))
+                test.is_true(mcp_handler_core._bind_session(request_for(nil), second, "initialize",
+                    token_session, 2, runtime, identity, keeper_config.process_host()))
+                local first_id = first.headers["Mcp-Session-Id"]
+                local second_id = second.headers["Mcp-Session-Id"]
+                test.is_true(type(first_id) == "string" and first_id:match("^[0-9a-f]+$") ~= nil)
+                test.eq(#first_id, 64)
+                test.is_true(first_id ~= second_id)
+                test.not_nil(get(first_id).headers["X-SSE-Relay"])
+                test.not_nil(get(second_id).headers["X-SSE-Relay"])
+                test.is_true(mcp_handler_core._bind_session(request_for(first_id), new_response(), "ping",
+                    token_session, 3, runtime))
+                test.eq(token_session.mcp_session_id, first_id)
+                test.eq(#cancelled, 0)
+            end)
+
+            it("POST rejects missing, unknown and foreign session IDs", function()
+                local _, _, runtime, token_session, new_response, request_for = get_fixture({ session_a })
+                local missing = new_response()
+                test.is_false(mcp_handler_core._bind_session(request_for(nil), missing, "ping",
+                    token_session, 1, runtime))
+                test.eq(missing.status, 400)
+                local unknown = new_response()
+                test.is_false(mcp_handler_core._bind_session(request_for(unknown_session), unknown, "ping",
+                    token_session, 2, runtime))
+                test.eq(unknown.status, 404)
+                local foreign = new_response()
+                test.is_false(mcp_handler_core._bind_session(request_for(session_a), foreign, "ping",
+                    { token_hash = "another-token" }, 3, runtime))
+                test.eq(foreign.status, 404)
+            end)
+
+            it("DELETE terminates one session and later GET and POST return HTTP 404", function()
+                local get, cancelled, runtime, token_session, new_response, request_for =
+                    get_fixture({ session_a, session_b })
+                local deleted = new_response()
+                mcp_handler_core._terminate_session(request_for(session_a), deleted, token_session, runtime)
+                test.eq(deleted.status, 204)
+                test.eq(#cancelled, 1)
+                test.eq(cancelled[1], "broker-" .. session_a)
+                test.eq(get(session_a).status, 404)
+                test.not_nil(get(session_b).headers["X-SSE-Relay"])
+                local post = new_response()
+                test.is_false(mcp_handler_core._bind_session(request_for(session_a), post, "ping",
+                    token_session, 1, runtime))
+                test.eq(post.status, 404)
+                local repeated = new_response()
+                mcp_handler_core._terminate_session(request_for(session_a), repeated, token_session, runtime)
+                test.eq(repeated.status, 404)
+            end)
+
+            it("expired broker IDs return HTTP 404 on GET and POST", function()
+                local get, _, runtime, token_session, new_response, request_for = get_fixture({ session_a })
+                runtime.registry.unregister(mcp_consts.SSE_BROKER_NAME_PREFIX .. token_session.token_hash .. "." .. session_a)
+                test.eq(get(session_a).status, 404)
+                local post = new_response()
+                test.is_false(mcp_handler_core._bind_session(request_for(session_a), post, "ping",
+                    token_session, 1, runtime))
+                test.eq(post.status, 404)
+            end)
+
+            it("POST initialize may spawn, identify and register its session broker", function()
+                local scope, actor = transport_scope("keeper.mcp.transport:handler")
+                local broker_name = mcp_consts.SSE_BROKER_NAME_PREFIX .. "0123abcd." .. session_a
                 local some_pid = "{node@" .. keeper_config.process_host() .. "|0x00042}"
                 local required = {
                     { "process.context", "context" },
@@ -1305,15 +1492,18 @@ local function define_tests()
                 }
                 for _, pair in ipairs(required) do
                     test.eq(scope:evaluate(actor, pair[1], pair[2]), "allow",
-                        "handler_get needs " .. pair[1] .. " on " .. pair[2])
+                        "handler needs " .. pair[1] .. " on " .. pair[2])
                 end
             end)
 
-            it("GET transport grants reach only the session broker", function()
-                local scope, actor = handler_get_scope()
+            it("GET transport can resolve a broker without spawning or cancelling one", function()
+                local scope, actor = transport_scope("keeper.mcp.transport:handler_get")
+                local some_pid = "{node@" .. keeper_config.process_host() .. "|0x00042}"
+                test.eq(scope:evaluate(actor, "process.registry.foreign", some_pid), "allow")
                 local denied = {
                     { "process.spawn", "keeper.mcp.transport:handler" },
-                    { "process.host", "some.other:host" },
+                    { "process.spawn", "keeper.mcp.transport:broker" },
+                    { "process.cancel", some_pid },
                     { "process.registry.register", "keeper.other.name" },
                     { "process.registry.unregister", "keeper.other.name" },
                 }
@@ -1386,6 +1576,91 @@ local function define_tests()
                 test.is_true(mcp_handler_core._requires_session("initialize"))
                 test.is_true(mcp_handler_core._requires_session("ping"))
                 test.is_true(mcp_handler_core._requires_session("tools/list"))
+            end)
+
+            it("HTTP initialize, POST, GET rejection and DELETE follow session lifecycle", function()
+                env.set(ENABLED_ENV, "true")
+                local tok = create_token({
+                    label = "http-session-" .. uuid.v4(),
+                    identity = ADMIN_USER,
+                    scopes = { "registry.read" },
+                    access_mode = "tools_only",
+                })
+                local endpoint = api_test.endpoint("/keeper-mcp/")
+                local function headers(id)
+                    local out = {
+                        Authorization = "Bearer " .. tok.token,
+                        ["Content-Type"] = "application/json",
+                        Accept = "application/json, text/event-stream",
+                    }
+                    if id then out["Mcp-Session-Id"] = id end
+                    return out
+                end
+                local function response_header(response, name)
+                    for key, value in pairs(response.headers or {}) do
+                        if tostring(key):lower() == name:lower() then
+                            if type(value) == "table" then return value[1] end
+                            return value
+                        end
+                    end
+                    return nil
+                end
+                local function initialize(request_id)
+                    return http_client.post(endpoint, {
+                        headers = headers(),
+                        body = json.encode({ jsonrpc = "2.0", id = request_id, method = "initialize",
+                            params = { protocolVersion = mcp_consts.PROTOCOL_VERSION,
+                                capabilities = {}, clientInfo = { name = "keeper-test", version = "1" } } }),
+                    })
+                end
+                local first, first_err = initialize(1)
+                test.is_nil(first_err)
+                test.eq(first.status_code, 200)
+                local first_id = response_header(first, "Mcp-Session-Id")
+                test.not_nil(first_id)
+                test.eq(#first_id, 64)
+
+                local second, second_err = initialize(2)
+                test.is_nil(second_err)
+                test.eq(second.status_code, 200)
+                local second_id = response_header(second, "Mcp-Session-Id")
+                test.not_nil(second_id)
+                test.is_true(first_id ~= second_id)
+
+                local ping, ping_err = http_client.post(endpoint, {
+                    headers = headers(first_id),
+                    body = json.encode({ jsonrpc = "2.0", id = 3, method = "ping" }),
+                })
+                test.is_nil(ping_err)
+                test.eq(ping.status_code, 200)
+
+                local deleted, delete_err = http_client.delete(endpoint, { headers = headers(first_id) })
+                test.is_nil(delete_err)
+                test.eq(deleted.status_code, 204)
+
+                local expired, expired_err = http_client.get(endpoint, {
+                    headers = headers(first_id),
+                })
+                test.is_nil(expired_err)
+                test.eq(expired.status_code, 404)
+                local expired_post, expired_post_err = http_client.post(endpoint, {
+                    headers = headers(first_id),
+                    body = json.encode({ jsonrpc = "2.0", id = 5, method = "ping" }),
+                })
+                test.is_nil(expired_post_err)
+                test.eq(expired_post.status_code, 404)
+
+                local second_ping, second_ping_err = http_client.post(endpoint, {
+                    headers = headers(second_id),
+                    body = json.encode({ jsonrpc = "2.0", id = 4, method = "ping" }),
+                })
+                test.is_nil(second_ping_err)
+                test.eq(second_ping.status_code, 200)
+                local second_deleted, second_delete_err = http_client.delete(endpoint, {
+                    headers = headers(second_id),
+                })
+                test.is_nil(second_delete_err)
+                test.eq(second_deleted.status_code, 204)
             end)
 
             it("session_from_request extracts bearer and validates token-store subject", function()

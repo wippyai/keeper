@@ -2,6 +2,28 @@ version: "1.0"
 namespace: keeper.mcp.transport
 
 entries:
+  # keeper.mcp.transport:stream_targets
+  - name: stream_targets
+    kind: library.lua
+    meta:
+      comment: Selects one active SSE stream within an MCP session
+    source: file://stream_targets.lua
+
+  # keeper.mcp.transport:sessions
+  - name: sessions
+    kind: library.lua
+    meta:
+      comment: Issues MCP session IDs and resolves live per-session brokers
+    source: file://sessions.lua
+    modules:
+      - crypto
+      - process
+    imports:
+      mcp_auth: keeper.mcp.auth:auth
+      mcp_authorize: keeper.mcp.auth:authorize
+      mcp_consts: keeper.mcp:consts
+      keeper_config: keeper:config
+
   # keeper.mcp.transport:broker
   - name: broker
     kind: process.lua
@@ -10,8 +32,10 @@ entries:
     source: file://broker.lua
     modules:
       - channel
+      - time
     imports:
       mcp_consts: keeper.mcp:consts
+      mcp_stream_targets: keeper.mcp.transport:stream_targets
     method: run
     
   # keeper.mcp.transport:dispatch
@@ -38,6 +62,7 @@ entries:
       mcp_auth: keeper.mcp.auth:auth
       mcp_authorize: keeper.mcp.auth:authorize
       mcp_consts: keeper.mcp:consts
+      mcp_sessions: keeper.mcp.transport:sessions
       mcp_dispatch: keeper.mcp.transport:dispatch
       mcp_meta: keeper.mcp.surface:meta
       mcp_surface: keeper.mcp.surface:surface
@@ -56,9 +81,8 @@ entries:
       - process
     imports:
       mcp_auth: keeper.mcp.auth:auth
-      mcp_authorize: keeper.mcp.auth:authorize
       mcp_consts: keeper.mcp:consts
-      keeper_config: keeper:config
+      mcp_sessions: keeper.mcp.transport:sessions
     
   # keeper.mcp.transport:handler
   - name: handler
@@ -80,6 +104,12 @@ entries:
         - keeper.mcp.security:endpoint_actor_create
         - keeper.mcp.security:endpoint_registry_read
         - keeper.mcp.security:endpoint_env_read
+        - keeper.mcp.security:sse_broker_identity
+        - keeper.mcp.security:sse_broker_spawn
+        - keeper.mcp.security:sse_broker_host
+        - keeper.mcp.security:sse_broker_registry
+        - keeper.mcp.security:sse_broker_lookup
+        - keeper.mcp.security:sse_broker_handoff
 
   # keeper.mcp.transport:handler.endpoint
   - name: handler.endpoint
@@ -94,7 +124,7 @@ entries:
   - name: handler_get
     kind: function.lua
     meta:
-      comment: GET / upgrades to SSE via sse_relay; spawns per-session broker process
+      comment: GET / upgrades to SSE via sse_relay and attaches to its initialized session broker
       router: keeper.mcp:router
     source: file://handler_get.lua
     imports:
@@ -110,11 +140,7 @@ entries:
         - keeper.mcp.security:endpoint_actor_create
         - keeper.mcp.security:endpoint_registry_read
         - keeper.mcp.security:endpoint_env_read
-        - keeper.mcp.security:sse_broker_identity
-        - keeper.mcp.security:sse_broker_spawn
-        - keeper.mcp.security:sse_broker_host
-        - keeper.mcp.security:sse_broker_registry
-        - keeper.mcp.security:sse_broker_handoff
+        - keeper.mcp.security:sse_broker_lookup
 
   # keeper.mcp.transport:handler_get.endpoint
   - name: handler_get.endpoint
@@ -123,4 +149,37 @@ entries:
       router: keeper.mcp:router
     method: GET
     func: handler_get
+    path: /
+
+  # keeper.mcp.transport:handler_delete
+  - name: handler_delete
+    kind: function.lua
+    meta:
+      comment: DELETE / terminates an initialized MCP session
+      router: keeper.mcp:router
+    source: file://handler.lua
+    imports:
+      mcp_handler_core: keeper.mcp.transport:handler_core
+    method: handle_delete
+    pool:
+      size: 4
+    security:
+      actor:
+        id: keeper.mcp.transport:handler_delete
+      policies:
+        - keeper.mcp.security:endpoint_db_access
+        - keeper.mcp.security:endpoint_actor_create
+        - keeper.mcp.security:endpoint_registry_read
+        - keeper.mcp.security:endpoint_env_read
+        - keeper.mcp.security:sse_broker_registry
+        - keeper.mcp.security:sse_broker_lookup
+        - keeper.mcp.security:sse_broker_handoff
+
+  # keeper.mcp.transport:handler_delete.endpoint
+  - name: handler_delete.endpoint
+    kind: http.endpoint
+    meta:
+      router: keeper.mcp:router
+    method: DELETE
+    func: handler_delete
     path: /
