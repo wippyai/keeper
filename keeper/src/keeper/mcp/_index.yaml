@@ -52,11 +52,18 @@ entries:
       - registry
       - env
       - security
+      - http_client
+      - json
     imports:
       mcp_auth: keeper.mcp.auth:auth
+      api_test: keeper.tests:api_test
       mcp_authorize: keeper.mcp.auth:authorize
       mcp_consts: keeper.mcp:consts
       mcp_handler_core: keeper.mcp.transport:handler_core
+      mcp_handler_get_core: keeper.mcp.transport:handler_get_core
+      mcp_sessions: keeper.mcp.transport:sessions
+      mcp_broker: keeper.mcp.transport:broker
+      mcp_stream_targets: keeper.mcp.transport:stream_targets
       keeper_config: keeper:config
       mcp_meta: keeper.mcp.surface:meta
       mcp_policy: keeper.mcp.auth:policy

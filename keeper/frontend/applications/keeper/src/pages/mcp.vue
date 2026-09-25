@@ -119,10 +119,36 @@ const claudeDesktopSnippet = computed(() => JSON.stringify({
 }, null, 2))
 
 const curlSnippet = computed(() =>
-  `curl -s -X POST ${mcpUrl.value} \\
+  `set -euo pipefail
+SESSION_ID=""
+cleanup() {
+  if [ -n "$SESSION_ID" ]; then
+    curl -fSs -o /dev/null -X DELETE "${mcpUrl.value}" \\
+      -H "Authorization: Bearer ${snippetToken.value}" \\
+      -H "Mcp-Session-Id: $SESSION_ID"
+  fi
+}
+trap cleanup EXIT
+
+SESSION_ID=$(curl -fSs -D - -o /dev/null \\
   -H "Authorization: Bearer ${snippetToken.value}" \\
   -H "Content-Type: application/json" \\
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}' \\
+  "${mcpUrl.value}" | awk 'tolower($1) == "mcp-session-id:" { sub(/\\r$/, "", $2); print $2; exit }')
+if [ -z "$SESSION_ID" ]; then
+  echo "Initialize did not return Mcp-Session-Id" >&2
+  exit 1
+fi
+curl -fSs -o /dev/null -X POST "${mcpUrl.value}" \\
+  -H "Authorization: Bearer ${snippetToken.value}" \\
+  -H "Content-Type: application/json" \\
+  -H "Mcp-Session-Id: $SESSION_ID" \\
+  -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+curl -fSs -X POST "${mcpUrl.value}" \\
+  -H "Authorization: Bearer ${snippetToken.value}" \\
+  -H "Content-Type: application/json" \\
+  -H "Mcp-Session-Id: $SESSION_ID" \\
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'`
 )
 
 async function load() {

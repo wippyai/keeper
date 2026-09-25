@@ -94,7 +94,7 @@ entries:
   - name: sse_broker_identity
     kind: security.policy
     meta:
-      comment: The MCP GET transport spawns its session broker with a fresh context carrying the token subject's actor and scope; the runtime gates with_context on process.context and with_actor/with_scope on process.security.
+      comment: MCP initialization spawns its session broker with a fresh context carrying the token subject's actor and scope; the runtime gates with_context on process.context and with_actor/with_scope on process.security.
     policy:
       resources:
         - context
@@ -108,7 +108,7 @@ entries:
   - name: sse_broker_spawn
     kind: security.policy
     meta:
-      comment: The MCP GET transport may spawn the per-session SSE broker, and no other process.
+      comment: MCP initialization may spawn the per-session SSE broker, and no other process.
     policy:
       resources: keeper.mcp.transport:broker
       actions:
@@ -119,34 +119,42 @@ entries:
   - name: sse_broker_host
     kind: security.policy
     meta:
-      comment: The MCP GET transport may place its session broker on Keeper's process host. The resource is bound from the keeper:process_host requirement, so it follows the host the application configures.
+      comment: MCP initialization may place its session broker on Keeper's process host. The resource is bound from the keeper:process_host requirement, so it follows the host the application configures.
     policy:
       resources: app:processes
       actions:
         - process.host
       effect: allow
 
-  # keeper.mcp.security:sse_broker_registry
-  - name: sse_broker_registry
+  # keeper.mcp.security:sse_broker_unregister
+  - name: sse_broker_unregister
     kind: security.policy
     meta:
-      comment: The MCP GET transport names each session broker under the mcp.session. prefix (one per token, local registry) and releases the name on reconnect.
+      comment: DELETE may unregister its authenticated session name. Brokers register their own session and slot names during startup.
     policy:
       resources: mcp.session.*
       actions:
-        - process.registry.register
         - process.registry.unregister
       effect: allow
 
-  # keeper.mcp.security:sse_broker_handoff
-  - name: sse_broker_handoff
+  # keeper.mcp.security:sse_broker_cancel
+  - name: sse_broker_cancel
     kind: security.policy
     meta:
-      comment: The broker the transport registers is its own child rather than the handler, and on reconnect it cancels the broker a previous connection registered. The runtime checks both against the target PID, which exists only at run time, so no static resource can narrow them; the registry and spawn policies are what confine the handler to its session brokers.
+      comment: POST cancels a broker on readiness timeout or missing reply; DELETE cancels its authenticated session broker.
     policy:
       resources: '*'
       actions:
-        - process.registry.foreign
         - process.cancel
       effect: allow
 
+  # keeper.mcp.security:sse_broker_send
+  - name: sse_broker_send
+    kind: security.policy
+    meta:
+      comment: POST sends session activity and tool-surface notifications to the resolved MCP broker.
+    policy:
+      resources: '*'
+      actions:
+        - process.send
+      effect: allow

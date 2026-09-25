@@ -1,5 +1,20 @@
 # Release Notes
 
+## keeper/keeper 0.5.88
+
+MCP Streamable HTTP brokers are per initialized session instead of per token.
+
+Keeper keyed each MCP broker by the bearer token, so a second GET stream for
+the same token cancelled the first broker and clients reconnected in a loop.
+Initialize now issues an `Mcp-Session-Id` bound to the authenticated token;
+each session owns its broker, a missing session id returns 400, an unknown or
+expired one returns 404, and DELETE ends the session. Sessions per token are
+capped by `keeper:mcp_max_sessions_per_token` (default 16); initialize beyond
+the cap returns 429 with a JSON-RPC error. The broker registers its own slot
+and name and acknowledges readiness before initialize returns, keeps one
+resettable idle timer, and exits on a failed readiness reply without a
+redundant cancel. Transport permissions are split per HTTP method.
+
 ## keeper/keeper 0.5.87
 
 Hub install declares version ranges, replaces an application-owned root

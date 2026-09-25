@@ -464,6 +464,16 @@ entries:
       - entry: keeper.mcp:router
         path: .prefix
 
+  # keeper:mcp_max_sessions_per_token
+  - name: mcp_max_sessions_per_token
+    kind: ns.requirement
+    meta:
+      description: Maximum number of active MCP sessions per bearer token
+    default: 16
+    targets:
+      - entry: keeper.config:mcp_max_sessions_per_token
+        path: .default
+
   # keeper:ui_server
   - name: ui_server
     kind: ns.requirement

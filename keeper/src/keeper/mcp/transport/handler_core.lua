@@ -16,6 +16,7 @@ local json = require("json")
 local auth = require("mcp_auth")
 local authorize = require("mcp_authorize")
 local consts = require("mcp_consts")
+local sessions = require("mcp_sessions")
 local dispatch = require("mcp_dispatch")
 local mcp_traits = require("mcp_traits")
 local surface = require("mcp_surface")
@@ -33,11 +34,8 @@ end
 local NOTIFY_TOOLS_CHANGED = surface.MUTATES_SURFACE
 
 local function publish_notification(session, method, params)
-    if not session or not session.token then return end
-    local broker_key = authorize.broker_key(session)
-    if not broker_key then return end
-    local name = consts.SSE_BROKER_NAME_PREFIX .. broker_key
-    local broker_pid = process.registry.lookup(name)
+    if not session or not session.mcp_session_id then return end
+    local broker_pid = sessions.lookup(session, session.mcp_session_id)
     if not broker_pid then return end
     local envelope = { jsonrpc = "2.0", method = method }
     if params ~= nil then envelope.params = params end
@@ -248,6 +246,51 @@ end
 
 -- HTTP handler
 
+local function bind_session(req, res, method, session, msg_id, runtime, identity, host, channel_api, time_api)
+    local session_id = req:header("Mcp-Session-Id")
+    if method == "initialize" then
+        if session_id and session_id ~= "" then
+            res:set_status(http.STATUS.BAD_REQUEST)
+            res:write_json(jsonrpc_error(msg_id, -32600, "initialize must not carry Mcp-Session-Id"))
+            return false
+        end
+        local created_id, broker_pid_or_err, create_err = sessions.create(
+            session, runtime, identity, host, channel_api, time_api)
+        create_err = create_err or broker_pid_or_err
+        if not created_id then
+            local over_limit = create_err == "MCP_SESSION_LIMIT"
+            res:set_status(over_limit and 429 or http.STATUS.INTERNAL_SERVER_ERROR)
+            res:write_json(jsonrpc_error(msg_id, -32000, over_limit and
+                "Maximum active MCP sessions per token reached" or
+                create_err or "MCP session creation failed"))
+            return false
+        end
+        session.mcp_session_id = created_id
+        res:set_header("Mcp-Session-Id", created_id)
+        return true
+    end
+
+    if not session_id or session_id == "" then
+        res:set_status(http.STATUS.BAD_REQUEST)
+        res:write_json(jsonrpc_error(msg_id, -32000, "Mcp-Session-Id required"))
+        return false
+    end
+    local broker_pid = sessions.lookup(session, session_id, runtime)
+    if not broker_pid then
+        res:set_status(http.STATUS.NOT_FOUND)
+        res:write_json(jsonrpc_error(msg_id, -32000, "MCP session not found"))
+        return false
+    end
+    local touched = sessions.touch(broker_pid, runtime)
+    if not touched then
+        res:set_status(http.STATUS.NOT_FOUND)
+        res:write_json(jsonrpc_error(msg_id, -32000, "MCP session not found"))
+        return false
+    end
+    session.mcp_session_id = session_id
+    return true
+end
+
 local function handle()
     local res = http.response()
     if not transport_enabled(res) then return end
@@ -275,12 +318,6 @@ local function handle()
         return
     end
 
-    local method_fn = MCP_METHODS[method]
-    if not method_fn then
-        res:write_json(jsonrpc_error(msg.id, -32601, "method not found: " .. method))
-        return
-    end
-
     local session
     if requires_session(method) then
         local auth_err
@@ -292,6 +329,14 @@ local function handle()
         end
     end
 
+    if not bind_session(req, res, method, session, msg.id, process) then return end
+
+    local method_fn = MCP_METHODS[method]
+    if not method_fn then
+        res:write_json(jsonrpc_error(msg.id, -32601, "method not found: " .. method))
+        return
+    end
+
     local result = method_fn(msg, session)
     if result then
         res:set_content_type("application/json")
@@ -301,7 +346,39 @@ local function handle()
     end
 end
 
+local function terminate_session(req, res, session, runtime)
+    local session_id = req:header("Mcp-Session-Id")
+    if not session_id or session_id == "" then
+        res:set_status(http.STATUS.BAD_REQUEST)
+        res:write_json(jsonrpc_error(nil, -32000, "Mcp-Session-Id required"))
+        return
+    end
+    if not sessions.terminate(session, session_id, runtime) then
+        res:set_status(http.STATUS.NOT_FOUND)
+        res:write_json(jsonrpc_error(nil, -32000, "MCP session not found"))
+        return
+    end
+    res:set_status(204)
+end
+
+local function handle_delete()
+    local res = http.response()
+    if not transport_enabled(res) then return end
+
+    local req = http.request()
+    local session, auth_err = auth.session_from_request(req)
+    if not session then
+        res:set_status(http.STATUS.UNAUTHORIZED)
+        res:write_json(jsonrpc_error(nil, -32000, auth_err or "unauthorized"))
+        return
+    end
+    terminate_session(req, res, session, process)
+end
+
 return {
     handle = handle,
+    handle_delete = handle_delete,
     _requires_session = requires_session,
+    _bind_session = bind_session,
+    _terminate_session = terminate_session,
 }
