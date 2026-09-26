@@ -38,9 +38,19 @@ entries:
       - uuid
       - process
       - system
+      - events
+      - time
     imports:
       bootloader: wippy.bootloader:bootloader
       bootloader_registry: wippy.bootloader:bootloader_registry
+      floor_catalog: keeper.hub:floor_catalog
+      preflight: keeper.hub:preflight
+      install_state: keeper.hub:install_state
+      install_quiescence: keeper.hub:install_quiescence
+      install_candidate: keeper.hub:install_candidate
+      install_runner: keeper.hub:install_runner
+      install_digest: keeper.hub:install_digest
+      keeper_config: keeper:config
       gov_consts: keeper.gov:consts
       governance: keeper.state.publish:governance
       materialize: keeper.state.persist:materialize
@@ -48,8 +58,139 @@ entries:
       ownership: keeper.hub:ownership
       sql_dialect: keeper.internal:sql_dialect
       step_runner: keeper.develop.integrate.pipeline:step_runner
+      candidate_runner: wippy.migration:candidate
+      install_resolver: keeper.hub:install_resolver
 
   # keeper.hub:security_scan
+  - name: floor_catalog
+    kind: library.lua
+    source: file://migration/floor_catalog.lua
+
+  - name: preflight
+    kind: library.lua
+    source: file://migration/preflight.lua
+    imports:
+      floor_catalog: keeper.hub:floor_catalog
+
+  - name: install_state
+    kind: library.lua
+    source: file://migration/install_state.lua
+    modules:
+      - json
+      - sql
+    imports:
+      sql_dialect: keeper.internal:sql_dialect
+
+  - name: preflight_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub
+    source: file://migration/preflight_test.lua
+    modules:
+      - sql
+      - json
+    imports:
+      test: wippy.test:test
+      floor_catalog: keeper.hub:floor_catalog
+      preflight: keeper.hub:preflight
+      install_state: keeper.hub:install_state
+      hub_service: keeper.hub:service
+    method: define_tests
+
+  - name: install_quiescence
+    kind: library.lua
+    source: file://install/quiescence.lua
+
+  - name: install_candidate
+    kind: library.lua
+    source: file://install/candidate.lua
+    modules:
+      - hash
+
+  - name: install_runner
+    kind: library.lua
+    source: file://install/runner.lua
+    modules:
+      - hash
+    imports:
+      install_digest: keeper.hub:install_digest
+
+  - name: install_digest
+    kind: library.lua
+    source: file://install/digest.lua
+    modules:
+      - hash
+
+  - name: install_resolver
+    kind: library.lua
+    source: file://install/resolver.lua
+
+  - name: install_test_support
+    kind: library.lua
+    source: file://install/install_test_support.lua
+    modules:
+      - sql
+    imports:
+      test: wippy.test:test
+      hub_service: keeper.hub:service
+      install_state: keeper.hub:install_state
+
+  - name: install_staging_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub
+    source: file://install/install_staging_test.lua
+    imports:
+      test: wippy.test:test
+      hub_service: keeper.hub:service
+      preflight: keeper.hub:preflight
+      install_candidate: keeper.hub:install_candidate
+      install_digest: keeper.hub:install_digest
+      install_resolver: keeper.hub:install_resolver
+      candidate_runner: wippy.migration:candidate
+      install_test_support: keeper.hub:install_test_support
+    method: define_tests
+
+  - name: install_flow_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub
+    source: file://install/install_flow_test.lua
+    modules:
+      - sql
+    imports:
+      test: wippy.test:test
+      install_test_support: keeper.hub:install_test_support
+    method: define_tests
+
+  - name: install_real_runner_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub
+    source: file://install/install_real_runner_test.lua
+    modules:
+      - sql
+    imports:
+      test: wippy.test:test
+      install_test_support: keeper.hub:install_test_support
+      sql_dialect: keeper.internal:sql_dialect
+    method: define_tests
+
+  - name: preflight_bootloader
+    kind: function.lua
+    meta:
+      type: bootloader
+      order: 0
+      description: Refuse incompatible installed artifacts before boot migrations
+    source: file://install/boot.lua
+    imports:
+      hub_service: keeper.hub:service
+    method: run
+
   - name: security_scan
     kind: library.lua
     meta:

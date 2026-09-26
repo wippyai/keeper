@@ -28,6 +28,11 @@ function M._handle(input: unknown?, deps: HandleDeps?)
             return nil, "actor_id is required"
         end
         return svc.run_migrations(args, { actor_id = deps.actor_id })
+    elseif action == "preflight" then
+        if not svc or type(svc.check_installed_floors) ~= "function" then
+            return nil, "preflight checker unavailable"
+        end
+        return svc.check_installed_floors()
     end
 
     return nil, "unknown Hub migration action: " .. tostring(action)

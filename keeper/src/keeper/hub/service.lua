@@ -13,6 +13,18 @@ local step_runner = require("step_runner")
 local ownership = require("ownership")
 local bootloader = require("bootloader")
 local bootloader_registry = require("bootloader_registry")
+local preflight = require("preflight")
+local floor_catalog = require("floor_catalog")
+local install_state = require("install_state")
+local install_quiescence = require("install_quiescence")
+local events = require("events")
+local time = require("time")
+local install_candidate = require("install_candidate")
+local install_runner = require("install_runner")
+local install_digest = require("install_digest")
+local install_resolver = require("install_resolver")
+local candidate_runner = require("candidate_runner")
+local keeper_config = require("keeper_config")
 
 local M = {}
 
@@ -33,6 +45,14 @@ type ServiceDeps = {
     gov_consts: unknown?,
     bootloader: unknown?,
     bootloader_registry: unknown?,
+    preflight: unknown?,
+    floor_catalog: unknown?,
+    install_state: unknown?,
+    candidate_migrations_up: unknown?,
+    candidate_resolver: unknown?,
+    candidate_resolver_for: unknown?,
+    events: unknown?,
+    time: unknown?,
 }
 
 type HubService = {
@@ -49,12 +69,25 @@ type HubService = {
     gov_consts: unknown,
     bootloader: unknown,
     bootloader_registry: unknown,
+    preflight: unknown?,
+    floor_catalog: unknown?,
+    install_state: unknown?,
+    candidate_migrations_up: unknown?,
+    candidate_resolver: unknown?,
+    candidate_resolver_for: unknown?,
     list_dependencies: (HubService, unknown) -> (unknown, unknown?),
     list_migrations: (HubService, unknown) -> (unknown, unknown?),
     install: (HubService, unknown, unknown?) -> (unknown, unknown?),
     uninstall: (HubService, unknown, unknown?) -> (unknown, unknown?),
     migration_rows: (HubService, unknown) -> (unknown, unknown?),
     run_migrations: (HubService, unknown, unknown?) -> (unknown, unknown?),
+    check_installed_floors: (HubService, unknown?) -> (unknown, unknown?),
+    readiness: (HubService, unknown?) -> (unknown, unknown?),
+    health: (HubService, unknown?) -> (unknown, unknown?),
+    service_quiescence_barrier: (HubService, unknown?, unknown?) -> (unknown, unknown?),
+    release_quiescence_fence: (HubService, unknown?, unknown?) -> (unknown, unknown?),
+    is_admission_closed: (HubService, string) -> boolean,
+    is_fence_held: (HubService, string) -> boolean,
 }
 
 M.DEFAULT_DEP_NAMESPACE = planner.DEFAULT_DEP_NAMESPACE
@@ -102,14 +135,13 @@ local function namespace_is_managed_by(gov, namespace)
 
     local checker = type(gov) == "table" and gov.is_namespace_managed or nil
     if type(checker) == "function" then
-        local ok, managed = pcall(checker, namespace)
-        if ok and managed == true then return true end
+        if checker(namespace) == true then return true end
     end
 
     local getter = type(gov) == "table" and gov.get_managed_namespaces or nil
     if type(getter) ~= "function" then return false end
-    local ok, roots = pcall(getter)
-    if not ok or type(roots) ~= "table" then return false end
+    local roots = getter()
+    if type(roots) ~= "table" then return false end
     for _, root in ipairs(roots) do
         root = trim(root)
         if root ~= "" and (namespace == root or namespace:sub(1, #root + 1) == root .. ".") then
@@ -168,21 +200,30 @@ local function validate_resolved_graph(graph)
     return true, nil
 end
 
+local function error_message(e: unknown)
+    if type(e) == "table" then return tostring((e :: any).message or e) end
+    if type(e) == "userdata" then return tostring((e :: any):message()) end
+    return tostring(e)
+end
+
 local function err_code_of(e: unknown)
     if e == nil then return nil end
-    local ok, details = pcall(function() return (e :: any):details() end)
-    if ok and type(details) == "table" then return (details :: any).code end
+    if type(e) == "table" then return e.code end
+    if type(e) ~= "userdata" then return nil end
+    local details = (e :: any):details()
+    if type(details) == "table" then return (details :: any).code end
     return nil
 end
 
 local function error_summary(e: unknown)
     if e == nil then return nil end
-    local ok_details, details = pcall(function() return (e :: any):details() end)
-    if not ok_details then details = nil end
-    local ok_kind, kind = pcall(function() return (e :: any):kind() end)
-    if not ok_kind then kind = nil end
-    local ok_message, message = pcall(function() return (e :: any):message() end)
-    if not ok_message then message = nil end
+    if type(e) == "table" then
+        return { message = tostring(e.message or e), code = e.code }
+    end
+    if type(e) ~= "userdata" then return { message = tostring(e) } end
+    local details = (e :: any):details()
+    local kind = (e :: any):kind()
+    local message = (e :: any):message()
     local details_table = type(details) == "table" and (details :: any) or nil
     local code = details_table and details_table.code or nil
     local out = { message = tostring(message or e) }
@@ -260,8 +301,28 @@ function M.new(deps: ServiceDeps?)
         gov_consts = deps.gov_consts or gov_consts,
         bootloader = deps.bootloader or bootloader,
         bootloader_registry = deps.bootloader_registry or bootloader_registry,
+        preflight = deps.preflight or preflight,
+        floor_catalog = deps.floor_catalog or floor_catalog,
+        install_state = deps.install_state or install_state,
+        install_quiescence = deps.install_quiescence or install_quiescence,
+        install_candidate = deps.install_candidate or install_candidate,
+        install_runner = deps.install_runner or install_runner,
+        config = deps.config or keeper_config,
+        candidate_resolver = deps.candidate_resolver,
+        candidate_resolver_for = deps.candidate_resolver_for or install_resolver.for_closure,
+        events = deps.events or events,
+        time = deps.time or time,
+        -- Production default is the real framework staged-migration runner
+        -- (wippy.migration:candidate); tests inject a double only where the
+        -- real one cannot run (failure injection the runner cannot produce).
+        candidate_migrations_up = deps.candidate_migrations_up
+            or candidate_runner.candidate_migrations_up,
     }, Service) :: HubService
 end
+
+-- Public entry points share the same service instance within this Lua VM.
+-- Tests construct isolated instances through M.new with trusted dependencies.
+local default_service = M.new()
 
 function Service:new_operation_id()
     local id = self.uuid.v7 and self.uuid.v7() or self.uuid.v4()
@@ -282,10 +343,8 @@ function Service:emit_user_event(actor_id, event, data)
         actor_id = actor_id,
         data = data or {},
     }
-    local ok, send_result = pcall(function()
-        return self.process.send(pid, M.EVENT_TOPIC, payload)
-    end)
-    if not ok then return false, tostring(send_result) end
+    local send_result, send_err = self.process.send(pid, M.EVENT_TOPIC, payload)
+    if send_err then return false, tostring(send_err) end
     if send_result == false then return false, "process.send returned false" end
     return true, nil
 end
@@ -321,8 +380,8 @@ end
 
 local function is_not_found_error(e)
     if e == nil then return false end
-    local ok, kind = pcall(function() return (e :: any):kind() end)
-    if ok and (kind == errors.NOT_FOUND or tostring(kind) == tostring(errors.NOT_FOUND)) then
+    local kind = type(e) == "userdata" and (e :: any):kind() or nil
+    if kind == errors.NOT_FOUND or tostring(kind) == tostring(errors.NOT_FOUND) then
         return true
     end
     return string.find(string.lower(tostring(e)), "not found", 1, true) ~= nil
@@ -425,7 +484,8 @@ function Service:migration_status(entry)
     db:release()
     if query_err then
         local msg = tostring(query_err)
-        if string.find(msg, "no such table", 1, true) or string.find(msg, "_migrations", 1, true) then
+        if string.find(msg, "no such table: _migrations", 1, true)
+            or string.find(msg, 'relation "_migrations" does not exist', 1, true) then
             return "pending", nil
         end
         return "unknown", msg
@@ -485,6 +545,7 @@ function Service:migration_rows(args)
         if owner_err then return nil, err("INTERNAL", tostring(owner_err)) end
         table.insert(out, {
             id = entry.id,
+            meta = entry.meta,
             target_db = entry.meta and entry.meta.target_db or nil,
             module = owner ~= "" and owner or nil,
             module_version = owner_version ~= "" and owner_version or nil,
@@ -734,6 +795,40 @@ function Service:dependency_create_or_update_op(entry, create_only)
     return { kind = op, entry = entry }, nil
 end
 
+-- This entry is committed in the same registry version as the dependency roots.
+-- Its identity is stable across a lost reply or a lost local step record.
+function Service:publication_receipt(lock_token, candidate_hash, entries)
+    if trim(lock_token) == "" or trim(candidate_hash) == "" or not entries or not entries[1] then
+        return nil, err("BAD_REQUEST", "publication receipt needs lock token, candidate hash and entries")
+    end
+    local namespace = entry_namespace(entries[1])
+    if not namespace then return nil, err("BAD_REQUEST", "publication receipt has no namespace") end
+    local key, key_err = install_digest.sha256({ lock_token = lock_token, candidate_hash = candidate_hash })
+    if not key then return nil, err("INTERNAL", "cannot hash publication receipt key", key_err) end
+    local payload_hash, payload_err = install_digest.sha256(entries)
+    if not payload_hash then return nil, err("INTERNAL", "cannot hash publication payload", payload_err) end
+    local receipt = { id = namespace .. ":keeper_install_receipt_" .. key,
+        kind = "registry.entry", meta = { type = "keeper.install.receipt" },
+        data = { lock_token = lock_token, candidate_hash = candidate_hash,
+            payload_hash = payload_hash } }
+    if not self.registry or type(self.registry.get) ~= "function" then
+        return nil, err("PUBLICATION_OUTCOME_UNKNOWN", "registry receipt lookup unavailable")
+    end
+    local existing, get_err = self.registry.get(receipt.id)
+    if get_err and not is_not_found_error(get_err) then
+        return nil, err("PUBLICATION_OUTCOME_UNKNOWN", "cannot inspect publication receipt", get_err)
+    end
+    if existing then
+        local data = existing.data or {}
+        if existing.kind ~= receipt.kind or data.lock_token ~= lock_token
+            or data.candidate_hash ~= candidate_hash or data.payload_hash ~= payload_hash then
+            return nil, err("CONFLICT", "publication receipt differs from locked candidate")
+        end
+        return { committed = true, entry = receipt }, nil
+    end
+    return { committed = false, entry = receipt }, nil
+end
+
 function Service:publish_dependency_changeset(args)
     args = args or {}
     if not self.governance or not self.governance.publish then
@@ -798,6 +893,17 @@ function Service:publish_dependency_changeset(args)
         return nil, err("BAD_REQUEST", "dependency publish action must be install or uninstall")
     end
 
+    if args.action == "install" and args.lock_token then
+        local receipt, receipt_err = self:publication_receipt(args.lock_token, args.candidate_hash, args.entries)
+        if not receipt then return nil, receipt_err end
+        if receipt.committed then
+            return { ok = true, stage = "governance", action = "install",
+                entry_ids = entry_ids, reconciled = true, receipt_id = receipt.entry.id }, nil
+        end
+        local registry_ops = self.gov_consts and self.gov_consts.REGISTRY_OPERATIONS
+        if not registry_ops then return nil, err("INTERNAL", "governance operation constants unavailable") end
+        changeset[#changeset + 1] = { kind = registry_ops.CREATE, entry = receipt.entry }
+    end
     local publish_options = {
         user_id = args.actor_id,
         message = args.message,
@@ -806,6 +912,14 @@ function Service:publish_dependency_changeset(args)
     }
     local result, publish_err = self.governance.publish(changeset, publish_options)
     if publish_err then
+        if args.action == "install" and args.lock_token then
+            local receipt, receipt_err = self:publication_receipt(args.lock_token, args.candidate_hash, args.entries)
+            if receipt and receipt.committed then
+                return { ok = true, stage = "governance", action = "install",
+                    entry_ids = entry_ids, reconciled = true, receipt_id = receipt.entry.id }, nil
+            end
+            if receipt_err then return nil, receipt_err end
+        end
         return nil, err("CONFLICT", "registry publish failed: " .. tostring(publish_err), {
             action = args.action,
             entry_ids = entry_ids,
@@ -851,10 +965,6 @@ local function install_migration_components(plan: any, component: string)
     return components, planned
 end
 
-local function release_of(version)
-    return (string.gsub(trim(version), "^v", ""))
-end
-
 local function same_binding_parameters(a, b)
     local values, count = {}, 0
     for _, parameter in ipairs(a or {}) do
@@ -873,6 +983,29 @@ function Service:prepare_install(args)
     if not plan then return nil, plan_err end
     local graph_ok, graph_err = validate_resolved_graph(plan.graph)
     if not graph_ok then return nil, graph_err end
+
+    if not self.preflight or not self.install_candidate or not self.floor_catalog then
+        return nil, err("PREFLIGHT_UNAVAILABLE", "installer safety modules unavailable")
+    end
+    local candidate, stage_err = self.install_candidate.stage(self.planner, plan.graph)
+    if not candidate then return nil, stage_err end
+    local installed_arts, inventory_err = self.install_candidate.installed(self.registry)
+    if not installed_arts then return nil, inventory_err end
+    local binary_ver = self.system and type(self.system.version) == "function"
+        and self.system.version() or nil
+    local pf_res, pf_err = self.preflight.check({
+        candidate_closure = candidate.closure,
+        installed_artifacts = installed_arts,
+        binary_version = binary_ver,
+        certified_catalog = self.floor_catalog,
+    })
+    if pf_err then return nil, err("PREFLIGHT_FAILED", error_message(pf_err)) end
+    if not pf_res or not pf_res.accepted then
+        local blocker = pf_res and pf_res.blocker or {}
+        return nil, err(blocker.code or "PREFLIGHT_FAILED",
+            blocker.reason or "runtime floor check failed", blocker)
+    end
+
     if #(plan.missing_requirements or {}) > 0 then
         return nil, err("REQUIREMENTS_MISSING", "Hub dependency requires explicit configuration", {
             dependency = plan.dependency,
@@ -905,6 +1038,7 @@ function Service:prepare_install(args)
         create_only[child.id] = true
     end
     return {
+        candidate = candidate,
         args = planned,
         plan = plan,
         entry = entry,
@@ -1034,137 +1168,17 @@ function Service:install_batch(args, opts)
         return payload, nil
     end
 
-    local baseline_version, version_err = self:current_registry_version()
-    if not baseline_version then return nil, version_err end
-    payload.baseline_version = baseline_version
-    local bootloader_data, bootloader_data_err = self:bootloader_step_data(entries)
-    if not bootloader_data then return nil, bootloader_data_err end
-
-    local operation_id = self:new_operation_id()
-    payload.operation_id = operation_id
-    self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_STARTED, operation_id, {
-        dependencies = payload.dependencies,
-        migration_policy = payload.migration_policy,
-    })
-
-    local steps = {
-        {
-            op = "pre_apply_validate", label = "validation",
-            data = { changeset = changeset, planned_entries = planned_entries },
-        },
-        {
-            op = "governance_apply", label = "governance",
-            data = {
-                action = "install",
-                entries = entries,
-                create_only = create_only,
-                message = "hub install " .. tostring(#entries) .. " dependencies",
-                baseline_version = baseline_version,
-            },
-        },
-    }
-    if #migration_components > 0 then
-        table.insert(steps, {
-            op = "migrations_up", label = "migrations",
-            data = { components = migration_components, planned = planned_versions },
-        })
-    end
-    table.insert(steps, { op = "bootloaders_run", label = "bootloaders", data = bootloader_data })
-
-    local ledger = step_runner.run(steps, { execute = self:install_step_dispatch(opts) })
-    if not ledger.success then
-        return self:install_failure(ledger, payload, {
-            operation_id = operation_id,
-            baseline_version = baseline_version,
-        }, opts)
-    end
-
-    local apply_result, migration_result
-    for _, row in ipairs(ledger.execution.handlers) do
-        if row.op == "governance_apply" then apply_result = row.result
-        elseif row.op == "migrations_up" then migration_result = row.result end
-    end
-    payload.apply = apply_result
-    payload.migrations = migration_result
-    payload.bootloaders = self:ledger_result(ledger, "bootloaders_run")
-    payload.execution = self:project_ledger(ledger, nil)
-    self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FINISHED, operation_id, {
-        dependencies = payload.dependencies,
-        apply = apply_result,
-        migrations = migration_result,
-        bootloaders = payload.bootloaders,
-        execution = payload.execution,
-    })
+    local bootloader_data, bootloader_err = self:bootloader_step_data(entries)
+    if not bootloader_data then return nil, bootloader_err end
+    local result, run_err = self.install_runner.run(self, {
+        prepared = prepared, entries = entries, changeset = changeset,
+        planned_entries = planned_entries, create_only = create_only,
+        bootloader_data = bootloader_data, run_migrations = #migration_components > 0,
+        message = "hub install " .. tostring(#entries) .. " dependencies",
+    }, opts)
+    if not result then return nil, run_err end
+    for key, value in pairs(result) do payload[key] = value end
     return payload, nil
-end
-
-function Service:run_migrations_for_components(components, opts)
-    local entry_ids = {}
-    local seen = {}
-    for _, component in ipairs(components or {}) do
-        local rows, rows_err = self:migration_rows({ component = component })
-        if not rows then return nil, rows_err end
-        for _, row in ipairs(rows) do
-            if row.status ~= "applied" and not seen[row.id] then
-                seen[row.id] = true
-                table.insert(entry_ids, row.id)
-            end
-        end
-    end
-    return self:run_migrations({ entry_ids = entry_ids, operation = "up" }, opts)
-end
-
--- Migrations are selected from the registry the governance apply produced.
--- The ownership index is captured anew and must belong to the applied
--- registry version or a later one, and every module the plan resolved must be
--- installed there at the planned version. Selecting from any other snapshot
--- would run the migrations of modules the apply did not install -- or none of
--- the ones it did -- so a mismatch fails the install instead.
-function Service:applied_ownership_index(applied_version, planned)
-    self:invalidate_ownership_index()
-    local index = self:ownership_index()
-    local snapshot_version, version_err = index:version_id()
-    if not snapshot_version then return nil, err("INTERNAL", tostring(version_err)) end
-    local required = tonumber(applied_version)
-    if not required then
-        return nil, err("INTERNAL", "migration selection has no applied registry version: " .. tostring(applied_version))
-    end
-    if snapshot_version < required then
-        return nil, err("MIGRATION_SELECTION_STALE",
-            "migration selection read registry version " .. tostring(snapshot_version)
-                .. ", which predates the applied version " .. tostring(required), {
-                snapshot_version = snapshot_version,
-                applied_version = required,
-            })
-    end
-
-    local stale = {}
-    for _, row in ipairs(planned or {}) do
-        local resolved, resolved_err = index:version_of(row.module)
-        if resolved == nil then return nil, err("INTERNAL", tostring(resolved_err)) end
-        if release_of(resolved) ~= release_of(row.version) then
-            table.insert(stale, {
-                module = row.module,
-                planned_version = row.version,
-                installed_version = resolved,
-            })
-        end
-    end
-    if #stale > 0 then
-        local summaries = {}
-        for _, row in ipairs(stale) do
-            local installed = row.installed_version ~= "" and row.installed_version or "nothing"
-            table.insert(summaries, row.module .. " planned " .. row.planned_version .. ", registry holds " .. installed)
-        end
-        return nil, err("MIGRATION_SELECTION_STALE",
-            "registry version " .. tostring(snapshot_version) .. " does not hold the planned modules: "
-                .. table.concat(summaries, "; "), {
-                snapshot_version = snapshot_version,
-                applied_version = required,
-                modules = planner.position_keyed(stale),
-            })
-    end
-    return index, nil
 end
 
 -- Components whose dependency root an install creates or re-parameterizes. The
@@ -1429,11 +1443,7 @@ function Service:resolve_dependency_closure(remaining)
     return nil, nil, err("INTERNAL", "hub uninstall closure resolver unavailable")
 end
 
--- Step/ledger helpers shared by install and uninstall. The install/uninstall
--- flows build an explicit ordered step list, run it through step_runner, and on
--- failure reverse the successful prefix through step_runner.reverse. Each step's
--- inverse implementation is the corresponding restore_* method, invoked by a
--- service-bound rollback dispatcher so the atomic governance commit is honoured.
+-- The legacy uninstall flow uses step_runner ledgers and compensation.
 
 function Service:ledger_result(ledger, op)
     for _, row in ipairs(ledger.execution.handlers or {}) do
@@ -1493,7 +1503,7 @@ local function execution_details(execution)
     return planner.position_keyed(execution)
 end
 
--- Hub compensation ordering: the registry restore is the critical invariant, so
+-- Uninstall compensation ordering: registry restore is the critical invariant, so
 -- rows whose inverse restores a registry version run first during rollback; the
 -- remaining inverses keep the generic LIFO order. step_runner.reverse stays a
 -- plain reverse walk — the ordering lives here by moving registry-restoring
@@ -1511,86 +1521,6 @@ local function registry_restore_first(execution)
     end
     for _, row in ipairs(registry_rows) do table.insert(ordered, row) end
     return ordered
-end
-
-function Service:install_step_dispatch(opts)
-    local svc = self
-    -- The registry version the governance apply committed; migrations select
-    -- from a snapshot at or after it. A publish that changed nothing commits no
-    -- version and leaves the baseline current.
-    local applied_version
-    return function(step)
-        local op = step.op
-        if op == "pre_apply_validate" then
-            local result, validation_err = svc:validate_planned_entries(
-                step.data.changeset or {}, step.data.planned_entries or {})
-            if not result then
-                return { op = op, label = step.label, error = validation_err }
-            end
-            return { op = op, label = step.label, result = result }
-        elseif op == "governance_apply" then
-            local apply_result, apply_err = svc:publish_dependency_changeset({
-                action = step.data.action,
-                entry = step.data.entry,
-                entries = step.data.entries,
-                create_only = step.data.create_only,
-                actor_id = opts.actor_id,
-                message = step.data.message,
-            })
-            if not apply_result then
-                return { op = op, label = step.label, error = apply_err }
-            end
-            applied_version = apply_result.version or step.data.baseline_version
-            return {
-                op = op, label = step.label, result = apply_result,
-                inverse = { op = "restore_registry_version", data = {
-                    version = step.data.baseline_version,
-                    reason = "hub install rollback for " .. tostring(
-                        step.data.entry and step.data.entry.data.component or
-                        (#(step.data.entries or {}) .. " dependencies")),
-                } },
-            }
-        elseif op == "migrations_up" then
-            local index, index_err = svc:applied_ownership_index(applied_version, step.data.planned)
-            if not index then
-                return { op = op, label = step.label, error = index_err }
-            end
-            local migration_result, migration_err = svc:run_migrations_for_components(
-                step.data.components, opts)
-            if not migration_result then
-                return { op = op, label = step.label, error = migration_err }
-            end
-            return {
-                op = op, label = step.label, result = migration_result,
-                inverse = { op = "migrations_down", data = { entry_ids = migration_result.entry_ids or {} } },
-            }
-        elseif op == "bootloaders_run" then
-            local boot_result, boot_err = svc:run_installed_bootloaders(
-                step.data.baseline_modules, step.data.reconfigured)
-            if not boot_result then
-                return { op = op, label = step.label, error = boot_err }
-            end
-            return { op = op, label = step.label, result = boot_result }
-        end
-        return { op = op, label = step.label, error = err("INTERNAL", "unknown install step: " .. tostring(op)) }
-    end
-end
-
--- Install rollback restores the registry snapshot after a post-publish failure.
-function Service:install_rollback_dispatch()
-    local svc = self
-    return function(row)
-        local inv = row.inverse
-        if type(inv) ~= "table" then return nil end
-        local wrapped = { op = inv.op, forward_label = row.label }
-        if inv.op == "restore_registry_version" then
-            local r, e = svc:restore_registry_version(inv.data.version, inv.data.reason)
-            wrapped.result, wrapped.error = r, e
-        else
-            return nil
-        end
-        return wrapped
-    end
 end
 
 function Service:install(args, opts)
@@ -1631,158 +1561,19 @@ function Service:install(args, opts)
     local policy = planned.migration_policy
     if args.run_migrations == true then policy = "up" end
 
-    local baseline_version, version_err = self:current_registry_version()
-    if not baseline_version then return nil, version_err end
-    payload.baseline_version = baseline_version
-    local bootloader_data, bootloader_data_err = self:bootloader_step_data(prepared.entries)
-    if not bootloader_data then return nil, bootloader_data_err end
-
-    local operation_id = self:new_operation_id()
-    payload.operation_id = operation_id
-    self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_STARTED, operation_id, {
-        dependency = payload.dependency,
-        migration_policy = payload.migration_policy,
-    })
-
-    -- Build the ordered install steps. governance_apply is the one atomic
-    -- publish; migrations_up appears only when it has work to do; the changed
-    -- modules' bootloaders run last, as they do after migrations at boot.
-    local steps = {
-        {
-            op = "pre_apply_validate", label = "validation",
-            data = {
-                changeset = planned_changeset,
-                planned_entries = plan.planned_entries or plan.entries or {},
-            },
-        },
-        {
-            op = "governance_apply", label = "governance",
-            data = {
-                action = "install",
-                entries = prepared.entries,
-                create_only = prepared.create_only,
-                message = "hub install " .. entry.id .. " " .. entry.data.component .. " " .. entry.data.version,
-                baseline_version = baseline_version,
-            },
-        },
-    }
-    if policy == "up" then
-        local components, planned = install_migration_components(plan, entry.data.component)
-        table.insert(steps, {
-            op = "migrations_up", label = "migrations",
-            data = { components = components, planned = planned },
-        })
-    end
-    table.insert(steps, { op = "bootloaders_run", label = "bootloaders", data = bootloader_data })
-    local ledger = step_runner.run(steps, { execute = self:install_step_dispatch(opts) })
-
-    if not ledger.success then
-        return self:install_failure(ledger, payload, {
-            operation_id = operation_id,
-            baseline_version = baseline_version,
-        }, opts)
-    end
-
-    -- Lift the step results into the payload for API back-compat.
-    local apply_result, migration_result
-    for _, row in ipairs(ledger.execution.handlers) do
-        if row.op == "governance_apply" then apply_result = row.result
-        elseif row.op == "migrations_up" then migration_result = row.result end
-    end
-    payload.apply = apply_result
-    payload.migrations = migration_result
-    payload.bootloaders = self:ledger_result(ledger, "bootloaders_run")
-    payload.execution = self:project_ledger(ledger, nil)
-
-    self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FINISHED, operation_id, {
-        dependency = payload.dependency,
-        apply = apply_result,
-        migrations = migration_result,
-        bootloaders = payload.bootloaders,
-        execution = payload.execution,
-    })
-
+    local bootloader_data, bootloader_err = self:bootloader_step_data(prepared.entries)
+    if not bootloader_data then return nil, bootloader_err end
+    local result, run_err = self.install_runner.run(self, {
+        prepared = { prepared }, entries = prepared.entries,
+        changeset = planned_changeset,
+        planned_entries = plan.planned_entries or plan.entries or {},
+        create_only = prepared.create_only, bootloader_data = bootloader_data,
+        run_migrations = policy == "up",
+        message = "hub install " .. entry.id .. " " .. entry.data.component .. " " .. entry.data.version,
+    }, opts)
+    if not result then return nil, run_err end
+    for key, value in pairs(result) do payload[key] = value end
     return payload, nil
-end
-
--- Steps that fail after the registry apply: the install restores the baseline
--- registry version and reports the step's own error under its detail key.
-type PostApplyFailure = { code: string, what: string, detail: string }
-
-local POST_APPLY_FAILURES: { [string]: PostApplyFailure } = {
-    migrations_up = { code = "MIGRATIONS_FAILED", what = "migrations", detail = "migration_error" },
-    bootloaders_run = { code = "BOOTLOADERS_FAILED", what = "bootloaders", detail = "bootloader_error" },
-}
-
--- Post-apply step errors whose own code names the failure more precisely than
--- the step's generic one, and so becomes the install's error code.
-local POST_APPLY_OWN_CODES = {
-    MIGRATION_SELECTION_STALE = true,
-}
-
-function Service:install_failure(ledger, payload, ctx, opts)
-    local rows = ledger.execution.handlers
-    local failed = rows[#rows]
-    local failed_op = failed and failed.op
-    local failed_err = failed and failed.error
-
-    -- The publish itself failing needs no compensation: nothing was applied.
-    if failed_op == "governance_apply" then
-        payload.execution = self:project_ledger(ledger, nil)
-        self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FAILED, ctx.operation_id, {
-            dependency = payload.dependency,
-            error = error_summary(failed_err),
-            execution = payload.execution,
-        })
-        return nil, failed_err
-    end
-
-    local rollback_ledger = step_runner.reverse(registry_restore_first(ledger.execution),
-        { execute = self:install_rollback_dispatch() })
-    local restore = self:find_rollback_row(rollback_ledger, "restore_registry_version")
-    payload.rollback = restore and restore.result or nil
-    payload.rollback_error = restore and error_summary(restore.error) or nil
-    payload.execution = self:project_ledger(ledger, rollback_ledger)
-
-    local restore_ok = restore ~= nil and restore.result ~= nil and restore.error == nil
-    local apply_result = self:ledger_result(ledger, "governance_apply")
-    local post_apply = POST_APPLY_FAILURES[tostring(failed_op)] :: PostApplyFailure?
-    local failure_err
-    if post_apply then
-        local summary = error_summary(failed_err)
-        local details = {
-            baseline_version = ctx.baseline_version,
-            apply = apply_result,
-            execution = execution_details(payload.execution),
-        }
-        details[post_apply.detail] = summary
-        local step_code = err_code_of(failed_err)
-        local code = POST_APPLY_OWN_CODES[tostring(step_code)] and tostring(step_code) or post_apply.code
-        if restore_ok then
-            details.rollback = payload.rollback
-            failure_err = err(code,
-                post_apply.what .. " failed after dependency install; registry restored to baseline: "
-                    .. tostring(summary and summary.message),
-                details)
-        else
-            details.rollback_error = payload.rollback_error
-            failure_err = err("ROLLBACK_FAILED",
-                post_apply.what .. " failed after dependency install and registry rollback failed: "
-                    .. tostring(summary and summary.message),
-                details)
-        end
-    else
-        failure_err = failed_err or err("INTERNAL", "hub install failed")
-    end
-
-    self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FAILED, ctx.operation_id, {
-        dependency = payload.dependency,
-        error = error_summary(failure_err),
-        rollback = payload.rollback,
-        rollback_error = payload.rollback_error,
-        execution = payload.execution,
-    })
-    return nil, failure_err
 end
 
 function Service:plan_uninstall(args)
@@ -2207,6 +1998,14 @@ function Service:run_migrations(args, opts)
         return payload, nil
     end
 
+    if operation == "up" then
+        local installed, direct_err = self.install_runner.run_direct(self, rows, ids, opts)
+        if not installed then return nil, direct_err end
+        payload.operation_id = installed.operation_id
+        payload.result = installed.migrations
+        return payload, nil
+    end
+
     local operation_id = self:new_operation_id()
     payload.operation_id = operation_id
     self:emit_operation(opts.actor_id, M.EVENTS.MIGRATIONS_STARTED, operation_id, {
@@ -2232,6 +2031,7 @@ function Service:run_migrations(args, opts)
         })
         return nil, call_err
     end
+
     payload.result = result
     self:emit_operation(opts.actor_id, M.EVENTS.MIGRATIONS_FINISHED, operation_id, {
         operation = operation,
@@ -2242,7 +2042,7 @@ function Service:run_migrations(args, opts)
 end
 
 function M.list_dependencies(args)
-    return M.new():list_dependencies(args)
+    return default_service:list_dependencies(args)
 end
 
 function Service:list_migrations(args)
@@ -2252,19 +2052,79 @@ function Service:list_migrations(args)
 end
 
 function M.install(args, opts)
-    return M.new():install(args, opts)
+    return default_service:install(args, opts)
 end
 
 function M.uninstall(args, opts)
-    return M.new():uninstall(args, opts)
+    return default_service:uninstall(args, opts)
 end
 
 function M.list_migrations(args)
-    return M.new():list_migrations(args)
+    return default_service:list_migrations(args)
+end
+
+function Service:check_installed_floors()
+    if not self.preflight or not self.install_candidate or not self.floor_catalog then
+        return nil, err("PREFLIGHT_UNAVAILABLE", "installer safety modules unavailable")
+    end
+    local installed_arts, inv_err = self.install_candidate.installed(self.registry)
+    if not installed_arts then return nil, inv_err end
+    local binary_ver = self.system and type(self.system.version) == "function"
+        and self.system.version() or nil
+    return self.preflight.check({
+        installed_artifacts = installed_arts,
+        binary_version = binary_ver,
+        certified_catalog = self.floor_catalog,
+    })
+end
+
+function Service:readiness(opts)
+    local pf_res, pf_err = self:check_installed_floors(opts)
+    if pf_err then
+        return { ready = false, status = "error", error = tostring(pf_err) }, nil
+    end
+    if pf_res and not pf_res.accepted then
+        return { ready = false, status = "refused", blocker = pf_res.blocker }, nil
+    end
+    return { ready = true, status = "ok" }, nil
+end
+
+function Service:health(opts)
+    local pf_res, pf_err = self:check_installed_floors(opts)
+    if pf_err then
+        return { status = "unhealthy", error = tostring(pf_err) }, nil
+    end
+    if pf_res and not pf_res.accepted then
+        return { status = "unhealthy", blocker = pf_res.blocker }, nil
+    end
+    return { status = "healthy" }, nil
+end
+
+function Service:service_quiescence_barrier(candidate_closure, opts)
+    opts = opts or {}
+    return self.install_quiescence.acquire(self, opts.db, opts.lock_token,
+        opts.candidate_hash, candidate_closure)
+end
+
+function Service:release_quiescence_fence(fence, opts)
+    opts = opts or {}
+    return self.install_quiescence.release(self, opts.db, opts.lock_token, fence)
+end
+
+function M.check_installed_floors(opts)
+    return default_service:check_installed_floors(opts)
+end
+
+function M.readiness(opts)
+    return default_service:readiness(opts)
+end
+
+function M.health(opts)
+    return default_service:health(opts)
 end
 
 function M.run_migrations(args, opts)
-    return M.new():run_migrations(args, opts)
+    return default_service:run_migrations(args, opts)
 end
 
 return M

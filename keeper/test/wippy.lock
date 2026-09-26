@@ -43,3 +43,5 @@ modules:
 replacements:
     - from: keeper/keeper
       to: ..
+    - from: wippy/migration
+      to: ../../../../framework-wt/candidate-runner/src/migration

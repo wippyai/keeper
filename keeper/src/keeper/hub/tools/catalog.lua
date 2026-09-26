@@ -2,6 +2,7 @@ local security = require("security")
 local hub = require("hub")
 local audit = require("audit")
 local helpers = require("helpers")
+local floor_catalog = require("floor_catalog")
 
 local M = {}
 local TOOL_ID = "keeper.hub.tools:catalog"
@@ -88,6 +89,24 @@ function M._handle(input: unknown?, deps: CatalogDeps?)
             version = result.version or args.version or "",
             component = component,
         }, nil
+    end
+
+    if action == "floor" or action == "certified_catalog" then
+        local cat = (deps and deps.floor_catalog) or floor_catalog
+        if not cat then
+            return nil, "floor catalog unavailable"
+        end
+        if args.hash and args.hash ~= "" then
+            local entry, err = cat.lookup(args.hash)
+            if not entry then return nil, err end
+            return entry, nil
+        end
+        if args.component and args.component ~= "" then
+            local floor, err = cat.get_floor({ name = args.component, version = args.version, hash = args.hash })
+            if not floor then return nil, err end
+            return { component = args.component, min_runtime = floor }, nil
+        end
+        return { certified_hashes = cat.CERTIFIED_HASHES }, nil
     end
 
     return nil, "unknown Hub catalog action: " .. tostring(action)
