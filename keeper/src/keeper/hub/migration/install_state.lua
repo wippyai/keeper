@@ -82,9 +82,16 @@ function M.ensure(db)
             updated_at     TEXT NOT NULL
         )
     ]]
+    -- Virgin-database race: two installers issue the same DDL at once; on
+    -- PostgreSQL the loser fails with duplicate-catalog 23505 for an object
+    -- that now exists. Each session issues the DDL once; a failure with the
+    -- object present means the peer won, so ensure succeeds. No retry, no
+    -- sleep. Design §12.1 lines 840-843; arbitration stays with the partial
+    -- unique index plus INSERT ... ON CONFLICT DO NOTHING.
     local _, err = exec_statement(db, ddl, {})
     if err then
-        return nil, failure("DATABASE_FAILED", "failed to create keeper_hub_install_state", err)
+        local _, probe_err = exec_query(db, "SELECT 1 FROM keeper_hub_install_state LIMIT 1")
+        if probe_err then return nil, failure("DATABASE_FAILED", "failed to create keeper_hub_install_state", err) end
     end
 
     -- Both PostgreSQL and SQLite enforce one active row at INSERT time.
@@ -96,7 +103,12 @@ function M.ensure(db)
     ]]
     local _, idx_err = exec_statement(db, idx_ddl, {})
     if idx_err then
-        return nil, failure("DATABASE_FAILED", "failed to create index on keeper_hub_install_state", idx_err)
+        local index_probe = "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'keeper_idx_install_state_active'"
+        if sql_dialect.is_postgres(db) then
+            index_probe = "SELECT 1 FROM pg_class WHERE relname = 'keeper_idx_install_state_active'"
+        end
+        local _, index_probe_err = exec_query(db, index_probe)
+        if index_probe_err then return nil, failure("DATABASE_FAILED", "failed to create index on keeper_hub_install_state", idx_err) end
     end
 
     return true, nil

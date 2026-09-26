@@ -333,6 +333,87 @@ local function define_tests()
             end)
         end)
 
+        test.describe("install_state.ensure virgin race (debt #26)", function()
+            -- A fake database handle replaying the exact interleaving PostgreSQL
+            -- reports: two sessions issue the state DDL at once on a virgin
+            -- database and the loser sees a duplicate-catalog failure for an
+            -- object that now exists (lanes/I/pg5 kddl logs: duplicate key on
+            -- pg_type_typname_nsp_index). The first two tests go red on code
+            -- that treats any DDL error as fatal; the third guards the error
+            -- path so a genuinely missing table still fails loudly.
+            local function fake_db(on_execute, on_query)
+                return {
+                    type = function() return "sqlite" end,
+                    execute = function(_, statement, params) return on_execute(statement, params) end,
+                    query = function(_, statement, params) return on_query(statement, params) end,
+                }
+            end
+
+            test.it("tolerates losing the state-table creation race", function()
+                local db = fake_db(
+                    function(statement)
+                        if statement:find("CREATE TABLE", 1, true) then
+                            return nil, "duplicate key value violates unique constraint \"pg_type_typname_nsp_index\""
+                        end
+                        return {}, nil
+                    end,
+                    function(statement)
+                        if statement:find("keeper_hub_install_state", 1, true) then
+                            return {}, nil
+                        end
+                        return nil, "unexpected probe"
+                    end)
+                local ok, ensure_err = install_state.ensure(db)
+                test.is_nil(ensure_err)
+                test.is_true(ok)
+            end)
+
+            test.it("tolerates losing the active-index creation race", function()
+                local db = fake_db(
+                    function(statement)
+                        if statement:find("CREATE UNIQUE INDEX", 1, true) then
+                            return nil, "duplicate key value violates unique constraint \"pg_class_relname_nsp_index\""
+                        end
+                        return {}, nil
+                    end,
+                    function(statement)
+                        if statement:find("sqlite_master", 1, true) then
+                            return { { ["1"] = 1 } }, nil
+                        end
+                        return nil, "unexpected probe"
+                    end)
+                local ok, ensure_err = install_state.ensure(db)
+                test.is_nil(ensure_err)
+                test.is_true(ok)
+            end)
+
+            test.it("still fails when the state table is genuinely absent", function()
+                local db = fake_db(
+                    function() return nil, "permission denied" end,
+                    function() return nil, "no such table" end)
+                local ok, ensure_err = install_state.ensure(db)
+                test.is_nil(ok)
+                test.not_nil(ensure_err)
+                test.eq(ensure_err:details().code, "DATABASE_FAILED")
+            end)
+
+            test.it("ensure is idempotent from a virgin database on a real handle", function()
+                local db, err = sql.get("app:db")
+                test.is_nil(err)
+                local _, drop_index_err = db:execute("DROP INDEX IF EXISTS keeper_idx_install_state_active")
+                test.is_nil(drop_index_err)
+                local _, drop_table_err = db:execute("DROP TABLE IF EXISTS keeper_hub_install_state")
+                test.is_nil(drop_table_err)
+                local first, first_err = install_state.ensure(db)
+                test.is_nil(first_err)
+                test.is_true(first)
+                local second, second_err = install_state.ensure(db)
+                test.is_nil(second_err)
+                test.is_true(second)
+                db:release()
+            end)
+        end)
+
 
     end)
 end
