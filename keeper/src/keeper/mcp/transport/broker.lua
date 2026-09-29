@@ -6,7 +6,15 @@ local time = require("time")
 local consts = require("mcp_consts")
 local stream_targets = require("mcp_stream_targets")
 
-local function register_names(args, process_api)
+type BrokerArgs = {
+    session_name: string,
+    slot_prefix: string,
+    slot_count: integer,
+    ready_to: string,
+    ready_topic: string,
+}
+
+local function register_names(args: BrokerArgs?, process_api)
     if type(args) ~= "table"
         or type(args.session_name) ~= "string"
         or type(args.slot_prefix) ~= "string"
@@ -40,7 +48,7 @@ local function register_names(args, process_api)
     return slot_name
 end
 
-local function report_ready(args: { ready_to: string, ready_topic: string }?, process_api, success: boolean, err: string?)
+local function report_ready(args: BrokerArgs?, process_api, success: boolean, err: string?)
     if not args or type(args.ready_to) ~= "string" or type(args.ready_topic) ~= "string" then
         return false
     end
@@ -50,7 +58,7 @@ local function report_ready(args: { ready_to: string, ready_topic: string }?, pr
     })
 end
 
-local function run_with(channel_api, time_api, stream_targets_api, transport_consts, process_api, args)
+local function run_with(channel_api, time_api, stream_targets_api, transport_consts, process_api, args: BrokerArgs?)
     channel_api = channel_api or channel
     time_api = time_api or time
     stream_targets_api = stream_targets_api or stream_targets
