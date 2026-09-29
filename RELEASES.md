@@ -1,5 +1,15 @@
 # Release Notes
 
+## keeper/keeper 0.5.89
+
+Hub ownership reads only registry entry metadata. Module owner and root come
+from each snapshot entry's `registry.owner`/`registry.root` and versions from
+`state.resolution`; the legacy `state.provenance` fallback is removed, and an
+entry without registry ownership fails closed. The test harness resolves the
+locally replaced keeper without pinning its version in the lock. Lint is clean:
+typed MCP broker arguments, the compare tool's `goal`/`full` parameters, and an
+integer `mcp_max_sessions_per_token`.
+
 ## keeper/keeper 0.5.88
 
 MCP Streamable HTTP brokers are per initialized session instead of per token.
