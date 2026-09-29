@@ -33,6 +33,8 @@ type CompareParams = {
     mode?: string,
     show_unchanged?: boolean,
     context?: integer,
+    goal?: string,
+    full?: boolean,
 }
 
 local function branch_chain(branch: string): {[integer]: string}

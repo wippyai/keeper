@@ -8,10 +8,9 @@ local function trim(value: unknown): string
 end
 
 -- Ownership is read from one registry snapshot, so a dynamic install or
--- uninstall cannot produce a mixed inventory. Current runtimes attach
--- registry-owned metadata to each state entry. During rollout, released
--- runtimes may instead return the same ownership in the snapshot's atomic
--- provenance map. Author metadata is never an ownership source.
+-- uninstall cannot produce a mixed inventory. Ownership is the registry-owned
+-- metadata on each state entry and versions come from state.resolution.
+-- Author metadata is never an ownership source.
 function M.new(registry_module)
     return setmetatable({
         registry = registry_module,
@@ -46,7 +45,6 @@ function Index:capture()
     local version = type(version_reader) == "function" and version_reader(snapshot) or nil
     self.snapshot = {
         entries = state.entries,
-        provenance = state.provenance,
         resolution = state.resolution,
         version = version and tonumber(version:id()) or nil,
     }
@@ -73,16 +71,9 @@ local function resolved_versions(resolution)
     return versions
 end
 
-local function entry_ownership(snapshot, row)
+local function entry_ownership(row)
     if type(row.registry) == "table" then
-        return trim(row.registry.owner), row.registry.root == true, ""
-    end
-    if type(snapshot.provenance) == "table" then
-        local record = snapshot.provenance[tostring(row.id)]
-        if type(record) ~= "table" then
-            return nil, nil, "registry snapshot has no ownership for " .. tostring(row.id)
-        end
-        return trim(record.module), record.root == true, trim(record.version)
+        return trim(row.registry.owner), row.registry.root == true, nil
     end
     return nil, nil, "registry snapshot entry has no registry ownership for " .. tostring(row.id)
 end
@@ -99,9 +90,9 @@ function Index:load()
     local versions = resolved_versions(snapshot.resolution)
     for _, row in ipairs(snapshot.entries) do
         local id = tostring(row.id)
-        local name, root, map_version = entry_ownership(snapshot, row)
-        if name == nil then return nil, nil, map_version end
-        local version = versions[name] or map_version
+        local name, root, ownership_err = entry_ownership(row)
+        if name == nil then return nil, nil, ownership_err end
+        local version = versions[name] or ""
         by_id[id] = {
             module = name,
             version = version,

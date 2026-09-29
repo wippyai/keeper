@@ -33,9 +33,9 @@ local function fake_managed_governance(namespaces)
     }
 end
 
--- Fixture ownership is kept outside author metadata. The snapshot defaults to
--- the current per-entry registry shape; map selects the released atomic shape
--- used during a rolling Runtime update. registry_state.version is the registry
+-- Fixture ownership is kept outside author metadata. The snapshot serves
+-- per-entry registry ownership; state_shape "provenance_only" serves a legacy
+-- provenance map without it. registry_state.version is the registry
 -- version a snapshot captures; a governance fake that commits a changeset
 -- advances it, as the runtime does.
 local function fake_registry(entries, state_shape, registry_state)
@@ -101,7 +101,7 @@ local function fake_registry(entries, state_shape, registry_state)
                     meta = entry.meta,
                     data = entry.data,
                 }
-                if state_shape == "map" then
+                if state_shape == "provenance_only" then
                     captured_provenance[entry.id] = record
                 else
                     row.registry = { owner = record.module, root = record.root }
@@ -127,7 +127,7 @@ local function fake_registry(entries, state_shape, registry_state)
                         entries = captured,
                         resolution = { modules = modules },
                     }
-                    if state_shape == "map" then state.provenance = captured_provenance end
+                    if state_shape == "provenance_only" then state.provenance = captured_provenance end
                     return state, nil
                 end,
             }, nil
@@ -1074,16 +1074,28 @@ local function define_tests()
                 test.eq(state_reads, 2)
             end)
 
-            it("reads the released atomic ownership-map shape during rollout", function()
-                local index = ownership.new(fake_registry(
-                    installed_module("wippy/mapped", {}, "1.2.3"),
-                    "map"
-                )) :: any
+            it("reads ownership from entry registry metadata with no provenance map", function()
+                local reg = fake_registry(installed_module("wippy/owned", {}, "1.2.3"))
+                local state = reg.snapshot():state()
+                test.is_nil(state.provenance)
+                local index = ownership.new(reg) :: any
 
                 local modules, modules_err = index:module_versions()
 
                 test.is_nil(modules_err)
-                test.eq(modules["wippy/mapped"], "1.2.3")
+                test.eq(modules["wippy/owned"], "1.2.3")
+            end)
+
+            it("does not treat a provenance-only snapshot as ownership", function()
+                local index = ownership.new(fake_registry(
+                    installed_module("wippy/mapped", {}, "1.2.3"),
+                    "provenance_only"
+                )) :: any
+
+                local modules, modules_err = index:module_versions()
+
+                test.is_nil(modules)
+                test.contains(tostring(modules_err), "has no registry ownership for")
             end)
 
             it("fails closed when atomic ownership state is unavailable or incomplete", function()
@@ -1108,7 +1120,7 @@ local function define_tests()
                 }) :: any
                 local incomplete_modules, incomplete_err = incomplete:module_versions()
                 test.is_nil(incomplete_modules)
-                test.contains(tostring(incomplete_err), "has no ownership for app:unowned")
+                test.contains(tostring(incomplete_err), "has no registry ownership for app:unowned")
             end)
 
             it("lists dependency entries with module entry and migration status", function()
