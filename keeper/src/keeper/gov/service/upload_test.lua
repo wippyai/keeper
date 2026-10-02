@@ -131,9 +131,8 @@ local function define_tests()
                     { id = "example.packed:item", kind = "registry.entry",
                       meta = { module = "example/packed" } },
                 }, {
-                    host = true,
-                    modules = { ["example/local"] = true },
-                    roots = { "application", "example/local" },
+                    owners = { application = true, ["example/local"] = true },
+                    ordered_owners = { "application", "example/local" },
                 })
                 test.eq(#retained, 2)
                 test.eq(retained[1].id, "app:host")
