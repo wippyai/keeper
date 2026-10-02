@@ -9,6 +9,8 @@
 local test  = require("test")
 local sql   = require("sql")
 local funcs = require("funcs")
+local runner_lib = require("runner")
+local subject = require("subject")
 
 local HANDLER_ID = "keeper.develop.integrate.handlers:migration_handler"
 local PROBE_ID   = "app.probe.verify:01_create_probe_table"
@@ -58,8 +60,89 @@ end
 
 local function define_tests()
     test.describe("keeper.develop.integrate.handlers:migration_handler", function()
+        local original_setup = runner_lib.setup
         test.before_each(reset)
-        test.after_each(reset)
+        test.after_each(function()
+            runner_lib.setup = original_setup
+            reset()
+        end)
+
+        local function simulate_discovery(record_applied, status)
+            runner_lib.setup = function()
+                return {
+                    run_next = function(_, options)
+                        test.eq(options.allowed_ids[1], PROBE_ID)
+                        if record_applied then
+                            -- A second runner commits after the handler's first
+                            -- ledger read, before run_next finishes discovery.
+                            local db = must_db()
+                            local _, err = db:execute(
+                                "INSERT INTO _migrations (id, description) VALUES (?, ?)",
+                                {PROBE_ID, "committed by competing runner"})
+                            db:release()
+                            test.is_nil(err)
+                        end
+                        return {status = status or "complete", migrations = {}, skipped_details = {},
+                            error = status == "error" and "simulated runner failure" or nil}
+                    end,
+                }
+            end
+        end
+
+        test.it("skips a migration committed by another runner during discovery", function()
+            simulate_discovery(true)
+            local result, err = subject.handler({operation = "up", entry_ids = {PROBE_ID}})
+            test.is_nil(err)
+            test.eq(#result, 1)
+            test.eq(result[1].id, PROBE_ID)
+            test.eq(result[1].data.status, "skipped")
+            test.eq(result[1].data.reason, "Already applied")
+            test.is_true(migration_applied(PROBE_ID))
+        end)
+
+        test.it("still fails undiscovered migrations without a committed ledger row", function()
+            simulate_discovery(false)
+            local result, err = subject.handler({operation = "up", entry_ids = {PROBE_ID}})
+            test.is_nil(result)
+            test.contains(tostring(err), "migration not discovered by runner")
+        end)
+
+        test.it("does not hide a runner failure behind a competing ledger row", function()
+            simulate_discovery(true, "error")
+            local result, err = subject.handler({operation = "up", entry_ids = {PROBE_ID}})
+            test.is_nil(result)
+            test.contains(tostring(err), "simulated runner failure")
+        end)
+
+        test.it("does not hide a real runner discovery failure behind a competing ledger row", function()
+            runner_lib.setup = function(database_id)
+                local runner = original_setup(database_id)
+                runner.find_migrations = function()
+                    local db = must_db()
+                    local _, err = db:execute(
+                        "INSERT INTO _migrations (id, description) VALUES (?, ?)",
+                        {PROBE_ID, "committed by competing runner"})
+                    db:release()
+                    test.is_nil(err)
+                    return nil, "review probe: registry discovery failed"
+                end
+                return runner
+            end
+            local result, err = subject.handler({operation = "up", entry_ids = {PROBE_ID}})
+            test.is_nil(result)
+            test.contains(tostring(err), "review probe: registry discovery failed")
+        end)
+
+        test.it("preserves a rollback runner error without an individual migration row", function()
+            runner_lib.setup = function()
+                return { rollback = function()
+                    return { status = "error", error = "rollback discovery failed", migrations = {} }
+                end }
+            end
+            local result, err = subject.handler({operation = "down", entry_ids = {PROBE_ID}})
+            test.is_nil(result)
+            test.contains(tostring(err), "rollback discovery failed")
+        end)
 
         test.it("returns empty list for empty entry_ids", function()
             local result, err = call_handler({ operation = "up", entry_ids = {} })

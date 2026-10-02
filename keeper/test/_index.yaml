@@ -151,3 +151,12 @@ entries:
       description: Test runner used only by the Keeper test host
     component: wippy/test
     version: "*"
+
+  # The test runner copies the production handler into this test-only module.
+  - name: migration_handler_subject
+    kind: library.lua
+    source: file://migration_handler_subject.lua
+    modules: [registry, sql]
+    imports:
+      runner: wippy.migration:runner
+      sql_dialect: keeper.internal:sql_dialect

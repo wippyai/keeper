@@ -15,7 +15,12 @@ test:
 	WIPPY=$(WIPPY) ./test.sh $(SUITES)
 
 lint-keeper:
-	cd keeper/test && $(WIPPY) lint --ns 'keeper,keeper.*' --summary --limit 200 --no-color
+	@set -e; \
+	subject="$(CURDIR)/keeper/test/migration_handler_subject.lua"; \
+	cp keeper/src/keeper/develop/integrate/handlers/migration_handler.lua "$$subject"; \
+	trap 'rm -f "$$subject"' EXIT; \
+	cd keeper/test; \
+	$(WIPPY) lint --ns 'keeper,keeper.*' --summary --limit 200 --no-color
 
 lint-usage:
 	cd usage && $(WIPPY) lint --summary --limit 200 --no-color
