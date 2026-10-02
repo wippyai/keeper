@@ -92,6 +92,21 @@ local function merge_run_result(acc, part, wanted_ids)
     return acc
 end
 
+local function record_applied_skip(accum, id)
+    table.insert(accum.migrations, {
+        id = id,
+        status = "skipped",
+        skip_type = "already_applied",
+        reason = "Already applied",
+    })
+    table.insert(accum.skipped_details, {
+        id = id,
+        reason = "Already applied",
+        skip_type = "already_applied",
+    })
+    accum.migrations_skipped = accum.migrations_skipped + 1
+end
+
 local function execute_database_group(target_db: string, migrations, operation)
     local runner = runner_lib.setup(target_db)
     local migration_ids = {}
@@ -120,21 +135,22 @@ local function execute_database_group(target_db: string, migrations, operation)
         local already = applied_ids(target_db, migration_ids)
         for _, wanted_id in ipairs(migration_ids) do
             if already[wanted_id] then
-                table.insert(accum.migrations, {
-                    id = wanted_id,
-                    status = "skipped",
-                    skip_type = "already_applied",
-                    reason = "Already applied",
-                })
-                table.insert(accum.skipped_details, {
-                    id = wanted_id,
-                    reason = "Already applied",
-                    skip_type = "already_applied",
-                })
-                accum.migrations_skipped = accum.migrations_skipped + 1
+                record_applied_skip(accum, wanted_id)
             else
                 local part = runner:run_next({ allowed_ids = { wanted_id } })
                 merge_run_result(accum, part, migration_ids_set)
+                -- A competing guarded runner can commit between our ledger
+                -- pre-check and run_next's discovery. No pending work then
+                -- produces no row; accept it only with committed ledger proof.
+                if type(part) == "table" and part.status == "complete" then
+                    local reported = false
+                    for _, row in ipairs(part.migrations or {}) do
+                        if row.id == wanted_id then reported = true; break end
+                    end
+                    if not reported and applied_ids(target_db, {wanted_id})[wanted_id] then
+                        record_applied_skip(accum, wanted_id)
+                    end
+                end
                 if accum.migrations_failed > 0 then break end
             end
         end
