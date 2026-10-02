@@ -82,7 +82,8 @@ local function define_tests()
                             db:release()
                             test.is_nil(err)
                         end
-                        return {status = status or "complete", migrations = {}, skipped_details = {}}
+                        return {status = status or "complete", migrations = {}, skipped_details = {},
+                            error = status == "error" and "simulated runner failure" or nil}
                     end,
                 }
             end
@@ -110,7 +111,37 @@ local function define_tests()
             simulate_discovery(true, "error")
             local result, err = subject.handler({operation = "up", entry_ids = {PROBE_ID}})
             test.is_nil(result)
-            test.not_nil(err)
+            test.contains(tostring(err), "simulated runner failure")
+        end)
+
+        test.it("does not hide a real runner discovery failure behind a competing ledger row", function()
+            runner_lib.setup = function(database_id)
+                local runner = original_setup(database_id)
+                runner.find_migrations = function()
+                    local db = must_db()
+                    local _, err = db:execute(
+                        "INSERT INTO _migrations (id, description) VALUES (?, ?)",
+                        {PROBE_ID, "committed by competing runner"})
+                    db:release()
+                    test.is_nil(err)
+                    return nil, "review probe: registry discovery failed"
+                end
+                return runner
+            end
+            local result, err = subject.handler({operation = "up", entry_ids = {PROBE_ID}})
+            test.is_nil(result)
+            test.contains(tostring(err), "review probe: registry discovery failed")
+        end)
+
+        test.it("preserves a rollback runner error without an individual migration row", function()
+            runner_lib.setup = function()
+                return { rollback = function()
+                    return { status = "error", error = "rollback discovery failed", migrations = {} }
+                end }
+            end
+            local result, err = subject.handler({operation = "down", entry_ids = {PROBE_ID}})
+            test.is_nil(result)
+            test.contains(tostring(err), "rollback discovery failed")
         end)
 
         test.it("returns empty list for empty entry_ids", function()

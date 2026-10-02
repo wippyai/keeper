@@ -72,6 +72,10 @@ end
 -- handler's result even when they were reported by the runner.
 local function merge_run_result(acc, part, wanted_ids)
     if type(part) ~= "table" then return acc end
+    if part.status == "error" then
+        acc.status = "error"
+        acc.error = part.error or "Migration runner failed"
+    end
     for _, m in ipairs(part.migrations or {}) do
         if wanted_ids[m.id] then
             table.insert(acc.migrations, m)
@@ -151,7 +155,7 @@ local function execute_database_group(target_db: string, migrations, operation)
                         record_applied_skip(accum, wanted_id)
                     end
                 end
-                if accum.migrations_failed > 0 then break end
+                if accum.status == "error" or accum.migrations_failed > 0 then break end
             end
         end
     else
@@ -234,6 +238,13 @@ local function process_results(result, operation, wanted_ids)
         end
     end
 
+    -- Discovery/connection failures can have no per-migration row. Preserve
+    -- the runner's failure rather than relabeling it as an undiscovered ID.
+    if not failed and result.status == "error" then
+        failed = { description = "", status = "error" }
+        error_details = result.error or "Migration runner failed"
+    end
+
     -- Any wanted id that neither applied, skipped, nor appeared in skipped_details
     -- means the runner did not discover it — classic registry-staleness or
     -- meta-mismatch. Treat as a loud failure, not a silent pass.
@@ -271,9 +282,10 @@ local function build_error_message(failed, error_details, applied)
     end
 
     if #applied > 0 then
-        table.insert(parts, "(applied before failure: " .. table.concat(applied, ", ") .. ";")
-        table.insert(parts, "failed at: " .. failed.id .. ")")
-    else
+        local context = "(applied before failure: " .. table.concat(applied, ", ")
+        if failed.id then context = context .. "; failed at: " .. failed.id end
+        table.insert(parts, context .. ")")
+    elseif failed.id then
         table.insert(parts, "(failed at: " .. failed.id .. ")")
     end
 
