@@ -37,6 +37,7 @@ fi
 
 cp "$WIPPY_YAML" "$YAML_ORIG"
 restore_yaml() {
+    rm -f "$TEST_DIR/migration_handler_subject.lua"
     if [ -f "$YAML_ORIG" ]; then
         cp "$YAML_ORIG" "$WIPPY_YAML"
         rm -f "$YAML_ORIG"
@@ -69,6 +70,8 @@ for line in rest.split("\n"):
     break
 open(p, "w").write(s[:idx] + rest)
 PY
+
+cp "$REPO_ROOT/keeper/src/keeper/develop/integrate/handlers/migration_handler.lua" "$TEST_DIR/migration_handler_subject.lua"
 
 if [ -f "$TEST_ENV" ]; then
     set -a

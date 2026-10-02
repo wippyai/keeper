@@ -154,6 +154,8 @@ entries:
       - sql
     imports:
       test: wippy.test:test
+      runner: wippy.migration:runner
+      subject: app:migration_handler_subject
     method: define_tests
     pool:
       size: 1
