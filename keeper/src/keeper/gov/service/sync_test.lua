@@ -1,7 +1,42 @@
 local test = require("test")
 local sync = require("sync")
+local yaml = require("yaml")
 
 local function define_tests()
+    describe("dependency YAML sequence formatting", function()
+        for _, indent in ipairs({ "", "    " }) do
+            it("persists a parseable dependency sequence at indentation " .. #indent, function()
+                local sibling = indent .. "- version: '*'\n" .. indent .. "  name: keep\n"
+                    .. indent .. "  kind: ns.dependency\n" .. indent .. "  component: wippy/keep\n"
+                    .. indent .. "  parameters:\n" .. indent .. "  - name: nested\n"
+                    .. indent .. "    value: app:db"
+                local before = "version: '1.0'\nnamespace: app.deps\nentries:\n" .. sibling
+                local block = sync.render_index_entry("app.deps", {
+                    name = "kb10", kind = "ns.dependency", component = "kickside/kb10", version = "*",
+                })
+                local after, changed = sync.patch_index_content(before, "app.deps", { kb10 = block }, {}, {})
+                test.is_true(changed)
+                local decoded, err = yaml.decode(after)
+                test.is_nil(err)
+                test.eq(#decoded.entries, 2)
+                test.eq(decoded.entries[2].component, "kickside/kb10")
+                test.contains(after, sibling)
+                local updated = sync.render_index_entry("app.deps", {
+                    name = "keep", kind = "ns.dependency", component = "wippy/updated", version = "*",
+                })
+                after = sync.patch_index_content(after, "app.deps", { keep = updated }, {}, {})
+                decoded, err = yaml.decode(after)
+                test.is_nil(err)
+                test.eq(#decoded.entries, 2)
+                test.eq(decoded.entries[1].component, "wippy/updated")
+                after = sync.patch_index_content(after, "app.deps", {}, { keep = true }, {})
+                decoded, err = yaml.decode(after)
+                test.is_nil(err)
+                test.eq(#decoded.entries, 1)
+                test.eq(decoded.entries[1].name, "kb10")
+            end)
+        end
+    end)
     describe("gov.service.sync pure helpers", function()
         describe("pick_kind_config", function()
             it("returns the direct config for a plain kind like function.lua", function()

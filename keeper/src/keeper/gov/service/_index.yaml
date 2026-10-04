@@ -164,6 +164,7 @@ entries:
       comment: Pure tests for sync helpers (pick_kind_config, append_extension, namespace_dir, extract_filename, changeset_namespaces, entry_file_path)
       suite: governance
     source: file://sync_test.lua
+    modules: [yaml]
     imports:
       sync: keeper.gov.service:sync
       test: wippy.test:test
