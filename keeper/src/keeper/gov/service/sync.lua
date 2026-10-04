@@ -223,23 +223,23 @@ local function scalar_value(raw)
 end
 
 -- Locate the entry name without assuming which field the YAML encoder emits
--- first. Sequence-item fields use four-space indentation after the initial
--- `  - ` line; nested `name` fields are therefore deliberately ignored.
+-- first. Direct fields start two spaces beyond the sequence indentation;
+-- nested `name` fields are ignored.
 -- Canonical identity comments are a fallback for unusual hand-written blocks.
-local function block_name(lines, start_line, entry_line, finish, namespace)
+local function block_name(lines, start_line, entry_line, finish, namespace, indent)
     for line_number = entry_line, finish do
         local raw = lines[line_number] or ""
         local value
         if line_number == entry_line then
-            value = raw:match("^  %- name:%s*(.-)%s*$")
+            value = raw:match("^" .. indent .. "%- name:%s*(.-)%s*$")
         else
-            value = raw:match("^    name:%s*(.-)%s*$")
+            value = raw:match("^" .. indent .. "  name:%s*(.-)%s*$")
         end
         local name = scalar_value(value)
         if name then return name end
     end
 
-    local marker = (lines[start_line] or ""):match("^  #%s*(.-)%s*$")
+    local marker = (lines[start_line] or ""):match("^" .. indent .. "#%s*(.-)%s*$")
     local prefix = tostring(namespace) .. ":"
     if marker and marker:sub(1, #prefix) == prefix then
         return scalar_value(marker:sub(#prefix + 1))
@@ -247,8 +247,9 @@ local function block_name(lines, start_line, entry_line, finish, namespace)
     return nil
 end
 
-local function append_block_lines(out, block)
+local function append_block_lines(out, block, indent)
     for _, line in ipairs(split_lines(block)) do
+        if indent and line:sub(1, 2) == "  " then line = indent .. line:sub(3) end
         table.insert(out, line)
     end
 end
@@ -301,6 +302,14 @@ function M.patch_index_content(existing, namespace, replacements, deletes, guard
         return M.patch_index_content(nil, namespace, replacements, deletes, guarded_missing)
     end
 
+    local indent = "  "
+    for n = entries_idx + 1, #lines do
+        local candidate = lines[n]:match("^( *)%- ")
+        if candidate then indent = candidate; break end
+    end
+    local item_pattern = "^" .. indent .. "%- "
+    local comment_pattern = "^" .. indent .. "#"
+
     local out = {}
     for i = 1, entries_idx do table.insert(out, lines[i]) end
 
@@ -311,9 +320,9 @@ function M.patch_index_content(existing, namespace, replacements, deletes, guard
         local start = i
         local entry_line = nil
 
-        if lines[i]:match("^  #") and lines[i + 1] and lines[i + 1]:match("^  %- ") then
+        if lines[i]:match(comment_pattern) and lines[i + 1] and lines[i + 1]:match(item_pattern) then
             entry_line = i + 1
-        elseif lines[i]:match("^  %- ") then
+        elseif lines[i]:match(item_pattern) then
             entry_line = i
         end
 
@@ -323,23 +332,23 @@ function M.patch_index_content(existing, namespace, replacements, deletes, guard
         else
             local next_start = entry_line + 1
             while next_start <= #lines do
-                if lines[next_start]:match("^  %- ") then
+                if lines[next_start]:match(item_pattern) then
                     break
                 end
-                if lines[next_start]:match("^  #") and lines[next_start + 1] and lines[next_start + 1]:match("^  %- ") then
+                if lines[next_start]:match(comment_pattern) and lines[next_start + 1] and lines[next_start + 1]:match(item_pattern) then
                     break
                 end
                 next_start = next_start + 1
             end
             local finish = next_start - 1
-            local name = block_name(lines, start, entry_line, finish, namespace)
+            local name = block_name(lines, start, entry_line, finish, namespace, indent)
 
             if name then found[name] = true end
             if name and deletes[name] then
                 -- drop the block
             elseif name and replacements[name] then
                 if not replaced[name] then
-                    append_block_lines(out, replacements[name])
+                    append_block_lines(out, replacements[name], indent)
                     replaced[name] = true
                 end
             else
@@ -351,7 +360,7 @@ function M.patch_index_content(existing, namespace, replacements, deletes, guard
 
     for _, name in ipairs(sorted_names(replacements)) do
         if not found[name] and not guarded_missing[name] then
-            append_block_lines(out, replacements[name])
+            append_block_lines(out, replacements[name], indent)
         end
     end
 
@@ -360,7 +369,7 @@ function M.patch_index_content(existing, namespace, replacements, deletes, guard
     -- persisting an unbootable `entries:` document.
     local has_entries = false
     for _, line in ipairs(out) do
-        if line:match("^  %- ") then
+        if line:match(item_pattern) then
             has_entries = true
             break
         end
