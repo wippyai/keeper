@@ -105,3 +105,17 @@ entries:
     method: define_tests
     pool:
       size: 1
+
+  - name: orchestrator_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: state.service
+    source: file://orchestrator_test.lua
+    imports:
+      orchestrator: keeper.state.service:orchestrator
+      consts: keeper.state:consts
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1

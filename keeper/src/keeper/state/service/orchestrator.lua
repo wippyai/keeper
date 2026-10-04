@@ -292,7 +292,11 @@ end
 local function run()
     log:info("Starting State System Orchestrator")
 
-    process.registry.register(consts.PROCESS_NAMES.ORCHESTRATOR, process.pid())
+    local pid, err = process.pid()
+    if err then
+        return nil, err
+    end
+    process.registry.register(consts.PROCESS_NAMES.ORCHESTRATOR, pid)
 
     local state = {
         database_ready = false,

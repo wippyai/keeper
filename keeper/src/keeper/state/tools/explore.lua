@@ -218,7 +218,7 @@ local function entries_operation(params: ExploreParams)
     reader = reader:with_entries(unpack(params.ids)):include_chunks()
 
     local entries, err = reader:all()
-    if err then
+    if not entries then
         return nil, err
     end
 
@@ -287,7 +287,7 @@ local function search_operation(params: ExploreParams)
     end
 
     local entries, err = reader:all()
-    if err then
+    if not entries then
         return nil, "Search failed: " .. err
     end
 
