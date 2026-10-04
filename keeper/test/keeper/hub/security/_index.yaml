@@ -50,3 +50,18 @@ entries:
     method: define_tests
     pool:
       size: 1
+
+  - name: resolution_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Hub ownership and planner resolution read permission regression.
+      suite: hub_security
+    source: file://resolution_test.lua
+    modules:
+      - security
+    imports:
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
