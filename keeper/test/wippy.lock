@@ -2,6 +2,8 @@ directories:
     modules: .wippy
     src: .
 modules:
+    - name: keeper/keeper
+      version: 0.5.91
     - name: userspace/contract
       version: 0.4.1
       hash: c154e2cc11ca94ddd368307aced96cfbbd411a58e74e46339d50b4a9befc1d65
@@ -21,8 +23,8 @@ modules:
       version: 0.4.44
       hash: 26c48f82861ca423d17fa6fe18a610e29097db27ba44a687c98dcb3da108fb32
     - name: wippy/migration
-      version: 0.3.18
-      hash: e00cad6706bb95f556aeab5318a04e55d3884c027b09f6340fc4e7d69c905a17
+      version: 0.3.21
+      hash: 215445ba5e9c79a36af1dcf59277946c8b7a7f20d372a296f295fa99ddc4b430
     - name: wippy/security
       version: 0.4.2
       hash: 9020016afc9de612f5297d38ce99e8500c63a2986077e8b0e560d8636c506627
@@ -33,8 +35,8 @@ modules:
       version: 0.4.5
       hash: 028180c6044cdd9bbe15330255a4926770e02a291511930264a615f6388824f0
     - name: wippy/test
-      version: 0.4.17
-      hash: 37a304cc20aa3005004255e9fda16835a94119db520c0c97e1db044c7844a229
+      version: 0.4.20
+      hash: 676d633308d9abcd7dda56eeaeb8a6f35b80a4678fbcbe968aa41b29c67e018a
     - name: wippy/views
       version: 0.5.10
       hash: a25c35b260e8f9c161f372aa8f5e80624af4db233f2b9de4a36d9015342f01fe

@@ -1,5 +1,24 @@
 # Release Notes
 
+## keeper/keeper 0.5.91
+
+Require `wippy/migration >=0.3.21`, the guarded runner matching Keeper's
+concurrent-install fix in 0.5.90. Previously the `>=0.3.15` range admitted an
+already-locked, unguarded runner, so updating Keeper alone could leave the
+database migration and ledger-creation races unfixed. Applications must resolve
+the updated dependency; no application lock is changed remotely. A conflicting
+application pin to an older migration version must be updated explicitly.
+
+The canonical migration interface and public Keeper API are unchanged. The
+test host locks the published migration 0.3.21 and test runner 0.4.20 rather
+than relying on local companion sources. Missing migrations and runner failures
+remain errors, and no legacy ownership-ledger repair is introduced.
+
+Verified on released runtime v0.3.44a: 390 Keeper entries lint-clean; migration
+handler 11/11; live migration pipeline 2/2; Hub 159/159; step-runner smoke;
+resolution permission regression; state-orchestrator regressions 2/2. The test
+host uses the published dependencies, not locally replaced companion sources.
+
 ## keeper/keeper 0.5.90
 
 Hub installs accept migrations that a concurrent runner already completed, so a

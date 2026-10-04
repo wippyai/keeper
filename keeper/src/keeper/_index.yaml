@@ -538,7 +538,7 @@ entries:
     meta:
       description: Migration framework for Keeper databases
     component: wippy/migration
-    version: ">=v0.3.15"
+    version: ">=v0.3.21"
 
   # keeper:dep.wippy.security
   - name: dep.wippy.security
