@@ -21,11 +21,9 @@ local function snapshot_entries()
 end
 
 local function build_delta(before_entries, after_entries)
-    -- registry.build_delta accepts entry arrays at runtime; the runtime type
-    -- metadata still labels these arguments as registry.Version.
     local changeset, delta_err = registry.build_delta(
-        before_entries :: registry.Version,
-        after_entries :: registry.Version
+        before_entries,
+        after_entries
     )
     if not changeset then
         return nil, "registry.build_delta failed: " .. tostring(delta_err)
