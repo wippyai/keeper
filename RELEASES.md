@@ -2,6 +2,11 @@
 
 ## keeper/keeper 0.5.91
 
+Filesystem sync preserves the indentation of an existing dependency sequence
+when it adds, replaces or removes entries, so an indentless or four-space
+`_index.yaml` stays parseable after onboarding installs and the application
+restarts cleanly.
+
 Require `wippy/migration >=0.3.21`, the guarded runner matching Keeper's
 concurrent-install fix in 0.5.90. Previously the `>=0.3.15` range admitted an
 already-locked, unguarded runner, so updating Keeper alone could leave the
