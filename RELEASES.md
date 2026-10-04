@@ -1,5 +1,21 @@
 # Release Notes
 
+## keeper/keeper 0.5.90
+
+Hub installs accept migrations that a concurrent runner already completed, so a
+fresh install no longer fails when two runners apply the same migration. Hub
+administrator tools receive `registry.resolution.get`, which Wippy 0.3.44a
+requires for the resolution data Keeper reads for module ownership and install
+planning. Lint is clean against the corrected registry types: entry arrays pass
+directly to `registry.build_delta`, upload uses `registry.Entry`, the state
+orchestrator returns a `process.pid()` error before registering, and the state
+explorer guards optional results before sorting.
+
+### Verification
+
+- Keeper lint checked 390 entries with zero diagnostics on Wippy 0.3.44a.
+- Keeper Hub tests passed 159/159.
+
 ## keeper/keeper 0.5.89
 
 Hub ownership reads only registry entry metadata. Module owner and root come
