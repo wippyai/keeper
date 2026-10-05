@@ -136,6 +136,8 @@ entries:
         value: app:processes
       - name: admin_scope
         value: app.security:admin
+      - name: mcp_group_resolver
+        value: app:mcp_group_resolver
       - name: wippy.llm:process_host
         value: app:processes
       - name: wippy.llm:env_storage
@@ -160,3 +162,8 @@ entries:
     imports:
       runner: wippy.migration:runner
       sql_dialect: keeper.internal:sql_dialect
+
+  - name: mcp_group_resolver
+    kind: function.lua
+    source: file://mcp_group_resolver.lua
+    method: resolve

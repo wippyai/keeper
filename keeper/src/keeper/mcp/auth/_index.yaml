@@ -55,3 +55,19 @@ entries:
     imports:
       mcp_consts: keeper.mcp:consts
     
+  - name: auth_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: mcp
+    source: file://auth_test.lua
+    modules: [sql, hash]
+    imports:
+      migration_runner: wippy.migration:runner
+      mcp_handler_core: keeper.mcp.transport:handler_core
+      mcp_tokens: keeper.mcp.auth:tokens
+      mcp_consts: keeper.mcp:consts
+      test: wippy.test:test
+      mcp_auth: keeper.mcp.auth:auth
+      keeper_config: keeper:config
+    method: run

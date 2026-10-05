@@ -49,7 +49,7 @@ local function jsonrpc_response(id, result)
 end
 
 local function jsonrpc_error(id, code, message)
-    return { jsonrpc = "2.0", id = id, error = { code = code, message = message } }
+    return { jsonrpc = "2.0", id = id, error = { code = code, message = tostring(message) } }
 end
 
 local function write_disabled(res, message)

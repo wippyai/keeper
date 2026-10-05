@@ -48,3 +48,9 @@ entries:
     meta:
       comment: Model class used for Keeper Hub security scans
     default: class:fast
+
+  - name: mcp_group_resolver
+    kind: registry.entry
+    meta:
+      comment: Optional host function resolving live MCP subject groups.
+    default: ""

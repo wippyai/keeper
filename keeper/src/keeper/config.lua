@@ -73,4 +73,15 @@ function M.mcp_max_sessions_per_token(): integer
     return value
 end
 
+function M.mcp_group_resolver(): (string?, unknown?)
+    local entry, err = registry.get("keeper.config:mcp_group_resolver")
+    if err or not entry then return nil, config_error("mcp_group_resolver", "missing", err) end
+    local value = (entry.data or {}).default
+    if value == nil or value == "" then return "", nil end
+    if type(value) ~= "string" then
+        return nil, config_error("mcp_group_resolver", "invalid", "function id must be a string")
+    end
+    return value, nil
+end
+
 return M

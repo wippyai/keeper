@@ -93,3 +93,16 @@ changes.
 Keeper MCP supports scoped tokens bound to a user identity. The MCP route is
 mounted through the host application's configured public gateway and can be
 enabled or disabled with Keeper environment settings.
+
+## MCP host groups
+
+Hosts can bind the optional `keeper:mcp_group_resolver` requirement to a
+`function.lua` entry. Keeper calls it with `{id = token_identity}` at MCP
+authentication. The function returns `{active = boolean, groups = string[]}`;
+an active subject can have an empty group array. Keeper stamps the current
+array as the actor's `meta.security_groups` and reuses it within that request.
+A new request resolves memberships again. Unbound hosts keep the existing
+actor metadata. Lookup failures and malformed responses fail authentication
+with a typed `UNAVAILABLE` error and detail code
+`KEEPER_MCP_GROUP_RESOLUTION_FAILED`; inactive subjects receive
+`PERMISSION_DENIED`. The host function carries its own directory-store authority.
