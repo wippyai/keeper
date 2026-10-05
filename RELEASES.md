@@ -1,5 +1,18 @@
 # Release Notes
 
+## keeper/keeper 0.5.92
+
+Keeper MCP actors can carry the user's live group memberships. The optional
+`keeper:mcp_group_resolver` requirement names a host function that Keeper calls
+with `{id}` at MCP authentication; the returned `groups` become the actor's
+`meta.security_groups`, so hosts that grant component access to groups accept
+Keeper MCP calls. An inactive subject is denied, and resolver failures fail
+authentication with `KEEPER_MCP_GROUP_RESOLUTION_FAILED`. Without a binding the
+actor is unchanged.
+
+The Hub module inspection tools (`list_module_namespaces`,
+`read_module_entries`) declare the `hub.read` MCP scope.
+
 ## keeper/keeper 0.5.91
 
 Filesystem sync preserves the indentation of an existing dependency sequence
