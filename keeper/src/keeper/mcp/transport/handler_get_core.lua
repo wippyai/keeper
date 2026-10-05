@@ -21,7 +21,7 @@ local sessions = require("mcp_sessions")
 local function write_error(res, status, message)
     res:set_status(status)
     res:set_content_type("application/json")
-    res:write_json({ error = message })
+    res:write_json({ error = tostring(message) })
 end
 
 local function transport_enabled(res)

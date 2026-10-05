@@ -417,6 +417,17 @@ entries:
       - entry: keeper.hub.security:admin_catalog
         path: ".groups +="
 
+  - name: mcp_group_resolver
+    kind: ns.requirement
+    required: false
+    default: ""
+    meta:
+      value_kind: function.lua
+      description: Optional host resolver for live MCP subject groups; accepts {id} and returns {active, groups}.
+    targets:
+      - entry: keeper.config:mcp_group_resolver
+        path: .default
+
   # keeper:auth_token_store
   - name: auth_token_store
     kind: ns.requirement

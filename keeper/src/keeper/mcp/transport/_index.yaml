@@ -141,6 +141,7 @@ entries:
         id: keeper.mcp.transport:handler_get
       policies:
         - keeper.mcp.security:endpoint_db_access
+        - keeper.mcp.security:endpoint_actor_create
         - keeper.mcp.security:endpoint_registry_read
         - keeper.mcp.security:endpoint_env_read
 
@@ -170,6 +171,7 @@ entries:
         id: keeper.mcp.transport:handler_delete
       policies:
         - keeper.mcp.security:endpoint_db_access
+        - keeper.mcp.security:endpoint_actor_create
         - keeper.mcp.security:endpoint_registry_read
         - keeper.mcp.security:endpoint_env_read
         - keeper.mcp.security:sse_broker_unregister

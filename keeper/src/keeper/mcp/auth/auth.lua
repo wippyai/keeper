@@ -152,6 +152,8 @@ function M.session_from_token(token)
 
     local ok, subject_err = authorizer.validate_subject(session)
     if not ok then return nil, subject_err end
+    local _, actor_err = M.admin_actor(session)
+    if actor_err then return nil, actor_err end
     return session, nil
 end
 
@@ -165,10 +167,51 @@ function M.admin_actor(session, via)
     if type(identity) ~= "string" or identity == "" then
         error("admin_actor: session.identity missing — refuse to synthesize an anonymous actor")
     end
-    return security.new_actor(identity, {
+    local meta = {
         via = via or "mcp",
         token_label = session and session.label or "env",
-    })
+    }
+    -- Token reads create a new request session; checks reuse this live snapshot.
+    if session._host_groups_resolved then
+        meta.security_groups = session._host_security_groups
+        return security.new_actor(identity, meta)
+    end
+    local resolver, config_err = config.mcp_group_resolver()
+    local function resolution_error(message, kind)
+        return errors.new({
+            message = "MCP host group resolution failed: " .. tostring(message),
+            kind = kind or errors.UNAVAILABLE,
+            details = { code = "KEEPER_MCP_GROUP_RESOLUTION_FAILED" },
+        })
+    end
+    if config_err then return nil, resolution_error(config.error_message(config_err)) end
+    if resolver ~= "" then
+        local result, err = funcs.call(resolver, { id = identity })
+        if err then return nil, resolution_error(err) end
+        if type(result) ~= "table" or type(result.active) ~= "boolean" or type(result.groups) ~= "table" then
+            return nil, resolution_error("resolver must return {active, groups}")
+        end
+        if not result.active then
+            return nil, resolution_error("subject is inactive", errors.PERMISSION_DENIED)
+        end
+        local count = 0
+        for key, group in pairs(result.groups) do
+            if type(key) ~= "number" or key < 1 or key ~= math.floor(key)
+                or type(group) ~= "string" or group == "" then
+                return nil, resolution_error("groups must be an array of non-empty strings")
+            end
+            count = count + 1
+        end
+        for index = 1, count do
+            if result.groups[index] == nil then
+                return nil, resolution_error("groups must be a contiguous array")
+            end
+        end
+        meta.security_groups = result.groups
+    end
+    session._host_security_groups = meta.security_groups
+    session._host_groups_resolved = true
+    return security.new_actor(identity, meta)
 end
 
 function M.admin_scope()
@@ -210,7 +253,8 @@ function M.admin_failure(err)
 end
 
 function M.admin_identity(session, via)
-    local actor = M.admin_actor(session, via)
+    local actor, actor_err = M.admin_actor(session, via)
+    if actor_err then return nil, nil, actor_err end
     local scope, err = M.session_scope(session)
     if err then return nil, nil, err end
     return actor, scope, nil
@@ -223,9 +267,11 @@ function M.session_allows(session, action, resource)
     if type(session) ~= "table" or type(session.identity) ~= "string" or session.identity == "" then
         return false, "MCP session identity required"
     end
-    local ok, actor_or_err = pcall(M.admin_actor, session, "mcp.security")
-    if not ok then return false, tostring(actor_or_err) end
+    local ok, actor_or_err, actor_err = pcall(M.admin_actor, session, "mcp.security")
+    if not ok then return false, actor_or_err end
+    if actor_err then return false, actor_err end
     local actor = actor_or_err
+    if not actor then return false, actor_err end
     local scope, err = M.session_scope(session)
     if err then return false, err end
     local result = scope:evaluate(actor, action, resource or "")
