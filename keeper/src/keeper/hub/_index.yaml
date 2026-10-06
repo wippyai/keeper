@@ -88,7 +88,18 @@ entries:
       planner: keeper.hub:planner
       ownership: keeper.hub:ownership
       security_scan: keeper.hub:security_scan
+      requirement_fill: keeper.hub:requirement_fill
       test: wippy.test:test
     method: define_tests
     pool:
       size: 1
+
+  - name: requirement_fill
+    kind: library.lua
+    source: file://requirement_fill.lua
+    modules:
+      - json
+    imports:
+      llm: wippy.llm:llm
+      prompt: wippy.llm:prompt
+      planner: keeper.hub:planner

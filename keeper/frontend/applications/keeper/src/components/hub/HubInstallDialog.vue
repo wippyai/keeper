@@ -3,7 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { Icon } from '@iconify/vue'
 import { useApi } from '../../composables/useWippy'
 import {
-  planHubInstall, installHubDependency, listHubDependencies, scanHubInstall,
+  planHubInstall, fillHubRequirementGaps, installHubDependency, listHubDependencies, scanHubInstall,
   type HubInstallPlanResponse, type HubPlanRequirement, type InstallPlanNode,
   type HubScanFinding, type HubScanModuleResult, type HubScanResponse, type HubScanStatus,
   type InstallPayload,
@@ -39,9 +39,11 @@ let scanRevision = 0
 
 const plan = ref<HubInstallPlanResponse | null>(null)
 const planLoading = ref(false)
+const fillLoading = ref(false)
 const planError = ref<string | null>(null)
 const requirements = ref<HubPlanRequirement[]>([])
 const parameterValues = ref<Record<string, string>>({})
+const bindingValues = ref<Record<string, string>>({})
 
 // module name -> currently installed version, used to distinguish UPGRADE from
 // a plain already-installed node in the plan tree.
@@ -65,6 +67,8 @@ function reset() {
   planError.value = null
   requirements.value = []
   parameterValues.value = {}
+  bindingValues.value = {}
+  fillLoading.value = false
   void loadInstalledVersions()
   void loadPlan()
 }
@@ -100,11 +104,10 @@ function isRootRequirement(req: HubPlanRequirement): boolean {
 const rootRequirements = computed(() => requirements.value.filter(isRootRequirement))
 const transitiveRequirements = computed(() => requirements.value.filter(req => !isRootRequirement(req)))
 
-// A transitive requirement the plan could not satisfy from existing values or
-// defaults blocks the install: this dialog cannot supply it (the backend
-// refuses parameters addressed to transitive modules), so the module must be
-// installed as an explicit root with the parameter.
+// A transitive requirement blocks installation until its reviewed dependency
+// binding has a compatible value.
 function isTransitiveBlocker(req: HubPlanRequirement): boolean {
+  if ((bindingValues.value[requirementKey(req)] || '').trim()) return !!req.invalid
   if (req.missing) return true
   if (req.invalid) return true
   return !!req.required && !(req.value || '').trim()
@@ -113,7 +116,12 @@ function isTransitiveBlocker(req: HubPlanRequirement): boolean {
 const transitiveBlockers = computed(() => transitiveRequirements.value.filter(isTransitiveBlocker))
 
 function transitiveValue(req: HubPlanRequirement): string {
-  return (req.value || '').trim() || (req.default || '').trim()
+  return bindingValues.value[requirementKey(req)] ?? (req.value || '').trim()
+}
+
+function setBinding(req: HubPlanRequirement, value: string) {
+  resetScanDecision()
+  bindingValues.value[requirementKey(req)] = value
 }
 
 function setParameter(req: HubPlanRequirement, value: string) {
@@ -151,6 +159,22 @@ function applyPlan(next: HubInstallPlanResponse, previousValues: Record<string, 
     values[key] = previousValues[key] ?? req.value ?? ''
   }
   parameterValues.value = values
+  bindingValues.value = Object.fromEntries((next.install_payload.requirement_bindings || [])
+    .map(binding => [binding.name, binding.value]))
+}
+
+async function fillGaps() {
+  fillLoading.value = true
+  planError.value = null
+  resetScanDecision()
+  const manual = Object.fromEntries(Object.entries(parameterValues.value).filter(([, value]) => value.trim()))
+  try {
+    applyPlan(await fillHubRequirementGaps(api, installPayload()), manual)
+  } catch (e: any) {
+    planError.value = e.response?.data?.error || e.response?.data?.message || e.message
+  } finally {
+    fillLoading.value = false
+  }
 }
 
 async function loadPlan() {
@@ -170,6 +194,7 @@ async function loadPlan() {
       run_migrations: runMigrations.value,
       migration_policy: runMigrations.value ? 'up' : 'none',
       parameters: existing.length ? existing : undefined,
+      requirement_bindings: Object.entries(bindingValues.value).map(([name, value]) => ({name, value})),
     })
     applyPlan(next, previousValues)
   } catch (e: any) {
@@ -218,6 +243,7 @@ function installPayload(): InstallPayload {
     run_migrations: runMigrations.value,
     migration_policy: runMigrations.value ? 'up' : 'none',
     parameters: parametersPayload(),
+    requirement_bindings: Object.entries(bindingValues.value).map(([name, value]) => ({name, value})),
   }
 }
 
@@ -274,6 +300,7 @@ const scanDecisionMade = computed(() => scanSkipped.value || !!scanResult.value)
 const installDisabled = computed(() =>
   busy.value ||
   planLoading.value ||
+  fillLoading.value ||
   scanLoading.value ||
   !scanDecisionMade.value ||
   missingRequirements.value.length > 0 ||
@@ -320,7 +347,7 @@ async function submit() {
   }
   if (transitiveBlockers.value.length) {
     const req = transitiveBlockers.value[0]
-    error.value = `Requirement ${requirementKey(req)} of ${req.module} is unsatisfied and cannot be configured here; install ${req.module} directly with this parameter first`
+    error.value = `Configure dependency requirement ${requirementKey(req)} of ${req.module} before installing`
     return
   }
   busy.value = true
@@ -456,7 +483,11 @@ const planSummary = computed(() => {
             <template v-if="planSummary.reused"> · {{ planSummary.reused }} reused</template>
           </span>
           <span v-else>Plan resolves transitive dependencies before install.</span>
-          <button class="ghost-sm" type="button" @click="loadPlan" :disabled="planLoading">Refresh</button>
+          <div class="flex items-center gap-2">
+            <button v-if="missingRequirements.length || transitiveBlockers.length" class="ghost-sm" type="button"
+              @click="fillGaps" :disabled="planLoading || fillLoading || busy">{{ fillLoading ? 'Filling gaps…' : 'Fill gaps' }}</button>
+            <button class="ghost-sm" type="button" @click="loadPlan" :disabled="planLoading || fillLoading">Refresh</button>
+          </div>
         </div>
 
         <!-- Dependency tree -->
@@ -517,9 +548,6 @@ const planSummary = computed(() => {
           </div>
         </div>
 
-        <!-- Dependency configuration: transitive modules own these; parameters
-             apply only to the module being installed, so they render read-only
-             and are never submitted. -->
         <div v-if="transitiveRequirements.length" class="mt-3 mb-3">
           <div class="form-label flex items-center gap-1.5">
             <Icon icon="tabler:sitemap" class="w-3.5 h-3.5" />
@@ -538,14 +566,15 @@ const planSummary = computed(() => {
                 <span v-if="isTransitiveBlocker(req)" class="text-[9px]" style="color: var(--p-danger-500)">unsatisfied</span>
                 <span v-else-if="req.value_source && req.value_source !== 'empty'" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.value_source }}</span>
               </div>
-              <div class="transitive-value mono">{{ transitiveValue(req) || '(not set)' }}</div>
+              <RequirementValueInput :model-value="transitiveValue(req)" :requirement="req"
+                :disabled="busy || planLoading || fillLoading" :placeholder="requirementPlaceholder(req)"
+                @update:model-value="setBinding(req, $event)" @commit="loadPlan" />
               <RequirementResolution :requirement="req" />
               <div v-if="isTransitiveBlocker(req)" class="mt-1 text-[10px]" style="color: var(--p-danger-500)">
                 {{ req.invalid_reason || 'No value satisfies this requirement.' }}
-                Install <span class="mono">{{ req.module }}</span> directly with this parameter to configure it.
               </div>
               <div v-else class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">
-                Configured by <span class="mono">{{ req.module }}</span>; to override, install <span class="mono">{{ req.module }}</span> directly with this parameter.
+                Applies to <span class="mono">{{ req.module }}</span> through its dependency binding.
               </div>
               <div v-if="req.description" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">{{ req.description }}</div>
             </div>
@@ -626,7 +655,7 @@ const planSummary = computed(() => {
 
         <div v-if="transitiveBlockers.length" class="mt-2 px-2 py-1.5 rounded text-[11px] bg-danger-500/15 text-danger-500">
           {{ transitiveBlockers.length }} dependency requirement{{ transitiveBlockers.length === 1 ? ' is' : 's are' }} unsatisfied.
-          Install the owning module{{ transitiveBlockers.length === 1 ? '' : 's' }} directly with the parameter to proceed.
+          Choose a compatible value before installing.
         </div>
         <div v-if="planError" class="mt-2 px-2 py-1.5 rounded text-[11px] bg-danger-500/15 text-danger-500">{{ planError }}</div>
         <div v-if="error" class="mt-2 px-2 py-1.5 rounded text-[11px] bg-danger-500/15 text-danger-500">{{ error }}</div>
@@ -909,15 +938,6 @@ const planSummary = computed(() => {
   background: var(--p-surface-0);
 }
 .transitive-req.blocked { border-color: var(--p-danger-500); }
-.transitive-value {
-  font-size: 11px;
-  color: var(--p-text-muted-color);
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: var(--p-surface-100);
-  overflow-wrap: anywhere;
-}
-
 .legend {
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px;
   margin-top: 8px;

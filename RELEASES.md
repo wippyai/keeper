@@ -4,11 +4,19 @@
 
 The minimum runtime is Wippy v0.3.44a. Hub plans preview native registry changes
 before resolving requirements, including modules not yet installed from local
-replacement trees. Declared defaults precede model selection, and existing exact
-bindings remain authoritative. Requirements without a default and with multiple
-compatible candidates receive a model choice and reason for administrator review.
-Unavailable or invalid model choices leave the requirement unbound with a typed
-error. Native planning errors remain visible and prevent an applicable plan.
+replacement trees. Requirement planning is deterministic: an existing exact
+binding, then a compatible declared default, then the sole registry candidate of
+the declared `meta.value_kind`. Several candidates remain suggestions, and a plan
+with an unbound required requirement is not applicable; install refuses it with
+`REQUIREMENTS_MISSING` naming each requirement and its kind.
+
+The install dialog's Fill gaps action, the `POST /keeper/hub/dependencies/fill-gaps`
+endpoint and the `hub_dependencies` MCP action `fill_gaps` ask a `class:fast` model
+to choose one compatible candidate per unbound requirement. Each choice carries a
+reason and `value_source: llm`, stays editable and applies only through a reviewed
+install. Unavailable or invalid choices leave the requirement unbound with a typed
+error. Transitive requirements accept reviewed `requirement_bindings`, which install
+through native child dependency entries.
 
 ## keeper/keeper 0.5.94
 

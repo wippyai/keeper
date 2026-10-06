@@ -2,6 +2,21 @@ version: "1.0"
 namespace: keeper.hub.api
 
 entries:
+  - name: fill_gaps
+    kind: function.lua
+    source: file://fill_gaps.lua
+    method: handler
+    modules: [http]
+    imports:
+      api_http: keeper.hub.api:http
+      requirement_fill: keeper.hub:requirement_fill
+    pool: {size: 2}
+  - name: fill_gaps.endpoint
+    kind: http.endpoint
+    meta: {router: 'app:api'}
+    method: POST
+    func: fill_gaps
+    path: /keeper/hub/dependencies/fill-gaps
   # keeper.hub.api:browse_modules
   - name: browse_modules
     kind: function.lua

@@ -83,6 +83,7 @@ export interface InstallPayload {
   dry_run?: boolean
   source?: string
   parameters?: Record<string, string> | Array<{ name: string; value: string }>
+  requirement_bindings?: Array<{ name: string; value: string }>
 }
 
 export interface HubPlanRequirement extends HubRequirement {
@@ -145,6 +146,7 @@ export interface HubInstallPlanResponse {
   requirements: HubPlanRequirement[]
   requirement_count: number
   missing_requirements: string[]
+  applicable?: boolean
   parameter_values: Record<string, string>
   recommended_parameters: Array<{ name: string; value: string }>
   migration_policy?: 'none' | 'up' | string
@@ -231,6 +233,11 @@ export async function installHubDependency(api: Api, payload: InstallPayload): P
 
 export async function planHubInstall(api: Api, payload: InstallPayload): Promise<HubInstallPlanResponse> {
   const { data } = await api.post<HubInstallPlanResponse>('/api/v1/keeper/hub/dependencies/plan', payload)
+  return data
+}
+
+export async function fillHubRequirementGaps(api: Api, payload: InstallPayload): Promise<HubInstallPlanResponse> {
+  const { data } = await api.post<HubInstallPlanResponse>('/api/v1/keeper/hub/dependencies/fill-gaps', payload)
   return data
 }
 
