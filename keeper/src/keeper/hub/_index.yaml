@@ -24,8 +24,6 @@ entries:
     imports:
       gov_consts: keeper.gov:consts
       ownership: keeper.hub:ownership
-      llm: wippy.llm:llm
-      prompt: wippy.llm:prompt
 
   # keeper.hub:service
   - name: service

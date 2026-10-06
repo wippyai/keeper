@@ -923,7 +923,7 @@ local function define_tests()
                 return pl, graph
             end
 
-            it("records a model choice and reason from compatible candidates", function()
+            it("keeps ambiguous candidates available for explicit selection without invoking a model", function()
                 local calls = 0
                 local pl, graph = fixture(nil, {generate = function(_, opts)
                     calls = calls + 1
@@ -932,16 +932,16 @@ local function define_tests()
                 end})
                 local result, err = pl:plan_requirements(graph, {})
                 test.is_nil(err)
-                test.eq(calls, 1)
+                test.eq(calls, 0)
                 local row = find_requirement(result, "acme.example:scope")
-                test.eq(row.value, "host:secondary")
-                test.eq(row.value_source, "llm")
-                test.eq(row.choice_reason, "Secondary serves the requested audience.")
-                test.eq(#result.missing, 0)
-                test.eq(find_parameter(result.parameters, "acme.example:scope").value, row.value)
+                test.eq(row.value, "")
+                test.is_true(row.missing)
+                test.eq(#row.suggestions, 2)
+                test.eq(#result.missing, 1)
+                test.eq(#result.parameters, 0)
             end)
 
-            it("reviews ambiguous bare-name reuse through the compatible candidate list", function()
+            it("preserves ambiguous bare-name candidates for explicit selection", function()
                 local calls = 0
                 local pl, graph = fixture(nil, {generate = function()
                     calls = calls + 1
@@ -952,18 +952,18 @@ local function define_tests()
                     {name = "scope", value = "host:secondary", dependency_id = "app:b"}} end
                 local result, err = pl:plan_requirements(graph, {})
                 test.is_nil(err)
-                test.eq(calls, 1)
+                test.eq(calls, 0)
                 local row = find_requirement(result, "acme.example:scope")
-                test.eq(row.value, "host:secondary")
-                test.eq(row.value_source, "llm")
-                test.eq(row.choice_reason, "Secondary matches the audience.")
+                test.eq(row.value, "")
+                test.eq(row.value_source, "conflict")
+                test.eq(#row.suggestions, 2)
                 pl.llm = {generate = function() return nil, "model unavailable" end}
                 result, err = pl:plan_requirements(graph, {})
                 test.is_nil(err)
                 row = find_requirement(result, "acme.example:scope")
                 test.eq(row.value, "")
                 test.is_true(row.missing)
-                test.eq(row.resolution_error.kind, errors.UNAVAILABLE)
+                test.is_nil(row.resolution_error)
             end)
 
             it("keeps defaults and existing exact update bindings ahead of model choice", function()
@@ -980,7 +980,7 @@ local function define_tests()
                 test.eq(result.values["acme.example:scope"], "host:secondary")
             end)
 
-            it("leaves unavailable and invalid model choices unbound with typed errors", function()
+            it("ignores unavailable and invalid model responses on the planner path", function()
                 for _, response in ipairs({
                     {error = "model unavailable", kind = errors.UNAVAILABLE},
                     {result = '{"value":"host:wrong_kind","reason":"Wrong"}', kind = errors.INVALID},
@@ -998,13 +998,13 @@ local function define_tests()
                     local row = find_requirement(result, "acme.example:scope")
                     test.eq(row.value, "")
                     test.is_true(row.missing)
-                    test.not_nil(row.resolution_error)
-                    test.eq(row.resolution_error.kind, response.kind)
+                    test.is_nil(row.resolution_error)
+                    test.eq(#row.suggestions, 2)
                     test.eq(#result.parameters, 0)
                 end
             end)
 
-            it("does not resolve conflicts, single candidates or declared invalid defaults with a model", function()
+            it("keeps exact conflicts unresolved and binds a sole compatible candidate without a model", function()
                 local model = {generate = function() error("model must not run") end}
                 local pl, graph = fixture("host:absent", model)
                 local result, err = pl:plan_requirements(graph, {})
@@ -1021,7 +1021,9 @@ local function define_tests()
                 pl.registry = fake_registry({{id = "host:only", kind = "security.scope", meta = {}, data = {}}})
                 result, err = pl:plan_requirements(graph, {})
                 test.is_nil(err)
-                test.eq(result.values["acme.example:scope"], "")
+                test.eq(result.values["acme.example:scope"], "host:only")
+                test.eq(find_requirement(result, "acme.example:scope").value_source, "registry")
+                test.eq(#result.missing, 0)
             end)
         end)
 
@@ -2523,7 +2525,7 @@ local function define_tests()
                 test.eq(plan_err, native_err)
             end)
 
-            it("reports native unresolved requirements alongside unavailable model choices", function()
+            it("reports native unresolved requirements without invoking a model", function()
                 local native_err = errors.new({kind = errors.INVALID, message = "unresolved requirements",
                     details = {count = 1, errors = {"requirement role has no value"}}})
                 local svc = planner.new({catalog = fake_catalog({["acme/secure"] = {{version = "1.0.0",
@@ -2538,7 +2540,7 @@ local function define_tests()
                 test.eq(#plan.missing_requirements, 1)
                 test.eq(plan.native_resolution_error.kind, errors.INVALID)
                 test.eq(plan.native_resolution_error.details.count, 1)
-                test.eq(plan.requirements[1].resolution_error.code, "UNAVAILABLE")
+                test.is_nil(plan.requirements[1].resolution_error)
             end)
 
             it("reuses an existing dependency entry for component updates", function()
@@ -3074,7 +3076,7 @@ local function define_tests()
                 test.eq(plan.install_payload.namespace, "app.deps")
             end)
 
-            it("emits transitive requirement full ids without inferring registry values", function()
+            it("emits transitive requirement full ids and binds the sole declared-kind candidate", function()
                 local svc = planner.new({
                     catalog = planner_catalog(),
                     registry = fake_registry({
@@ -3100,13 +3102,13 @@ local function define_tests()
                 test.not_nil(req)
                 test.is_true(req.transitive)
                 test.eq(req.module, "wippy/bootloader")
-                test.eq(req.value, "")
-                test.eq(req.value_source, "empty")
-                test.is_true(req.missing)
+                test.eq(req.value, "app.env:store")
+                test.eq(req.value_source, "registry")
+                test.is_false(req.missing)
                 test.eq(req.expected_kind, "env.storage")
                 test.eq(req.suggestions[1].value, "app.env:store")
                 test.eq(req.suggestions[1].kind, "env.storage.router")
-                test.eq(plan.missing_requirements[1], "wippy.bootloader:env_storage")
+                test.eq(#plan.missing_requirements, 0)
 
                 local param = find_parameter(plan.install_payload.parameters, "wippy.bootloader:env_storage")
                 test.is_nil(param)
@@ -3507,16 +3509,17 @@ local function define_tests()
                 test.eq(plan.requirement_count, 1)
                 local req = find_requirement(plan, "wippy.dummy:router")
                 test.not_nil(req)
-                test.eq(req.value, "")
-                test.eq(req.value_source, "empty")
-                test.is_true(req.missing)
+                test.eq(req.value, "app:api")
+                test.eq(req.value_source, "registry")
+                test.is_false(req.missing)
                 test.eq(req.expected_kind, "http.router")
                 test.eq(req.default, "app:router")
                 test.eq(req.suggestions[1].value, "app:api")
                 test.eq(req.suggestions[1].source, "registry")
                 test.eq(req.suggestions[1].kind, "http.router")
                 local param = find_parameter(plan.install_payload.parameters, "wippy.dummy:router")
-                test.is_nil(param)
+                test.not_nil(param)
+                test.eq(param.value, "app:api")
             end)
 
             it("accepts explicit requirement values from arbitrary application namespaces", function()
@@ -3933,6 +3936,7 @@ local function define_tests()
                     catalog = planner_catalog(),
                     registry = fake_registry({
                         { id = "app.env:store", kind = "env.storage.router", meta = {}, data = {} },
+                        { id = "app.env:other", kind = "env.storage.file", meta = {}, data = {} },
                     }),
                 }) :: any
 
@@ -4171,6 +4175,7 @@ local function define_tests()
                     }),
                     registry = fake_registry({
                         { id = "app:api", kind = "http.router", meta = {}, data = {} },
+                        { id = "app:api.other", kind = "http.router", meta = {}, data = {} },
                         {
                             id = "acme.parent:dep.wippy.dummy",
                             kind = "ns.dependency",
@@ -4215,6 +4220,7 @@ local function define_tests()
                     }),
                     registry = fake_registry({
                         { id = "app:api.public", kind = "http.router", meta = {}, data = {} },
+                        { id = "app:api.other", kind = "http.router", meta = {}, data = {} },
                         {
                             id = "app.deps:profile",
                             kind = "ns.dependency",
@@ -6034,6 +6040,8 @@ local function define_tests()
                                         parameter_name = "wippy.dummy:router",
                                         full_id = "wippy.dummy:router",
                                         name = "router",
+                                        expected_kind = "http.router",
+                                        required = true,
                                         value = "",
                                         value_source = "empty",
                                         missing = true,
@@ -6061,6 +6069,8 @@ local function define_tests()
                 test.eq(err_code(err), "REQUIREMENTS_MISSING")
                 test.eq(err_details(err).missing_requirements_count, 1)
                 test.eq(err_details(err).missing_requirements_by_id["wippy.dummy:router"], true)
+                test.not_nil(string.find(err:message(), "wippy.dummy:router", 1, true))
+                test.not_nil(string.find(err:message(), "http.router", 1, true))
             end)
         end)
 
