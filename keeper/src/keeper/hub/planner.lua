@@ -2296,9 +2296,17 @@ function Planner:preview_install(entry, requirement_plan)
         end
         return stage_err
     end
+    local root_args = shallow_copy(entry.data)
+    root_args.id = entry.id
+    root_args.meta = entry.meta
+    root_args.parameters = requirement_plan.parameters
+    local canonical_root, root_err = M.build_dependency_entry(root_args)
+    if not canonical_root then return nil, root_err end
     local root = shallow_copy(entry)
-    root.data = shallow_copy(entry.data)
-    root.data.parameters = requirement_plan.parameters
+    root.kind = canonical_root.kind
+    root.meta = canonical_root.meta
+    root.data = canonical_root.data
+    root.dependency_root = canonical_root.dependency_root
     local stage_err = stage(root)
     if stage_err then return nil, stage_err end
     local bindings, bindings_err = self:plan_binding_dependencies(requirement_plan.requirements, root)

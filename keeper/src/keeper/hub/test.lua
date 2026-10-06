@@ -2493,6 +2493,27 @@ local function define_tests()
                 end
             end)
 
+            it("omits empty planned parameters from the native preview root", function()
+                local preview_root
+                local svc = planner.new({
+                    catalog = fake_catalog({["acme/plain"] = {{version = "1.0.0"}}}),
+                    registry = fake_registry({}, nil, {plan = function(staged)
+                        test.eq(#staged, 1)
+                        preview_root = staged[1].entry
+                        return {digest = "native-empty-parameters", resolution = {modules = {
+                            {name = "acme/plain", version = "1.0.0", source = "replacement-tree-v1"},
+                        }}, changes = {}}, nil
+                    end}),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({component = "acme/plain", version = "*"})
+
+                test.is_nil(plan_err)
+                test.eq(plan.native_plan.digest, "native-empty-parameters")
+                test.not_nil(preview_root)
+                test.is_nil(preview_root.data.parameters)
+            end)
+
             it("propagates native planning failures instead of returning an applicable Hub plan", function()
                 local native_err = errors.new({kind = errors.PERMISSION_DENIED, message = "native plan denied"})
                 local svc = planner.new({catalog = fake_catalog({["acme/secure"] = {{version = "1.0.0"}}}),
