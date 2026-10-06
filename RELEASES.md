@@ -1,5 +1,13 @@
 # Release Notes
 
+## keeper/keeper 0.5.93
+
+MCP token and preset collection fields serialize as arrays, including empty
+scopes and active traits. The Keeper MCP settings page matches presets and
+creates scoped credentials when a root token has no active traits. Existing
+empty collections keep their meaning without a database migration. Invalid
+stored collection JSON returns an error.
+
 ## keeper/keeper 0.5.92
 
 Keeper MCP actors can carry the user's live group memberships. The optional

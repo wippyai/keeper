@@ -39,6 +39,8 @@ entries:
     source: file://policy.lua
     modules:
       - registry
+    imports:
+      mcp_collections: keeper.mcp.auth:collections
     
   # keeper.mcp.auth:tokens
   - name: tokens
@@ -54,6 +56,12 @@ entries:
       - hash
     imports:
       mcp_consts: keeper.mcp:consts
+      mcp_collections: keeper.mcp.auth:collections
+
+  - name: collections
+    kind: library.lua
+    source: file://collections.lua
+    modules: [json]
     
   - name: auth_test
     kind: function.lua
