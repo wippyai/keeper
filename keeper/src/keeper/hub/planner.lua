@@ -635,8 +635,13 @@ local function is_semver_constraint(constraint: string): boolean
     return false
 end
 
--- Explicit releases remain exact; ranges and labels retain their authored
--- meaning. An omitted version uses the default range.
+-- The version an ns.dependency entry declares. The entry is the application's
+-- authored range, and the runtime keeps an installed module while the range
+-- still admits it, so an entry never holds a bare release: an exact release V
+-- raises the floor to >=V (npm install foo@V, cargo add), a range or a @label
+-- is declared as given, and no version declares the default range. The release
+-- is written without a v prefix, the form Hub releases and the application's
+-- own declarations use.
 function M.declared_version(requested): (string?, unknown?)
     local version = trim(requested)
     if version == "" then return M.DEFAULT_VERSION, nil end
@@ -662,7 +667,7 @@ function M.declared_version(requested): (string?, unknown?)
             .. " is neither an exact release (0.1.41) nor a range (>=0.1.41, ^0.1.0, =0.1.41)",
             { version = version }) :: unknown?
     end
-    return "=" .. release.raw, nil
+    return ">=" .. release.raw, nil
 end
 
 local function version_satisfies(version, constraint): boolean
