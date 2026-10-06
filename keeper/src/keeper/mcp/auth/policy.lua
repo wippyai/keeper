@@ -1,4 +1,5 @@
 local registry = require("registry")
+local collections = require("mcp_collections")
 
 local M = {}
 
@@ -27,6 +28,10 @@ end
 local function normalize_preset(e)
     local data = data_of(e)
     local meta = meta_of(e)
+    local scopes, scopes_err = collections.strings(data.scopes)
+    if scopes_err then return nil, tostring(e.id) .. ".scopes: " .. tostring(scopes_err) end
+    local active, active_err = collections.strings(data.default_active)
+    if active_err then return nil, tostring(e.id) .. ".default_active: " .. tostring(active_err) end
     return {
         id = short_name(e.id),
         registry_id = e.id,
@@ -34,10 +39,10 @@ local function normalize_preset(e)
         description = meta.comment,
         icon = meta.icon,
         access_mode = data.access_mode or "tools_only",
-        scopes = data.scopes or {},
+        scopes = scopes,
         trait_filter = data.trait_filter,
         tool_filter = data.tool_filter,
-        default_active = data.default_active or {},
+        default_active = active,
     }
 end
 
@@ -63,7 +68,9 @@ function M.list_presets()
     }) or {}
     local result = {}
     for _, e in ipairs(entries) do
-        table.insert(result, normalize_preset(e))
+        local preset, preset_err = normalize_preset(e)
+        if preset_err then return nil, preset_err end
+        table.insert(result, preset)
     end
     table.sort(result, function(a, b) return a.id < b.id end)
     return result
@@ -84,7 +91,9 @@ function M.get_preset(key)
         end
         return normalize_preset(e)
     end
-    for _, p in ipairs(M.list_presets()) do
+    local presets, presets_err = M.list_presets()
+    if presets_err then return nil, presets_err end
+    for _, p in ipairs(presets) do
         if p.id == key then return p end
     end
     return nil, "preset not found: " .. key

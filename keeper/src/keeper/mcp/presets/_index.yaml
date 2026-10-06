@@ -56,7 +56,7 @@ entries:
       comment: No trait UI — tool surface filtered by tag/namespace
       icon: tabler:list-details
     access_mode: tools_only
-    default_active: {}
+    default_active: []
     scopes:
       - mcp.introspect
       - agents.read
@@ -78,7 +78,7 @@ entries:
       comment: Knowledge base traits plus registry exploration
       icon: tabler:brain
     access_mode: traits
-    default_active: {}
+    default_active: []
     scopes:
       - mcp.introspect
       - registry.read
@@ -99,7 +99,7 @@ entries:
       comment: Read-only exploration — traits tagged readonly/exploration/comparison
       icon: tabler:eye
     access_mode: traits
-    default_active: {}
+    default_active: []
     scopes:
       - mcp.introspect
       - agents.read
@@ -125,7 +125,7 @@ entries:
       comment: Full MCP access for the current admin actor. Bypasses trait, tool, and action scope filters.
       icon: tabler:shield-star
     access_mode: any
-    default_active: {}
+    default_active: []
     scopes:
       - mcp.root
     

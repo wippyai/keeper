@@ -4,6 +4,7 @@ local sql = require("sql")
 local time = require("time")
 local hash = require("hash")
 local consts = require("mcp_consts")
+local collections = require("mcp_collections")
 
 local tokens = {}
 
@@ -56,9 +57,7 @@ end
 
 local function decode_value(s, default)
     if not s or s == "" then return default end
-    local ok, decoded = pcall(json.decode, s)
-    if not ok then return default end
-    return decoded
+    return json.decode(s)
 end
 
 local function truthy(v)
@@ -70,16 +69,25 @@ local function row_to_session(row)
     local access_mode = row.access_mode
     if not access_mode or access_mode == "" then access_mode = "tools_only" end
 
+    local scopes, scopes_err = collections.decode(row.scopes)
+    if scopes_err then return nil, "Invalid token scopes: " .. tostring(scopes_err) end
+    local active, active_err = collections.decode(row.default_active)
+    if active_err then return nil, "Invalid token default_active: " .. tostring(active_err) end
+    local trait_filter, trait_err = decode_value(row.available_traits, nil)
+    if trait_err then return nil, "Invalid token trait_filter: " .. tostring(trait_err) end
+    local tool_filter, tool_err = decode_value(row.available_tools, nil)
+    if tool_err then return nil, "Invalid token tool_filter: " .. tostring(tool_err) end
+
     return {
         token = nil,           -- raw value known only to the client; injected by tokens.get
         token_hash = row.token,
         label = row.label,
         identity = row.identity,
-        scopes = decode_value(row.scopes, {}),
+        scopes = scopes,
         access_mode = access_mode,
-        trait_filter = decode_value(row.available_traits, nil),
-        tool_filter = decode_value(row.available_tools, nil),
-        default_active = decode_value(row.default_active, {}),
+        trait_filter = trait_filter,
+        tool_filter = tool_filter,
+        default_active = active,
         issued_by = row.issued_by,
         created_at = row.created_at,
         expires_at = row.expires_at,
@@ -93,6 +101,11 @@ function tokens.create(params)
     if not VALID_ACCESS_MODES[access_mode] then
         return nil, "invalid access_mode: " .. tostring(access_mode)
     end
+
+    local scopes, scopes_err = collections.strings(params.scopes)
+    if scopes_err then return nil, "Invalid token scopes: " .. tostring(scopes_err) end
+    local active, active_err = collections.strings(params.default_active)
+    if active_err then return nil, "Invalid token default_active: " .. tostring(active_err) end
 
     local raw_token, uerr = generate_raw_token()
     if uerr then return nil, uerr end
@@ -111,11 +124,11 @@ function tokens.create(params)
             token = token_hash,
             label = params.label or "",
             identity = params.identity or "root",
-            scopes = encode_value(params.scopes or {}),
+            scopes = encode_value(scopes),
             access_mode = access_mode,
             available_traits = encode_value(params.trait_filter),
             available_tools = encode_value(params.tool_filter),
-            default_active = encode_value(params.default_active or {}),
+            default_active = encode_value(active),
             issued_by = issued_by,
             created_at = now,
             expires_at = expires,
@@ -131,11 +144,11 @@ function tokens.create(params)
         token = raw_token,
         label = params.label or "",
         identity = params.identity or "root",
-        scopes = params.scopes or {},
+        scopes = scopes,
         access_mode = access_mode,
         trait_filter = params.trait_filter,
         tool_filter = params.tool_filter,
-        default_active = params.default_active or {},
+        default_active = active,
         issued_by = issued_by,
         created_at = now,
         expires_at = params.expires_at,
@@ -170,7 +183,8 @@ function tokens.get(raw_token)
         return nil, "Token expired"
     end
 
-    local session = row_to_session(row)
+    local session, session_err = row_to_session(row)
+    if session_err then return nil, session_err end
     -- Callers (handler, dispatch, broker naming) key everything off session.token.
     -- Return the caller's raw value so downstream keys (session_state, SSE
     -- broker name) match across requests from the same bearer.
@@ -193,7 +207,8 @@ function tokens.list()
 
     local result = {}
     for _, row in ipairs(rows or {}) do
-        local entry = row_to_session(row)
+        local entry, entry_err = row_to_session(row)
+        if entry_err then return nil, entry_err end
         entry.revoked = truthy(row.revoked)
         table.insert(result, entry)
     end
@@ -250,17 +265,20 @@ function tokens.get_active_traits(raw_token)
     if query_err then return nil, "Query failed: " .. tostring(query_err) end
     if not rows or #rows == 0 then return nil, nil end
 
-    return decode_value(rows[1].active_traits, {}), nil
+    return collections.decode(rows[1].active_traits)
 end
 
 function tokens.set_active_traits(raw_token, trait_ids)
     local key, herr = digest(raw_token)
     if herr then return false, herr end
 
+    local active, active_err = collections.strings(trait_ids)
+    if active_err then return false, active_err end
+    local payload, encode_err = json.encode(active)
+    if encode_err then return false, encode_err end
+
     local db, db_err = sql.get(consts.db_id())
     if db_err then return false, "Database error: " .. tostring(db_err) end
-
-    local payload = encode_value(trait_ids or {})
     local now = time.now():unix()
 
     local _, exec_err = sql.builder.insert("keeper_mcp_session_state")

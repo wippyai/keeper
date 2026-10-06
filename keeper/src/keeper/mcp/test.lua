@@ -106,6 +106,69 @@ local function define_tests()
                 test.is_nil(tok.token:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"))
             end)
 
+            it("serializes empty token collections as JSON arrays across create get and list", function()
+                local root = mcp_policy.get_preset("root")
+                local tok = create_token({ label = "empty-arrays-" .. uuid.v4(), scopes = {},
+                    default_active = root.default_active })
+                test.eq(json.encode(tok.scopes), "[]")
+                test.eq(json.encode(tok.default_active), "[]")
+                local db = open_db()
+                local digest, digest_err = mcp_tokens.digest(tok.token)
+                test.is_nil(digest_err)
+                local _, update_err = sql.builder.update("keeper_mcp_tokens")
+                    :set_map({ scopes = "{}", default_active = "{}" })
+                    :where("token = ?", digest):run_with(db):exec()
+                db:release()
+                test.is_nil(update_err)
+                local fetched, fetch_err = mcp_tokens.get(tok.token)
+                test.is_nil(fetch_err)
+                test.eq(json.encode(fetched.scopes), "[]")
+                test.eq(json.encode(fetched.default_active), "[]")
+                local listed, list_err = mcp_tokens.list()
+                test.is_nil(list_err)
+                local found = false
+                for _, row in ipairs(listed) do
+                    if row.label == tok.label then
+                        found = true
+                        test.eq(json.encode(row.scopes), "[]")
+                        test.eq(json.encode(row.default_active), "[]")
+                    end
+                end
+                test.is_true(found)
+            end)
+
+            it("keeps decoded empty collections as arrays when creating a token", function()
+                local tok = create_token({ label = "decoded-empty-" .. uuid.v4(),
+                    scopes = json.decode("{}"), default_active = json.decode("{}") })
+                test.eq(json.encode(tok.scopes), "[]")
+                test.eq(json.encode(tok.default_active), "[]")
+                local fetched, err = mcp_tokens.get(tok.token)
+                test.is_nil(err)
+                test.eq(json.encode(fetched.scopes), "[]")
+                test.eq(json.encode(fetched.default_active), "[]")
+            end)
+
+            it("returns errors for malformed stored collection JSON and named collection members", function()
+                local tok = create_token({ label = "malformed-collection-" .. uuid.v4(), scopes = { "state.read" } })
+                local digest, digest_err = mcp_tokens.digest(tok.token)
+                test.is_nil(digest_err)
+                for _, value in ipairs({ "{", '{"scope":"state.read"}', "null", '["state.read",1]' }) do
+                    local db = open_db()
+                    local _, update_err = sql.builder.update("keeper_mcp_tokens")
+                        :set_map({ scopes = value }):where("token = ?", digest):run_with(db):exec()
+                    db:release()
+                    test.is_nil(update_err)
+                    local session, err = mcp_tokens.get(tok.token)
+                    test.is_nil(session)
+                    test.not_nil(err)
+                end
+                local db = open_db()
+                local _, delete_err = sql.builder.delete("keeper_mcp_tokens")
+                    :where("token = ?", digest):run_with(db):exec()
+                db:release()
+                test.is_nil(delete_err)
+            end)
+
             it("creates token with default access_mode=tools_only", function()
                 local tok = create_token({
                     label = "tools-only-" .. uuid.v4(),
@@ -952,6 +1015,15 @@ local function define_tests()
         end)
 
         describe("policy library", function()
+            it("serializes every preset collection as a JSON array including empty defaults", function()
+                for _, preset in ipairs(mcp_policy.list_presets()) do
+                    for _, field in ipairs({ "scopes", "default_active" }) do
+                        test.eq(json.encode(preset[field]):sub(1, 1), "[",
+                            preset.id .. "." .. field .. " must be an array on the wire")
+                    end
+                end
+            end)
+
             it("list_presets returns registry-backed presets", function()
                 local presets = mcp_policy.list_presets()
                 test.is_true(#presets >= 1, "expected at least one preset entry")
@@ -1241,13 +1313,13 @@ local function define_tests()
                     PRIMARY KEY (user_id, group_id)
                 )]])
                 test.is_nil(groups_err)
-                local _, user_err = db:execute(
-                    "INSERT OR IGNORE INTO app_users (user_id, status) VALUES (?, ?)",
-                    { ADMIN_USER, "active" })
+                local _, user_err = sql.builder.insert("app_users")
+                    :set_map({ user_id = ADMIN_USER, status = "active" })
+                    :suffix("ON CONFLICT(user_id) DO NOTHING"):run_with(db):exec()
                 test.is_nil(user_err)
-                local _, group_err = db:execute(
-                    "INSERT OR IGNORE INTO app_user_groups (user_id, group_id) VALUES (?, ?)",
-                    { ADMIN_USER, keeper_config.admin_scope() })
+                local _, group_err = sql.builder.insert("app_user_groups")
+                    :set_map({ user_id = ADMIN_USER, group_id = keeper_config.admin_scope() })
+                    :suffix("ON CONFLICT(user_id, group_id) DO NOTHING"):run_with(db):exec()
                 test.is_nil(group_err)
                 db:release()
             end)
