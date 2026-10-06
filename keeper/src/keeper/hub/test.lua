@@ -930,6 +930,31 @@ local function define_tests()
                 test.eq(find_parameter(result.parameters, "acme.example:scope").value, row.value)
             end)
 
+            it("reviews ambiguous bare-name reuse through the compatible candidate list", function()
+                local calls = 0
+                local pl, graph = fixture(nil, {generate = function()
+                    calls = calls + 1
+                    return {result = '{"value":"host:secondary","reason":"Secondary matches the audience."}'}, nil
+                end})
+                pl.existing_parameter_values = function() return {
+                    {name = "scope", value = "host:primary", dependency_id = "app:a"},
+                    {name = "scope", value = "host:secondary", dependency_id = "app:b"}} end
+                local result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(calls, 1)
+                local row = find_requirement(result, "acme.example:scope")
+                test.eq(row.value, "host:secondary")
+                test.eq(row.value_source, "llm")
+                test.eq(row.choice_reason, "Secondary matches the audience.")
+                pl.llm = {generate = function() return nil, "model unavailable" end}
+                result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                row = find_requirement(result, "acme.example:scope")
+                test.eq(row.value, "")
+                test.is_true(row.missing)
+                test.eq(row.resolution_error.kind, errors.UNAVAILABLE)
+            end)
+
             it("keeps defaults and existing exact update bindings ahead of model choice", function()
                 local pl, graph = fixture("host:primary", {generate = function() error("model must not run") end})
                 local result, err = pl:plan_requirements(graph, {})
