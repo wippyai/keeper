@@ -9,6 +9,7 @@ import {
   type InstallPayload,
 } from '../../api/hub'
 import RequirementValueInput from './RequirementValueInput.vue'
+import RequirementResolution from './RequirementResolution.vue'
 
 const props = defineProps<{
   modelValue: boolean
@@ -509,6 +510,7 @@ const planSummary = computed(() => {
               />
               <div v-if="req.default && req.value_source !== 'default'" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">Package default: <span class="mono">{{ req.default }}</span></div>
               <div v-if="req.invalid_reason" class="mt-1 text-[10px]" style="color: var(--p-danger-500)">{{ req.invalid_reason }}</div>
+              <RequirementResolution :requirement="req" />
               <div v-if="req.module" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">{{ req.module }}{{ req.version ? '@' + req.version : '' }}</div>
               <div v-if="req.description" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">{{ req.description }}</div>
             </label>
@@ -537,6 +539,7 @@ const planSummary = computed(() => {
                 <span v-else-if="req.value_source && req.value_source !== 'empty'" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.value_source }}</span>
               </div>
               <div class="transitive-value mono">{{ transitiveValue(req) || '(not set)' }}</div>
+              <RequirementResolution :requirement="req" />
               <div v-if="isTransitiveBlocker(req)" class="mt-1 text-[10px]" style="color: var(--p-danger-500)">
                 {{ req.invalid_reason || 'No value satisfies this requirement.' }}
                 Install <span class="mono">{{ req.module }}</span> directly with this parameter to configure it.

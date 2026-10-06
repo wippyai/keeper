@@ -19,6 +19,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_DIR="$REPO_ROOT/keeper/test"
 WIPPY_YAML="$REPO_ROOT/keeper/wippy.yaml"
 TEST_ENV="$TEST_DIR/.wippy/test.env"
+make -C "$REPO_ROOT" prepare-test
 
 SUITES=("$@")
 if [ ${#SUITES[@]} -eq 0 ]; then
@@ -89,7 +90,7 @@ for suite in "${SUITES[@]}"; do
     echo "=================================================================="
     # The runner exits nonzero on failing suites; the capture must not abort
     # the script under set -e/pipefail before the output is echoed.
-    out="$(cd "$TEST_DIR" && "$WIPPY" test test "$suite" 2>&1 | strip_ansi)" || true
+    out="$(cd "$TEST_DIR" && "$WIPPY" test ${WIPPY_TEST_ARGS:-} test "$suite" 2>&1 | strip_ansi)" || true
     echo "$out"
 
     # The runner ends with an uppercase banner line ("  PASSED ..." / "  FAILED
