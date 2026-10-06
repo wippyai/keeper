@@ -20,7 +20,7 @@ lint-keeper:
 	cp keeper/src/keeper/develop/integrate/handlers/migration_handler.lua "$$subject"; \
 	trap 'rm -f "$$subject"' EXIT; \
 	cd keeper/test; \
-	$(WIPPY) lint --ns 'keeper,keeper.*' --summary --limit 200 --no-color
+	$(WIPPY) lint $(WIPPY_LINT_ARGS) --ns 'keeper,keeper.*' --summary --limit 200 --no-color
 
 lint-usage:
 	cd usage && $(WIPPY) lint --summary --limit 200 --no-color
@@ -85,3 +85,15 @@ publish-keeper: build-keeper-frontend build-keeper-git-frontend build-wippy-mona
 
 publish-usage: build-usage-frontend
 	cd usage && $(WIPPY) publish --version $(USAGE_VERSION)
+
+prepare-test:
+	cp keeper/src/keeper/develop/integrate/handlers/migration_handler.lua keeper/test/migration_handler_subject.lua
+
+lockrefresh: prepare-test
+	cd keeper/test && $(WIPPY) update --src-dir . $(WIPPY_UPDATE_ARGS)
+
+test-keeper-frontend:
+	cd keeper/frontend/applications/keeper && npm install --no-audit --no-fund --prefer-offline && npm run test -- $(TEST_ARGS)
+
+check-keeper-frontend:
+	cd keeper/frontend/applications/keeper && npm run type-check

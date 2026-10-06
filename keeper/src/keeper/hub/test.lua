@@ -898,6 +898,97 @@ local function define_tests()
             end)
         end)
 
+        describe("requirement choice", function()
+            local function fixture(default, model)
+                local pl = planner.new({registry = fake_registry({
+                    {id = "host:primary", kind = "security.scope", meta = {title = "Primary"}, data = {}},
+                    {id = "host:secondary", kind = "security.scope", meta = {title = "Secondary"}, data = {}},
+                    {id = "host:wrong_kind", kind = "http.router", meta = {}, data = {}},
+                }), llm = model}) :: any
+                pl.existing_parameter_values = function() return {} end
+                local graph = {{module = "acme/example", namespace = "acme.example", version = "1.0.0",
+                    direct = true, depth = 0, requirements = {{name = "scope", default = default,
+                        meta = {value_kind = "security.scope"}, description = "Members scope"}}}}
+                return pl, graph
+            end
+
+            it("records a model choice and reason from compatible candidates", function()
+                local calls = 0
+                local pl, graph = fixture(nil, {generate = function(_, opts)
+                    calls = calls + 1
+                    test.eq(opts.model, "class:fast")
+                    return {result = '{"value":"host:secondary","reason":"Secondary serves the requested audience."}'}, nil
+                end})
+                local result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(calls, 1)
+                local row = find_requirement(result, "acme.example:scope")
+                test.eq(row.value, "host:secondary")
+                test.eq(row.value_source, "llm")
+                test.eq(row.choice_reason, "Secondary serves the requested audience.")
+                test.eq(#result.missing, 0)
+                test.eq(find_parameter(result.parameters, "acme.example:scope").value, row.value)
+            end)
+
+            it("keeps defaults and existing exact update bindings ahead of model choice", function()
+                local pl, graph = fixture("host:primary", {generate = function() error("model must not run") end})
+                local result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(find_requirement(result, "acme.example:scope").value_source, "default")
+                test.eq(result.values["acme.example:scope"], "host:primary")
+                pl.existing_parameter_values = function() return {{name = "acme.example:scope",
+                    value = "host:secondary", dependency_id = "app.deps:example"}} end
+                result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(find_requirement(result, "acme.example:scope").value_source, "existing")
+                test.eq(result.values["acme.example:scope"], "host:secondary")
+            end)
+
+            it("leaves unavailable and invalid model choices unbound with typed errors", function()
+                for _, response in ipairs({
+                    {error = "model unavailable", kind = errors.UNAVAILABLE},
+                    {result = '{"value":"host:wrong_kind","reason":"Wrong"}', kind = errors.INVALID},
+                    {result = '{"value":"host:invented","reason":"Invented"}', kind = errors.INVALID},
+                    {result = '{"value":"host:primary"}', kind = errors.INVALID},
+                    {result = '{"value":"host:primary","reason":42}', kind = errors.INVALID},
+                    {result = 'invalid JSON', kind = errors.INVALID},
+                }) do
+                    local pl, graph = fixture(nil, {generate = function()
+                        if response.error then return nil, response.error end
+                        return {result = response.result}, nil
+                    end})
+                    local result, err = pl:plan_requirements(graph, {})
+                    test.is_nil(err)
+                    local row = find_requirement(result, "acme.example:scope")
+                    test.eq(row.value, "")
+                    test.is_true(row.missing)
+                    test.not_nil(row.resolution_error)
+                    test.eq(row.resolution_error.kind, response.kind)
+                    test.eq(#result.parameters, 0)
+                end
+            end)
+
+            it("does not resolve conflicts, single candidates or declared invalid defaults with a model", function()
+                local model = {generate = function() error("model must not run") end}
+                local pl, graph = fixture("host:absent", model)
+                local result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(result.values["acme.example:scope"], "")
+                pl, graph = fixture(nil, model)
+                pl.existing_parameter_values = function() return {
+                    {name = "acme.example:scope", value = "host:primary", dependency_id = "app:a"},
+                    {name = "acme.example:scope", value = "host:secondary", dependency_id = "app:b"}} end
+                result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(find_requirement(result, "acme.example:scope").value_source, "conflict")
+                pl, graph = fixture(nil, model)
+                pl.registry = fake_registry({{id = "host:only", kind = "security.scope", meta = {}, data = {}}})
+                result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(result.values["acme.example:scope"], "")
+            end)
+        end)
+
         describe("typed host options", function()
             it("preserves boolean and numeric options through both public normalizers", function()
                 for _, normalize in ipairs({ hub.normalize_parameters, planner.normalize_parameters }) do

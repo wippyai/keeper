@@ -101,6 +101,8 @@ export interface HubPlanRequirement extends HubRequirement {
   value_source?: 'provided' | 'provided_bare' | 'existing' | 'existing_bare' | 'suggested' | 'default' | 'empty' | string
   invalid?: boolean
   invalid_reason?: string
+  choice_reason?: string
+  resolution_error?: {kind: string; code: string; message: string}
   suggestions?: Array<{ value: string; label?: string; source?: string; kind?: string; preferred?: boolean; dependency_id?: string }>
   transitive?: boolean
 }
