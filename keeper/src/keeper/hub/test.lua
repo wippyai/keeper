@@ -4612,7 +4612,19 @@ local function define_tests()
                 return svc
             end
 
-            it("declares an exact release as a raised floor, never as a bare version", function()
+            it("installs the selected release even when a newer release is available", function()
+                local gov_state = ({ current_version = 41 }) :: any
+                local svc = range_service(component_entries(">=0.1.36", "0.1.37"),
+                    { "0.1.37", "0.1.41", "0.1.42" }, gov_state, { ["kickside/component"] = "0.1.41" })
+                local out, err = svc:install({ component = "kickside/component", version = "0.1.41" },
+                    { actor_id = "admin-1" })
+                test.is_nil(err)
+                test.eq(out.plan.graph[1].version, "0.1.41")
+                test.eq(gov_state.last_changeset[1].entry.data.version, "=0.1.41")
+                test.eq(out.dependency.version, "=0.1.41")
+            end)
+
+            it("declares a selected release exactly, including a v-prefixed release", function()
                 local gov_state = ({ current_version = 41 }) :: any
                 local svc = range_service(component_entries(">=0.1.36", "0.1.37"),
                     { "0.1.36", "0.1.37", "0.1.41" }, gov_state, { ["kickside/component"] = "0.1.41" })
@@ -4624,8 +4636,8 @@ local function define_tests()
                 test.eq(gov_state.publish_calls, 1)
                 local published = gov_state.last_changeset[1].entry
                 test.eq(published.id, "app.deps:kickside_component")
-                test.eq(published.data.version, ">=0.1.41")
-                test.eq(out.dependency.version, ">=0.1.41")
+                test.eq(published.data.version, "=0.1.41")
+                test.eq(out.dependency.version, "=0.1.41")
                 test.eq(out.plan.graph[1].module, "kickside/component")
                 test.eq(out.plan.graph[1].version, "0.1.41")
 
@@ -4635,8 +4647,8 @@ local function define_tests()
                 }) :: any
                 local plan, plan_err = prefixed:plan_install({ component = "kickside/component", version = "v0.1.41" })
                 test.is_nil(plan_err)
-                test.eq(plan.install_payload.version, ">=0.1.41")
-                test.eq(plan.dependency.version, ">=0.1.41")
+                test.eq(plan.install_payload.version, "=0.1.41")
+                test.eq(plan.dependency.version, "=0.1.41")
             end)
 
             it("declares a requested range exactly as given", function()
@@ -4701,13 +4713,13 @@ local function define_tests()
                     return plan
                 end
 
-                local kept = plan_for("0.1.36")
+                local kept = plan_for(">=0.1.36")
                 test.eq(kept.install_payload.version, ">=0.1.36")
                 test.eq(kept.graph[1].version, "0.1.41")
 
                 local raised = plan_for("0.1.42")
-                test.eq(raised.install_payload.version, ">=0.1.42")
-                test.eq(raised.graph[1].version, "0.1.43")
+                test.eq(raised.install_payload.version, "=0.1.42")
+                test.eq(raised.graph[1].version, "0.1.42")
             end)
 
             -- The runtime marks an application's own dependency declarations as
@@ -4757,7 +4769,7 @@ local function define_tests()
 
                 test.is_nil(plan_err)
                 test.eq(plan.dependency.id, "app.deps:kickside_component")
-                test.eq(plan.install_payload.version, ">=0.1.42")
+                test.eq(plan.install_payload.version, "=0.1.42")
                 local nodes = {}
                 for _, node in ipairs(plan.graph) do nodes[node.module] = node end
                 test.eq(nodes["kickside/component"].version, "0.1.42")
@@ -5076,7 +5088,7 @@ local function define_tests()
                 test.eq(#state.last_changeset, 1)
                 test.eq(state.last_changeset[1].kind, "entry.update")
                 test.eq(state.last_changeset[1].entry.id, parent.id)
-                test.eq(state.last_changeset[1].entry.data.version, ">=2.0.0")
+                test.eq(state.last_changeset[1].entry.data.version, "=2.0.0")
                 test.eq(result.plan.graph[1].version, "v2.0.0")
                 test.eq(child.data.parameters[1].value, "app:private_api")
             end)

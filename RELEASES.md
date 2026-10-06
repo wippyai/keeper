@@ -1,5 +1,13 @@
 # Release Notes
 
+## keeper/keeper 0.5.93
+
+Hub installs declare an explicitly selected release as an exact release, so
+selecting an older published version installs that version even when a newer
+one is available. Explicit ranges and labels retain their meaning; an omitted
+version preserves an existing dependency declaration. Existing declarations
+and installed data remain unchanged until an operator requests an install.
+
 ## keeper/keeper 0.5.92
 
 Keeper MCP actors can carry the user's live group memberships. The optional
