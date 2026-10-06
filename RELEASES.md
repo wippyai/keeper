@@ -1,5 +1,15 @@
 # Release Notes
 
+## keeper/keeper 0.5.94
+
+Hub installation plans use the active local replacement source when the runtime
+serves a module from a replacement tree. Its resolved version, requirements and
+dependency edges come from one atomic registry snapshot. Published Hub modules
+keep their catalog resolution path. Raised release constraints retain the local
+source metadata, and security review inspects the planned source. Migration
+selection still checks the applied registry version and each planned module
+version before running migrations.
+
 ## keeper/keeper 0.5.93
 
 MCP token and preset collection fields serialize as arrays, including empty
