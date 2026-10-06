@@ -164,6 +164,25 @@ function Index:root_of(id)
     return p ~= nil and p.root == true, nil
 end
 
+function Index:selection_of(component)
+    local snapshot, capture_err = self:capture()
+    if not snapshot then return nil, capture_err end
+    local resolution = snapshot.resolution
+    if type(resolution) ~= "table" or type(resolution.modules) ~= "table" then return nil, nil end
+    for _, module in ipairs(resolution.modules) do
+        if trim(module.name) == trim(component) then
+            return {
+                version = trim(module.version),
+                source = trim(module.source),
+                digest = trim(module.digest),
+                size_bytes = module.size_bytes,
+                protected = module.protected,
+            }, nil
+        end
+    end
+    return nil, nil
+end
+
 -- Installed module name -> resolved version, for inventory listings.
 function Index:module_versions()
     local by_module, _, load_err = self:load()

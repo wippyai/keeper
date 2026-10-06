@@ -113,7 +113,8 @@ local function fake_registry(entries, state_shape, registry_state)
             end
             local modules = {}
             for name, version in pairs(versions) do
-                table.insert(modules, { name = name, version = version })
+                local source = (registry_state.module_sources or {})[name]
+                table.insert(modules, { name = name, version = version, source = source })
             end
             table.sort(modules, function(a, b) return a.name < b.name end)
             return {
@@ -4366,6 +4367,107 @@ local function define_tests()
                 test.is_false(nodes["acme/app"].installed)
                 test.is_false(nodes["acme/app"].shared)
             end)
+            local function replacement_planner(version, constraints, diamond)
+                local entries = installed_module("acme/local", { "acme/child" }, version)
+                for i, constraint in ipairs(constraints or {}) do
+                    table.insert(entries, {
+                        id = "acme.local:child_edge_" .. tostring(i), kind = "ns.dependency", meta = {},
+                        provenance = { module = "acme/local", version = version },
+                        data = { component = "acme/child", version = constraint },
+                    })
+                end
+                table.insert(entries, {
+                    id = "acme.local:database", kind = "ns.requirement", meta = {},
+                    provenance = { module = "acme/local", version = version },
+                    data = { name = "database", default = "app:db", targets = {} },
+                })
+                local parent_edges = { { org = "acme", name = "local", version = "*" } }
+                if diamond then table.insert(parent_edges, { org = "acme", name = "limiter", version = "1.0.0" }) end
+                return planner.new({
+                    registry = fake_registry(entries, nil, {
+                        version = 19, module_sources = { ["acme/local"] = "replacement-tree-v1" },
+                    }),
+                    catalog = fake_catalog({
+                        ["acme/local"] = { { version = "9.0.0", dependencies = {
+                            { org = "acme", name = "remote-only", version = "1.0.0" },
+                        }, open = { entries = { { id = "acme.local:remote_content", kind = "registry.entry", data = {} } } } } },
+                        ["acme/child"] = { { version = "2.0.0" } },
+                        ["acme/remote-only"] = { { version = "1.0.0" } },
+                        ["acme/parent"] = { { version = "1.0.0", dependencies = parent_edges } },
+                        ["acme/limiter"] = { { version = "1.0.0", dependencies = {
+                            { org = "acme", name = "local", version = ">=1.0.0" },
+                        } } },
+                    }),
+                }) :: any
+            end
+
+            it("plans local replacement versions and edges from the atomic registry instead of Hub releases", function()
+                for _, version in ipairs({ "0.0.0", "2.5.0" }) do
+                    for _, component in ipairs({ "acme/local", "acme/parent" }) do
+                        local pl = replacement_planner(version)
+                        local graph, graph_err = pl:resolve_install_graph(component, "*")
+                        test.is_nil(graph_err)
+                        local nodes = {}
+                        for _, node in ipairs(graph) do nodes[node.module] = node end
+                        test.eq(nodes["acme/local"].version, version)
+                        test.eq(nodes["acme/local"].requirements[1].name, "database")
+                        test.not_nil(nodes["acme/child"])
+                        test.is_nil(nodes["acme/remote-only"])
+                    end
+                end
+            end)
+
+            it("intersects every local replacement edge to a repeated dependency", function()
+                local pl = replacement_planner("0.0.0", { "<2.0.0" })
+                local graph, graph_err = pl:resolve_install_graph("acme/local", "*")
+                test.is_nil(graph)
+                test.eq(err_code(graph_err), "CONFLICT")
+                test.contains(err_message(graph_err), "acme/child")
+            end)
+
+            it("inspects the planned local source for security review instead of its Hub release", function()
+                for _, constraint in ipairs({ "*", ">=1.0.0" }) do
+                    local pl = replacement_planner("0.0.0")
+                    local graph, graph_err = pl:resolve_install_graph("acme/local", constraint)
+                    test.is_nil(graph_err)
+                    local scanner = security_scan.new({ planner = pl, registry = pl.registry, catalog = pl.catalog }) :: any
+                    local artifact, artifact_err = scanner:inspect_module(graph[1])
+                    test.is_nil(artifact_err)
+                    local found = false
+                    for _, entry in ipairs(artifact.entries) do
+                        test.is_false(entry.id == "acme.local:remote_content")
+                        if entry.id == "acme.local:database" then found = true end
+                    end
+                    test.is_true(found)
+                end
+            end)
+
+            it("converges when a diamond raises the replacement release constraint", function()
+                local pl = replacement_planner("0.0.0", {}, true)
+                local graph, graph_err = pl:resolve_install_graph("acme/parent", "*")
+                test.is_nil(graph_err)
+                local nodes = {}
+                for _, node in ipairs(graph) do nodes[node.module] = node end
+                test.eq(nodes["acme/local"].version, "9.0.0")
+                test.not_nil(nodes["acme/child"])
+                test.is_nil(nodes["acme/remote-only"])
+            end)
+
+            it("preserves a raised release constraint while retaining the local replacement metadata", function()
+                local pl = replacement_planner("0.0.0")
+                local graph, graph_err = pl:resolve_install_graph("acme/local", ">=1.0.0")
+                test.is_nil(graph_err)
+                local nodes = {}
+                for _, node in ipairs(graph) do nodes[node.module] = node end
+                test.eq(nodes["acme/local"].version, "9.0.0")
+                test.eq(nodes["acme/local"].requirements[1].name, "database")
+                test.not_nil(nodes["acme/child"])
+                test.is_nil(nodes["acme/remote-only"])
+                local impossible, impossible_err = pl:resolve_install_graph("acme/local", ">=10.0.0")
+                test.is_nil(impossible)
+                test.eq(err_code(impossible_err), "CONFLICT")
+            end)
+
             it("surfaces resolution error details naming the unresolvable component", function()
                 local svc = planner.new({
                     catalog = fake_catalog({}),
@@ -6009,7 +6111,7 @@ local function define_tests()
                         if opts.installed_version then
                             install_modules(current, { ["wippy/foo"] = opts.installed_version })
                         end
-                        if opts.installed_version == "1.3.0" then
+                        if opts.installed_version == "1.3.0" or opts.pending_migration then
                             table.insert(current, {
                                 id = "wippy.foo.migrations:002",
                                 kind = "function.lua",
@@ -6018,7 +6120,7 @@ local function define_tests()
                                     target_db = "app:db",
                                     timestamp = "2026-02-01T00:00:00Z",
                                 },
-                                provenance = { module = "wippy/foo", version = "1.3.0" },
+                                provenance = { module = "wippy/foo", version = opts.installed_version },
                                 data = { method = "migrate" },
                             })
                         end
@@ -6036,7 +6138,7 @@ local function define_tests()
                     process = fake_process({}),
                     governance = gov,
                     planner = graph_planner({
-                        { module = "wippy/foo", version = "1.3.0", digest = "foo-130" },
+                        { module = "wippy/foo", version = opts.planned_version or "1.3.0", digest = "foo-130" },
                     }),
                     funcs = {
                         new = function()
@@ -6055,6 +6157,20 @@ local function define_tests()
                 }) :: any
                 return svc, gov_state, calls
             end
+
+            it("installs the planned local source migrations for versioned and unversioned replacements", function()
+                for _, version in ipairs({ "0.0.0", "2.5.0" }) do
+                    local svc, gov_state, calls = selection_install({
+                        installed_version = version, planned_version = version, pending_migration = true,
+                    })
+                    local out, err = svc:install({ component = "wippy/foo", version = "*" }, { actor_id = "admin-1" })
+                    test.is_nil(err)
+                    test.not_nil(out)
+                    test.eq(gov_state.restore_calls or 0, 0)
+                    test.eq(out.migrations.entry_ids[1], "wippy.foo.migrations:002")
+                    test.eq(calls[1], "migrate:wippy.foo.migrations:002")
+                end
+            end)
 
             it("selects migrations from the snapshot the governance apply produced", function()
                 local svc, gov_state, calls = selection_install({ installed_version = "1.3.0" })

@@ -30,6 +30,8 @@ type VersionPart = {
 }
 type VersionItem = {
     id?: string,
+    source?: string,
+    entries?: { unknown },
     version: string,
     yanked?: boolean,
     dependencies?: { HubDependencyRef },
@@ -59,6 +61,7 @@ type GraphNode = {
     namespace: string,
     version: string,
     version_id?: string,
+    source?: string,
     constraint: string,
     depth: number,
     parent: string?,
@@ -1004,6 +1007,43 @@ function Planner:resolve_dependency_destination_args(args): (unknown?, unknown?)
     return out, nil
 end
 
+function Planner:replacement_version(component)
+    local selection, selection_err = self:ownership_index():selection_of(component)
+    if selection_err then return nil, err("INTERNAL", tostring(selection_err)) end
+    if not selection or selection.source ~= "replacement-tree-v1" then return nil, nil end
+    local entries, entries_err = self:ownership_index():entries_for(component)
+    if entries_err then return nil, err("INTERNAL", tostring(entries_err)) end
+    local children, children_err = self:installed_child_components(component)
+    if children_err then return nil, children_err end
+    local dependencies = {}
+    for _, child in ipairs(children) do
+        local parsed, parse_err = M.parse_component(child.ref)
+        if not parsed then return nil, parse_err end
+        table.insert(dependencies, {
+            org = parsed.org, name = parsed.module, version_constraint = child.constraint,
+        })
+    end
+    local kinds, seen = {}, {}
+    for _, entry in ipairs(entries) do
+        if not seen[entry.kind] then
+            seen[entry.kind] = true
+            table.insert(kinds, entry.kind)
+        end
+    end
+    return {
+        version = selection.version,
+        source = selection.source,
+        digest = selection.digest,
+        size_bytes = selection.size_bytes,
+        protected = selection.protected,
+        dependencies = dependencies,
+        requirements = requirements_from_entries(entries),
+        entries = entries,
+        entry_count = #entries,
+        entry_kinds = kinds,
+    }, nil
+end
+
 function Planner:list_all_versions(component)
     component = trim(component)
     if component == "" then
@@ -1040,6 +1080,12 @@ function Planner:list_all_versions(component)
 end
 
 function Planner:version_details(component, selected)
+    local replacement, replacement_err = self:replacement_version(component)
+    if replacement_err then return nil, replacement_err end
+    if replacement and selected then
+        replacement.version = selected.version
+        return replacement, nil
+    end
     if not selected or not self.catalog or not self.catalog.versions or not self.catalog.versions.get then
         local with_deps, dep_err = self:dependency_details(component, selected)
         if not with_deps then return nil, dep_err end
@@ -1100,6 +1146,16 @@ function Planner:artifact_requirement_details(component, selected)
 end
 
 function Planner:inspect_artifact(component, selected)
+    local replacement, replacement_err = self:replacement_version(component)
+    if replacement_err then return nil, replacement_err end
+    if replacement then
+        return {
+            module = component,
+            version = selected and selected.version or replacement.version,
+            digest = replacement.digest,
+            entries = replacement.entries,
+        }, nil
+    end
     component = trim(component)
     local selected_item = selected :: VersionItem
     if component == "" then
@@ -1221,7 +1277,7 @@ function Planner:select_version(component, constraint)
     return self:version_details(component, selected)
 end
 
--- Selects the highest published version in the intersection of every incoming
+-- Selects a source or published version in the intersection of every incoming
 -- edge constraint. A dependency graph is not a tree: diamonds and cycles can
 -- address the same module more than once, and choosing from only the first edge
 -- makes the plan depend on traversal order.
@@ -1229,12 +1285,6 @@ function Planner:select_version_for_constraints(component, incoming, preferred, 
     incoming = incoming or {}
     if #incoming == 0 then
         incoming = { { constraint = M.DEFAULT_VERSION, required_by = "root", path = component } }
-    end
-
-    local versions, versions_err = self:list_all_versions(component)
-    if not versions then return nil, versions_err end
-    if #versions == 0 then
-        return nil, err("NOT_FOUND", "no versions available for " .. component)
     end
 
     local labels = {}
@@ -1274,6 +1324,16 @@ function Planner:select_version_for_constraints(component, incoming, preferred, 
     -- compatible diamond (broad edge -> latest, full intersection -> older).
     if keep_preferred and preferred and admits(preferred) then
         return preferred, nil
+    end
+
+    local replacement, replacement_err = self:replacement_version(component)
+    if replacement_err then return nil, replacement_err end
+    if replacement and admits(replacement) then return replacement, nil end
+
+    local versions, versions_err = self:list_all_versions(component)
+    if not versions then return nil, versions_err end
+    if #versions == 0 then
+        return nil, err("NOT_FOUND", "no versions available for " .. component)
     end
 
     -- The runtime resolves a declaration against the versions it has
@@ -1469,6 +1529,7 @@ function Planner:resolve_install_graph(component, constraint, opts)
                                 name = ref_parsed and ref_parsed.module or (string.match(ref, "/(.+)$") or ""),
                                 namespace = M.module_namespace(ref) or ref,
                                 version = selected_item.version or "",
+                                source = selected_item.source,
                                 version_id = selected_item.id,
                                 constraint = work.constraint or "",
                                 constraints = incoming_by_ref[ref],

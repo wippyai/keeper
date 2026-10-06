@@ -14,6 +14,7 @@ Scanner.__index = Scanner
 
 type ScanNode = {
     module: string,
+    source: string?,
     version: string?,
     version_id: string?,
     id: string?,
@@ -479,6 +480,13 @@ function Scanner:open_module(node: ScanNode): (ScanArtifact?, unknown?)
 end
 
 function Scanner:inspect_module(node: ScanNode): (ScanArtifact?, unknown?)
+    if node.source == "replacement-tree-v1" then
+        local p = self:planner_instance()
+        if not p or type(p.inspect_artifact) ~= "function" then
+            return nil, "local source inspection API unavailable"
+        end
+        return p:inspect_artifact(node.module, { version = node.version })
+    end
     local opened, open_err = self:open_module(node)
     if opened then return opened, nil end
 
