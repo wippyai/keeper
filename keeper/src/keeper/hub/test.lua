@@ -1,6 +1,7 @@
 local test = require("test")
 local hub = require("hub_service")
 local planner = require("planner")
+local requirement_fill = require("requirement_fill")
 local ownership = require("ownership")
 local security_scan = require("security_scan")
 local hub_dependencies_tool = require("hub_dependencies_tool")
@@ -118,6 +119,17 @@ local function fake_registry(entries, state_shape, registry_state)
             end
             table.sort(modules, function(a, b) return a.name < b.name end)
             return {
+                changes = function()
+                    local staged = {}
+                    return {
+                        create = function(_, entry) staged[#staged + 1] = { op = "create", entry = entry }; return true, nil end,
+                        update = function(_, entry) staged[#staged + 1] = { op = "update", entry = entry }; return true, nil end,
+                        plan = function()
+                            if registry_state.plan then return registry_state.plan(staged, captured) end
+                            return { changes = {}, resolution = { modules = modules }, digest = "fixture" }, nil
+                        end,
+                    }
+                end,
                 entries = function() return captured, nil end,
                 get = function(_, id) return lookup(id), nil end,
                 version = function()
@@ -895,6 +907,249 @@ local function define_tests()
                 test.is_nil(unresolved_set["wippy/installed-child"])
                 test.is_true(keep["wippy/dangling"])
                 test.is_true(unresolved_set["wippy/dangling"])
+            end)
+        end)
+
+        describe("explicit requirement gap filling", function()
+            local function fixture(model)
+                local pl = planner.new({registry = fake_registry({
+                    {id = "host:primary", kind = "security.scope", meta = {}, data = {}},
+                    {id = "host:secondary", kind = "security.scope", meta = {}, data = {}},
+                    {id = "host:wrong_kind", kind = "http.router", meta = {}, data = {}},
+                })}) :: any
+                pl.existing_parameter_values = function() return {} end
+                local graph = {{module = "acme/example", namespace = "acme.example", version = "1.0.0",
+                    direct = true, depth = 0, requirements = {
+                        {name = "scope", meta = {value_kind = "security.scope"}},
+                        {name = "other", meta = {value_kind = "security.scope"}},
+                        {name = "kept", default = "host:primary", meta = {value_kind = "security.scope"}},
+                    }}}
+                pl.plan_install = function(self, args)
+                    local parameters = {}
+                    for _, p in ipairs(assert(planner.normalize_parameters(args.parameters))) do table.insert(parameters, p) end
+                    for _, p in ipairs(args.requirement_bindings or {}) do table.insert(parameters, p) end
+                    local reqs, err = self:plan_requirements(graph, parameters)
+                    if not reqs then return nil, err end
+                    return {requirements = reqs.requirements, missing_requirements = reqs.missing,
+                        install_payload = {parameters = reqs.parameters}, applicable = #reqs.missing == 0}, nil
+                end
+                return requirement_fill.new({planner = pl, llm = model})
+            end
+
+            it("fills two gaps with a fast model only after the explicit action", function()
+                local calls = 0
+                local filler = fixture({structured_output = function(schema, _, opts)
+                    calls = calls + 1
+                    test.eq(opts.model, "class:fast")
+                    test.eq(#schema.properties.value.enum, 2)
+                    return {result = {value = "host:secondary", reason = "Secondary serves this audience."}}, nil
+                end})
+                local result, err = filler:fill_gaps({component = "acme/example"})
+                test.is_nil(err)
+                test.eq(calls, 2)
+                test.eq(#result.missing_requirements, 0)
+                test.is_true(result.applicable)
+                local row = find_requirement(result, "acme.example:scope")
+                test.eq(row.value, "host:secondary")
+                test.eq(row.value_source, "llm")
+                test.eq(row.choice_reason, "Secondary serves this audience.")
+                test.eq(find_requirement(result, "acme.example:kept").value_source, "default")
+            end)
+
+            it("ignores an out-of-list answer and retains the candidates and typed error", function()
+                local result, err = fixture({structured_output = function()
+                    return {result = {value = "host:wrong_kind", reason = "Use router."}}, nil
+                end}):fill_gaps({component = "acme/example"})
+                test.is_nil(err)
+                test.eq(#result.missing_requirements, 2)
+                test.is_false(result.applicable)
+                local row = find_requirement(result, "acme.example:scope")
+                test.eq(row.value, "")
+                test.eq(#row.suggestions, 2)
+                test.eq(row.resolution_error.code, "INVALID_CHOICE")
+            end)
+
+            it("leaves gaps unbound when no model is available", function()
+                local result, err = fixture({structured_output = function() return nil, "No fast model" end})
+                    :fill_gaps({component = "acme/example"})
+                test.is_nil(err)
+                test.eq(#result.missing_requirements, 2)
+                test.is_false(result.applicable)
+                test.eq(find_requirement(result, "acme.example:scope").resolution_error.code, "UNAVAILABLE")
+            end)
+
+            it("preserves a reviewed manual value and never applies a plan", function()
+                local calls = 0
+                local result, err = fixture({structured_output = function()
+                    calls = calls + 1
+                    return {result = {value = "host:secondary", reason = "Secondary serves this audience."}}, nil
+                end}):fill_gaps({component = "acme/example", parameters = {
+                    {name = "acme.example:scope", value = "host:primary"}}})
+                test.is_nil(err)
+                test.eq(calls, 1)
+                test.eq(find_requirement(result, "acme.example:scope").value, "host:primary")
+                test.eq(find_requirement(result, "acme.example:scope").value_source, "provided")
+            end)
+
+            it("preserves object-map parameters through the explicit fill action", function()
+                local result, err = fixture({structured_output = function()
+                    return {result = {value = "host:secondary", reason = "Suitable audience."}}, nil
+                end}):fill_gaps({component = "acme/example", parameters = {
+                    ["acme.example:scope"] = "host:primary"}})
+                test.is_nil(err)
+                test.eq(find_requirement(result, "acme.example:scope").value, "host:primary")
+                test.eq(find_requirement(result, "acme.example:other").value, "host:secondary")
+            end)
+
+            it("accepts the structured-output contract's JSON result", function()
+                local result, err = fixture({structured_output = function()
+                    return {result = '{"value":"host:secondary","reason":"Suitable audience."}'}, nil
+                end}):fill_gaps({component = "acme/example"})
+                test.is_nil(err)
+                test.is_true(result.applicable)
+                test.eq(find_requirement(result, "acme.example:scope").value, "host:secondary")
+            end)
+
+            it("leaves malformed structured output unbound", function()
+                local result, err = fixture({structured_output = function()
+                    return {result = '{invalid'}, nil
+                end}):fill_gaps({component = "acme/example"})
+                test.is_nil(err)
+                test.is_false(result.applicable)
+                test.eq(find_requirement(result, "acme.example:scope").resolution_error.code, "INVALID_CHOICE")
+            end)
+
+            it("exposes filled choices through MCP without invoking install", function()
+                local calls = 0
+                local result, err = hub_dependencies_tool._handle({action = "fill_gaps", component = "acme/example"}, {
+                    requirement_fill = {fill_gaps = function(args)
+                        calls = calls + 1
+                        test.eq(args.component, "acme/example")
+                        return {applicable = false, requirements = {}}, nil
+                    end},
+                    hub_service = {install = function() error("fill must not apply") end},
+                })
+                test.is_nil(err)
+                test.eq(calls, 1)
+                test.is_false(result.applicable)
+            end)
+        end)
+
+        describe("requirement choice", function()
+            local function fixture(default, model)
+                local pl = planner.new({registry = fake_registry({
+                    {id = "host:primary", kind = "security.scope", meta = {title = "Primary"}, data = {}},
+                    {id = "host:secondary", kind = "security.scope", meta = {title = "Secondary"}, data = {}},
+                    {id = "host:wrong_kind", kind = "http.router", meta = {}, data = {}},
+                }), llm = model}) :: any
+                pl.existing_parameter_values = function() return {} end
+                local graph = {{module = "acme/example", namespace = "acme.example", version = "1.0.0",
+                    direct = true, depth = 0, requirements = {{name = "scope", default = default,
+                        meta = {value_kind = "security.scope"}, description = "Members scope"}}}}
+                return pl, graph
+            end
+
+            it("keeps ambiguous candidates available for explicit selection without invoking a model", function()
+                local calls = 0
+                local pl, graph = fixture(nil, {generate = function(_, opts)
+                    calls = calls + 1
+                    test.eq(opts.model, "class:fast")
+                    return {result = '{"value":"host:secondary","reason":"Secondary serves the requested audience."}'}, nil
+                end})
+                local result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(calls, 0)
+                local row = find_requirement(result, "acme.example:scope")
+                test.eq(row.value, "")
+                test.is_true(row.missing)
+                test.eq(#row.suggestions, 2)
+                test.eq(#result.missing, 1)
+                test.eq(#result.parameters, 0)
+            end)
+
+            it("preserves ambiguous bare-name candidates for explicit selection", function()
+                local calls = 0
+                local pl, graph = fixture(nil, {generate = function()
+                    calls = calls + 1
+                    return {result = '{"value":"host:secondary","reason":"Secondary matches the audience."}'}, nil
+                end})
+                pl.existing_parameter_values = function() return {
+                    {name = "scope", value = "host:primary", dependency_id = "app:a"},
+                    {name = "scope", value = "host:secondary", dependency_id = "app:b"}} end
+                local result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(calls, 0)
+                local row = find_requirement(result, "acme.example:scope")
+                test.eq(row.value, "")
+                test.eq(row.value_source, "conflict")
+                test.eq(#row.suggestions, 2)
+                pl.llm = {generate = function() return nil, "model unavailable" end}
+                result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                row = find_requirement(result, "acme.example:scope")
+                test.eq(row.value, "")
+                test.is_true(row.missing)
+                test.is_nil(row.resolution_error)
+            end)
+
+            it("keeps defaults and existing exact update bindings ahead of model choice", function()
+                local pl, graph = fixture("host:primary", {generate = function() error("model must not run") end})
+                local result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(find_requirement(result, "acme.example:scope").value_source, "default")
+                test.eq(result.values["acme.example:scope"], "host:primary")
+                pl.existing_parameter_values = function() return {{name = "acme.example:scope",
+                    value = "host:secondary", dependency_id = "app.deps:example"}} end
+                result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(find_requirement(result, "acme.example:scope").value_source, "existing")
+                test.eq(result.values["acme.example:scope"], "host:secondary")
+            end)
+
+            it("ignores unavailable and invalid model responses on the planner path", function()
+                for _, response in ipairs({
+                    {error = "model unavailable", kind = errors.UNAVAILABLE},
+                    {result = '{"value":"host:wrong_kind","reason":"Wrong"}', kind = errors.INVALID},
+                    {result = '{"value":"host:invented","reason":"Invented"}', kind = errors.INVALID},
+                    {result = '{"value":"host:primary"}', kind = errors.INVALID},
+                    {result = '{"value":"host:primary","reason":42}', kind = errors.INVALID},
+                    {result = 'invalid JSON', kind = errors.INVALID},
+                }) do
+                    local pl, graph = fixture(nil, {generate = function()
+                        if response.error then return nil, response.error end
+                        return {result = response.result}, nil
+                    end})
+                    local result, err = pl:plan_requirements(graph, {})
+                    test.is_nil(err)
+                    local row = find_requirement(result, "acme.example:scope")
+                    test.eq(row.value, "")
+                    test.is_true(row.missing)
+                    test.is_nil(row.resolution_error)
+                    test.eq(#row.suggestions, 2)
+                    test.eq(#result.parameters, 0)
+                end
+            end)
+
+            it("keeps exact conflicts unresolved and binds a sole compatible candidate without a model", function()
+                local model = {generate = function() error("model must not run") end}
+                local pl, graph = fixture("host:absent", model)
+                local result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(result.values["acme.example:scope"], "")
+                pl, graph = fixture(nil, model)
+                pl.existing_parameter_values = function() return {
+                    {name = "acme.example:scope", value = "host:primary", dependency_id = "app:a"},
+                    {name = "acme.example:scope", value = "host:secondary", dependency_id = "app:b"}} end
+                result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(find_requirement(result, "acme.example:scope").value_source, "conflict")
+                pl, graph = fixture(nil, model)
+                pl.registry = fake_registry({{id = "host:only", kind = "security.scope", meta = {}, data = {}}})
+                result, err = pl:plan_requirements(graph, {})
+                test.is_nil(err)
+                test.eq(result.values["acme.example:scope"], "host:only")
+                test.eq(find_requirement(result, "acme.example:scope").value_source, "registry")
+                test.eq(#result.missing, 0)
             end)
         end)
 
@@ -2328,6 +2583,92 @@ local function define_tests()
                     test.contains(out.modules[1].findings[1].title, "Module artifact unavailable")
                 end)
 
+            it("plans an uninstalled source requirement default before consulting a model", function()
+                for _, recorded in ipairs({ false, true }) do
+                    local calls = 0
+                    local entries = {
+                        { id = "app.security:members", kind = "security.scope", data = {} },
+                        { id = "app.security:sales", kind = "security.scope", data = {} },
+                    }
+                    if recorded then
+                        entries[#entries + 1] = { id = "app.deps:secure", kind = "ns.dependency",
+                            provenance = { root = true }, data = {component = "acme/secure", version = "*",
+                                parameters = {{name = "acme.secure:role", value = "app.security:sales"}}} }
+                    end
+                    local svc = planner.new({
+                        catalog = fake_catalog({["acme/secure"] = {{version = "1.0.0",
+                            requirements = {{name = "role", meta = {value_kind = "security.scope"}, targets = {}}}}}}),
+                        registry = fake_registry(entries, nil, {version = 17, plan = function(staged)
+                            calls = calls + 1
+                            test.eq(#staged, 1)
+                            test.eq(staged[1].op, recorded and "update" or "create")
+                            return {digest = "native-source", resolution = {modules = {
+                                {name = "acme/secure", version = "1.0.0", source = "replacement-tree-v1"}}},
+                                changes = {{op = "create", entry = {id = "acme.secure:role", kind = "ns.requirement",
+                                    registry = {owner = "acme/secure", root = false}, meta = {value_kind = "security.scope"},
+                                    data = {default = "app.security:members", targets = {}}}}}}, nil
+                        end}),
+                        llm = {generate = function() error("a source default does not consult a model") end},
+                    }) :: any
+                    local plan, plan_err = svc:plan_install({component = "acme/secure", version = "*"})
+                    test.is_nil(plan_err)
+                    local req = find_requirement(plan, "acme.secure:role")
+                    test.eq(req.value, recorded and "app.security:sales" or "app.security:members")
+                    test.eq(req.value_source, recorded and "provided" or "default")
+                    test.eq(#plan.missing_requirements, 0)
+                    test.eq(plan.native_plan.digest, "native-source")
+                    test.eq(calls, 1)
+                end
+            end)
+
+            it("omits empty planned parameters from the native preview root", function()
+                local preview_root
+                local svc = planner.new({
+                    catalog = fake_catalog({["acme/plain"] = {{version = "1.0.0"}}}),
+                    registry = fake_registry({}, nil, {plan = function(staged)
+                        test.eq(#staged, 1)
+                        preview_root = staged[1].entry
+                        return {digest = "native-empty-parameters", resolution = {modules = {
+                            {name = "acme/plain", version = "1.0.0", source = "replacement-tree-v1"},
+                        }}, changes = {}}, nil
+                    end}),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({component = "acme/plain", version = "*"})
+
+                test.is_nil(plan_err)
+                test.eq(plan.native_plan.digest, "native-empty-parameters")
+                test.not_nil(preview_root)
+                test.is_nil(preview_root.data.parameters)
+            end)
+
+            it("propagates native planning failures instead of returning an applicable Hub plan", function()
+                local native_err = errors.new({kind = errors.PERMISSION_DENIED, message = "native plan denied"})
+                local svc = planner.new({catalog = fake_catalog({["acme/secure"] = {{version = "1.0.0"}}}),
+                    registry = fake_registry({}, nil, {plan = function() return nil, native_err end})}) :: any
+                local plan, plan_err = svc:plan_install({component = "acme/secure", version = "*"})
+                test.is_nil(plan)
+                test.eq(plan_err, native_err)
+            end)
+
+            it("reports native unresolved requirements without invoking a model", function()
+                local native_err = errors.new({kind = errors.INVALID, message = "unresolved requirements",
+                    details = {count = 1, errors = {"requirement role has no value"}}})
+                local svc = planner.new({catalog = fake_catalog({["acme/secure"] = {{version = "1.0.0",
+                    requirements = {{name = "role", meta = {value_kind = "security.scope"}, targets = {}}}}}}),
+                    registry = fake_registry({
+                        {id = "app.security:members", kind = "security.scope", data = {}},
+                        {id = "app.security:sales", kind = "security.scope", data = {}},
+                    }, nil, {plan = function() return nil, native_err end}),
+                    llm = {generate = function() return nil, "model unavailable" end}}) :: any
+                local plan, plan_err = svc:plan_install({component = "acme/secure", version = "*"})
+                test.is_nil(plan_err)
+                test.eq(#plan.missing_requirements, 1)
+                test.eq(plan.native_resolution_error.kind, errors.INVALID)
+                test.eq(plan.native_resolution_error.details.count, 1)
+                test.is_nil(plan.requirements[1].resolution_error)
+            end)
+
             it("reuses an existing dependency entry for component updates", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
@@ -2861,7 +3202,7 @@ local function define_tests()
                 test.eq(plan.install_payload.namespace, "app.deps")
             end)
 
-            it("emits transitive requirement full ids without inferring registry values", function()
+            it("emits transitive requirement full ids and binds the sole declared-kind candidate", function()
                 local svc = planner.new({
                     catalog = planner_catalog(),
                     registry = fake_registry({
@@ -2887,13 +3228,13 @@ local function define_tests()
                 test.not_nil(req)
                 test.is_true(req.transitive)
                 test.eq(req.module, "wippy/bootloader")
-                test.eq(req.value, "")
-                test.eq(req.value_source, "empty")
-                test.is_true(req.missing)
+                test.eq(req.value, "app.env:store")
+                test.eq(req.value_source, "registry")
+                test.is_false(req.missing)
                 test.eq(req.expected_kind, "env.storage")
                 test.eq(req.suggestions[1].value, "app.env:store")
                 test.eq(req.suggestions[1].kind, "env.storage.router")
-                test.eq(plan.missing_requirements[1], "wippy.bootloader:env_storage")
+                test.eq(#plan.missing_requirements, 0)
 
                 local param = find_parameter(plan.install_payload.parameters, "wippy.bootloader:env_storage")
                 test.is_nil(param)
@@ -3294,16 +3635,17 @@ local function define_tests()
                 test.eq(plan.requirement_count, 1)
                 local req = find_requirement(plan, "wippy.dummy:router")
                 test.not_nil(req)
-                test.eq(req.value, "")
-                test.eq(req.value_source, "empty")
-                test.is_true(req.missing)
+                test.eq(req.value, "app:api")
+                test.eq(req.value_source, "registry")
+                test.is_false(req.missing)
                 test.eq(req.expected_kind, "http.router")
                 test.eq(req.default, "app:router")
                 test.eq(req.suggestions[1].value, "app:api")
                 test.eq(req.suggestions[1].source, "registry")
                 test.eq(req.suggestions[1].kind, "http.router")
                 local param = find_parameter(plan.install_payload.parameters, "wippy.dummy:router")
-                test.is_nil(param)
+                test.not_nil(param)
+                test.eq(param.value, "app:api")
             end)
 
             it("accepts explicit requirement values from arbitrary application namespaces", function()
@@ -3613,6 +3955,46 @@ local function define_tests()
                 test.eq(plan.missing_requirements[1], "wippy.bootloader:env_storage")
             end)
 
+            it("plans reviewed transitive bindings on the child's native dependency root", function()
+                local svc = planner.new({catalog = planner_catalog(), registry = fake_registry({
+                    {id = "app.env:store", kind = "env.storage.router", meta = {}, data = {}},
+                    {id = "app.env:file", kind = "env.storage.file", meta = {}, data = {}},
+                })}) :: any
+                local plan, plan_err = svc:plan_install({component = "acme/app", version = "v1.0.0",
+                    requirement_bindings = {{name = "wippy.bootloader:env_storage", value = "app.env:file"}}})
+                test.is_nil(plan_err)
+                test.eq(find_requirement(plan, "wippy.bootloader:env_storage").value, "app.env:file")
+                test.eq(#plan.binding_dependencies, 1)
+                test.eq(plan.binding_dependencies[1].component, "wippy/bootloader")
+                test.eq(plan.binding_dependencies[1].parameters[1].value, "app.env:file")
+                test.eq(plan.install_payload.requirement_bindings[1].value, "app.env:file")
+            end)
+
+            it("rejects a reviewed binding outside the resolved requirement list", function()
+                local svc = planner.new({catalog = planner_catalog(), registry = fake_registry({})}) :: any
+                local plan, plan_err = svc:plan_install({component = "acme/app", version = "v1.0.0",
+                    requirement_bindings = {{name = "other:scope", value = "app.env:file"}}})
+                test.is_nil(plan)
+                test.eq(err_code(plan_err), "BAD_REQUEST")
+                test.contains(err_message(plan_err), "other:scope")
+            end)
+
+            it("accepts a reviewed requirement declared in a module's subnamespace", function()
+                local svc = planner.new({registry = fake_registry({
+                    {id = "host:primary", kind = "security.scope", meta = {}, data = {}},
+                    {id = "host:secondary", kind = "security.scope", meta = {}, data = {}},
+                })}) :: any
+                svc.resolve_install_graph = function()
+                    return {{module = "acme/example", namespace = "acme.example", direct = true, depth = 0,
+                        requirements = {{name = "scope", namespace = "acme.example.security",
+                            meta = {value_kind = "security.scope"}}}}}, nil
+                end
+                local plan, plan_err = svc:plan_install({component = "acme/example",
+                    requirement_bindings = {{name = "acme.example.security:scope", value = "host:secondary"}}})
+                test.is_nil(plan_err)
+                test.eq(find_requirement(plan, "acme.example.security:scope").value, "host:secondary")
+            end)
+
             it("rejects supplied full-id parameters that target a transitive module", function()
                 local full_id = "wippy.bootloader" .. ":env_storage"
                 local file_store = "app.env" .. ":file"
@@ -3720,6 +4102,7 @@ local function define_tests()
                     catalog = planner_catalog(),
                     registry = fake_registry({
                         { id = "app.env:store", kind = "env.storage.router", meta = {}, data = {} },
+                        { id = "app.env:other", kind = "env.storage.file", meta = {}, data = {} },
                     }),
                 }) :: any
 
@@ -3958,6 +4341,7 @@ local function define_tests()
                     }),
                     registry = fake_registry({
                         { id = "app:api", kind = "http.router", meta = {}, data = {} },
+                        { id = "app:api.other", kind = "http.router", meta = {}, data = {} },
                         {
                             id = "acme.parent:dep.wippy.dummy",
                             kind = "ns.dependency",
@@ -4002,6 +4386,7 @@ local function define_tests()
                     }),
                     registry = fake_registry({
                         { id = "app:api.public", kind = "http.router", meta = {}, data = {} },
+                        { id = "app:api.other", kind = "http.router", meta = {}, data = {} },
                         {
                             id = "app.deps:profile",
                             kind = "ns.dependency",
@@ -5821,6 +6206,8 @@ local function define_tests()
                                         parameter_name = "wippy.dummy:router",
                                         full_id = "wippy.dummy:router",
                                         name = "router",
+                                        expected_kind = "http.router",
+                                        required = true,
                                         value = "",
                                         value_source = "empty",
                                         missing = true,
@@ -5848,6 +6235,8 @@ local function define_tests()
                 test.eq(err_code(err), "REQUIREMENTS_MISSING")
                 test.eq(err_details(err).missing_requirements_count, 1)
                 test.eq(err_details(err).missing_requirements_by_id["wippy.dummy:router"], true)
+                test.not_nil(string.find(err:message(), "wippy.dummy:router", 1, true))
+                test.not_nil(string.find(err:message(), "http.router", 1, true))
             end)
         end)
 

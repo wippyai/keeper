@@ -1,0 +1,13 @@
+version: "1.0"
+namespace: app.users
+entries:
+  - name: identity_fixture
+    kind: function.lua
+    meta:
+      type: migration
+      target_db: app:db
+      timestamp: "2025-01-01T00:00:00Z"
+    source: file://identity_fixture.lua
+    imports:
+      migration: wippy.migration:migration
+    method: define

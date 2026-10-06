@@ -31,3 +31,5 @@ node_modules/
 
 wippy.exe
 keeper/wippy.lock
+
+keeper/test/migration_handler_subject.lua

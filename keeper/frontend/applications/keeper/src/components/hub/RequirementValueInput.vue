@@ -18,6 +18,7 @@ const props = defineProps<{
   modelValue: string
   requirement: HubPlanRequirement
   placeholder?: string
+  disabled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -171,22 +172,26 @@ async function loadRegistryEntries() {
 }
 
 function openMenu() {
+  if (props.disabled) return
   open.value = true
   void nextTick(updateMenuPosition)
   if (!registryEntries.value.length) void loadRegistryEntries()
 }
 
 function selectCandidate(c: Candidate) {
+  if (props.disabled) return
   updateValue(c.value)
   emit('commit')
   open.value = false
 }
 
 function commitValue() {
+  if (props.disabled) return
   emit('commit')
 }
 
 function onInput(event: Event) {
+  if (props.disabled) return
   updateValue((event.target as HTMLInputElement).value)
 }
 
@@ -231,13 +236,14 @@ watch(open, value => {
         class="req-value-input mono"
         :placeholder="placeholder || 'Search registry or type value'"
         autocomplete="off"
+        :disabled="disabled"
         @focus="openMenu"
         @input="onInput"
         @keydown="onKeydown"
         @change="commitValue"
         @blur="onBlur"
       />
-      <button type="button" class="req-value-toggle" @mousedown.prevent="openMenu">
+      <button type="button" class="req-value-toggle" :disabled="disabled" @mousedown.prevent="openMenu">
         <Icon icon="tabler:chevron-down" class="w-3 h-3" />
       </button>
     </div>

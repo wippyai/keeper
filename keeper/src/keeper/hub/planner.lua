@@ -730,6 +730,14 @@ local function requirement_value_kind(req): string?
     return nil
 end
 
+local function requirement_id(node, req): string
+    local namespace = trim(req.namespace)
+    if namespace == "" then
+        namespace = tostring(node.namespace or M.module_namespace(node.module) or node.module)
+    end
+    return namespace .. ":" .. trim(req.name)
+end
+
 -- Kind families: a requirement names the family it accepts, while the resource
 -- that satisfies it carries a concrete kind underneath it (db.sql.sqlite,
 -- env.storage.file). Both sides of the search know that: the registry query
@@ -1008,12 +1016,14 @@ function Planner:resolve_dependency_destination_args(args): (unknown?, unknown?)
 end
 
 function Planner:replacement_version(component)
-    local selection, selection_err = self:ownership_index():selection_of(component)
+    local native = self.native_modules and self.native_modules[component] == true
+    local index = native and self.native_ownership or self:ownership_index()
+    local selection, selection_err = index:selection_of(component)
     if selection_err then return nil, err("INTERNAL", tostring(selection_err)) end
-    if not selection or selection.source ~= "replacement-tree-v1" then return nil, nil end
-    local entries, entries_err = self:ownership_index():entries_for(component)
+    if not selection or (not native and selection.source ~= "replacement-tree-v1") then return nil, nil end
+    local entries, entries_err = index:entries_for(component)
     if entries_err then return nil, err("INTERNAL", tostring(entries_err)) end
-    local children, children_err = self:installed_child_components(component)
+    local children, children_err = self:installed_child_components(component, index)
     if children_err then return nil, children_err end
     local dependencies = {}
     for _, child in ipairs(children) do
@@ -1645,8 +1655,8 @@ end
 
 -- Child components of a locally installed module, read from the ns.dependency
 -- entries ownership attributes to it (owner == component -> data.component).
-function Planner:installed_child_components(component)
-    local rows, rows_err = self:ownership_index():entries_of_kind(component, "ns.dependency")
+function Planner:installed_child_components(component, index)
+    local rows, rows_err = (index or self:ownership_index()):entries_of_kind(component, "ns.dependency")
     if not rows then return nil, err("INTERNAL", tostring(rows_err)) end
     local out = {}
     local seen = {}
@@ -2000,11 +2010,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
             for _, req in ipairs(node.requirements or {}) do
             local name = trim(req.name)
             if name ~= "" then
-                local requirement_namespace = trim(req.namespace)
-                if requirement_namespace == "" then
-                    requirement_namespace = tostring(node.namespace or M.module_namespace(node.module) or node.module)
-                end
-                local full_id = requirement_namespace .. ":" .. name
+                local full_id = requirement_id(node, req)
                 local value, source = find_supplied(full_id, name, node.direct)
                 local suggestions = {}
                 local suggestion_seen = {}
@@ -2117,6 +2123,10 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 if value == nil and source ~= "conflict" and not value_is_empty(default_value) and default_compatible then
                     value = default_value
                     source = "default"
+                end
+                if value == nil and source ~= "conflict" and #registry_candidates == 1 then
+                    value = registry_candidates[1].value
+                    source = "registry"
                 end
                 if value == nil and source ~= "conflict" then
                     local compatible_existing = {}
@@ -2244,8 +2254,65 @@ function Planner:plan_binding_dependencies(requirements, root_entry)
     return bindings, nil
 end
 
+function Planner:preview_install(entry, requirement_plan)
+    local snapshot, snapshot_err = self.registry.snapshot()
+    if snapshot_err then return nil, snapshot_err end
+    local state, state_err = snapshot:state()
+    if state_err then return nil, state_err end
+    local present, desired = {}, {}
+    for _, row in ipairs(state.entries) do present[row.id], desired[row.id] = true, row end
+    local changes = snapshot:changes()
+    local function stage(dependency)
+        local _, stage_err
+        if present[dependency.id] then
+            _, stage_err = changes:update(dependency)
+        else
+            _, stage_err = changes:create(dependency)
+        end
+        return stage_err
+    end
+    local root_args = shallow_copy(entry.data)
+    root_args.id = entry.id
+    root_args.meta = entry.meta
+    root_args.parameters = requirement_plan.parameters
+    local canonical_root, root_err = M.build_dependency_entry(root_args)
+    if not canonical_root then return nil, root_err end
+    local root = shallow_copy(entry)
+    root.kind = canonical_root.kind
+    root.meta = canonical_root.meta
+    root.data = canonical_root.data
+    root.dependency_root = canonical_root.dependency_root
+    local stage_err = stage(root)
+    if stage_err then return nil, stage_err end
+    local bindings, bindings_err = self:plan_binding_dependencies(requirement_plan.requirements, root)
+    if bindings_err then return nil, bindings_err end
+    for _, binding in ipairs(bindings) do
+        local dependency, build_err = M.build_dependency_entry(binding)
+        if build_err then return nil, build_err end
+        stage_err = stage(dependency)
+        if stage_err then return nil, stage_err end
+    end
+    local plan, plan_err = changes:plan()
+    if plan_err then return nil, plan_err end
+    self.native_modules = {}
+    for _, change in ipairs(plan.changes) do
+        local owner = change.entry.registry and trim(change.entry.registry.owner)
+        if owner and owner ~= "" then self.native_modules[owner] = true end
+        if change.op == "delete" then desired[change.entry.id] = nil
+        else desired[change.entry.id] = change.entry end
+    end
+    local entries = {}
+    for _, row in pairs(desired) do entries[#entries + 1] = row end
+    local projected = {entries = entries, resolution = plan.resolution}
+    self.native_ownership = self.ownership.new({snapshot = function()
+        return {state = function() return projected, nil end}, nil
+    end})
+    return plan, nil
+end
+
 function Planner:plan_install(args)
     args = args or {}
+    self.native_ownership, self.native_modules = nil, nil
     local planned_args, dest_err = self:resolve_dependency_destination_args(args)
     if not planned_args then return nil, dest_err end
 
@@ -2263,21 +2330,64 @@ function Planner:plan_install(args)
     local target_err = validate_parameter_targets(graph, data.parameters or {})
     if target_err then return nil, target_err end
 
+    local supplied = {}
+    for _, parameter in ipairs(data.parameters or {}) do supplied[#supplied + 1] = parameter end
+    local declared = {}
+    for _, node in ipairs(graph) do
+        for _, requirement in ipairs(node.requirements or {}) do
+            declared[requirement_id(node, requirement)] = true
+        end
+    end
+    local reviewed, seen = {}, {}
+    for _, binding in ipairs(args.requirement_bindings or {}) do
+        if type(binding) ~= "table" or not declared[binding.name] or seen[binding.name] then
+            return nil, err("BAD_REQUEST", "reviewed binding must name one resolved requirement: " .. tostring(binding and binding.name))
+        end
+        seen[binding.name] = true
+        local value = {name = binding.name, value = binding.value}
+        reviewed[#reviewed + 1], supplied[#supplied + 1] = value, value
+    end
+
     local constraint_err = self:validate_graph_constraints(graph, data.component, entry.id)
     if constraint_err then return nil, constraint_err end
 
-    local req_plan, req_err = self:plan_requirements(graph, data.parameters or {})
+    local req_plan, req_err = self:plan_requirements(graph, supplied)
     if not req_plan then return nil, req_err end
+    local native_plan, native_err = self:preview_install(entry, req_plan)
+    local native_resolution_error
+    if native_err then
+        local details = native_err:details()
+        if native_err:kind() ~= errors.INVALID or type(details) ~= "table"
+            or type(details.count) ~= "number" or type(details.errors) ~= "table" or #req_plan.missing == 0 then
+            return nil, native_err
+        end
+        native_resolution_error = {kind = native_err:kind(), message = native_err:message(), details = details}
+    end
+    if native_plan then
+        graph, graph_err = self:resolve_install_graph(data.component, data.version, {
+            max_depth = planned_args.max_depth, max_modules = planned_args.max_modules, dependency_id = entry.id,
+        })
+        if not graph then return nil, graph_err end
+        target_err = validate_parameter_targets(graph, data.parameters or {})
+        if target_err then return nil, target_err end
+        constraint_err = self:validate_graph_constraints(graph, data.component, entry.id)
+        if constraint_err then return nil, constraint_err end
+        req_plan, req_err = self:plan_requirements(graph, supplied)
+        if not req_plan then return nil, req_err end
+    end
     local bindings, bindings_err = self:plan_binding_dependencies(req_plan.requirements, entry)
     if not bindings then return nil, bindings_err end
 
     return {
         dependency = M.dependency_summary(entry),
+        native_plan = native_plan and {digest = native_plan.digest, resolution = native_plan.resolution} or nil,
+        native_resolution_error = native_resolution_error,
         graph = graph,
         module_count = #graph,
         requirements = req_plan.requirements,
         requirement_count = req_plan.count,
         missing_requirements = req_plan.missing,
+        applicable = #req_plan.missing == 0,
         parameter_values = req_plan.values,
         recommended_parameters = req_plan.parameters,
         binding_dependencies = bindings,
@@ -2288,6 +2398,7 @@ function Planner:plan_install(args)
             component = data.component,
             version = data.version,
             parameters = req_plan.parameters,
+            requirement_bindings = reviewed,
             migration_policy = M.migration_policy_for(planned_args),
         },
     }, nil

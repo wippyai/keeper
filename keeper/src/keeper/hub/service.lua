@@ -874,7 +874,16 @@ function Service:prepare_install(args)
     local graph_ok, graph_err = validate_resolved_graph(plan.graph)
     if not graph_ok then return nil, graph_err end
     if #(plan.missing_requirements or {}) > 0 then
-        return nil, err("REQUIREMENTS_MISSING", "Hub dependency requires explicit configuration", {
+        local missing = {}
+        local missing_ids = string_set(plan.missing_requirements)
+        for _, requirement in ipairs(plan.requirements or {}) do
+            local id = requirement.parameter_name or requirement.full_id
+            if missing_ids[id] then
+                table.insert(missing, tostring(id) .. " (" .. tostring(requirement.expected_kind or "literal") .. ")")
+            end
+        end
+        table.sort(missing)
+        return nil, err("REQUIREMENTS_MISSING", "Configure required bindings: " .. table.concat(missing, ", "), {
             dependency = plan.dependency,
             requirements = plan.requirements,
             missing_requirements_by_id = string_set(plan.missing_requirements),
