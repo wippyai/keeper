@@ -33,6 +33,10 @@ so deployments can install or remove usage analytics independently.
 
 ## Requirements
 
+Keeper requires Wippy v0.3.44a or newer. Hub install previews use
+`registry.snapshot():changes():plan()` to resolve module sources and requirements
+before registry changes apply.
+
 `keeper/keeper` is configured through namespace requirements, so app projects can
 bind Keeper to their own runtime resources without editing Keeper entries:
 

@@ -118,6 +118,17 @@ local function fake_registry(entries, state_shape, registry_state)
             end
             table.sort(modules, function(a, b) return a.name < b.name end)
             return {
+                changes = function()
+                    local staged = {}
+                    return {
+                        create = function(_, entry) staged[#staged + 1] = { op = "create", entry = entry }; return true, nil end,
+                        update = function(_, entry) staged[#staged + 1] = { op = "update", entry = entry }; return true, nil end,
+                        plan = function()
+                            if registry_state.plan then return registry_state.plan(staged, captured) end
+                            return { changes = {}, resolution = { modules = modules }, digest = "fixture" }, nil
+                        end,
+                    }
+                end,
                 entries = function() return captured, nil end,
                 get = function(_, id) return lookup(id), nil end,
                 version = function()
@@ -2443,6 +2454,71 @@ local function define_tests()
                     test.eq(out.modules[1].status, "error")
                     test.contains(out.modules[1].findings[1].title, "Module artifact unavailable")
                 end)
+
+            it("plans an uninstalled source requirement default before consulting a model", function()
+                for _, recorded in ipairs({ false, true }) do
+                    local calls = 0
+                    local entries = {
+                        { id = "app.security:members", kind = "security.scope", data = {} },
+                        { id = "app.security:sales", kind = "security.scope", data = {} },
+                    }
+                    if recorded then
+                        entries[#entries + 1] = { id = "app.deps:secure", kind = "ns.dependency",
+                            provenance = { root = true }, data = {component = "acme/secure", version = "*",
+                                parameters = {{name = "acme.secure:role", value = "app.security:sales"}}} }
+                    end
+                    local svc = planner.new({
+                        catalog = fake_catalog({["acme/secure"] = {{version = "1.0.0",
+                            requirements = {{name = "role", meta = {value_kind = "security.scope"}, targets = {}}}}}}),
+                        registry = fake_registry(entries, nil, {version = 17, plan = function(staged)
+                            calls = calls + 1
+                            test.eq(#staged, 1)
+                            test.eq(staged[1].op, recorded and "update" or "create")
+                            return {digest = "native-source", resolution = {modules = {
+                                {name = "acme/secure", version = "1.0.0", source = "replacement-tree-v1"}}},
+                                changes = {{op = "create", entry = {id = "acme.secure:role", kind = "ns.requirement",
+                                    registry = {owner = "acme/secure", root = false}, meta = {value_kind = "security.scope"},
+                                    data = {default = "app.security:members", targets = {}}}}}}, nil
+                        end}),
+                        llm = {generate = function() error("a source default does not consult a model") end},
+                    }) :: any
+                    local plan, plan_err = svc:plan_install({component = "acme/secure", version = "*"})
+                    test.is_nil(plan_err)
+                    local req = find_requirement(plan, "acme.secure:role")
+                    test.eq(req.value, recorded and "app.security:sales" or "app.security:members")
+                    test.eq(req.value_source, recorded and "provided" or "default")
+                    test.eq(#plan.missing_requirements, 0)
+                    test.eq(plan.native_plan.digest, "native-source")
+                    test.eq(calls, 1)
+                end
+            end)
+
+            it("propagates native planning failures instead of returning an applicable Hub plan", function()
+                local native_err = errors.new({kind = errors.PERMISSION_DENIED, message = "native plan denied"})
+                local svc = planner.new({catalog = fake_catalog({["acme/secure"] = {{version = "1.0.0"}}}),
+                    registry = fake_registry({}, nil, {plan = function() return nil, native_err end})}) :: any
+                local plan, plan_err = svc:plan_install({component = "acme/secure", version = "*"})
+                test.is_nil(plan)
+                test.eq(plan_err, native_err)
+            end)
+
+            it("reports native unresolved requirements alongside unavailable model choices", function()
+                local native_err = errors.new({kind = errors.INVALID, message = "unresolved requirements",
+                    details = {count = 1, errors = {"requirement role has no value"}}})
+                local svc = planner.new({catalog = fake_catalog({["acme/secure"] = {{version = "1.0.0",
+                    requirements = {{name = "role", meta = {value_kind = "security.scope"}, targets = {}}}}}}),
+                    registry = fake_registry({
+                        {id = "app.security:members", kind = "security.scope", data = {}},
+                        {id = "app.security:sales", kind = "security.scope", data = {}},
+                    }, nil, {plan = function() return nil, native_err end}),
+                    llm = {generate = function() return nil, "model unavailable" end}}) :: any
+                local plan, plan_err = svc:plan_install({component = "acme/secure", version = "*"})
+                test.is_nil(plan_err)
+                test.eq(#plan.missing_requirements, 1)
+                test.eq(plan.native_resolution_error.kind, errors.INVALID)
+                test.eq(plan.native_resolution_error.details.count, 1)
+                test.eq(plan.requirements[1].resolution_error.code, "UNAVAILABLE")
+            end)
 
             it("reuses an existing dependency entry for component updates", function()
                 local svc = planner.new({

@@ -1,5 +1,15 @@
 # Release Notes
 
+## Pending release
+
+The minimum runtime is Wippy v0.3.44a. Hub plans preview native registry changes
+before resolving requirements, including modules not yet installed from local
+replacement trees. Declared defaults precede model selection, and existing exact
+bindings remain authoritative. Requirements without a default and with multiple
+compatible candidates receive a model choice and reason for administrator review.
+Unavailable or invalid model choices leave the requirement unbound with a typed
+error. Native planning errors remain visible and prevent an applicable plan.
+
 ## keeper/keeper 0.5.94
 
 Hub installation plans use the active local replacement source when the runtime
