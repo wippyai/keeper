@@ -1,6 +1,6 @@
 # Release Notes
 
-## Pending release
+## keeper/keeper 0.5.95
 
 The minimum runtime is Wippy v0.3.44a. Hub plans preview native registry changes
 before resolving requirements, including modules not yet installed from local
