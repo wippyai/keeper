@@ -167,3 +167,12 @@ entries:
     kind: function.lua
     source: file://mcp_group_resolver.lua
     method: resolve
+
+  - name: unscoped_tool
+    kind: function.lua
+    meta:
+      type: tool
+      title: Unscoped host tool
+      comment: Host-owned tool without MCP required_scopes, used by MCP authorization tests
+    source: file://unscoped_tool.lua
+    method: handler

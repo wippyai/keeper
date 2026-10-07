@@ -1,5 +1,12 @@
 # Release Notes
 
+## keeper/keeper 0.5.98
+
+The MCP authorization tests use a Keeper-owned unscoped tool fixture in the test
+host instead of `wippy.agent.tools:delay_tool`, a fixture that wippy/agent 0.5.3
+no longer ships. The test host resolves wippy/agent 0.5.3 and wippy/llm 0.5.5.
+The logger process filter behavior has end-to-end tests through the logger client.
+
 ## keeper/keeper 0.5.97
 
 The system tool's log `filter` accepts a bare word as a substring match on the

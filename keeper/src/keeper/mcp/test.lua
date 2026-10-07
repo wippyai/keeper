@@ -868,7 +868,7 @@ local function define_tests()
             it("strict mode denies non-root external tools without explicit MCP scopes", function()
                 local ok, err = mcp_authorize.tool(
                     { scopes = { "state.read" } },
-                    "wippy.agent.tools:delay_tool"
+                    "app:unscoped_tool"
                 )
                 test.is_true(not ok)
                 test.not_nil(err)
@@ -877,10 +877,10 @@ local function define_tests()
 
             it("root scope can use registered tools missing explicit MCP scopes", function()
                 local session = { scopes = { "mcp.root" } }
-                local ok, err = mcp_authorize.tool(session, "wippy.agent.tools:delay_tool")
+                local ok, err = mcp_authorize.tool(session, "app:unscoped_tool")
                 test.is_true(ok, tostring(err))
 
-                local call_ok, call_err = mcp_authorize.tool_call(session, "wippy.agent.tools:delay_tool", nil, {})
+                local call_ok, call_err = mcp_authorize.tool_call(session, "app:unscoped_tool", nil, {})
                 test.is_true(call_ok, tostring(call_err))
             end)
 
