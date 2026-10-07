@@ -1,5 +1,13 @@
 # Release Notes
 
+## keeper/keeper 0.5.96
+
+The component scanner resolves module-owned frontend apps from the registry
+ownership snapshot, so a host `frontend/applications/keeper` directory is never
+offered as editable when `keeper/keeper` is installed; a snapshot read failure is
+returned instead of ignored. The knowledge changelog raises when an insert fails
+instead of dropping the row. The Keeper suites pass on SQLite and Postgres.
+
 ## keeper/keeper 0.5.95
 
 The minimum runtime is Wippy v0.3.44a. Hub plans preview native registry changes
