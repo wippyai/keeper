@@ -141,6 +141,17 @@ entries:
       sql_dialect: keeper.internal:sql_dialect
     method: handler
     
+  # keeper.develop.integrate.handlers:migration_probe_db
+  - name: migration_probe_db
+    kind: library.lua
+    meta:
+      comment: Test support for the live probe migrations, portable ledger and table state checks on app:db
+    source: file://migration_probe_db.lua
+    modules:
+      - sql
+    imports:
+      sql_dialect: keeper.internal:sql_dialect
+
   # keeper.develop.integrate.handlers:migration_handler_test
   - name: migration_handler_test
     kind: function.lua
@@ -151,11 +162,11 @@ entries:
     source: file://migration_handler_test.lua
     modules:
       - funcs
-      - sql
     imports:
       test: wippy.test:test
       runner: wippy.migration:runner
       subject: app:migration_handler_subject
+      probe_db: keeper.develop.integrate.handlers:migration_probe_db
     method: define_tests
     pool:
       size: 1
@@ -206,8 +217,8 @@ entries:
     source: file://unit2_verify_test.lua
     modules:
       - funcs
-      - sql
     imports:
+      probe_db: keeper.develop.integrate.handlers:migration_probe_db
       test: wippy.test:test
     method: define_tests
     pool:

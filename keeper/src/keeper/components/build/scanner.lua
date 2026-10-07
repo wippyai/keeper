@@ -10,6 +10,7 @@ local json = require("json")
 local registry = require("registry")
 
 local consts = require("consts")
+local ownership = require("ownership")
 
 local M = {}
 
@@ -46,19 +47,13 @@ local function module_owned_app_slugs_from_modules(modules: string[]?)
 end
 
 local function module_owned_app_slugs()
-    local rows, find_err = registry.find({ [".kind"] = "ns.definition" })
-    if not rows or find_err then return {} end
+    local by_module, _, load_err = ownership.new(registry):load()
+    if not by_module then return nil, load_err end
 
     local modules = {}
-    local seen = {}
-    for _, row in ipairs(rows) do
-        local name = row.meta and row.meta.module
-        if type(name) == "string" and name ~= "" and not seen[name] then
-            seen[name] = true
-            table.insert(modules, name)
-        end
-    end
-    return module_owned_app_slugs_from_modules(modules)
+    for name in pairs(by_module) do table.insert(modules, name) end
+    table.sort(modules)
+    return module_owned_app_slugs_from_modules(modules), nil
 end
 
 local function is_component_dir_name(name)
@@ -398,7 +393,8 @@ end
 function M.scan()
     local vol, err = get_fs()
     if not vol then return nil, err end
-    local blocked_local_apps = module_owned_app_slugs()
+    local blocked_local_apps, owned_err = module_owned_app_slugs()
+    if not blocked_local_apps then return nil, owned_err end
 
     local result = {
         applications = {},

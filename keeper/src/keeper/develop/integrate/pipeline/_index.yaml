@@ -78,9 +78,9 @@ entries:
     source: file://execute_migration_pipeline_test.lua
     modules:
       - funcs
-      - sql
       - json
     imports:
+      probe_db: keeper.develop.integrate.handlers:migration_probe_db
       test: wippy.test:test
     method: define_tests
     pool:

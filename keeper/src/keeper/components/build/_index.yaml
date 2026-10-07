@@ -46,6 +46,7 @@ entries:
       - registry
     imports:
       consts: keeper.components:consts
+      ownership: keeper.hub:ownership
     
   # keeper.components.build:scanner_test
   - name: scanner_test
