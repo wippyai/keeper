@@ -563,6 +563,18 @@ local function define_tests()
                 test.eq(filter, '(level >= 2) and (path == "gov.service.upload")')
             end)
 
+            it("combines friendly log levels with a bare substring filter", function()
+                local filter, err = system.resolve_log_filter({ level = "warn", filter = "job_worker" })
+                test.is_nil(err)
+                test.eq(filter, '(level == 1) and (message contains "job_worker")')
+            end)
+
+            it("turns a bare substring filter into a message match", function()
+                local filter, err = system.resolve_log_filter({ filter = "lease" })
+                test.is_nil(err)
+                test.eq(filter, 'message contains "lease"')
+            end)
+
             it("rejects unknown friendly log levels", function()
                 local filter, err = system.log_level_filter("fatal-ish")
                 test.is_nil(filter)
