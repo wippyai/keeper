@@ -3,7 +3,7 @@ directories:
     src: .
 modules:
     - name: keeper/keeper
-      version: 0.5.97
+      version: 0.5.98
     - name: userspace/contract
       version: 0.4.1
       hash: c154e2cc11ca94ddd368307aced96cfbbd411a58e74e46339d50b4a9befc1d65
@@ -11,8 +11,8 @@ modules:
       version: 0.5.26
       hash: 0e5eaf8b9dcd22a19f34c5a143e58ea6fa47e895f7c3001ac612dda4601250ca
     - name: wippy/agent
-      version: 0.5.2
-      hash: 5fa98078ab97f56b0139445ac7aee05c504fb11abefc06bc3b35df53aa16d81b
+      version: 0.5.3
+      hash: 58288cfadfaef4112e0735c882778e0cb8161fe8cdb97975c11c16a312b9bf07
     - name: wippy/bootloader
       version: 0.3.17
       hash: d4506b7733ba079fb05f5e055c0e58b3f89905f7d627ac2244a819164a0507a0
@@ -20,8 +20,8 @@ modules:
       version: 0.7.24
       hash: 32d269c0e2608fd3f84e76931d0a844af186bccbcb02fe55b2209df20983fb6e
     - name: wippy/llm
-      version: 0.5.4
-      hash: 984785fe2219cdc52a84d61d5900f30fb2ee13d3c7c43e6382b20220a4abb1dd
+      version: 0.5.5
+      hash: a108a1836fd1a28c35dcf05acf7ab1f09c49b920c74970ca8efde118e810114c
     - name: wippy/migration
       version: 0.3.21
       hash: 215445ba5e9c79a36af1dcf59277946c8b7a7f20d372a296f295fa99ddc4b430

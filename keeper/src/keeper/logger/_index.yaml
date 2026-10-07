@@ -43,6 +43,24 @@ entries:
     pool:
       size: 1
 
+  # keeper.logger:process_test
+  - name: process_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Logger process filter behavior through the client
+      suite: logger
+    source: file://process_test.lua
+    modules:
+      - events
+      - time
+    imports:
+      logger_client: keeper.logger:client
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+
   # keeper.logger:consts
   - name: consts
     kind: library.lua
