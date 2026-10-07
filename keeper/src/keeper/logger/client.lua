@@ -1,6 +1,7 @@
 local time = require("time")
 local uuid = require("uuid")
 local consts = require("logger_consts")
+local logger_filter = require("logger_filter")
 
 local logger_client = {}
 
@@ -58,7 +59,7 @@ function logger_client.get_logs(count: number?, filter: string?, reverse: boolea
     local response, err = send_and_wait({
         operation = consts.OPERATIONS.GET_LOGS,
         count = count,
-        filter = filter,
+        filter = logger_filter.normalize(filter),
         reverse = reverse,
     }, timeout)
 
@@ -76,7 +77,7 @@ end
 function logger_client.get_composition(filter: string?, timeout: string?): (table?, string?)
     local response, err = send_and_wait({
         operation = consts.OPERATIONS.COMPOSITION,
-        filter = filter,
+        filter = logger_filter.normalize(filter),
     }, timeout)
 
     if err then

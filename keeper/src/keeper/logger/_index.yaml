@@ -14,8 +14,35 @@ entries:
       - uuid
     imports:
       logger_consts: keeper.logger:consts
+      logger_filter: keeper.logger:filter
     method: logger_client
     
+  # keeper.logger:filter
+  - name: filter
+    kind: library.lua
+    meta:
+      comment: Log filter normalization and compilation
+      description: Bare token is a message substring match; other text compiles as an expression with an explicit syntax error
+    source: file://filter.lua
+    modules:
+      - expr
+    method: filter
+
+  # keeper.logger:filter_test
+  - name: filter_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Log filter normalization and compilation tests
+      suite: logger
+    source: file://filter_test.lua
+    imports:
+      logger_filter: keeper.logger:filter
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+
   # keeper.logger:consts
   - name: consts
     kind: library.lua
@@ -34,11 +61,11 @@ entries:
       - logger
       - time
       - json
-      - expr
       - events
       - channel
     imports:
       logger_consts: keeper.logger:consts
+      logger_filter: keeper.logger:filter
       notify: keeper.events:notify
       events_consts: keeper.events:consts
     method: run

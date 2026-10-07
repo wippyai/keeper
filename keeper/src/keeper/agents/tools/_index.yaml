@@ -296,7 +296,7 @@ entries:
             "state": {"type": "string", "description": "Filter processes by state"},
             "host": {"type": "string", "description": "Filter processes by host substring"},
             "source": {"type": "string", "description": "Filter processes by source substring"},
-            "filter": {"type": "string", "description": "Logger filter expression"},
+            "filter": {"type": "string", "description": "Log filter for action=logs and log_composition. A single word without spaces (job_worker) is a substring match on message. Anything else is an expression over level, message, path, logger_name, caller and fields.<key> with ==, !=, >=, <=, <, >, contains, startsWith, endsWith, and, or, not, parentheses. Examples: message contains \"lease expired\" ; level >= 1 and path startsWith \"gov\". An invalid expression returns an error with this syntax."},
             "level": {"type": "string", "description": "Friendly log level filter for action=logs: debug, info, warn, error, or a numeric level"},
             "limit": {"type": "integer", "description": "Row cap"},
             "reverse": {"type": "boolean", "description": "Logs newest-first (default true)"}
@@ -315,6 +315,7 @@ entries:
       - json
     imports:
       logger_client: keeper.logger:client
+      logger_filter: keeper.logger:filter
       render: keeper.internal.flow:render
     method: handler
     
