@@ -1,5 +1,12 @@
 # Release Notes
 
+## keeper/keeper 0.5.97
+
+The system tool's log `filter` accepts a bare word as a substring match on the
+message. Any other filter is an expression; one that does not compile returns an
+error showing the expression syntax and examples, so a filter that matches
+nothing is distinguishable from an empty log. The tool schema documents both forms.
+
 ## keeper/keeper 0.5.96
 
 The component scanner resolves module-owned frontend apps from the registry
