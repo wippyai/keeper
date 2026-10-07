@@ -7,32 +7,21 @@
 -- idempotent re-apply, down/revert, undiscovered-id safety net.
 
 local test  = require("test")
-local sql   = require("sql")
 local funcs = require("funcs")
 local runner_lib = require("runner")
 local subject = require("subject")
+local probe_db = require("probe_db")
 
 local HANDLER_ID = "keeper.develop.integrate.handlers:migration_handler"
 local PROBE_ID   = "app.probe.verify:01_create_probe_table"
 local PROBE_TBL  = "probe_verify"
-
-local function must_db()
-    local db, err = sql.get("app:db")
-    if err then error("app:db unavailable: " .. tostring(err)) end
-    if not db then error("app:db unavailable") end
-    return db
-end
 
 local function call_handler(args)
     return funcs.new():call(HANDLER_ID, args or {})
 end
 
 local function reset()
-    local db, err = sql.get("app:db")
-    if err or not db then return end
-    db:execute("DROP TABLE IF EXISTS " .. PROBE_TBL)
-    db:execute("DELETE FROM _migrations WHERE id=?", { PROBE_ID })
-    db:release()
+    probe_db.reset(PROBE_TBL, PROBE_ID)
 end
 
 local function find_row(rows, id)
@@ -43,19 +32,11 @@ local function find_row(rows, id)
 end
 
 local function probe_table_exists()
-    local db = must_db()
-    local rows = db:query(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-        { PROBE_TBL }) or {}
-    db:release()
-    return #rows == 1
+    return probe_db.table_exists(PROBE_TBL)
 end
 
 local function migration_applied(id)
-    local db = must_db()
-    local rows = db:query("SELECT 1 FROM _migrations WHERE id=?", { id }) or {}
-    db:release()
-    return #rows == 1
+    return probe_db.migration_applied(id)
 end
 
 local function define_tests()
@@ -75,11 +56,7 @@ local function define_tests()
                         if record_applied then
                             -- A second runner commits after the handler's first
                             -- ledger read, before run_next finishes discovery.
-                            local db = must_db()
-                            local _, err = db:execute(
-                                "INSERT INTO _migrations (id, description) VALUES (?, ?)",
-                                {PROBE_ID, "committed by competing runner"})
-                            db:release()
+                            local err = probe_db.record_applied(PROBE_ID, "committed by competing runner")
                             test.is_nil(err)
                         end
                         return {status = status or "complete", migrations = {}, skipped_details = {},
@@ -118,11 +95,7 @@ local function define_tests()
             runner_lib.setup = function(database_id)
                 local runner = original_setup(database_id)
                 runner.find_migrations = function()
-                    local db = must_db()
-                    local _, err = db:execute(
-                        "INSERT INTO _migrations (id, description) VALUES (?, ?)",
-                        {PROBE_ID, "committed by competing runner"})
-                    db:release()
+                    local err = probe_db.record_applied(PROBE_ID, "committed by competing runner")
                     test.is_nil(err)
                     return nil, "review probe: registry discovery failed"
                 end

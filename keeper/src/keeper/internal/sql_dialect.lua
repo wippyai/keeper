@@ -98,13 +98,21 @@ function M.bind_postgres_placeholders(statement: string, params: any): (string?,
     return table.concat(out)
 end
 
+local function bind(db: any, statement: string, params: any): (string?, string?)
+    if not M.is_postgres(db) then return statement end
+    return M.bind_postgres_placeholders(statement, params)
+end
+
 function M.query(db: any, statement: string, params: any): any
-    if M.is_postgres(db) then
-        local bound, err = M.bind_postgres_placeholders(statement, params)
-        if not bound then return nil, err end
-        statement = bound
-    end
-    return db:query(statement, params)
+    local bound, err = bind(db, statement, params)
+    if not bound then return nil, err end
+    return db:query(bound, params)
+end
+
+function M.execute(db: any, statement: string, params: any): any
+    local bound, err = bind(db, statement, params)
+    if not bound then return nil, err end
+    return db:execute(bound, params)
 end
 
 return M

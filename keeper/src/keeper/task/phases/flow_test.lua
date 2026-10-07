@@ -12,6 +12,7 @@ local nodes_writer = require("nodes_writer")
 local changeset_repo = require("changeset_repo")
 local changeset_consts = require("changeset_consts")
 local sql = require("sql")
+local sql_dialect = require("sql_dialect")
 local task_consts = require("task_consts")
 
 local DATAFLOW_DB = "app:db"
@@ -43,10 +44,10 @@ local function define_tests()
             local df_db = sql.get(DATAFLOW_DB)
             if df_db then
                 for _, dataflow_id in ipairs(created_dataflows) do
-                    df_db:execute("DELETE FROM dataflow_data WHERE dataflow_id = ?", { dataflow_id })
-                    df_db:execute("DELETE FROM dataflow_commits WHERE dataflow_id = ?", { dataflow_id })
-                    df_db:execute("DELETE FROM dataflow_nodes WHERE dataflow_id = ?", { dataflow_id })
-                    df_db:execute("DELETE FROM dataflows WHERE dataflow_id = ?", { dataflow_id })
+                    sql_dialect.execute(df_db, "DELETE FROM dataflow_data WHERE dataflow_id = ?", { dataflow_id })
+                    sql_dialect.execute(df_db, "DELETE FROM dataflow_commits WHERE dataflow_id = ?", { dataflow_id })
+                    sql_dialect.execute(df_db, "DELETE FROM dataflow_nodes WHERE dataflow_id = ?", { dataflow_id })
+                    sql_dialect.execute(df_db, "DELETE FROM dataflows WHERE dataflow_id = ?", { dataflow_id })
                 end
                 df_db:release()
             end
@@ -54,15 +55,15 @@ local function define_tests()
             local db = sql.get(task_consts.DATABASE.RESOURCE_ID)
             if db then
                 for _, id in ipairs(created_ids) do
-                    db:execute("DELETE FROM keeper_task_nodes WHERE task_id = ?", { id })
-                    db:execute("DELETE FROM keeper_tasks WHERE task_id = ?", { id })
+                    sql_dialect.execute(db, "DELETE FROM keeper_task_nodes WHERE task_id = ?", { id })
+                    sql_dialect.execute(db, "DELETE FROM keeper_tasks WHERE task_id = ?", { id })
                 end
                 db:release()
             end
             local cdb = sql.get(changeset_consts.DATABASE.RESOURCE_ID)
             if cdb then
                 for _, task_id in ipairs(created_ids) do
-                    local rows = cdb:query(
+                    local rows = sql_dialect.query(cdb,
                         "SELECT changeset_id FROM keeper_changesets WHERE task_id = ?",
                         { task_id }
                     ) or {}
@@ -71,11 +72,11 @@ local function define_tests()
                     end
                 end
                 for _, id in ipairs(created_changesets) do
-                    cdb:execute("DELETE FROM keeper_changeset_changes WHERE changeset_id = ?", { id })
-                    cdb:execute("DELETE FROM keeper_changeset_fs_content WHERE changeset_id = ?", { id })
-                    cdb:execute("DELETE FROM keeper_changeset_fs_deletes WHERE changeset_id = ?", { id })
-                    cdb:execute("DELETE FROM keeper_changeset_baselines WHERE changeset_id = ?", { id })
-                    cdb:execute("DELETE FROM keeper_changesets WHERE changeset_id = ?", { id })
+                    sql_dialect.execute(cdb, "DELETE FROM keeper_changeset_changes WHERE changeset_id = ?", { id })
+                    sql_dialect.execute(cdb, "DELETE FROM keeper_changeset_fs_content WHERE changeset_id = ?", { id })
+                    sql_dialect.execute(cdb, "DELETE FROM keeper_changeset_fs_deletes WHERE changeset_id = ?", { id })
+                    sql_dialect.execute(cdb, "DELETE FROM keeper_changeset_baselines WHERE changeset_id = ?", { id })
+                    sql_dialect.execute(cdb, "DELETE FROM keeper_changesets WHERE changeset_id = ?", { id })
                 end
                 cdb:release()
             end
@@ -327,7 +328,7 @@ local function define_tests()
 
                 -- ask_user node must be recorded so /tasks API surfaces the question.
                 local db = must_db(task_consts.DATABASE.RESOURCE_ID)
-                local rows = db:query(
+                local rows = sql_dialect.query(db,
                     "SELECT content FROM keeper_task_nodes WHERE task_id=? AND type='ask_user' ORDER BY seq DESC LIMIT 1",
                     { task_id })
                 db:release()
@@ -368,7 +369,7 @@ local function define_tests()
                     "regression: this used to burn a full design+plan loop after integrate failure")
 
                 local db = must_db(task_consts.DATABASE.RESOURCE_ID)
-                local rows = db:query(
+                local rows = sql_dialect.query(db,
                     "SELECT content FROM keeper_task_nodes WHERE task_id=? AND type='ask_user' ORDER BY seq DESC LIMIT 1",
                     { task_id })
                 db:release()
@@ -494,7 +495,7 @@ local function define_tests()
             local function drop_changeset(cs_id)
                 local cdb = sql.get(changeset_consts.DATABASE.RESOURCE_ID)
                 if not cdb then return end
-                cdb:execute(
+                sql_dialect.execute(cdb,
                     "UPDATE keeper_changesets SET state = ? WHERE changeset_id = ?",
                     { changeset_consts.STATES.DROPPED, cs_id }
                 )
@@ -553,7 +554,7 @@ local function define_tests()
                 local db = must_db(DATAFLOW_DB)
                 local status = nil
                 for _ = 1, 40 do
-                    local rows = db:query("SELECT status FROM dataflows WHERE dataflow_id = ?", { dataflow_id }) or {}
+                    local rows = sql_dialect.query(db, "SELECT status FROM dataflows WHERE dataflow_id = ?", { dataflow_id }) or {}
                     status = rows[1] and rows[1].status
                     if status == "completed" or status == "failed" then break end
                     time.sleep("50ms")
@@ -600,7 +601,7 @@ local function define_tests()
                 test.eq(status, "completed")
 
                 local db = must_db(DATAFLOW_DB)
-                local failed = db:query([[
+                local failed = sql_dialect.query(db, [[
                     SELECT COUNT(*) AS c
                     FROM dataflow_nodes
                     WHERE dataflow_id = ?
@@ -686,11 +687,11 @@ local function define_tests()
                 test.eq(task_row.status, "waiting_for_user")
 
                 local db = must_db(task_consts.DATABASE.RESOURCE_ID)
-                local phase_rows = db:query(
+                local phase_rows = sql_dialect.query(db,
                     "SELECT status, error_message FROM keeper_task_nodes WHERE node_id = ?",
                     { started.node_id }
                 )
-                local asks = db:query([[
+                local asks = sql_dialect.query(db, [[
                     SELECT content FROM keeper_task_nodes
                     WHERE task_id = ? AND type = 'ask_user' AND status = 'active'
                     ORDER BY seq DESC LIMIT 1
@@ -707,7 +708,7 @@ local function define_tests()
         describe("ask_user revert (implement phase)", function()
             local function seed_overlay_entry(branch, id, kind, created_at)
                 local db = must_db(task_consts.DATABASE.RESOURCE_ID)
-                db:execute([[
+                sql_dialect.execute(db, [[
                     INSERT INTO keeper_overlay_entries
                         (id, branch, kind, deleted, created_at, updated_at)
                     VALUES (?, ?, ?, 0, ?, ?)
@@ -717,7 +718,7 @@ local function define_tests()
 
             local function count_entries(branch)
                 local db = must_db(task_consts.DATABASE.RESOURCE_ID)
-                local rows = db:query(
+                local rows = sql_dialect.query(db,
                     "SELECT COUNT(*) AS n FROM keeper_overlay_entries WHERE branch = ?",
                     { branch }
                 )

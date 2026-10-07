@@ -9,41 +9,24 @@
 -- pipeline wrapper still applies migrations end-to-end.
 
 local test  = require("test")
-local sql   = require("sql")
 local funcs = require("funcs")
 local json  = require("json")
+local probe_db = require("probe_db")
 
 local EXEC_ID    = "keeper.develop.integrate.pipeline:execute"
 local PROBE_ID   = "app.probe.verify:01_create_probe_table"
 local PROBE_TBL  = "probe_verify"
 
-local function must_db()
-    local db, err = sql.get("app:db")
-    if err then error("db: " .. tostring(err)) end
-    if not db then error("app db unavailable") end
-    return db
-end
-
 local function reset()
-    local db = must_db()
-    db:execute("DROP TABLE IF EXISTS " .. PROBE_TBL)
-    db:execute("DELETE FROM _migrations WHERE id=?", { PROBE_ID })
-    db:release()
+    probe_db.reset(PROBE_TBL, PROBE_ID)
 end
 
 local function table_exists(name)
-    local db = must_db()
-    local rows = db:query(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", { name }) or {}
-    db:release()
-    return #rows == 1
+    return probe_db.table_exists(name)
 end
 
 local function migration_row(id)
-    local db = must_db()
-    local rows = db:query("SELECT id FROM _migrations WHERE id=?", { id }) or {}
-    db:release()
-    return #rows == 1
+    return probe_db.migration_applied(id)
 end
 
 local function define_tests()

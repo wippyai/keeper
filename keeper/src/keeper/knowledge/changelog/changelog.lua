@@ -46,7 +46,7 @@ function M.record_changeset(args)
         if op.kind == OPS.CREATE then op_type = "create"
         elseif op.kind == OPS.DELETE then op_type = "delete" end
 
-        sql.builder.insert("keeper_changelog")
+        local _, insert_err = sql.builder.insert("keeper_changelog")
             :set_map({
                 version = version,
                 timestamp = ts,
@@ -62,6 +62,9 @@ function M.record_changeset(args)
             })
             :run_with(db)
             :exec()
+        if insert_err then
+            error("Failed to record changelog entry " .. tostring(entry_id) .. ": " .. tostring(insert_err))
+        end
     end
 end
 
