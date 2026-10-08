@@ -1,5 +1,23 @@
 # Release Notes
 
+## keeper/keeper 0.5.99
+
+Hub plans resolve all requested dependency roots together before requirement
+validation and preview their final bindings through the native planner. Bulk
+installs apply one governance changeset, so dependency capabilities introduced
+by another root are available regardless of request order.
+
+Requirement validation includes resources introduced by the selected package
+and uses their selected kinds. Optional `meta.value_type` declares boolean,
+number, integer, string, object, or array literals without treating semantic
+`meta.value_kind` hints as registry references. Requirements without
+`value_type` keep their existing behavior. Single-component requests and
+stored data remain unchanged.
+
+The full Keeper suite passes 1,850 tests on SQLite and Postgres, with the one
+existing PM HTTP placeholder skip. All 193 Hub tests pass on both engines, and
+lint reports no issues.
+
 ## keeper/keeper 0.5.98
 
 The MCP authorization tests use a Keeper-owned unscoped tool fixture in the test
