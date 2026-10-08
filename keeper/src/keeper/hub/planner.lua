@@ -38,6 +38,7 @@ type VersionItem = {
     requirements?: { HubRequirement },
     entry_count?: number,
     entry_kinds?: { string },
+    resource_kinds?: {[string]: string},
     lua_modules?: { string },
     size_bytes?: number,
     digest?: string,
@@ -69,6 +70,7 @@ type GraphNode = {
     direct: boolean,
     dependencies: { HubDependencyRef },
     requirements: { HubRequirement },
+    resource_kinds?: {[string]: string},
 }
 type ConstraintPart = {
     op: string,
@@ -719,15 +721,28 @@ local function requirement_required(req): boolean
     return true
 end
 
--- A requirement resolves to registry candidates only through the type it
--- declares (meta.value_kind on the ns.requirement entry). There is no
--- inference from requirement names or target paths: names are module-authored
--- identifiers the installer cannot enumerate, so keying on them couples the
--- planner to individual modules.
+-- value_type describes literals; value_kind describes registry references
+-- when no literal type is declared. Requirement names do not infer types.
 local function requirement_value_kind(req): string?
+    if trim(req and req.meta and req.meta.value_type) ~= "" then return nil end
     local explicit = trim(req and req.meta and req.meta.value_kind)
     if explicit ~= "" then return explicit end
     return nil
+end
+
+local LITERAL_TYPES = {boolean = true, number = true, integer = true, string = true, object = true, array = true}
+
+local function literal_type_matches(expected, value): boolean
+    if expected == "integer" then
+        if type(value) ~= "number" then return false end
+        local numeric = value :: number
+        return numeric % 1 == 0
+    end
+    if expected == "array" then return is_array(value) end
+    if expected == "object" then
+        return type(value) == "table" and (next(value) == nil or not is_array(value))
+    end
+    return type(value) == expected
 end
 
 local function requirement_id(node, req): string
@@ -1147,6 +1162,10 @@ function Planner:artifact_requirement_details(component, selected)
     else
         merged.requirements = inspected_artifact.requirements or {}
     end
+    merged.resource_kinds = {}
+    for _, entry in ipairs(inspected_artifact.entries or {}) do
+        merged.resource_kinds[entry.id] = entry.kind
+    end
     merged.entry_count = inspected_artifact.entry_count or merged.entry_count
     merged.entry_kinds = inspected_artifact.entry_kinds or merged.entry_kinds
     merged.size_bytes = inspected_artifact.size_bytes or merged.size_bytes
@@ -1548,6 +1567,7 @@ function Planner:resolve_install_graph(component, constraint, opts)
                                 direct = work.depth == 0,
                                 dependencies = selected_item.dependencies or {},
                                 requirements = selected_item.requirements or {},
+                                resource_kinds = selected_item.resource_kinds,
                                 __selected = selected_item,
                             }
                             if work.parent then node.parent = work.parent end
@@ -1802,6 +1822,12 @@ function Planner:installed_constraints(exclude_component, exclude_id)
             end
         end
     end
+    local planned = {}
+    for _, entry in ipairs(self.batch_entries or {}) do planned[entry.id] = entry end
+    for _, row in ipairs(out) do
+        local entry = planned[row.entry_id]
+        if entry then row.constraint = entry.data.version end
+    end
     return out, nil
 end
 
@@ -1905,8 +1931,47 @@ function Planner:plan_requirements(graph, supplied_parameters)
         return out
     end
 
+    local planned_resources, loaded = shallow_copy(self.native_resources), {}
+    for _, node in ipairs(graph or {}) do
+        if (node.installed ~= true or node.direct == true) and node.resource_kinds then
+            for id, kind in pairs(node.resource_kinds) do planned_resources[id] = kind end
+            loaded[node.module] = true
+        end
+    end
+
+    local function effective_candidates(kind, candidates)
+        local out = {}
+        for _, candidate in ipairs(candidates) do
+            if planned_resources[candidate.value] == nil then table.insert(out, candidate) end
+        end
+        for id, actual in pairs(planned_resources) do
+            if kind_matches(kind, actual) then
+                table.insert(out, {value = id, kind = actual, source = "package"})
+            end
+        end
+        table.sort(out, function(a, b) return tostring(a.value) < tostring(b.value) end)
+        return out
+    end
+
     local function registry_values_for_kind(kind)
         kind = trim(kind)
+        for _, node in ipairs(graph or {}) do
+            if not loaded[node.module] and (node.installed ~= true or node.direct == true) then
+                for _, actual in ipairs(node.entry_kinds or {}) do
+                    if kind_matches(kind, actual) then
+                        local artifact, artifact_err = self:inspect_artifact(node.module, {
+                            id = node.version_id, version = node.version,
+                        })
+                        if not artifact then return nil, artifact_err end
+                        for _, entry in ipairs(artifact.entries or {}) do
+                            planned_resources[entry.id] = entry.kind
+                        end
+                        loaded[node.module] = true
+                        break
+                    end
+                end
+            end
+        end
         if kind == "" then return {}, nil end
         if kind == "security.scope" then
             local out = {}
@@ -1951,7 +2016,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
             end
 
             table.sort(out, function(a, b) return tostring(a.value) < tostring(b.value) end)
-            return out, nil
+            return effective_candidates(kind, out), nil
         end
 
         local criteria = KIND_PREFIX_SEARCH[kind] == true and {} or { [".kind"] = kind }
@@ -1968,7 +2033,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 table.insert(out, { value = value, kind = row.kind or kind })
             end
         end
-        return out, nil
+        return effective_candidates(kind, out), nil
     end
 
     local function candidate_set(candidates)
@@ -2015,6 +2080,10 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 local suggestions = {}
                 local suggestion_seen = {}
                 local expected_kind = requirement_value_kind(req)
+                local expected_type = trim(req and req.meta and req.meta.value_type)
+                if expected_type ~= "" and not LITERAL_TYPES[expected_type] then
+                    return nil, err("BAD_REQUEST", "unsupported requirement value_type: " .. expected_type)
+                end
                 local registry_candidates = {}
                 local registry_candidate_set = {}
                 if expected_kind then
@@ -2024,11 +2093,11 @@ function Planner:plan_requirements(graph, supplied_parameters)
                     registry_candidate_set = candidate_set(candidates)
                 end
 
-                -- A declared kind is satisfied by a registry id, so a
-                -- structured value can only satisfy a requirement that names
-                -- no kind: it is a literal the module consumes as written.
+                -- Resource kinds resolve registry references; explicit literal
+                -- types validate the value itself without changing its shape.
                 local function compatible_value(v)
                     if value_is_empty(v) then return false end
+                    if expected_type ~= "" then return literal_type_matches(expected_type, v) end
                     if not expected_kind then return true end
                     if type(v) == "table" then return false end
                     v = trim(v)
@@ -2070,13 +2139,22 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 end
 
                 local default_value = parameter_value(req.default)
+                if (expected_type == "object" or expected_type == "array") and type(default_value) == "string" then
+                    local decoded, decode_err = json.decode(default_value)
+                    if decode_err then
+                        return nil, err("BAD_REQUEST", "invalid literal default for " .. full_id .. ": " .. tostring(decode_err))
+                    end
+                    default_value = decoded
+                end
                 if type(default_value) == "string" then default_value = trim(default_value) end
                 local default_compatible = compatible_value(default_value)
                 local invalid_value = false
                 local invalid_reason = nil
                 if value ~= nil and not value_is_empty(value) and not compatible_value(value) then
                     invalid_value = true
-                    invalid_reason = "value must reference an existing " .. tostring(expected_kind)
+                    invalid_reason = expected_type ~= ""
+                        and "value must be an " .. expected_type
+                        or "value must reference an existing " .. tostring(expected_kind)
                     source = tostring(source or "provided") .. "_invalid"
                 end
                 if not value_is_empty(default_value) and default_compatible then
@@ -2098,7 +2176,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                         suggestion_seen,
                         registry_candidate.value,
                         registry_candidate.label or registry_candidate.value,
-                        "registry",
+                        registry_candidate.source or "registry",
                         nil,
                         registry_candidate.kind,
                         registry_candidate.description
@@ -2157,6 +2235,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                     default = req.default,
                     targets = req.targets or {},
                     expected_kind = expected_kind,
+                    expected_type = expected_type ~= "" and expected_type or nil,
                     required = requirement_required(req),
                     value = value,
                     value_source = source or "empty",
@@ -2254,7 +2333,7 @@ function Planner:plan_binding_dependencies(requirements, root_entry)
     return bindings, nil
 end
 
-function Planner:preview_install(entry, requirement_plan)
+function Planner:preview_dependencies(dependencies)
     local snapshot, snapshot_err = self.registry.snapshot()
     if snapshot_err then return nil, snapshot_err end
     local state, state_err = snapshot:state()
@@ -2262,44 +2341,26 @@ function Planner:preview_install(entry, requirement_plan)
     local present, desired = {}, {}
     for _, row in ipairs(state.entries) do present[row.id], desired[row.id] = true, row end
     local changes = snapshot:changes()
-    local function stage(dependency)
+    for _, dependency in ipairs(dependencies) do
         local _, stage_err
-        if present[dependency.id] then
-            _, stage_err = changes:update(dependency)
-        else
-            _, stage_err = changes:create(dependency)
-        end
-        return stage_err
-    end
-    local root_args = shallow_copy(entry.data)
-    root_args.id = entry.id
-    root_args.meta = entry.meta
-    root_args.parameters = requirement_plan.parameters
-    local canonical_root, root_err = M.build_dependency_entry(root_args)
-    if not canonical_root then return nil, root_err end
-    local root = shallow_copy(entry)
-    root.kind = canonical_root.kind
-    root.meta = canonical_root.meta
-    root.data = canonical_root.data
-    root.dependency_root = canonical_root.dependency_root
-    local stage_err = stage(root)
-    if stage_err then return nil, stage_err end
-    local bindings, bindings_err = self:plan_binding_dependencies(requirement_plan.requirements, root)
-    if bindings_err then return nil, bindings_err end
-    for _, binding in ipairs(bindings) do
-        local dependency, build_err = M.build_dependency_entry(binding)
-        if build_err then return nil, build_err end
-        stage_err = stage(dependency)
+        if present[dependency.id] then _, stage_err = changes:update(dependency)
+        else _, stage_err = changes:create(dependency) end
         if stage_err then return nil, stage_err end
     end
     local plan, plan_err = changes:plan()
     if plan_err then return nil, plan_err end
     self.native_modules = {}
+    self.native_resources = {}
     for _, change in ipairs(plan.changes) do
         local owner = change.entry.registry and trim(change.entry.registry.owner)
         if owner and owner ~= "" then self.native_modules[owner] = true end
-        if change.op == "delete" then desired[change.entry.id] = nil
-        else desired[change.entry.id] = change.entry end
+        if change.op == "delete" then
+            desired[change.entry.id] = nil
+            self.native_resources[change.entry.id] = false
+        else
+            desired[change.entry.id] = change.entry
+            self.native_resources[change.entry.id] = change.entry.kind
+        end
     end
     local entries = {}
     for _, row in pairs(desired) do entries[#entries + 1] = row end
@@ -2310,9 +2371,83 @@ function Planner:preview_install(entry, requirement_plan)
     return plan, nil
 end
 
+function Planner:preview_install(entry, requirement_plan)
+    local dependencies, by_id = {}, {}
+    local function include(dependency)
+        if by_id[dependency.id] then dependencies[by_id[dependency.id]] = dependency
+        else dependencies[#dependencies + 1] = dependency; by_id[dependency.id] = #dependencies end
+    end
+    for _, dependency in ipairs(self.batch_entries or {}) do include(dependency) end
+    local root_args = shallow_copy(entry.data)
+    root_args.id, root_args.meta = entry.id, entry.meta
+    root_args.parameters = requirement_plan.parameters
+    local root, root_err = M.build_dependency_entry(root_args)
+    if not root then return nil, root_err end
+    include(root)
+    local bindings, bindings_err = self:plan_binding_dependencies(requirement_plan.requirements, root)
+    if bindings_err then return nil, bindings_err end
+    for _, binding in ipairs(bindings) do
+        local child, child_err = M.build_dependency_entry(binding)
+        if not child then return nil, child_err end
+        local explicit = false
+        for _, entry in ipairs(self.batch_entries or {}) do
+            if entry.data.component == child.data.component then explicit = true; break end
+        end
+        if not explicit then include(child) end
+    end
+    if self.batch_entries then
+        self.batch_entries = dependencies
+        return self.batch_native, nil
+    end
+    return self:preview_dependencies(dependencies)
+end
+
+function Planner:plan_batch(args)
+    if not is_array(args.dependencies) or #args.dependencies == 0 then
+        return nil, err("BAD_REQUEST", "dependencies must be a non-empty array")
+    end
+    local inputs, entries, ids, components = {}, {}, {}, {}
+    for index, item in ipairs(args.dependencies) do
+        if type(item) ~= "table" then return nil, err("BAD_REQUEST", "dependencies must contain objects") end
+        local input = shallow_copy(item)
+        if input.migration_policy == nil then input.migration_policy = args.migration_policy end
+        if input.run_migrations == nil then input.run_migrations = args.run_migrations end
+        local destination, destination_err = self:resolve_dependency_destination_args(input)
+        if not destination then return nil, destination_err end
+        local entry, entry_err = M.build_dependency_entry(destination)
+        if not entry then return nil, entry_err end
+        if ids[entry.id] or components[entry.data.component] then
+            return nil, err("CONFLICT", "dependencies[" .. index .. "] duplicates component " .. entry.data.component .. " or dependency id " .. entry.id)
+        end
+        ids[entry.id], components[entry.data.component] = true, true
+        entries[#entries + 1], inputs[#inputs + 1] = entry, destination
+    end
+    self.batch_entries = entries
+    local native, native_err = self:preview_dependencies(entries)
+    if not native then self.batch_entries = nil; return nil, native_err end
+    self.batch_native = native
+    local plans, payload, applicable = {}, {}, true
+    for _, input in ipairs(inputs) do
+        local plan, plan_err = self:plan_install(input)
+        if not plan then self.batch_entries, self.batch_native = nil, nil; return nil, plan_err end
+        plans[#plans + 1], payload[#payload + 1] = plan, plan.install_payload
+        if not plan.applicable then applicable = false end
+    end
+    native, native_err = self:preview_dependencies(self.batch_entries)
+    self.batch_entries, self.batch_native = nil, nil
+    if not native then return nil, native_err end
+    return {plans = plans, applicable = applicable,
+        native_plan = {digest = native.digest, resolution = native.resolution},
+        install_payload = {dependencies = payload, run_migrations = args.run_migrations,
+            migration_policy = args.migration_policy}}, nil
+end
+
 function Planner:plan_install(args)
     args = args or {}
-    self.native_ownership, self.native_modules = nil, nil
+    if args.dependencies ~= nil then return self:plan_batch(args) end
+    if not self.batch_entries then
+        self.native_ownership, self.native_modules, self.native_resources = nil, nil, nil
+    end
     local planned_args, dest_err = self:resolve_dependency_destination_args(args)
     if not planned_args then return nil, dest_err end
 

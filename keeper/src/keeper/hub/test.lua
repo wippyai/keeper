@@ -385,8 +385,18 @@ local function fake_yaml_for_lock(initial_doc)
 end
 
 local function graph_planner(graph)
-    return {
-        plan_install = function(args)
+    local function plan_install(args)
+            if args.dependencies then
+                local plans = {}
+                for _, item in ipairs(args.dependencies) do
+                    local input = deep_copy(item)
+                    input.migration_policy = input.migration_policy or args.migration_policy
+                    local plan, plan_err = plan_install(input)
+                    if not plan then return nil, plan_err end
+                    plans[#plans + 1] = plan
+                end
+                return {plans = plans}, nil
+            end
             local entry, entry_err = hub.build_dependency_entry(args)
             if not entry then return nil, entry_err end
             local data = entry.data or {}
@@ -407,13 +417,23 @@ local function graph_planner(graph)
                     migration_policy = planner.migration_policy_for(args),
                 },
             }, nil
-        end,
-    }
+    end
+    return {plan_install = plan_install}
 end
 
 local function no_requirements_planner()
-    return {
-        plan_install = function(args)
+    local function plan_install(args)
+            if args.dependencies then
+                local plans = {}
+                for _, item in ipairs(args.dependencies) do
+                    local input = deep_copy(item)
+                    input.migration_policy = input.migration_policy or args.migration_policy
+                    local plan, plan_err = plan_install(input)
+                    if not plan then return nil, plan_err end
+                    plans[#plans + 1] = plan
+                end
+                return {plans = plans}, nil
+            end
             local entry, entry_err = hub.build_dependency_entry(args)
             if not entry then return nil, entry_err end
             local data = entry.data or {}
@@ -434,8 +454,8 @@ local function no_requirements_planner()
                     migration_policy = planner.migration_policy_for(args),
                 },
             }, nil
-        end,
-    }
+    end
+    return {plan_install = plan_install}
 end
 
 -- Builds the registry entries an installed module contributes: a definition
@@ -3736,6 +3756,153 @@ local function define_tests()
                 test.is_nil(param)
             end)
 
+            it("preserves typed literal defaults without treating their semantic kind as a registry reference", function()
+                local svc = planner.new({registry = fake_registry({})}) :: any
+                local graph = {{module = "acme/deployment", namespace = "acme.deployment", version = "v1.0.0",
+                    direct = true, depth = 0, requirements = {{name = "image", default = [[{"repository":"acme/image"}]],
+                        meta = {value_kind = "cloud.image", value_type = "object"}}}}}
+                local plan, plan_err = svc:plan_requirements(graph, {})
+                test.is_nil(plan_err)
+                local req = find_requirement(plan, "acme.deployment:image")
+                test.is_false(req.missing)
+                test.is_nil(req.expected_kind)
+                test.eq(req.expected_type, "object")
+                test.eq(req.value.repository, "acme/image")
+                test.eq(req.value_source, "default")
+                test.eq(find_parameter(plan.parameters, req.full_id).value.repository, "acme/image")
+                local invalid, invalid_err = svc:plan_requirements(graph,
+                    {{name = "acme.deployment:image", value = "registry:entry"}})
+                test.is_nil(invalid_err)
+                local supplied = find_requirement(invalid, req.full_id)
+                test.is_true(supplied.invalid)
+                test.is_true(supplied.missing)
+                test.eq(supplied.invalid_reason, "value must be an object")
+                test.is_nil(find_parameter(invalid.parameters, req.full_id))
+            end)
+
+            it("preserves serialized literal descriptors and reports invalid literal declarations", function()
+                local svc = planner.new({registry = fake_registry({})}) :: any
+                local descriptor = [[{"name":"image","repository":"acme/image"}]]
+                local graph = {{module = "acme/deployment", namespace = "acme.deployment", version = "v1.0.0",
+                    direct = true, depth = 0, requirements = {{name = "image", default = descriptor,
+                        meta = {value_kind = "cloud.image", value_type = "string"}}}}}
+                local plan, plan_err = svc:plan_requirements(graph, {})
+                test.is_nil(plan_err)
+                local req = find_requirement(plan, "acme.deployment:image")
+                test.is_false(req.missing)
+                test.is_nil(req.expected_kind)
+                test.eq(req.value, descriptor)
+                test.eq(find_parameter(plan.parameters, req.full_id).value, descriptor)
+                graph[1].requirements[1].meta.value_type = "unknown"
+                local unknown, unknown_err = svc:plan_requirements(graph, {})
+                test.is_nil(unknown)
+                test.not_nil(unknown_err)
+                test.contains(tostring(unknown_err), "unsupported requirement value_type")
+                graph[1].requirements[1].meta.value_type = "object"
+                graph[1].requirements[1].default = "{malformed"
+                local malformed, malformed_err = svc:plan_requirements(graph, {})
+                test.is_nil(malformed)
+                test.not_nil(malformed_err)
+                test.contains(tostring(malformed_err), "invalid literal default")
+            end)
+
+            it("checks declared literal scalar and collection types", function()
+                local svc = planner.new({registry = fake_registry({})}) :: any
+                for _, sample in ipairs({
+                    {kind = "boolean", value = false, invalid = "false"},
+                    {kind = "number", value = 1.5, invalid = "1.5"},
+                    {kind = "integer", value = 3, invalid = 1.5},
+                    {kind = "string", value = "text", invalid = 3},
+                    {kind = "array", value = {1, 2}, invalid = {name = "item"}},
+                    {kind = "object", value = {name = "item"}, invalid = {1, 2}},
+                }) do
+                    local graph = {{module = "acme/literals", namespace = "acme.literals", version = "v1.0.0",
+                        direct = true, depth = 0, requirements = {{name = "setting", default = sample.value,
+                            meta = {value_type = sample.kind}}}}}
+                    local plan, plan_err = svc:plan_requirements(graph, {})
+                    test.is_nil(plan_err)
+                    local req = find_requirement(plan, "acme.literals:setting")
+                    test.is_false(req.missing, sample.kind)
+                    test.eq(req.expected_type, sample.kind)
+                    local invalid, invalid_err = svc:plan_requirements(graph,
+                        {{name = "setting", value = sample.invalid}})
+                    test.is_nil(invalid_err)
+                    test.is_true(find_requirement(invalid, req.full_id).invalid, sample.kind)
+                end
+            end)
+
+            it("validates typed defaults against resources in the selected artifact", function()
+                for _, kinds in ipairs({{"security.scope", "security.scope"}, {"fs.directory", "fs.directory"}, {"db.sql", "db.sql.sqlite"}}) do
+                    local svc = planner.new({
+                        catalog = fake_catalog({["acme/resource"] = {{
+                            version = "v1.0.0", entry_kinds = {"ns.requirement", kinds[2]},
+                            open = {entries = {
+                                {id = "acme.resource:local", kind = kinds[2], data = {}},
+                                {id = "acme.resource:resource", kind = "ns.requirement", data = {
+                                    default = "acme.resource:local", meta = {value_kind = kinds[1]},
+                                    targets = {{entry = "acme.resource:consumer", path = "resource"}},
+                                }},
+                            }},
+                        }}}),
+                        registry = fake_registry({}),
+                    }) :: any
+                    local plan, plan_err = svc:plan_install({component = "acme/resource", version = "*"})
+                    test.is_nil(plan_err)
+                    local req = find_requirement(plan, "acme.resource:resource")
+                    test.is_false(req.missing, kinds[1])
+                    test.eq(req.value, "acme.resource:local")
+                    test.eq(req.value_source, "default")
+                    test.eq(find_parameter(plan.install_payload.parameters, req.full_id).value, req.value)
+                end
+            end)
+
+            it("does not validate a selected replacement against a superseded registry kind", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({["acme/resource"] = {{
+                        version = "v1.0.0", entry_kinds = {"ns.requirement", "fs.directory"},
+                        open = {entries = {
+                            {id = "acme.resource:local", kind = "fs.directory", data = {}},
+                            {id = "acme.resource:resource", kind = "ns.requirement", data = {
+                                default = "acme.resource:local", meta = {value_kind = "security.scope"},
+                                targets = {{entry = "acme.resource:consumer", path = "resource"}},
+                            }},
+                        }},
+                    }}}),
+                    registry = fake_registry({{id = "acme.resource:local", kind = "security.scope", data = {}}}),
+                }) :: any
+                local plan, plan_err = svc:plan_install({component = "acme/resource", version = "*",
+                    parameters = {{name = "acme.resource:resource", value = "acme.resource:local"}}})
+                test.is_nil(plan_err)
+                local req = find_requirement(plan, "acme.resource:resource")
+                test.is_true(req.invalid)
+                test.is_true(req.missing)
+                test.is_nil(find_parameter(plan.install_payload.parameters, req.full_id))
+            end)
+
+            it("validates a resource supplied by a new dependency without requirements", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/consumer"] = {{version = "v1.0.0", entry_kinds = {"ns.requirement"},
+                            dependencies = {{org = "acme", name = "storage", version = "*"}},
+                            open = {entries = {{id = "acme.consumer:storage", kind = "ns.requirement", data = {
+                                default = "acme.storage:files", meta = {value_kind = "fs.directory"},
+                                targets = {{entry = "acme.consumer:service", path = "storage"}},
+                            }}}},
+                        }},
+                        ["acme/storage"] = {{version = "v1.0.0", entry_kinds = {"fs.directory"},
+                            open = {entries = {{id = "acme.storage:files", kind = "fs.directory", data = {}}}},
+                        }},
+                    }),
+                    registry = fake_registry({}),
+                }) :: any
+                local plan, plan_err = svc:plan_install({component = "acme/consumer", version = "*"})
+                test.is_nil(plan_err)
+                local req = find_requirement(plan, "acme.consumer:storage")
+                test.is_false(req.missing)
+                test.eq(req.value, "acme.storage:files")
+                test.eq(req.value_source, "default")
+            end)
+
             it("uses a package default only when it resolves to the expected registry kind", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
@@ -5705,10 +5872,77 @@ local function define_tests()
             end)
         end)
 
+        describe("batch install planning", function()
+            it("satisfies a typed resource default supplied by another root in the batch", function()
+                local state = {version = 19, plan = function(staged)
+                    test.eq(#staged, 2)
+                    return {digest = "shared-resource", resolution = {modules = {
+                        {name = "acme/provider", version = "2.0.0"},
+                        {name = "acme/consumer", version = "2.0.0"},
+                    }}, changes = {{op = "create", entry = {
+                        id = "acme.provider:scope", kind = "security.scope", meta = {},
+                        registry = {owner = "acme/provider"}, data = {},
+                    }}}}, nil
+                end}
+                local pl = planner.new({registry = fake_registry({}, nil, state),
+                    catalog = fake_catalog({
+                        ["acme/provider"] = {{version = "2.0.0"}},
+                        ["acme/consumer"] = {{version = "2.0.0", requirements = {{
+                            name = "scope", namespace = "acme.consumer", default = "acme.provider:scope",
+                            meta = {value_kind = "security.scope"},
+                        }}}},
+                    })}) :: any
+                local result, plan_err = pl:plan_install({dependencies = {
+                    {component = "acme/consumer", version = ">=2.0.0"},
+                    {component = "acme/provider", version = ">=2.0.0"},
+                }})
+                test.is_nil(plan_err)
+                test.eq(result.applicable, true)
+                test.eq(result.plans[1].requirements[1].value, "acme.provider:scope")
+                test.eq(#result.plans[1].missing_requirements, 0)
+            end)
+            it("plans both dependency roots in one native resolution regardless of request order", function()
+                for _, reverse in ipairs({false, true}) do
+                    local calls = {}
+                    local state = {version = 19, plan = function(staged)
+                        test.eq(#staged, 2, "native planning must include the whole batch")
+                        local ids = {}
+                        for _, op in ipairs(staged) do ids[op.entry.data.component] = true end
+                        test.eq(ids["acme/consumer"], true)
+                        test.eq(ids["acme/provider"], true)
+                        calls[#calls + 1] = staged
+                        return {changes = {}, digest = "whole-batch", resolution = {modules = {}}}, nil
+                    end}
+                    local pl = planner.new({registry = fake_registry({}, nil, state),
+                        catalog = fake_catalog({["acme/consumer"] = {{version = "2.0.0"}},
+                            ["acme/provider"] = {{version = "2.0.0"}}})}) :: any
+                    local consumer = {component = "acme/consumer", version = ">=2.0.0"}
+                    local provider = {component = "acme/provider", version = ">=2.0.0"}
+                    local result, plan_err = pl:plan_install({dependencies = reverse
+                        and {provider, consumer} or {consumer, provider}})
+                    test.is_nil(plan_err)
+                    test.not_nil(result)
+                    test.eq(#result.plans, 2)
+                    test.eq(result.native_plan.digest, "whole-batch")
+                    test.eq(#calls, 2, "native previews do not grow with the number of batch items")
+                end
+            end)
+        end)
+
         describe("atomic dependency-root install", function()
             local function batch_planner()
-                return {
-                    plan_install = function(args)
+                local function plan_install(args)
+                        if args.dependencies then
+                            local plans = {}
+                            for _, item in ipairs(args.dependencies) do
+                                local input = deep_copy(item)
+                                input.migration_policy = input.migration_policy or args.migration_policy
+                                local plan, plan_err = plan_install(input)
+                                if not plan then return nil, plan_err end
+                                plans[#plans + 1] = plan
+                            end
+                            return {plans = plans}, nil
+                        end
                         local entry, build_err = hub.build_dependency_entry(args)
                         if not entry then return nil, build_err end
                         local component = entry.data.component
@@ -5740,8 +5974,8 @@ local function define_tests()
                                 migration_policy = planner.migration_policy_for(args),
                             },
                         }, nil
-                    end,
-                }
+                end
+                return {plan_install = plan_install}
             end
 
             it("publishes two root updates in one governance changeset", function()
