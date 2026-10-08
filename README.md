@@ -80,6 +80,19 @@ for users and MCP agents to select explicitly. The install API rejects unbound o
 invalid required values with the requirement id and expected kind; the dialog
 shows the same requirement state and disables Apply until it is complete.
 
+Resource validation includes entries introduced by the selected package graph.
+The selected kind takes precedence when a package replaces an existing entry.
+`meta.value_type` declares a literal value: `boolean`, `number`, `integer`,
+`string`, `object`, or `array`. It takes precedence over `meta.value_kind`, which
+can retain a semantic hint for a literal descriptor. Object and array defaults
+accept JSON text; malformed defaults reject the plan. Requirements without
+`value_type` retain their existing binding behavior.
+
+The plan and install actions accept a `dependencies` array. Keeper resolves
+all requested roots together before requirement validation and commits them in
+one governance changeset. Request order does not determine which dependency
+capabilities are available. Existing single-component requests keep their shape.
+
 ## Verify
 
 ```sh

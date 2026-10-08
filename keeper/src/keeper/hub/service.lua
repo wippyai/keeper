@@ -868,8 +868,9 @@ local function same_binding_parameters(a, b)
     return true
 end
 
-function Service:prepare_install(args)
-    local plan, plan_err = self:plan_install(args)
+function Service:prepare_install(args, reviewed_plan)
+    local plan, plan_err = reviewed_plan, nil
+    if not plan then plan, plan_err = self:plan_install(args) end
     if not plan then return nil, plan_err end
     local graph_ok, graph_err = validate_resolved_graph(plan.graph)
     if not graph_ok then return nil, graph_err end
@@ -931,6 +932,8 @@ function Service:install_batch(args, opts)
         return nil, err("BAD_REQUEST", "dependencies must be a non-empty array")
     end
 
+    local batch, batch_err = self:plan_install(args)
+    if not batch then return nil, batch_err end
     local prepared = {}
     local seen_components = {}
     local seen_ids = {}
@@ -948,7 +951,7 @@ function Service:install_batch(args, opts)
         if item_args.run_migrations == nil and args.run_migrations ~= nil then
             item_args.run_migrations = args.run_migrations
         end
-        local item_prepared, item_err = self:prepare_install(item_args)
+        local item_prepared, item_err = self:prepare_install(item_args, batch.plans[index])
         if not item_prepared then return nil, batch_item_error(index, item_err) end
 
         local component = tostring(item_prepared.entry.data.component)
