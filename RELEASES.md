@@ -1,5 +1,18 @@
 # Release Notes
 
+## keeper/keeper 0.5.104
+
+Install and update dialogs offer "Suggest with AI" for unresolved
+requirements. Suggestions are scoped to the rows that need them, chosen only
+from the planner's valid candidates (typed literals where allowed),
+re-validated through a fresh install plan, shown with the model's reason, and
+applied only after review. Typed values round-trip, stale plan responses are
+ignored, unset collection defaults plan correctly, and typed native errors
+appear in the dialog.
+
+Both full Keeper gates pass with no branch-introduced failures, lint is clean,
+84 frontend tests pass, and real-model browser flows pass.
+
 ## keeper/keeper 0.5.103
 
 Entry definitions render verbatim. `get_entries` and the other entry
