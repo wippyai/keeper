@@ -2,7 +2,6 @@ local registry = require("registry")
 local logger = require("logger")
 local consts = require("consts")
 local observers = require("observers")
-local sync = require("sync")
 
 local log = logger:named("gov.service.changeset")
 
@@ -410,8 +409,7 @@ local function run(args)
     local result
     local changeset = args.changeset
     local validation_details = {}
-    local sync_enabled = args.options == nil or args.options.sync ~= false
-    local needs_baseline = sync_enabled or args.version_id ~= nil
+    local needs_baseline = args.version_id ~= nil
     local baseline_version
     local baseline_entries
 
@@ -481,8 +479,8 @@ local function run(args)
         result = execute_version(validated_version, args.options or {}, request_id, user_id)
 
         -- Version application is a real entry changeset even though the caller
-        -- supplied only a version id. Reconstruct that delta so filesystem sync,
-        -- state reconciliation, and observers see the same operation that the
+        -- supplied only a version id. Reconstruct that delta so state
+        -- reconciliation and observers see the same operation that the
         -- registry applied.
         if result.success then
             local applied_entries, entries_err = snapshot_entries()
@@ -523,56 +521,6 @@ local function run(args)
 
     result.details = validation_details
     result.changeset = changeset
-
-    -- Auto-sync affected namespaces to filesystem after successful apply.
-    -- Default true; opt out with options.sync = false (used by upload/download workflows).
-    local should_sync = result.success
-        and changeset
-        and #changeset > 0
-        and sync_enabled
-
-    if should_sync then
-        local sync_stats, sync_err = sync.sync_changeset(changeset)
-        if sync_err then
-            log:error("Auto-sync to filesystem failed", {
-                error = sync_err,
-                request_id = request_id,
-                user_id = user_id,
-            })
-            -- Registry and source are one governed state transition. If source
-            -- persistence fails, restore the registry baseline and apply the
-            -- inverse delta to repair any files written before the failure.
-            local applied_entries, applied_entries_err = snapshot_entries()
-            local inverse_changeset
-            local inverse_err
-            if applied_entries then
-                inverse_changeset, inverse_err = build_delta(applied_entries, baseline_entries)
-            else
-                inverse_err = applied_entries_err
-            end
-
-            local restored, restore_err = registry.apply_version(baseline_version)
-            local source_restore
-            local source_restore_err
-            if restored and inverse_changeset then
-                source_restore, source_restore_err = sync.sync_changeset(inverse_changeset)
-            elseif not inverse_changeset then
-                source_restore_err = inverse_err
-            end
-
-            result.success = false
-            result.message = "Registry apply rolled back because filesystem sync failed"
-            result.error = tostring(sync_err)
-            result.sync_error = sync_err
-            result.rollback = restored == true
-            result.rollback_error = restore_err
-            result.source_restore = source_restore
-            result.source_restore_error = source_restore_err
-        else
-            result.sync_stats = sync_stats
-            log:info("Auto-synced changeset to filesystem", sync_stats or {})
-        end
-    end
 
     run_post_processing(changeset, result, request_id, user_id)
 
