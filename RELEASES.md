@@ -1,5 +1,17 @@
 # Release Notes
 
+## keeper/keeper 0.5.100
+
+Hub plans validate logical security scopes, such as policy groups and role
+descriptors, against the complete projected registry: the live registry with
+the planned changes applied. A batch that introduces a new group now validates
+against that group, and a scope from a policy the same batch deletes is
+rejected. Single-component requests and stored data remain unchanged.
+
+The full Keeper suite passes 1,851 tests on Postgres with the existing PM HTTP
+placeholder skip; on SQLite all tests pass, with the changeset group rerun alone
+(162/162) after a host-load timeout. Lint reports no issues.
+
 ## keeper/keeper 0.5.99
 
 Hub plans resolve all requested dependency roots together before requirement
