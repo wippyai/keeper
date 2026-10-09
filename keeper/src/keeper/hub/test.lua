@@ -5873,6 +5873,46 @@ local function define_tests()
         end)
 
         describe("batch install planning", function()
+            it("validates logical scopes from the complete projected registry", function()
+                for _, source in ipairs({
+                    {id = "acme.provider:policy", kind = "security.policy", data = {groups = {"acme.provider:reviewers"}}},
+                    {id = "acme.provider:role", kind = "registry.entry", meta = {type = "kickside.security.role"},
+                        data = {role_id = "acme.provider:reviewers"}},
+                }) do
+                    local state = {version = 19, plan = function(staged)
+                        return {digest = "logical-scope", resolution = {modules = {
+                            {name = "acme/provider", version = "2.0.0"},
+                            {name = "acme/consumer", version = "2.0.0"},
+                        }}, changes = {
+                            {op = "delete", entry = {id = "host:old_policy", kind = "security.policy"}},
+                            {op = "create", entry = source},
+                        }}, nil
+                    end}
+                    local pl = planner.new({registry = fake_registry({
+                        {id = "host:old_policy", kind = "security.policy", data = {groups = {"host:retired"}}},
+                    }, nil, state), catalog = fake_catalog({
+                        ["acme/provider"] = {{version = "2.0.0"}},
+                        ["acme/consumer"] = {{version = "2.0.0", requirements = {
+                            {name = "scope", namespace = "acme.consumer", default = "acme.provider:reviewers",
+                                meta = {value_kind = "security.scope"}},
+                            {name = "retired", namespace = "acme.consumer", default = "host:retired",
+                                meta = {value_kind = "security.scope"}},
+                        }}},
+                    })}) :: any
+                    local result, plan_err = pl:plan_install({dependencies = {
+                        {component = "acme/consumer", version = ">=2.0.0", parameters = {
+                            {name = "acme.consumer:retired", value = "host:retired"},
+                        }},
+                        {component = "acme/provider", version = ">=2.0.0"},
+                    }})
+                    test.is_nil(plan_err)
+                    local valid = find_requirement(result.plans[1], "acme.consumer:scope")
+                    test.is_false(valid.missing)
+                    test.eq(valid.value, "acme.provider:reviewers")
+                    test.eq(valid.value_source, "default")
+                    test.is_true(find_requirement(result.plans[1], "acme.consumer:retired").missing)
+                end
+            end)
             it("satisfies a typed resource default supplied by another root in the batch", function()
                 local state = {version = 19, plan = function(staged)
                     test.eq(#staged, 2)

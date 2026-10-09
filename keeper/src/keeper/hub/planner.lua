@@ -1989,28 +1989,19 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 })
             end
 
-            local scope_rows, scope_err = self:find_entries({ [".kind"] = "security.scope" })
-            if not scope_rows then return nil, scope_err end
-            for _, row in ipairs(scope_rows or {}) do
-                local meta = type(row.meta) == "table" and row.meta or {}
-                add(row.id, row.kind or kind, meta.title, meta.comment or meta.description)
-            end
-
-            local policy_rows, policy_err = self:find_entries({ [".kind"] = "security.policy" })
-            if not policy_rows then return nil, policy_err end
-            for _, row in ipairs(policy_rows or {}) do
-                local data = type(row.data) == "table" and row.data or row
-                for _, group in ipairs(type(data.groups) == "table" and data.groups or {}) do
-                    add(group, kind)
-                end
-            end
-
-            local descriptor_rows, descriptor_err = self:find_entries({ [".kind"] = "registry.entry" })
-            if not descriptor_rows then return nil, descriptor_err end
-            for _, row in ipairs(descriptor_rows or {}) do
+            local entries, entries_err = self.native_entries, nil
+            if not entries then entries, entries_err = self:find_entries({}) end
+            if not entries then return nil, entries_err end
+            for _, row in ipairs(entries) do
                 local meta = type(row.meta) == "table" and row.meta or {}
                 local data = type(row.data) == "table" and row.data or row
-                if trim(meta.type) == "kickside.security.role" then
+                if row.kind == "security.scope" then
+                    add(row.id, row.kind, meta.title, meta.comment or meta.description)
+                elseif row.kind == "security.policy" then
+                    for _, group in ipairs(type(data.groups) == "table" and data.groups or {}) do
+                        add(group, kind)
+                    end
+                elseif row.kind == "registry.entry" and trim(meta.type) == "kickside.security.role" then
                     add(data.role_id, kind, meta.title, meta.comment or meta.description)
                 end
             end
@@ -2364,6 +2355,7 @@ function Planner:preview_dependencies(dependencies)
     end
     local entries = {}
     for _, row in pairs(desired) do entries[#entries + 1] = row end
+    self.native_entries = entries
     local projected = {entries = entries, resolution = plan.resolution}
     self.native_ownership = self.ownership.new({snapshot = function()
         return {state = function() return projected, nil end}, nil
@@ -2446,7 +2438,7 @@ function Planner:plan_install(args)
     args = args or {}
     if args.dependencies ~= nil then return self:plan_batch(args) end
     if not self.batch_entries then
-        self.native_ownership, self.native_modules, self.native_resources = nil, nil, nil
+        self.native_ownership, self.native_modules, self.native_resources, self.native_entries = nil, nil, nil, nil
     end
     local planned_args, dest_err = self:resolve_dependency_destination_args(args)
     if not planned_args then return nil, dest_err end
