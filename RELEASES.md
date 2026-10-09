@@ -1,5 +1,16 @@
 # Release Notes
 
+## keeper/keeper 0.5.103
+
+Entry definitions render verbatim. `get_entries` and the other entry
+renderers kept dropping lines starting with `#` and blank lines while
+dedenting, so documentation pages lost their markdown headings and paragraph
+breaks even with `full=true`. Lines inside an entry now render as authored;
+entry-level header comments stay outside the entry.
+
+The full Keeper suite passes 1,824 tests on SQLite and Postgres with the
+existing PM HTTP placeholder skip; lint reports no issues.
+
 ## keeper/keeper 0.5.102
 
 Registry operations never write source files. The registry is the store and
