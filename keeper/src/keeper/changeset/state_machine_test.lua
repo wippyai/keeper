@@ -184,4 +184,5 @@ local function define_tests()
     end)
 end
 
-return { define_tests = define_tests }
+local run = test.run_cases(define_tests)
+return { define_tests = run }
