@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, shallowRef, computed, watch, useId } from 'vue'
+import Dialog from 'primevue/dialog'
 import { Icon } from '@iconify/vue'
 import { useApi } from '../../composables/useWippy'
 import {
   planHubInstall, fillHubRequirementGaps, installHubDependency, listHubDependencies, scanHubInstall,
   type HubInstallPlanResponse, type HubPlanRequirement, type InstallPlanNode,
   type HubScanFinding, type HubScanModuleResult, type HubScanResponse, type HubScanStatus,
-  type InstallPayload,
+  type InstallPayload, type RequirementValue, type HubRequestError as RequestFailure, hubRequestError,
 } from '../../api/hub'
 import RequirementValueInput from './RequirementValueInput.vue'
 import RequirementResolution from './RequirementResolution.vue'
+import HubRequestError from './HubRequestError.vue'
+import { valueIsEmpty, valueText } from './requirementValue'
 
 const props = defineProps<{
   modelValue: boolean
@@ -23,6 +26,8 @@ const emit = defineEmits<{
 }>()
 
 const api = useApi()
+const versionInputId = useId()
+const namespaceInputId = useId()
 
 const version = ref('')
 const dependencyNamespace = ref('')
@@ -30,20 +35,37 @@ const dependencyNamespaceTouched = ref(false)
 const runMigrations = ref(true)
 
 const busy = ref(false)
-const error = ref<string | null>(null)
+const error = ref<string | RequestFailure | null>(null)
 const scanLoading = ref(false)
-const scanError = ref<string | null>(null)
+const scanError = ref<string | RequestFailure | null>(null)
 const scanResult = ref<HubScanResponse | null>(null)
 const scanSkipped = ref(false)
 let scanRevision = 0
 
-const plan = ref<HubInstallPlanResponse | null>(null)
+const plan = shallowRef<HubInstallPlanResponse | null>(null)
 const planLoading = ref(false)
 const fillLoading = ref(false)
-const planError = ref<string | null>(null)
-const requirements = ref<HubPlanRequirement[]>([])
-const parameterValues = ref<Record<string, string>>({})
-const bindingValues = ref<Record<string, string>>({})
+const planError = ref<string | RequestFailure | null>(null)
+const requirements = shallowRef<HubPlanRequirement[]>([])
+const parameterValues = shallowRef<Record<string, RequirementValue>>({})
+const bindingValues = shallowRef<Record<string, RequirementValue>>({})
+
+const pendingSuggestions = shallowRef<Record<string, HubPlanRequirement>>({})
+const acceptedSuggestions = shallowRef<Record<string, HubPlanRequirement>>({})
+const inputValidity = ref<Record<string, boolean>>({})
+const planCurrent = ref(false)
+const fillError = ref<string | RequestFailure | null>(null)
+let reviewRevision = 0
+
+function invalidateReview() {
+  reviewRevision += 1
+  planCurrent.value = false
+  planLoading.value = false
+  fillLoading.value = false
+  pendingSuggestions.value = {}
+  fillError.value = null
+  resetScanDecision()
+}
 
 // module name -> currently installed version, used to distinguish UPGRADE from
 // a plain already-installed node in the plan tree.
@@ -53,9 +75,13 @@ const installedVersions = ref<Record<string, string>>({})
 
 watch(() => props.modelValue, open => {
   if (open) reset()
+  else invalidateReview()
 })
 
 function reset() {
+  invalidateReview()
+  acceptedSuggestions.value = {}
+  inputValidity.value = {}
   version.value = props.initialVersion || ''
   dependencyNamespace.value = ''
   dependencyNamespaceTouched.value = false
@@ -74,6 +100,8 @@ function reset() {
 }
 
 function close() {
+  if (busy.value) return
+  invalidateReview()
   emit('update:modelValue', false)
 }
 
@@ -107,31 +135,46 @@ const transitiveRequirements = computed(() => requirements.value.filter(req => !
 // A transitive requirement blocks installation until its reviewed dependency
 // binding has a compatible value.
 function isTransitiveBlocker(req: HubPlanRequirement): boolean {
-  if ((bindingValues.value[requirementKey(req)] || '').trim()) return !!req.invalid
+  if (!valueIsEmpty(bindingValues.value[requirementKey(req)])) return !!req.invalid
   if (req.missing) return true
   if (req.invalid) return true
-  return !!req.required && !(req.value || '').trim()
+  return !!req.required && valueIsEmpty(req.value)
 }
 
 const transitiveBlockers = computed(() => transitiveRequirements.value.filter(isTransitiveBlocker))
 
-function transitiveValue(req: HubPlanRequirement): string {
-  return bindingValues.value[requirementKey(req)] ?? (req.value || '').trim()
+function transitiveValue(req: HubPlanRequirement): RequirementValue {
+  return bindingValues.value[requirementKey(req)] ?? req.value ?? ''
 }
 
-function setBinding(req: HubPlanRequirement, value: string) {
-  resetScanDecision()
-  bindingValues.value[requirementKey(req)] = value
+function setBinding(req: HubPlanRequirement, value: RequirementValue) {
+  invalidateReview()
+  const key = requirementKey(req)
+  bindingValues.value = {...bindingValues.value, [key]: value}
+  removeAcceptedSuggestion(key)
 }
 
-function setParameter(req: HubPlanRequirement, value: string) {
+function setParameter(req: HubPlanRequirement, value: RequirementValue) {
   const key = requirementKey(req)
   if (!key) return
-  if (parameterValues.value[key] !== value) resetScanDecision()
-  parameterValues.value[key] = value
+  if (parameterValues.value[key] !== value) invalidateReview()
+  parameterValues.value = {...parameterValues.value, [key]: value}
+  removeAcceptedSuggestion(key)
+}
+
+function removeAcceptedSuggestion(key: string) {
+  const next = {...acceptedSuggestions.value}
+  delete next[key]
+  acceptedSuggestions.value = next
+}
+
+function inputValid(req: HubPlanRequirement, valid: boolean) {
+  inputValidity.value[requirementKey(req)] = valid
+  if (!valid) invalidateReview()
 }
 
 function requirementPlaceholder(req: HubPlanRequirement): string {
+  if (req.expected_type) return `Enter ${req.expected_type}${req.expected_type === 'string' ? '' : ' as JSON'}`
   if (req.expected_kind) return `Enter ${req.expected_kind} id or contract value`
   return 'Enter registry id or contract value'
 }
@@ -144,47 +187,124 @@ function namespacePayload(): string | undefined {
 
 function markNamespaceTouched() {
   dependencyNamespaceTouched.value = true
-  resetScanDecision()
+  invalidateReview()
 }
 
 const plannedDependencyId = computed(() => plan.value?.dependency?.id || '')
 
-function applyPlan(next: HubInstallPlanResponse, previousValues: Record<string, string> = parameterValues.value) {
+function applyPlan(next: HubInstallPlanResponse, previousValues: Record<string, RequirementValue> = parameterValues.value) {
   plan.value = next
+  planCurrent.value = true
   requirements.value = next.requirements || []
-  const values: Record<string, string> = {}
+  const activeKeys = new Set(requirements.value.map(requirementKey))
+  inputValidity.value = Object.fromEntries(Object.entries(inputValidity.value).filter(([key]) => activeKeys.has(key)))
+  const values: Record<string, RequirementValue> = {}
   for (const req of rootRequirements.value) {
     const key = requirementKey(req)
     if (!key) continue
-    values[key] = previousValues[key] ?? req.value ?? ''
+    values[key] = req.value ?? previousValues[key] ?? ''
   }
   parameterValues.value = values
   bindingValues.value = Object.fromEntries((next.install_payload.requirement_bindings || [])
     .map(binding => [binding.name, binding.value]))
 }
 
+const gapIds = computed(() => requirements.value.filter(req => {
+  const value = isRootRequirement(req) ? parameterValues.value[requirementKey(req)] : transitiveValue(req)
+  return valueIsEmpty(value) && (req.missing || req.value_source === 'conflict' || req.suggestions?.length || req.expected_type)
+}).map(req => req.full_id || requirementKey(req)))
+const pendingCount = computed(() => Object.keys(pendingSuggestions.value).length)
+
 async function fillGaps() {
+  const ids = [...gapIds.value]
+  if (!planCurrent.value || !ids.length) return
   fillLoading.value = true
-  planError.value = null
-  resetScanDecision()
-  const manual = Object.fromEntries(Object.entries(parameterValues.value).filter(([, value]) => value.trim()))
+  fillError.value = null
+  const revision = reviewRevision
   try {
-    applyPlan(await fillHubRequirementGaps(api, installPayload()), manual)
+    const next = await fillHubRequirementGaps(api, {...installPayload(), requirement_ids: ids})
+    if (revision !== reviewRevision) return
+    const selected = new Set(ids)
+    const proposals: Record<string, HubPlanRequirement> = {}
+    const returned = new Map(next.requirements.map(req => [req.full_id || requirementKey(req), req]))
+    requirements.value = requirements.value.map(req => {
+      const id = req.full_id || requirementKey(req)
+      const suggestion = returned.get(id)
+      if (!selected.has(id) || !suggestion) return req
+      if (suggestion.value_source === 'llm' && !suggestion.invalid && !valueIsEmpty(suggestion.value)) {
+        proposals[requirementKey(req)] = suggestion
+      }
+      return {...req, resolution_error: suggestion.resolution_error}
+    })
+    pendingSuggestions.value = proposals
+    if (!Object.keys(proposals).length && !next.requirements.some(req => req.resolution_error)) {
+      fillError.value = 'No valid AI suggestion is available. Choose a value manually.'
+    }
   } catch (e: any) {
-    planError.value = e.response?.data?.error || e.response?.data?.message || e.message
+    if (revision === reviewRevision) fillError.value = hubRequestError(e)
   } finally {
-    fillLoading.value = false
+    if (revision === reviewRevision) fillLoading.value = false
   }
+}
+
+async function acceptSuggestions(keys: string[]) {
+  const selected = keys.map(key => pendingSuggestions.value[key]).filter(Boolean)
+  if (!selected.length) return
+  const accepted = {...acceptedSuggestions.value}
+  const remaining = {...pendingSuggestions.value}
+  for (const key of keys) delete remaining[key]
+  for (const suggestion of selected) {
+    const key = requirementKey(suggestion)
+    if (suggestion.value === undefined) continue
+    if (isRootRequirement(suggestion)) parameterValues.value = {...parameterValues.value, [key]: suggestion.value}
+    else bindingValues.value = {...bindingValues.value, [key]: suggestion.value}
+    accepted[key] = suggestion
+  }
+  invalidateReview()
+  acceptedSuggestions.value = accepted
+  const replanning = loadPlan()
+  const revision = reviewRevision
+  await replanning
+  if (revision !== reviewRevision || !planCurrent.value) return
+  const stillValid: Record<string, HubPlanRequirement> = {}
+  for (const req of requirements.value) {
+    const key = requirementKey(req)
+    const suggestion = remaining[key]
+    if (!suggestion || req.expected_type !== suggestion.expected_type || req.expected_kind !== suggestion.expected_kind) continue
+    const value = isRootRequirement(req) ? parameterValues.value[key] : transitiveValue(req)
+    if (!valueIsEmpty(value)) continue
+    if (req.expected_kind && !req.suggestions?.some(candidate => candidate.value === suggestion.value)) continue
+    stillValid[key] = suggestion
+  }
+  pendingSuggestions.value = stillValid
+}
+
+function rejectSuggestion(req: HubPlanRequirement) {
+  const next = {...pendingSuggestions.value}
+  delete next[requirementKey(req)]
+  pendingSuggestions.value = next
+}
+
+function editSuggestion(req: HubPlanRequirement) {
+  const suggestion = pendingSuggestions.value[requirementKey(req)]
+  if (suggestion?.value === undefined) return
+  if (isRootRequirement(req)) setParameter(req, suggestion.value)
+  else setBinding(req, suggestion.value)
+}
+
+function resolutionRow(req: HubPlanRequirement): HubPlanRequirement {
+  return acceptedSuggestions.value[requirementKey(req)] || req
 }
 
 async function loadPlan() {
   if (!props.component.trim()) return
-  resetScanDecision()
+  invalidateReview()
+  const revision = reviewRevision
   planLoading.value = true
   planError.value = null
   const previousValues = { ...parameterValues.value }
   const existing = Object.entries(previousValues)
-    .filter(([, value]) => value.trim() !== '')
+    .filter(([, value]) => !valueIsEmpty(value))
     .map(([name, value]) => ({ name, value }))
   try {
     const next = await planHubInstall(api, {
@@ -196,14 +316,15 @@ async function loadPlan() {
       parameters: existing.length ? existing : undefined,
       requirement_bindings: Object.entries(bindingValues.value).map(([name, value]) => ({name, value})),
     })
+    if (revision !== reviewRevision) return
     applyPlan(next, previousValues)
   } catch (e: any) {
+    if (revision !== reviewRevision) return
     plan.value = null
-    requirements.value = []
-    parameterValues.value = {}
-    planError.value = e.response?.data?.error || e.response?.data?.message || e.message
+    planCurrent.value = false
+    planError.value = hubRequestError(e)
   } finally {
-    planLoading.value = false
+    if (revision === reviewRevision) planLoading.value = false
   }
 }
 
@@ -219,18 +340,19 @@ async function loadInstalledVersions() {
       if (name && d.version && !map[name]) map[name] = d.version
     }
     installedVersions.value = map
-  } catch {
+  } catch (e: any) {
+    error.value = hubRequestError(e)
     installedVersions.value = {}
   }
 }
 
-function parametersPayload(): Array<{ name: string; value: string }> | undefined {
-  const out: Array<{ name: string; value: string }> = []
+function parametersPayload(): Array<{ name: string; value: RequirementValue }> | undefined {
+  const out: Array<{ name: string; value: RequirementValue }> = []
   for (const req of rootRequirements.value) {
     const key = requirementKey(req)
     if (!key) continue
-    const value = (parameterValues.value[key] || '').trim()
-    if (value !== '' && !req.invalid) out.push({ name: key, value })
+    const value = parameterValues.value[key]
+    if (!valueIsEmpty(value) && !req.invalid && value !== undefined) out.push({ name: key, value })
   }
   return out.length ? out : undefined
 }
@@ -252,7 +374,7 @@ const missingRequirements = computed<string[]>(() => {
   for (const req of rootRequirements.value) {
     const key = requirementKey(req)
     if (!key || (!req.required && !req.missing)) continue
-    if (req.invalid || !(parameterValues.value[key] || '').trim()) missing.push(key)
+    if (req.invalid || valueIsEmpty(parameterValues.value[key])) missing.push(key)
   }
   return missing
 })
@@ -281,8 +403,7 @@ async function runSecurityScan() {
     if (revision === scanRevision) scanResult.value = result
   } catch (e: any) {
     if (revision !== scanRevision) return
-    const data = e.response?.data
-    scanError.value = data?.error || data?.message || e.message || 'Security review failed'
+    scanError.value = hubRequestError(e)
   } finally {
     if (revision === scanRevision) scanLoading.value = false
   }
@@ -298,6 +419,8 @@ function skipSecurityScan() {
 
 const scanDecisionMade = computed(() => scanSkipped.value || !!scanResult.value)
 const installDisabled = computed(() =>
+  !plan.value || !planCurrent.value || plan.value.applicable === false ||
+  pendingCount.value > 0 || Object.values(inputValidity.value).includes(false) ||
   busy.value ||
   planLoading.value ||
   fillLoading.value ||
@@ -336,6 +459,10 @@ const scanFindings = computed<Array<HubScanFinding & { module_name: string }>>((
 })
 
 async function submit() {
+  if (installDisabled.value) {
+    error.value = 'Review a valid current plan and confirm requirement suggestions before installing'
+    return
+  }
   if (!props.component.trim()) {
     error.value = 'Component required'
     return
@@ -354,6 +481,7 @@ async function submit() {
   error.value = null
   try {
     await installHubDependency(api, installPayload())
+    busy.value = false
     emit('installed', props.component.trim())
     close()
   } catch (e: any) {
@@ -363,7 +491,7 @@ async function submit() {
     } else {
       const details = data?.details
       if (details?.requirements && details?.install_payload) applyPlan(details)
-      error.value = data?.error || data?.message || e.message
+      error.value = hubRequestError(e)
     }
   } finally {
     busy.value = false
@@ -447,22 +575,19 @@ const planSummary = computed(() => {
 
 <template>
   <Teleport to="body">
-    <div v-if="modelValue" class="overlay" @click.self="close">
-      <div class="dialog">
-        <div class="flex items-center gap-2 mb-3">
-          <Icon icon="tabler:download" class="w-5 h-5 text-info-500" />
-          <span class="text-sm font-semibold" style="color: var(--p-text-color)">Install {{ component }}</span>
-        </div>
+    <Dialog :visible="modelValue" modal :draggable="false" :closable="!busy" :close-on-escape="!busy" :header="`Install ${component}`"
+      class="keeper-install-dialog" :style="{width: '600px', maxWidth: '95vw'}" @update:visible="close">
+      <div class="dialog-body">
         <p class="text-[11px] mb-3 leading-relaxed" style="color: var(--p-text-muted-color)">
           Installs a component from the hub and applies its registry entries. The plan below resolves the full dependency tree before anything changes.
         </p>
 
-        <label class="form-label">Version</label>
-        <input v-model="version" placeholder="latest" class="form-input mono" @input="resetScanDecision" @change="loadPlan" />
+        <label :for="versionInputId" class="form-label">Version</label>
+        <input :id="versionInputId" v-model="version" placeholder="latest" class="form-input mono" @input="invalidateReview" @change="loadPlan" />
 
-        <label class="form-label mt-3">Dependency namespace</label>
+        <label :for="namespaceInputId" class="form-label mt-3">Dependency namespace</label>
         <input
-          v-model="dependencyNamespace"
+          :id="namespaceInputId" v-model="dependencyNamespace"
           placeholder="auto"
           class="form-input mono"
           @input="markNamespaceTouched"
@@ -484,10 +609,16 @@ const planSummary = computed(() => {
           </span>
           <span v-else>Plan resolves transitive dependencies before install.</span>
           <div class="flex items-center gap-2">
-            <button v-if="missingRequirements.length || transitiveBlockers.length" class="ghost-sm" type="button"
-              @click="fillGaps" :disabled="planLoading || fillLoading || busy">{{ fillLoading ? 'Filling gaps…' : 'Fill gaps' }}</button>
+            <button v-if="gapIds.length" class="ghost-sm" type="button"
+              @click="fillGaps" :disabled="!planCurrent || planLoading || fillLoading || busy">{{ fillLoading ? 'Suggesting…' : 'Suggest with AI' }}</button>
             <button class="ghost-sm" type="button" @click="loadPlan" :disabled="planLoading || fillLoading">Refresh</button>
           </div>
+        </div>
+
+        <HubRequestError v-if="fillError" :error="fillError"> You can enter values manually.</HubRequestError>
+        <div v-if="pendingCount" role="status" class="field-hint">
+          Review {{ pendingCount }} AI suggestion{{ pendingCount === 1 ? '' : 's' }} before applying.
+          <button type="button" class="ghost-sm" @click="acceptSuggestions(Object.keys(pendingSuggestions))">Accept all</button>
         </div>
 
         <!-- Dependency tree -->
@@ -533,15 +664,17 @@ const planSummary = computed(() => {
                 <span v-if="req.targets?.length" class="text-[9px]" style="color: var(--p-text-muted-color)">{{ req.targets.length }} target{{ req.targets.length === 1 ? '' : 's' }}</span>
               </div>
               <RequirementValueInput
-                :model-value="parameterValues[requirementKey(req)] || ''"
+                :model-value="parameterValues[requirementKey(req)] ?? ''"
                 :requirement="req"
                 :placeholder="requirementPlaceholder(req)"
                 @update:model-value="setParameter(req, $event)"
                 @commit="loadPlan"
+                @validity="inputValid(req, $event)"
               />
-              <div v-if="req.default && req.value_source !== 'default'" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">Package default: <span class="mono">{{ req.default }}</span></div>
+              <div v-if="!valueIsEmpty(req.default) && req.value_source !== 'default'" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">Package default: <span class="mono">{{ valueText(req.default) }}</span></div>
               <div v-if="req.invalid_reason" class="mt-1 text-[10px]" style="color: var(--p-danger-500)">{{ req.invalid_reason }}</div>
-              <RequirementResolution :requirement="req" />
+              <RequirementResolution :requirement="resolutionRow(req)" :suggestion="pendingSuggestions[requirementKey(req)]"
+                @accept="acceptSuggestions([requirementKey(req)])" @reject="rejectSuggestion(req)" @edit="editSuggestion(req)" />
               <div v-if="req.module" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">{{ req.module }}{{ req.version ? '@' + req.version : '' }}</div>
               <div v-if="req.description" class="mt-1 text-[10px]" style="color: var(--p-text-muted-color)">{{ req.description }}</div>
             </label>
@@ -568,8 +701,10 @@ const planSummary = computed(() => {
               </div>
               <RequirementValueInput :model-value="transitiveValue(req)" :requirement="req"
                 :disabled="busy || planLoading || fillLoading" :placeholder="requirementPlaceholder(req)"
-                @update:model-value="setBinding(req, $event)" @commit="loadPlan" />
-              <RequirementResolution :requirement="req" />
+                @update:model-value="setBinding(req, $event)" @commit="loadPlan"
+                @validity="inputValid(req, $event)" />
+              <RequirementResolution :requirement="resolutionRow(req)" :suggestion="pendingSuggestions[requirementKey(req)]"
+                @accept="acceptSuggestions([requirementKey(req)])" @reject="rejectSuggestion(req)" @edit="editSuggestion(req)" />
               <div v-if="isTransitiveBlocker(req)" class="mt-1 text-[10px]" style="color: var(--p-danger-500)">
                 {{ req.invalid_reason || 'No value satisfies this requirement.' }}
               </div>
@@ -585,7 +720,7 @@ const planSummary = computed(() => {
         </div>
 
         <label class="form-check">
-          <input v-model="runMigrations" type="checkbox" @change="resetScanDecision" />
+          <input v-model="runMigrations" type="checkbox" @change="loadPlan" />
           Run migrations after install
         </label>
 
@@ -639,7 +774,7 @@ const planSummary = computed(() => {
             Choose a security review path before installing.
           </div>
 
-          <div v-if="scanError" class="mt-2 px-2 py-1.5 rounded text-[11px] bg-danger-500/15 text-danger-500">{{ scanError }}</div>
+          <HubRequestError v-if="scanError" :error="scanError" />
 
           <div class="scan-actions">
             <button class="scan-btn primary" type="button" @click="runSecurityScan" :disabled="scanLoading || busy || planLoading">
@@ -657,8 +792,8 @@ const planSummary = computed(() => {
           {{ transitiveBlockers.length }} dependency requirement{{ transitiveBlockers.length === 1 ? ' is' : 's are' }} unsatisfied.
           Choose a compatible value before installing.
         </div>
-        <div v-if="planError" class="mt-2 px-2 py-1.5 rounded text-[11px] bg-danger-500/15 text-danger-500">{{ planError }}</div>
-        <div v-if="error" class="mt-2 px-2 py-1.5 rounded text-[11px] bg-danger-500/15 text-danger-500">{{ error }}</div>
+        <HubRequestError v-if="planError" :error="planError" />
+        <HubRequestError v-if="error" :error="error" />
 
         <div class="flex justify-end gap-2 mt-4">
           <button class="dialog-btn cancel" @click="close" :disabled="busy">Cancel</button>
@@ -668,7 +803,7 @@ const planSummary = computed(() => {
           </button>
         </div>
       </div>
-    </div>
+    </Dialog>
   </Teleport>
 </template>
 
@@ -676,24 +811,6 @@ const planSummary = computed(() => {
 .mono { font-family: 'JetBrains Mono', monospace; }
 .dim { color: var(--p-text-muted-color); }
 
-.overlay {
-  position: fixed; inset: 0; z-index: 9999;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex; align-items: center; justify-content: center;
-  padding: 16px;
-  overflow: auto;
-}
-.dialog {
-  background: var(--p-surface-50);
-  border: 1px solid var(--p-content-border-color);
-  border-radius: 10px;
-  padding: 18px;
-  width: 460px; max-width: 90vw;
-  max-height: calc(100dvh - 32px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-}
 .form-label {
   display: block;
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;
@@ -752,15 +869,15 @@ const planSummary = computed(() => {
 }
 .scan-badge.clean,
 .scan-mini-badge.clean {
-  background: color-mix(in srgb, var(--p-green-500) 16%, transparent);
-  color: var(--p-green-500);
+  background: color-mix(in srgb, var(--p-success-500) 16%, transparent);
+  color: var(--p-success-500);
 }
 .scan-badge.warnings,
 .scan-mini-badge.warnings,
 .scan-badge.error,
 .scan-mini-badge.error {
-  background: color-mix(in srgb, var(--p-orange-500) 16%, transparent);
-  color: var(--p-orange-500);
+  background: color-mix(in srgb, var(--p-warn-500) 16%, transparent);
+  color: var(--p-warn-500);
 }
 .scan-badge.critical,
 .scan-mini-badge.critical {
@@ -821,7 +938,7 @@ const planSummary = computed(() => {
 .scan-finding.warning,
 .scan-finding.warnings,
 .scan-finding.error {
-  border-left-color: var(--p-orange-500);
+  border-left-color: var(--p-warn-500);
 }
 .scan-finding.critical {
   border-left-color: var(--p-danger-500);
@@ -926,8 +1043,8 @@ const planSummary = computed(() => {
   padding: 1px 5px; border-radius: 3px;
   white-space: nowrap;
 }
-.node-badge.new { background: color-mix(in srgb, var(--p-green-500) 18%, transparent); color: var(--p-green-500); }
-.node-badge.upgrade { background: color-mix(in srgb, var(--p-orange-500) 18%, transparent); color: var(--p-orange-500); }
+.node-badge.new { background: color-mix(in srgb, var(--p-success-500) 18%, transparent); color: var(--p-success-500); }
+.node-badge.upgrade { background: color-mix(in srgb, var(--p-warn-500) 18%, transparent); color: var(--p-warn-500); }
 .node-badge.shared { background: var(--p-surface-200); color: var(--p-text-muted-color); }
 .node-badge.installed { background: transparent; color: var(--p-text-muted-color); border: 1px solid var(--p-content-border-color); }
 
