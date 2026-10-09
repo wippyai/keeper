@@ -203,21 +203,29 @@ function materialize.format_entry_structured(entry, include_filename)
         -- Dedent each entry block by 4 chars. The entry list marker `  - ` is 4
         -- chars; continuation lines are 4-space indented. Nested lists like
         -- `      - http` dedent to `  - http`, preserving YAML list structure.
+        -- Lines inside the entry are rendered verbatim: `#` lines and blank
+        -- lines inside block scalars are content. Entry-level header comments
+        -- (`  # ns:name`) sit at 2-space indent and stay outside the entry.
         local in_entries_section = false
+        local in_entry = false
         local entry_lines = {}
 
-        for line in definition_content:gmatch("[^\n]+") do
+        for line in (definition_content .. "\n"):gmatch("([^\n]*)\n") do
             if line:match("^entries:") then
                 in_entries_section = true
             elseif in_entries_section then
-                if line:match("^%s*#") then
-                    -- skip comments
-                elseif line:match("^  %- ") then
+                if line:match("^  %- ") then
+                    in_entry = true
                     table.insert(entry_lines, line:sub(5))
                 elseif line:match("^    ") then
                     table.insert(entry_lines, line:sub(5))
+                elseif in_entry and line:match("^%s*$") then
+                    table.insert(entry_lines, "")
                 end
             end
+        end
+        while #entry_lines > 0 and entry_lines[#entry_lines] == "" do
+            table.remove(entry_lines)
         end
 
         for _, line in ipairs(entry_lines) do
