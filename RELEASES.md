@@ -1,5 +1,20 @@
 # Release Notes
 
+## keeper/keeper 0.5.102
+
+Registry operations never write source files. The registry is the store and
+source files load into it once at boot; governance applies, Hub installs and
+updates, and rollbacks are registry-only. Files are written only by the
+explicit registry-to-filesystem sync (`sync_to_fs`). Hub updates no longer
+rewrite deployment sources such as `src/app/deps/_index.yaml`, so a cold boot
+keeps the updated module versions, and installs work on a read-only source
+tree.
+
+The full Keeper suite passes 1,823 tests on SQLite and Postgres with the
+existing PM HTTP placeholder skip; lint reports no issues. A local read-only
+end-to-end run passes single, batch, root and rejected installs with unchanged
+files and updated versions after a cold reboot.
+
 ## keeper/keeper 0.5.101
 
 Batch planning takes one snapshot of the installed dependency catalog and of
