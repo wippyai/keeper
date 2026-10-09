@@ -778,6 +778,8 @@ function M.new(deps: PlannerDeps?)
         gov = deps.gov or gov_consts,
         ownership = deps.ownership or ownership,
         version_cache = {},
+        version_details_cache = {},
+        artifact_cache = {},
     }, Planner) :: PlannerInstance
 end
 
@@ -799,6 +801,7 @@ function Planner:find_entries(criteria)
 end
 
 function Planner:dependency_entries()
+    if self.__dependency_entries then return self.__dependency_entries, nil end
     local rows, rows_err = self:find_entries({ [".kind"] = "ns.dependency" })
     if not rows then return nil, rows_err end
     -- Sort a copy: registry.find may hand back a backing slice, and sorting it
@@ -806,6 +809,7 @@ function Planner:dependency_entries()
     local out = {}
     for _, entry in ipairs(rows) do table.insert(out, entry) end
     table.sort(out, function(a, b) return tostring(a.id) < tostring(b.id) end)
+    self.__dependency_entries = out
     return out, nil
 end
 
@@ -1104,7 +1108,26 @@ function Planner:list_all_versions(component)
     return out, nil
 end
 
+local function cached_version_metadata(cache, component, selected, load)
+    local identity = selected and (trim(selected.version) ~= "" and "version:" .. trim(selected.version)
+        or trim(selected.id) ~= "" and "id:" .. trim(selected.id))
+    if not identity then return load() end
+    local module_cache = cache[component]
+    if module_cache and module_cache[identity] then return module_cache[identity], nil end
+    local value, load_err = load()
+    if not value then return nil, load_err end
+    if not module_cache then module_cache = {}; cache[component] = module_cache end
+    module_cache[identity] = value
+    return value, nil
+end
+
 function Planner:version_details(component, selected)
+    return cached_version_metadata(self.version_details_cache, component, selected, function()
+        return self:load_version_details(component, selected)
+    end)
+end
+
+function Planner:load_version_details(component, selected)
     local replacement, replacement_err = self:replacement_version(component)
     if replacement_err then return nil, replacement_err end
     if replacement and selected then
@@ -1175,6 +1198,12 @@ function Planner:artifact_requirement_details(component, selected)
 end
 
 function Planner:inspect_artifact(component, selected)
+    return cached_version_metadata(self.artifact_cache, component, selected, function()
+        return self:load_artifact(component, selected)
+    end)
+end
+
+function Planner:load_artifact(component, selected)
     local replacement, replacement_err = self:replacement_version(component)
     if replacement_err then return nil, replacement_err end
     if replacement then

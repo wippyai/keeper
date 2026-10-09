@@ -5873,6 +5873,78 @@ local function define_tests()
         end)
 
         describe("batch install planning", function()
+            it("reads each selected version and its artifact once across shared batch graphs", function()
+                local catalog_rows = {
+                    ["acme/shared"] = {{id = "shared-v1", version = "1.0.0", entry_kinds = {"ns.requirement"},
+                        inspect = {entries = {{id = "acme.shared:literal", kind = "ns.requirement",
+                            meta = {value_type = "string"}, data = {name = "literal", default = "shared"}}}}}},
+                }
+                local dependencies = {}
+                for index = 1, 4 do
+                    local name = "root" .. index
+                    local component = "acme/" .. name
+                    catalog_rows[component] = {{id = name .. "-v1", version = "1.0.0",
+                        dependencies = {{org = "acme", name = "shared", version = ">=1.0.0"}}}}
+                    dependencies[#dependencies + 1] = {component = component, version = ">=1.0.0"}
+                end
+                local catalog = fake_catalog(catalog_rows)
+                local reads, inspections = {}, {}
+                local get, inspect = catalog.versions.get, catalog.versions.inspect
+                catalog.versions.get = function(component, ref)
+                    reads[component] = (reads[component] or 0) + 1
+                    return get(component, ref)
+                end
+                catalog.versions.inspect = function(component, ref)
+                    inspections[component] = (inspections[component] or 0) + 1
+                    return inspect(component, ref)
+                end
+                local reg = fake_registry({})
+                local find, dependency_reads = reg.find, 0
+                reg.find = function(criteria)
+                    if criteria[".kind"] == "ns.dependency" then dependency_reads = dependency_reads + 1 end
+                    return find(criteria)
+                end
+                local svc = planner.new({registry = reg, catalog = catalog}) :: any
+                local result, plan_err = svc:plan_install({dependencies = dependencies})
+                test.is_nil(plan_err)
+                test.eq(#result.plans, 4)
+                for _, plan in ipairs(result.plans) do
+                    test.eq(#plan.graph, 2)
+                    test.eq(find_requirement(plan, "acme.shared:literal").value, "shared")
+                end
+                test.eq(dependency_reads, 1, "installed dependency snapshot has one read per request")
+                test.eq(reads["acme/shared"], 1, "shared version metadata has one read per request")
+                test.eq(inspections["acme/shared"], 1, "shared artifact metadata has one inspection per request")
+                for _, dependency in ipairs(dependencies) do test.eq(reads[dependency.component], 1) end
+            end)
+            it("isolates inspected versions and retries failed metadata reads", function()
+                local catalog = fake_catalog({["acme/shared"] = {
+                    {id = "one", version = "1.0.0", inspect = {entries = {{id = "acme.shared:first"}}}},
+                    {id = "two", version = "2.0.0", inspect = {entries = {{id = "acme.shared:second"}}}},
+                }})
+                local inspect, calls = catalog.versions.inspect, 0
+                catalog.versions.inspect = function(component, ref)
+                    calls = calls + 1
+                    if calls == 1 then return nil, "Hub unavailable" end
+                    return inspect(component, ref)
+                end
+                local svc = planner.new({registry = fake_registry({}), catalog = catalog}) :: any
+                local first, failed = svc:inspect_artifact("acme/shared", {version = "1.0.0"})
+                test.is_nil(first)
+                test.eq(failed, "Hub unavailable")
+                first, failed = svc:inspect_artifact("acme/shared", {version = "1.0.0"})
+                test.is_nil(failed)
+                test.eq(first.entries[1].id, "acme.shared:first")
+                local second, second_err = svc:inspect_artifact("acme/shared", {version = "2.0.0"})
+                test.is_nil(second_err)
+                test.eq(second.entries[1].id, "acme.shared:second")
+                test.eq(calls, 3)
+                local next_request = planner.new({registry = fake_registry({}), catalog = catalog}) :: any
+                local reread, reread_err = next_request:inspect_artifact("acme/shared", {version = "1.0.0"})
+                test.is_nil(reread_err)
+                test.eq(reread.entries[1].id, "acme.shared:first")
+                test.eq(calls, 4, "a new planner reads its own metadata")
+            end)
             it("validates logical scopes from the complete projected registry", function()
                 for _, source in ipairs({
                     {id = "acme.provider:policy", kind = "security.policy", data = {groups = {"acme.provider:reviewers"}}},
