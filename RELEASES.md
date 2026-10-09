@@ -1,5 +1,15 @@
 # Release Notes
 
+## keeper/keeper 0.5.101
+
+Batch planning takes one snapshot of the installed dependency catalog and of
+each shared module's version metadata per plan and reuses it for every root,
+instead of re-reading them per root. A 77-root module batch on a production
+copy no longer times out; plans are unchanged.
+
+The full Keeper suite passes 1,853 tests on SQLite and Postgres with the
+existing PM HTTP placeholder skip. Lint reports no issues.
+
 ## keeper/keeper 0.5.100
 
 Hub plans validate logical security scopes, such as policy groups and role
