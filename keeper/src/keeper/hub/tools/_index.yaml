@@ -82,6 +82,7 @@ entries:
             "name": {"type": "string", "description": "Dependency entry name for install"},
             "parameters": {"description": "Requirement values as an object map or array of {name,value}"},
             "requirement_bindings": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "value": {}}, "required": ["name", "value"]}, "description": "Reviewed fully-qualified bindings for requirements in the resolved plan, including transitive modules"},
+            "requirement_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string"}, "description": "fill_gaps: limit suggestions to these fully-qualified planned requirement ids. Omit to consider all gaps. Review returned values before install."},
             "migration_policy": {"type": "string", "enum": ["none", "up", "block", "leave", "down"], "description": "Install: none/up. Uninstall: block/leave/down."},
             "run_migrations": {"type": "boolean", "description": "Install shortcut for migration_policy=up"},
             "dry_run": {"type": "boolean", "description": "Return the planned patches/actions without publishing"},

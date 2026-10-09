@@ -2,6 +2,21 @@ import type { ProxyApiInstance } from '../types'
 
 type Api = ProxyApiInstance['api']
 
+export interface HubRequestError {
+  code?: string
+  message: string
+  details?: unknown
+}
+
+export function hubRequestError(error: any): HubRequestError {
+  const data = error.response?.data
+  return {
+    code: data?.code,
+    message: data?.error || data?.message || error.message || 'Request failed',
+    details: data?.details,
+  }
+}
+
 export interface HubMigration {
   id: string
   module?: string
@@ -71,6 +86,9 @@ export interface ListMigrationsResponse {
   count: number
 }
 
+export type RequirementValue = string | number | boolean | unknown[] | Record<string, unknown>
+export type RequirementLiteralType = 'string' | 'boolean' | 'number' | 'integer' | 'object' | 'array'
+
 export interface InstallPayload {
   id?: string
   component: string
@@ -82,8 +100,8 @@ export interface InstallPayload {
   run_migrations?: boolean
   dry_run?: boolean
   source?: string
-  parameters?: Record<string, string> | Array<{ name: string; value: string }>
-  requirement_bindings?: Array<{ name: string; value: string }>
+  parameters?: Record<string, RequirementValue> | Array<{ name: string; value: RequirementValue }>
+  requirement_bindings?: Array<{ name: string; value: RequirementValue }>
 }
 
 export interface HubPlanRequirement extends HubRequirement {
@@ -95,16 +113,17 @@ export interface HubPlanRequirement extends HubRequirement {
   version?: string
   depth?: number
   dependency_path?: string
+  expected_type?: RequirementLiteralType
   expected_kind?: string
   required?: boolean
   missing?: boolean
-  value?: string
+  value?: RequirementValue
   value_source?: 'provided' | 'provided_bare' | 'existing' | 'existing_bare' | 'suggested' | 'default' | 'empty' | string
   invalid?: boolean
   invalid_reason?: string
   choice_reason?: string
-  resolution_error?: {kind: string; code: string; message: string}
-  suggestions?: Array<{ value: string; label?: string; source?: string; kind?: string; preferred?: boolean; dependency_id?: string }>
+  resolution_error?: {kind?: string; code: string; message: string}
+  suggestions?: Array<{ value: RequirementValue; label?: string; source?: string; kind?: string; preferred?: boolean; dependency_id?: string }>
   transitive?: boolean
 }
 
@@ -147,8 +166,8 @@ export interface HubInstallPlanResponse {
   requirement_count: number
   missing_requirements: string[]
   applicable?: boolean
-  parameter_values: Record<string, string>
-  recommended_parameters: Array<{ name: string; value: string }>
+  parameter_values: Record<string, RequirementValue>
+  recommended_parameters: Array<{ name: string; value: RequirementValue }>
   migration_policy?: 'none' | 'up' | string
   install_payload: InstallPayload
 }
@@ -236,7 +255,7 @@ export async function planHubInstall(api: Api, payload: InstallPayload): Promise
   return data
 }
 
-export async function fillHubRequirementGaps(api: Api, payload: InstallPayload): Promise<HubInstallPlanResponse> {
+export async function fillHubRequirementGaps(api: Api, payload: InstallPayload & { requirement_ids?: string[] }): Promise<HubInstallPlanResponse> {
   const { data } = await api.post<HubInstallPlanResponse>('/api/v1/keeper/hub/dependencies/fill-gaps', payload)
   return data
 }
@@ -332,7 +351,7 @@ export interface HubDependencyRef {
 export interface HubRequirement {
   name?: string
   description?: string
-  default?: string
+  default?: RequirementValue
   targets?: Array<{ entry?: string; path?: string }>
 }
 

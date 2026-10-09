@@ -433,6 +433,10 @@ local function value_label(value): string
     return value_key(value)
 end
 
+function M.parameter_value_is_empty(value): boolean
+    return value_is_empty(value)
+end
+
 -- Callers matching a planned parameter against a recorded one compare by
 -- content: a structured value is never the same table on both sides.
 function M.parameter_values_equal(a, b): boolean
@@ -2159,7 +2163,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 end
 
                 local default_value = parameter_value(req.default)
-                if (expected_type == "object" or expected_type == "array") and type(default_value) == "string" then
+                if (expected_type == "object" or expected_type == "array") and type(default_value) == "string" and not value_is_empty(default_value) then
                     local decoded, decode_err = json.decode(default_value)
                     if decode_err then
                         return nil, err("BAD_REQUEST", "invalid literal default for " .. full_id .. ": " .. tostring(decode_err))
