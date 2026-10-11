@@ -2779,6 +2779,22 @@ local function define_tests()
                 test.is_nil(plan.requirements[1].resolution_error)
             end)
 
+            it("keeps known missing requirements editable when native diagnostics omit declarations", function()
+                local address = "acme.secure:audience"
+                local native_err = errors.new({kind = errors.INVALID, message = "missing audience",
+                    details = {count = 1, errors = {"missing audience"}, requirements = {
+                        {requirement = address, targets = {}}}}})
+                local svc = planner.new({catalog = fake_catalog({["acme/secure"] = {{version = "1.0.0",
+                    requirements = {{name = "audience", meta = {value_kind = "security.scope"}, targets = {}}}}}}),
+                    registry = fake_registry({}, nil, {plan = function() return nil, native_err end})}) :: any
+                local plan, plan_err = svc:plan_install({component = "acme/secure"})
+                test.is_nil(plan_err)
+                test.eq(plan.applicable, false)
+                test.eq(plan.missing_requirements[1], address)
+                test.eq(plan.requirements[1].expected_kind, "security.scope")
+                test.eq(plan.native_resolution_error.kind, errors.INVALID)
+            end)
+
             it("discovers missing requirements from authoritative native diagnostic declarations", function()
                 local address = "acme.secure.access:audience"
                 local targets = {{entry = "acme.secure.access:configuration", path = ".config.audience"}}
