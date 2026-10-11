@@ -2467,6 +2467,53 @@ function Planner:plan_batch(args)
             migration_policy = args.migration_policy}}, nil
 end
 
+local function merge_native_requirements(graph, diagnostics)
+    for _, diagnostic in ipairs(diagnostics or {}) do
+        if type(diagnostic) ~= "table" then return false end
+        local owner, requirement, owner_length = nil, nil, 0
+        for _, node in ipairs(graph) do
+            for _, existing in ipairs(node.requirements or {}) do
+                if requirement_id(node, existing) == diagnostic.requirement then
+                    owner, requirement = node, existing
+                    break
+                end
+            end
+            if owner then break end
+        end
+        local declaration = diagnostic.declaration
+        if declaration ~= nil then
+            if type(declaration) ~= "table" or declaration.kind ~= "ns.requirement"
+                or declaration.id ~= diagnostic.requirement then
+                return false
+            end
+            requirement = requirements_from_entries({declaration})[1]
+        end
+        if not requirement then return false end
+        if not owner then
+            local namespace = requirement.namespace or ""
+            for _, node in ipairs(graph) do
+                local prefix = node.namespace
+                if (namespace == prefix or namespace:sub(1, #prefix + 1) == prefix .. ".")
+                    and #prefix > owner_length then
+                    owner, owner_length = node, #prefix
+                end
+            end
+        end
+        if not owner then return false end
+        local merged, replaced = {}, false
+        for _, existing in ipairs(owner.requirements or {}) do
+            if requirement_id(owner, existing) == diagnostic.requirement then
+                merged[#merged + 1], replaced = requirement, true
+            else
+                merged[#merged + 1] = existing
+            end
+        end
+        if not replaced then merged[#merged + 1] = requirement end
+        owner.requirements = merged
+    end
+    return true
+end
+
 function Planner:plan_install(args)
     args = args or {}
     if args.dependencies ~= nil then return self:plan_batch(args) end
@@ -2492,15 +2539,9 @@ function Planner:plan_install(args)
 
     local supplied = {}
     for _, parameter in ipairs(data.parameters or {}) do supplied[#supplied + 1] = parameter end
-    local declared = {}
-    for _, node in ipairs(graph) do
-        for _, requirement in ipairs(node.requirements or {}) do
-            declared[requirement_id(node, requirement)] = true
-        end
-    end
     local reviewed, seen = {}, {}
     for _, binding in ipairs(args.requirement_bindings or {}) do
-        if type(binding) ~= "table" or not declared[binding.name] or seen[binding.name] then
+        if type(binding) ~= "table" or type(binding.name) ~= "string" or seen[binding.name] then
             return nil, err("BAD_REQUEST", "reviewed binding must name one resolved requirement: " .. tostring(binding and binding.name))
         end
         seen[binding.name] = true
@@ -2518,10 +2559,22 @@ function Planner:plan_install(args)
     if native_err then
         local details = native_err:details()
         if native_err:kind() ~= errors.INVALID or type(details) ~= "table"
-            or type(details.count) ~= "number" or type(details.errors) ~= "table" or #req_plan.missing == 0 then
+            or type(details.count) ~= "number" or type(details.errors) ~= "table" then
             return nil, native_err
         end
-        native_resolution_error = {kind = native_err:kind(), message = native_err:message(), details = details}
+        if type(details.requirements) == "table" and #details.requirements > 0 then
+            if not merge_native_requirements(graph, details.requirements) then return nil, native_err end
+            req_plan, req_err = self:plan_requirements(graph, supplied)
+            if not req_plan then return nil, req_err end
+            if #req_plan.missing == 0 then
+                native_plan, native_err = self:preview_install(entry, req_plan)
+                if native_err then return nil, native_err end
+            end
+        end
+        if not native_plan then
+            if #req_plan.missing == 0 then return nil, native_err end
+            native_resolution_error = {kind = native_err:kind(), message = native_err:message(), details = details}
+        end
     end
     if native_plan then
         graph, graph_err = self:resolve_install_graph(data.component, data.version, {
@@ -2534,6 +2587,17 @@ function Planner:plan_install(args)
         if constraint_err then return nil, constraint_err end
         req_plan, req_err = self:plan_requirements(graph, supplied)
         if not req_plan then return nil, req_err end
+    end
+    local declared = {}
+    for _, node in ipairs(graph) do
+        for _, requirement in ipairs(node.requirements or {}) do
+            declared[requirement_id(node, requirement)] = true
+        end
+    end
+    for _, binding in ipairs(reviewed) do
+        if not declared[binding.name] then
+            return nil, err("BAD_REQUEST", "reviewed binding must name one resolved requirement: " .. binding.name)
+        end
     end
     local bindings, bindings_err = self:plan_binding_dependencies(req_plan.requirements, entry)
     if not bindings then return nil, bindings_err end
