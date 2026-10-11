@@ -1,5 +1,19 @@
 # Release Notes
 
+## keeper/keeper 0.5.105
+
+Installing or updating a module whose required requirement has no default now
+opens the requirements step with that row instead of failing. The planner reads
+the requirement declarations that native expansion reports for the newly
+selected module (runtime with structured expansion diagnostics), re-plans them
+through the normal requirement planning, and validates reviewed values against
+the resolved requirements; "Suggest with AI" works for these rows. Without such
+a runtime the behaviour is unchanged.
+
+Both full Keeper gates pass 1,838 tests with the existing placeholder skip,
+lint is clean, and required-requirement install plus AI accept, reject, edit
+and update flows pass on SQLite and Postgres.
+
 ## keeper/keeper 0.5.104
 
 Install and update dialogs offer "Suggest with AI" for unresolved
