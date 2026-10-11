@@ -2779,7 +2779,7 @@ local function define_tests()
                 test.is_nil(plan.requirements[1].resolution_error)
             end)
 
-            it("discovers missing native requirement declarations from the selected artifact", function()
+            it("discovers missing requirements from authoritative native diagnostic declarations", function()
                 local address = "acme.secure.access:audience"
                 local targets = {{entry = "acme.secure.access:configuration", path = ".config.audience"}}
                 local declaration = {id = address, kind = "ns.requirement",
@@ -2787,9 +2787,9 @@ local function define_tests()
                     data = {targets = targets}}
                 local native_err = errors.new({kind = errors.INVALID, message = "unresolved requirements",
                     details = {count = 1, errors = {"requirement audience has no value"},
-                        requirements = {{requirement = address, targets = targets}}}})
+                        requirements = {{requirement = address, targets = targets, declaration = declaration}}}})
                 local catalog = fake_catalog({["acme/secure"] = {{version = "1.0.0",
-                    inspect = {entries = {declaration}}}}})
+                    inspect = {entries = {}}}}})
                 local previews = 0
                 local svc = planner.new({catalog = catalog,
                     registry = fake_registry({
@@ -2833,20 +2833,101 @@ local function define_tests()
                 test.eq(resolved.native_plan.digest, "native-bound")
                 test.eq(resolved.install_payload.requirement_bindings[1].name, address)
                 test.eq(resolved.install_payload.parameters[1].value, "app.security:members")
-                test.eq(previews, 2)
+                test.eq(previews, 3)
             end)
 
             it("rejects native diagnostics without an authoritative missing declaration", function()
-                for _, declarations in ipairs({{}, {{id = "acme.secure:other", kind = "ns.requirement", data = {targets = {}}}}}) do
+                for _, declaration in ipairs({false, {id = "acme.secure:other", kind = "ns.requirement", data = {targets = {}}},
+                    {id = "acme.secure:audience", kind = "registry.entry", data = {targets = {}}}}) do
                     local native_err = errors.new({kind = errors.INVALID, message = "unresolved requirements",
                         details = {count = 1, errors = {"missing audience"}, requirements = {
-                            {requirement = "acme.secure:audience", targets = {{entry = "acme.secure:config", path = ".audience"}}}}}})
+                            {requirement = "acme.secure:audience", declaration = declaration,
+                                targets = {{entry = "acme.secure:config", path = ".audience"}}}}}})
                     local svc = planner.new({catalog = fake_catalog({["acme/secure"] = {{version = "1.0.0",
-                        inspect = {entries = declarations}}}}),
+                        inspect = {entries = {}}}}}),
                         registry = fake_registry({}, nil, {plan = function() return nil, native_err end})}) :: any
                     local plan, plan_err = svc:plan_install({component = "acme/secure"})
                     test.is_nil(plan)
                     test.eq(plan_err, native_err)
+                end
+            end)
+
+            it("uses native literal metadata instead of stale catalog requirement kinds", function()
+                local address = "acme.settings:retries"
+                local declaration = {id = address, kind = "ns.requirement",
+                    meta = {value_type = "integer", description = "Choose retry count"},
+                    data = {targets = {{entry = "acme.settings:config", path = ".retries"}}}}
+                local native_err = errors.new({kind = errors.INVALID, message = "missing retries",
+                    details = {count = 1, errors = {"missing retries"}, requirements = {
+                        {requirement = address, declaration = declaration}}}})
+                local svc = planner.new({catalog = fake_catalog({["acme/settings"] = {{version = "1.0.0",
+                    requirements = {{name = "retries", meta = {value_kind = "security.scope"}}}}}}),
+                    registry = fake_registry({}, nil, {plan = function() return nil, native_err end})}) :: any
+                local plan, plan_err = svc:plan_install({component = "acme/settings"})
+                test.is_nil(plan_err)
+                test.eq(#plan.requirements, 1)
+                test.eq(plan.requirements[1].expected_type, "integer")
+                test.is_nil(plan.requirements[1].expected_kind)
+                test.eq(plan.requirements[1].description, "Choose retry count")
+                test.eq(plan.requirements[1].required, true)
+                test.eq(plan.requirements[1].missing, true)
+                test.eq(plan.applicable, false)
+            end)
+
+            it("attributes native declarations to the most specific transitive module namespace", function()
+                local address = "acme.secure.access.roles:audience"
+                local declaration = {id = address, kind = "ns.requirement", data = {targets = {}}}
+                local native_err = errors.new({kind = errors.INVALID, message = "missing audience",
+                    details = {count = 1, errors = {"missing audience"}, requirements = {
+                        {requirement = address, declaration = declaration}}}})
+                local svc = planner.new({catalog = fake_catalog({
+                    ["acme/secure"] = {{version = "1.0.0", dependencies = {
+                        {org = "acme", name = "secure.access", version_constraint = "*"}}}},
+                    ["acme/secure.access"] = {{version = "1.0.0"}}}),
+                    registry = fake_registry({}, nil, {plan = function() return nil, native_err end})}) :: any
+                local plan, plan_err = svc:plan_install({component = "acme/secure"})
+                test.is_nil(plan_err)
+                local row = find_requirement(plan, address)
+                test.not_nil(row)
+                test.eq(row.module, "acme/secure.access")
+                test.eq(row.transitive, true)
+                test.eq(plan.missing_requirements[1], address)
+                test.eq(plan.applicable, false)
+                test.eq(#plan.install_payload.parameters, 0)
+            end)
+
+            it("requires native validation after resolving a diagnostic declaration automatically", function()
+                for _, succeeds in ipairs({false, true}) do
+                    local address = "acme.secure:audience"
+                    local declaration = {id = address, kind = "ns.requirement",
+                        meta = {value_kind = "security.scope"}, data = {targets = {}}}
+                    local native_err = errors.new({kind = errors.INVALID, message = "missing audience",
+                        details = {count = 1, errors = {"missing audience"}, requirements = {
+                            {requirement = address, declaration = declaration}}}})
+                    local calls = 0
+                    local svc = planner.new({catalog = fake_catalog({["acme/secure"] = {{version = "1.0.0"}}}),
+                        registry = fake_registry({{id = "app.security:members", kind = "security.scope", data = {}}},
+                            nil, {plan = function(staged)
+                                calls = calls + 1
+                                if calls == 1 or not succeeds then return nil, native_err end
+                                test.eq(staged[1].entry.data.parameters[1].value, "app.security:members")
+                                local projected = deep_copy(declaration)
+                                projected.registry = {owner = "acme/secure", root = false}
+                                return {digest = "validated", resolution = {modules = {
+                                    {name = "acme/secure", version = "1.0.0", source = "replacement-tree-v1"}}},
+                                    changes = {{op = "create", entry = projected}}}, nil
+                            end})}) :: any
+                    local plan, plan_err = svc:plan_install({component = "acme/secure"})
+                    test.eq(calls, 2)
+                    if succeeds then
+                        test.is_nil(plan_err)
+                        test.eq(plan.applicable, true)
+                        test.eq(plan.native_plan.digest, "validated")
+                        test.eq(plan.install_payload.parameters[1].value, "app.security:members")
+                    else
+                        test.is_nil(plan)
+                        test.eq(plan_err, native_err)
+                    end
                 end
             end)
 
