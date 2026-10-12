@@ -1,5 +1,17 @@
 # Release Notes
 
+## keeper/keeper 0.5.106
+
+Declared empty array and object requirement defaults count as present
+defaults. Install and batch update plans no longer report an optional
+requirement with a `[]` or `{}` default as missing, so a module batch can
+apply before the root application supplies the value. Absent defaults stay
+unresolved.
+
+Both full Keeper gates pass 1,850 tests with the existing placeholder skip,
+lint is clean, and a published-release Keeper, module batch and root
+application update passes on SQLite and Postgres.
+
 ## keeper/keeper 0.5.105
 
 Installing or updating a module whose required requirement has no default now
