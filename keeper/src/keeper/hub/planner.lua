@@ -407,7 +407,6 @@ end
 
 local function value_is_empty(value): boolean
     if value == nil then return true end
-    if type(value) == "table" then return next(value) == nil end
     if type(value) == "string" then return trim(value) == "" end
     return false
 end

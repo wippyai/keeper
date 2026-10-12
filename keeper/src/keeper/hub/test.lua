@@ -966,13 +966,17 @@ local function define_tests()
                 test.eq(#result.install_payload.requirement_bindings, 1)
             end)
 
-            it("fills an empty collection using the planner's definition of an unresolved value", function()
+            it("keeps an explicit empty collection out of requirement gap filling", function()
                 local result, err = fixture({structured_output = function()
-                    return {result = {value = {"selected"}, reason = "Valid collection."}}, nil
+                    error("a present collection does not consult a model")
                 end}, {{name = "setting", meta = {value_type = "array"}}}):fill_gaps({component = "acme/example",
                     parameters = {{name = "acme.example:setting", value = {}}}})
                 test.is_nil(err)
-                test.eq(find_requirement(result, "acme.example:setting").value_source, "llm")
+                local row = find_requirement(result, "acme.example:setting")
+                test.eq(row.value_source, "provided")
+                test.is_nil(next(row.value))
+                test.is_false(row.missing)
+                test.is_nil(next(find_parameter(result.install_payload.parameters, "acme.example:setting").value))
             end)
 
             it("limits model calls to explicitly selected unresolved rows", function()
@@ -1261,6 +1265,74 @@ local function define_tests()
                 test.eq(find_requirement(result, "acme.example:scope").value_source, "registry")
                 test.eq(#result.missing, 0)
             end)
+        end)
+
+        describe("empty structured requirement values", function()
+            local function fixture(value_type, default, recorded)
+                local entries = recorded and {root_dep("app.deps:options", "acme/options")} or {}
+                local requirement = {name = "settings", default = default, meta = {value_type = value_type}}
+                return planner.new({registry = fake_registry(entries), catalog = fake_catalog({
+                    ["acme/options"] = {{version = "2.0.0", entry_kinds = {"ns.requirement"},
+                        inspect = {entries = {{id = "acme.options:settings", kind = "ns.requirement",
+                            meta = requirement.meta, data = requirement}}}}},
+                    ["acme/other"] = {{version = "2.0.0"}},
+                })})
+            end
+
+            local function assert_value(plan, source)
+                test.is_true(plan.applicable)
+                test.eq(#plan.missing_requirements, 0)
+                local row = find_requirement(plan, "acme.options:settings")
+                test.eq(row.value_source, source)
+                test.eq(type(row.value), "table")
+                test.is_nil(next(row.value))
+                test.is_false(row.missing)
+                test.is_false(row.invalid)
+                local parameter = find_parameter(plan.install_payload.parameters, "acme.options:settings")
+                test.not_nil(parameter)
+                test.eq(type(parameter.value), "table")
+                test.is_nil(next(parameter.value))
+                test.eq(type(row.suggestions[1].value), "table")
+            end
+
+            for _, shape in ipairs({{value_type = "array", literal = "[]"}, {value_type = "object", literal = "{}"}}) do
+                local value_type, literal = shape.value_type, shape.literal
+                for _, encoded in ipairs({false, true}) do
+                    it("plans an empty " .. value_type .. (encoded and " JSON" or " structured") .. " default on install", function()
+                        local default = encoded and literal or json.decode(literal)
+                        local plan, plan_err = fixture(value_type, default):plan_install({component = "acme/options", version = "*"})
+                        test.is_nil(plan_err)
+                        assert_value(plan, "default")
+                    end)
+                    it("plans an empty " .. value_type .. (encoded and " JSON" or " structured") .. " default on batch update", function()
+                        local default = encoded and literal or json.decode(literal)
+                        local plan, plan_err = fixture(value_type, default, true):plan_install({dependencies = {
+                            {id = "app.deps:options", component = "acme/options", version = "*"},
+                            {component = "acme/other", version = "*"},
+                        }})
+                        test.is_nil(plan_err)
+                        test.is_true(plan.applicable)
+                        assert_value(plan.plans[1], "default")
+                        local parameter = find_parameter(plan.install_payload.dependencies[1].parameters, "acme.options:settings")
+                        test.not_nil(parameter)
+                        test.is_nil(next(parameter.value))
+                    end)
+                end
+                it("leaves an absent " .. value_type .. " default unresolved", function()
+                    local plan, plan_err = fixture(value_type, nil):plan_install({component = "acme/options", version = "*"})
+                    test.is_nil(plan_err)
+                    test.is_false(plan.applicable)
+                    test.eq(plan.missing_requirements[1], "acme.options:settings")
+                    test.eq(#plan.install_payload.parameters, 0)
+                end)
+                it("retains an explicit empty " .. value_type .. " value ahead of a nonempty default", function()
+                    local plan, plan_err = fixture(value_type, value_type == "array" and {"fallback"} or {fallback = true}):plan_install({
+                        component = "acme/options", version = "*", parameters = {{name = "acme.options:settings", value = json.decode(value_type == "array" and "[]" or "{}")}},
+                    })
+                    test.is_nil(plan_err)
+                    assert_value(plan, "provided")
+                end)
+            end
         end)
 
         describe("typed host options", function()
