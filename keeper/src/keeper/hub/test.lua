@@ -966,13 +966,17 @@ local function define_tests()
                 test.eq(#result.install_payload.requirement_bindings, 1)
             end)
 
-            it("fills an empty collection using the planner's definition of an unresolved value", function()
+            it("keeps an explicit empty collection out of requirement gap filling", function()
                 local result, err = fixture({structured_output = function()
-                    return {result = {value = {"selected"}, reason = "Valid collection."}}, nil
+                    error("a present collection does not consult a model")
                 end}, {{name = "setting", meta = {value_type = "array"}}}):fill_gaps({component = "acme/example",
                     parameters = {{name = "acme.example:setting", value = {}}}})
                 test.is_nil(err)
-                test.eq(find_requirement(result, "acme.example:setting").value_source, "llm")
+                local row = find_requirement(result, "acme.example:setting")
+                test.eq(row.value_source, "provided")
+                test.is_nil(next(row.value))
+                test.is_false(row.missing)
+                test.is_nil(next(find_parameter(result.install_payload.parameters, "acme.example:setting").value))
             end)
 
             it("limits model calls to explicitly selected unresolved rows", function()
