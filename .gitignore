@@ -1,6 +1,7 @@
 # Local runtime state
 .wippy/
 .wippy.yaml
+!keeper/test/.wippy.yaml
 .env
 .env.*
 *.sqlite
@@ -31,3 +32,5 @@ node_modules/
 
 wippy.exe
 keeper/wippy.lock
+
+keeper/test/migration_handler_subject.lua

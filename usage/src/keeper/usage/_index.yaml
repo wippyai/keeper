@@ -14,6 +14,7 @@ entries:
   - name: api_router
     kind: ns.requirement
     meta:
+      value_kind: http.router
       description: HTTP router used by Keeper usage analytics APIs
     default: app:api
     targets:
@@ -68,6 +69,7 @@ entries:
   - name: ui_server
     kind: ns.requirement
     meta:
+      value_kind: http.service
       description: HTTP service used to serve the compiled Keeper Usage UI assets
     default: app:gateway
     targets:

@@ -72,6 +72,10 @@ end
 -- handler's result even when they were reported by the runner.
 local function merge_run_result(acc, part, wanted_ids)
     if type(part) ~= "table" then return acc end
+    if part.status == "error" then
+        acc.status = "error"
+        acc.error = part.error or "Migration runner failed"
+    end
     for _, m in ipairs(part.migrations or {}) do
         if wanted_ids[m.id] then
             table.insert(acc.migrations, m)
@@ -90,6 +94,21 @@ local function merge_run_result(acc, part, wanted_ids)
         end
     end
     return acc
+end
+
+local function record_applied_skip(accum, id)
+    table.insert(accum.migrations, {
+        id = id,
+        status = "skipped",
+        skip_type = "already_applied",
+        reason = "Already applied",
+    })
+    table.insert(accum.skipped_details, {
+        id = id,
+        reason = "Already applied",
+        skip_type = "already_applied",
+    })
+    accum.migrations_skipped = accum.migrations_skipped + 1
 end
 
 local function execute_database_group(target_db: string, migrations, operation)
@@ -120,22 +139,23 @@ local function execute_database_group(target_db: string, migrations, operation)
         local already = applied_ids(target_db, migration_ids)
         for _, wanted_id in ipairs(migration_ids) do
             if already[wanted_id] then
-                table.insert(accum.migrations, {
-                    id = wanted_id,
-                    status = "skipped",
-                    skip_type = "already_applied",
-                    reason = "Already applied",
-                })
-                table.insert(accum.skipped_details, {
-                    id = wanted_id,
-                    reason = "Already applied",
-                    skip_type = "already_applied",
-                })
-                accum.migrations_skipped = accum.migrations_skipped + 1
+                record_applied_skip(accum, wanted_id)
             else
                 local part = runner:run_next({ allowed_ids = { wanted_id } })
                 merge_run_result(accum, part, migration_ids_set)
-                if accum.migrations_failed > 0 then break end
+                -- A competing guarded runner can commit between our ledger
+                -- pre-check and run_next's discovery. No pending work then
+                -- produces no row; accept it only with committed ledger proof.
+                if type(part) == "table" and part.status == "complete" then
+                    local reported = false
+                    for _, row in ipairs(part.migrations or {}) do
+                        if row.id == wanted_id then reported = true; break end
+                    end
+                    if not reported and applied_ids(target_db, {wanted_id})[wanted_id] then
+                        record_applied_skip(accum, wanted_id)
+                    end
+                end
+                if accum.status == "error" or accum.migrations_failed > 0 then break end
             end
         end
     else
@@ -218,6 +238,13 @@ local function process_results(result, operation, wanted_ids)
         end
     end
 
+    -- Discovery/connection failures can have no per-migration row. Preserve
+    -- the runner's failure rather than relabeling it as an undiscovered ID.
+    if not failed and result.status == "error" then
+        failed = { description = "", status = "error" }
+        error_details = result.error or "Migration runner failed"
+    end
+
     -- Any wanted id that neither applied, skipped, nor appeared in skipped_details
     -- means the runner did not discover it — classic registry-staleness or
     -- meta-mismatch. Treat as a loud failure, not a silent pass.
@@ -255,9 +282,10 @@ local function build_error_message(failed, error_details, applied)
     end
 
     if #applied > 0 then
-        table.insert(parts, "(applied before failure: " .. table.concat(applied, ", ") .. ";")
-        table.insert(parts, "failed at: " .. failed.id .. ")")
-    else
+        local context = "(applied before failure: " .. table.concat(applied, ", ")
+        if failed.id then context = context .. "; failed at: " .. failed.id end
+        table.insert(parts, context .. ")")
+    elseif failed.id then
         table.insert(parts, "(failed at: " .. failed.id .. ")")
     end
 

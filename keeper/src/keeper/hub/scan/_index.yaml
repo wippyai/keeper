@@ -20,6 +20,9 @@ entries:
         }
       llm_alias: list_module_namespaces
       llm_description: List the namespaces and code entries (function/library/process/workflow.lua) of a specific Hub module version WITHOUT the source. Call this first to see the module's structure, then read the code you need with read_module_entries.
+      mcp:
+        required_scopes:
+          - hub.read
     source: file://list_module.lua
     modules:
       - hub
@@ -46,6 +49,9 @@ entries:
         }
       llm_alias: read_module_entries
       llm_description: Read the Lua source code of the entries in one namespace of a Hub module version. Use after list_module_namespaces to read the code you need to review. Optionally pass names to read only specific entries within the namespace.
+      mcp:
+        required_scopes:
+          - hub.read
     source: file://read_module.lua
     modules:
       - hub

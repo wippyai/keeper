@@ -1,0 +1,18 @@
+version: "1.0"
+namespace: app.defaults
+entries:
+  - name: dependency
+    kind: ns.dependency
+    component: keeper/defaults-fixture
+    version: "*"
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub_defaults
+    source: file://test.lua
+    method: define_tests
+    modules: [registry, json]
+    imports:
+      test: wippy.test:test
+      planner: keeper.hub:planner

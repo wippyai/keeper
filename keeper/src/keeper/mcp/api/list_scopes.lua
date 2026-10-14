@@ -14,11 +14,18 @@ local function handler()
         return
     end
 
+    local presets, presets_err = policy.list_presets()
+    if presets_err then
+        res:set_status(http.STATUS.INTERNAL_ERROR)
+        res:write_json({ success = false, error = presets_err })
+        return
+    end
+
     res:set_status(http.STATUS.OK)
     res:write_json({
         success = true,
         scopes = policy.list_scopes(),
-        presets = policy.list_presets(),
+        presets = presets,
         config = {
             enabled = auth.enabled(),
             url = auth.public_url(),

@@ -41,6 +41,49 @@ local function define_tests()
                 test.eq(ops[1].op, "weird")
             end)
         end)
+
+        describe("count_index_files", function()
+            it("returns zero for empty, nil or non-table input", function()
+                test.eq(download.count_index_files({}), 0)
+                test.eq(download.count_index_files(nil), 0)
+                test.eq(download.count_index_files("bogus"), 0)
+                test.eq(download.count_index_files(42), 0)
+            end)
+
+            it("counts one index file per namespace directory", function()
+                test.eq(download.count_index_files({
+                    ["./app/mail/_index.yaml"] = "update",
+                    ["./xepozz/smtp/_index.yaml"] = "update",
+                    ["./app/access/_index.yaml"] = "create",
+                }), 3)
+            end)
+
+            it("does not count the source bodies written beside them", function()
+                test.eq(download.count_index_files({
+                    ["./app/mail/_index.yaml"] = "update",
+                    ["./app/mail/fetch_body.lua"] = "update",
+                    ["./app/mail/smtp_pull.lua"] = "create",
+                }), 1)
+            end)
+
+            it("counts a create and an update alike", function()
+                test.eq(download.count_index_files({
+                    ["./a/_index.yaml"] = "create",
+                    ["./b/_index.yaml"] = "update",
+                }), 2)
+            end)
+
+            it("does not count a file merely ending in the index name", function()
+                test.eq(download.count_index_files({
+                    ["./app/mail/not_index.yaml"] = "update",
+                    ["./app/mail/my_index.yaml"] = "update",
+                }), 0)
+            end)
+
+            it("ignores a bare index name with no directory before it", function()
+                test.eq(download.count_index_files({ ["_index.yaml"] = "create" }), 0)
+            end)
+        end)
     end)
 end
 

@@ -12,33 +12,36 @@ local M = {}
 M.OP = consts.REGISTRY_OPERATIONS
 local OP = M.OP
 
-type RegistryEntry = {
-    id: string,
-    kind: string,
-    meta: {[string]: unknown}?,
-    data: unknown?,
-}
+type RegistryEntry = registry.Entry
 
 type SourceAuthority = {
     owners: {[string]: boolean},
     ordered_owners: {string},
 }
 
-function M.retain_authoritative_entries(entries: {RegistryEntry}, authority: SourceAuthority)
+-- Ownership is registry provenance, never authored meta.module. Missing owner
+-- on a snapshot row denotes the application, as in older registry snapshots.
+function M.registry_owners(entries)
+    local owners = {}
+    for _, entry in ipairs(entries or {}) do
+        local owner = entry.registry and entry.registry.owner
+        owners[entry.id] = type(owner) == "string" and owner ~= "" and owner or "application"
+    end
+    return owners
+end
+
+function M.retain_authoritative_entries(entries: {RegistryEntry}, authority: SourceAuthority, owners)
     local retained: {RegistryEntry} = {}
     local skipped = {}
     for _, entry in ipairs(entries or {}) do
-        local module = entry.meta and entry.meta.module
-        local owner = "application"
-        if type(module) == "string" and module ~= "" then owner = module end
-        local authoritative = authority.owners[owner] == true
-        if authoritative then
+        local owner = owners[entry.id]
+        if owner and authority.owners[owner] == true then
             table.insert(retained, entry)
         else
             table.insert(skipped, {
                 id = entry.id,
                 namespace = entry.id:match("^([^:]+):") or "unknown",
-                module = module,
+                module = owner,
             })
         end
     end
@@ -186,14 +189,19 @@ local function get_registry_entries(options)
 
     local snapshot, err = registry.snapshot()
     if not snapshot then
-        return nil, nil, nil, "Failed to get registry snapshot: " .. tostring(err)
+        return nil, nil, nil, nil, "Failed to get registry snapshot: " .. tostring(err)
     end
 
+    local state, state_err = snapshot:state()
+    if not state or type(state.entries) ~= "table" then
+        return nil, nil, nil, nil, "Failed to get registry provenance: " .. tostring(state_err)
+    end
+    local owners = M.registry_owners(state.entries)
     local all_entries = snapshot:entries()
     local filtered_entries, skipped, managed_namespaces, filter_err =
         filter_managed_entries(all_entries :: {RegistryEntry}, options, "registry")
     if not filtered_entries then
-        return nil, nil, nil, filter_err
+        return nil, nil, nil, nil, filter_err
     end
 
     log:info("Retrieved registry entries", {
@@ -201,7 +209,7 @@ local function get_registry_entries(options)
         managed_count = #filtered_entries
     })
 
-    return filtered_entries, skipped, managed_namespaces
+    return filtered_entries, skipped, managed_namespaces, owners
 end
 
 -- Get filesystem entries (filtered to managed namespaces)
@@ -240,7 +248,7 @@ local function get_filesystem_entries(options)
                 table.insert(authority.ordered_owners, owner)
             end
         end
-        all_entries = M.retain_authoritative_entries(loaded.entries :: {RegistryEntry}, authority)
+        all_entries = loaded.entries :: {RegistryEntry}
     else
         -- Older runtimes expose only the application filesystem. Module-owned
         -- snapshots stay outside this sync operation.
@@ -259,7 +267,7 @@ local function get_filesystem_entries(options)
             return nil, nil, nil, nil,
                 "Failed to load application source: " .. tostring(load_err)
         end
-        all_entries = M.retain_authoritative_entries(host_entries :: {RegistryEntry}, authority)
+        all_entries = host_entries :: {RegistryEntry}
     end
 
     local filtered_entries, skipped, managed_namespaces, filter_err =
@@ -283,12 +291,9 @@ local function compare_entries(currentEntries: {RegistryEntry}, targetEntries: {
         filesystem_count = #(targetEntries or {})
     })
 
-    -- registry.build_delta accepts entry arrays at runtime and in
-    -- registry/spec.md; the runtime type metadata currently labels these
-    -- parameters as registry.Version.
     local changeset, err = registry.build_delta(
-        currentEntries :: registry.Version,
-        targetEntries :: registry.Version
+        currentEntries,
+        targetEntries
     )
     if not changeset then
         return nil, "Failed to build delta: " .. tostring(err)
@@ -312,7 +317,7 @@ local function has_changes(options)
     log:info("Checking for changes between registry and filesystem")
 
     -- Get current registry entries (managed namespaces only)
-    local currentEntries, registry_skipped, managed_namespaces, err = get_registry_entries(options)
+    local currentEntries, registry_skipped, managed_namespaces, owners, err = get_registry_entries(options)
     if not currentEntries then
         return {
             success = false,
@@ -329,7 +334,7 @@ local function has_changes(options)
         }
     end
     local unmounted_registry
-    currentEntries, unmounted_registry = M.retain_authoritative_entries(currentEntries, authority)
+    currentEntries, unmounted_registry = M.retain_authoritative_entries(currentEntries, authority, owners)
 
     -- Build delta between current registry entries and filesystem entries
     local comparison, err = compare_entries(currentEntries, filesystemEntries)
@@ -359,7 +364,7 @@ local function upload(options)
     log:info("Starting upload operation")
 
     -- Get current registry entries (managed namespaces only)
-    local currentEntries, registry_skipped, managed_namespaces, err = get_registry_entries(options)
+    local currentEntries, registry_skipped, managed_namespaces, owners, err = get_registry_entries(options)
     if not currentEntries then
         return {
             success = false,
@@ -376,7 +381,7 @@ local function upload(options)
         }
     end
     local unmounted_registry
-    currentEntries, unmounted_registry = M.retain_authoritative_entries(currentEntries, authority)
+    currentEntries, unmounted_registry = M.retain_authoritative_entries(currentEntries, authority, owners)
 
     -- Build delta between current registry entries and filesystem entries
     local comparison, err = compare_entries(currentEntries, filesystemEntries)

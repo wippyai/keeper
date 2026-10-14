@@ -664,8 +664,9 @@ entries:
     
       ## How to discover precedents (three fast, narrow queries)
     
-      1. `explore operation=search kind=page.vue limit=20` — finds Vue pages
-         across the registry. No keyword filter needed.
+      1. `explore operation=search attributes={"meta.type":"view.page"}
+         limit=20` — finds Vue pages across the registry. No keyword filter
+         needed.
       2. Pick 2–3 whose data source + auth posture match the task.
          `get_entries ids=[<page_ids>] include_source=true` in one call.
       3. OPTIONAL: `fs view` on one Vue file if you need the full source

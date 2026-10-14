@@ -19,6 +19,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_DIR="$REPO_ROOT/keeper/test"
 WIPPY_YAML="$REPO_ROOT/keeper/wippy.yaml"
 TEST_ENV="$TEST_DIR/.wippy/test.env"
+make -C "$REPO_ROOT" prepare-test
 
 SUITES=("$@")
 if [ ${#SUITES[@]} -eq 0 ]; then
@@ -37,6 +38,7 @@ fi
 
 cp "$WIPPY_YAML" "$YAML_ORIG"
 restore_yaml() {
+    rm -f "$TEST_DIR/migration_handler_subject.lua"
     if [ -f "$YAML_ORIG" ]; then
         cp "$YAML_ORIG" "$WIPPY_YAML"
         rm -f "$YAML_ORIG"
@@ -70,6 +72,8 @@ for line in rest.split("\n"):
 open(p, "w").write(s[:idx] + rest)
 PY
 
+cp "$REPO_ROOT/keeper/src/keeper/develop/integrate/handlers/migration_handler.lua" "$TEST_DIR/migration_handler_subject.lua"
+
 if [ -f "$TEST_ENV" ]; then
     set -a
     # shellcheck disable=SC1090
@@ -86,7 +90,7 @@ for suite in "${SUITES[@]}"; do
     echo "=================================================================="
     # The runner exits nonzero on failing suites; the capture must not abort
     # the script under set -e/pipefail before the output is echoed.
-    out="$(cd "$TEST_DIR" && "$WIPPY" run test "$suite" 2>&1 | strip_ansi)" || true
+    out="$(cd "$TEST_DIR" && "$WIPPY" test ${WIPPY_TEST_ARGS:-} test "$suite" 2>&1 | strip_ansi)" || true
     echo "$out"
 
     # The runner ends with an uppercase banner line ("  PASSED ..." / "  FAILED

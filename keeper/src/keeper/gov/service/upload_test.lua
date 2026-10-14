@@ -1,6 +1,7 @@
 local test = require("test")
 local upload = require("upload")
 local registry = require("registry")
+local system = require("system")
 
 local function define_tests()
     describe("gov.service.upload pure helpers", function()
@@ -133,6 +134,10 @@ local function define_tests()
                 }, {
                     owners = { application = true, ["example/local"] = true },
                     ordered_owners = { "application", "example/local" },
+                }, {
+                    ["app:host"] = "application",
+                    ["example.local:item"] = "example/local",
+                    ["example.packed:item"] = "example/packed",
                 })
                 test.eq(#retained, 2)
                 test.eq(retained[1].id, "app:host")
@@ -142,6 +147,69 @@ local function define_tests()
                 test.eq(skipped[1].module, "example/packed")
             end)
 
+            it("uses provenance despite misleading authored module metadata and shared namespaces", function()
+                local entries = {
+                    {id="shared:host", meta={module="unmounted/pkg"}},
+                    {id="shared:mounted", meta={module="application"}},
+                    {id="shared:unmounted"},
+                    {id="shared:unknown"},
+                }
+                local owners = upload.registry_owners({
+                    {id="shared:host", registry={owner="application"}},
+                    {id="shared:mounted", registry={owner="mounted/pkg"}},
+                    {id="shared:unmounted", registry={owner="unmounted/pkg"}},
+                })
+                local retained, skipped = upload.retain_authoritative_entries(entries, {
+                    owners={application=true, ["mounted/pkg"]=true}, ordered_owners={},
+                }, owners)
+                test.eq(#retained, 2)
+                test.eq(retained[1].id, "shared:host")
+                test.eq(retained[2].id, "shared:mounted")
+                test.eq(#skipped, 2)
+                test.eq(skipped[1].module, "unmounted/pkg")
+            end)
+
+            it("recognizes application rows without optional provenance on older snapshots", function()
+                local owners = upload.registry_owners({{id="app:legacy"}, {id="app:empty", registry={owner=""}}})
+                test.eq(owners["app:legacy"], "application")
+                test.eq(owners["app:empty"], "application")
+            end)
+
+            it("partitions actual registry definitions using native module provenance", function()
+                local snapshot = assert(registry.snapshot())
+                local owners = upload.registry_owners(assert(snapshot:state()).entries)
+                test.eq(owners["wippy.session:consts"], "wippy/session")
+                local definitions = snapshot:entries()
+                local retained, skipped = upload.retain_authoritative_entries(definitions, {
+                    owners={application=true}, ordered_owners={"application"},
+                }, owners)
+                local found = false
+                for _, row in ipairs(skipped) do
+                    if row.id == "wippy.session:consts" then
+                        found = true
+                        test.eq(row.module, "wippy/session")
+                    end
+                end
+                test.is_true(found, "unmounted modules must stay outside the application delta")
+                for _, row in ipairs(retained) do test.eq(owners[row.id], "application") end
+            end)
+
+            it("loads the authoritative atomic baseline without requiring authored owner metadata", function()
+                local loaded = assert(system.source.load())
+                local found = false
+                for _, entry in ipairs(loaded.entries) do
+                    if entry.id == "wippy.session:consts" then
+                        found = true
+                        test.is_nil(entry.meta and entry.meta.module)
+                    end
+                end
+                test.is_true(found)
+                local result = upload.run({check_only=true, options={managed_namespaces={"app.provenance"}}})
+                test.is_true(result.success, result.message)
+                test.eq(result.count, 0)
+                test.eq(result.details.skipped_unmanaged.unmounted_registry.count, 0,
+                    "authored meta.module cannot hide the application entry")
+            end)
         end)
 
         describe("registry delta visibility", function()

@@ -1,0 +1,8 @@
+version: "1.0"
+namespace: app.provenance
+entries:
+  - name: authored
+    kind: registry.entry
+    meta:
+      comment: Authored metadata must not impersonate runtime ownership
+      module: unmounted/spoof

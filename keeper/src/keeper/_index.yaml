@@ -14,6 +14,7 @@ entries:
   - name: api_router
     kind: ns.requirement
     meta:
+      value_kind: http.router
       description: HTTP API router used by Keeper application endpoints
     default: app:api
     targets:
@@ -376,6 +377,7 @@ entries:
   - name: app_db
     kind: ns.requirement
     meta:
+      value_kind: db.sql
       description: Application database resource used by Keeper integrations and app-owned migrations
     default: app:db
     targets:
@@ -415,6 +417,17 @@ entries:
       - entry: keeper.hub.security:admin_catalog
         path: ".groups +="
 
+  - name: mcp_group_resolver
+    kind: ns.requirement
+    required: false
+    default: ""
+    meta:
+      value_kind: function.lua
+      description: Optional host resolver for live MCP subject groups; accepts {id} and returns {active, groups}.
+    targets:
+      - entry: keeper.config:mcp_group_resolver
+        path: .default
+
   # keeper:auth_token_store
   - name: auth_token_store
     kind: ns.requirement
@@ -429,6 +442,7 @@ entries:
   - name: env_storage
     kind: ns.requirement
     meta:
+      value_kind: env.storage
       description: Environment storage entry used by Keeper settings and MCP flags
     default: app.env:store
     targets:
@@ -461,10 +475,21 @@ entries:
       - entry: keeper.mcp:router
         path: .prefix
 
+  # keeper:mcp_max_sessions_per_token
+  - name: mcp_max_sessions_per_token
+    kind: ns.requirement
+    meta:
+      description: Maximum number of active MCP sessions per bearer token
+    default: 16
+    targets:
+      - entry: keeper.config:mcp_max_sessions_per_token
+        path: .default
+
   # keeper:ui_server
   - name: ui_server
     kind: ns.requirement
     meta:
+      value_kind: http.service
       description: HTTP service used to serve the compiled Keeper UI assets
     default: app:gateway
     targets:
@@ -477,11 +502,14 @@ entries:
   - name: process_host
     kind: ns.requirement
     meta:
+      value_kind: process.host
       description: Process host used for Keeper-spawned runtime work such as frontend builds and MCP SSE brokers
     default: app:processes
     targets:
       - entry: keeper.config:process_host
         path: .default
+      - entry: keeper.mcp.security:sse_broker_host
+        path: .policy.resources
 
   # keeper:dep.wippy.agent
   - name: dep.wippy.agent
@@ -490,6 +518,14 @@ entries:
       description: Agent runtime and registry support
     component: wippy/agent
     version: ">=v0.4.7"
+
+  # keeper:dep.wippy.bootloader
+  - name: dep.wippy.bootloader
+    kind: ns.dependency
+    meta:
+      description: Bootloader chain runner Hub installs use to run installed modules' bootloaders
+    component: wippy/bootloader
+    version: ">=v0.3.16"
 
   # keeper:dep.wippy.dataflow
   - name: dep.wippy.dataflow
@@ -513,7 +549,7 @@ entries:
     meta:
       description: Migration framework for Keeper databases
     component: wippy/migration
-    version: ">=v0.3.15"
+    version: ">=v0.3.21"
 
   # keeper:dep.wippy.security
   - name: dep.wippy.security
