@@ -1,0 +1,16 @@
+version: "1.0"
+namespace: defaults.fixture
+entries:
+  - name: definition
+    kind: ns.definition
+  - name: user_security_scope
+    kind: ns.requirement
+    meta:
+      value_type: string
+    default: default-members
+    targets:
+      - entry: defaults.fixture:resolved
+        path: .value
+  - name: resolved
+    kind: registry.entry
+    value: unresolved
