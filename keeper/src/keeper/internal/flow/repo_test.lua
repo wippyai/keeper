@@ -130,7 +130,10 @@ local function define_tests()
 
         local function must_exec(db, statement, params)
             local _, err = sql_dialect.execute(db, statement, params)
-            if err then error(statement .. ": " .. tostring(err)) end
+            if err then
+                db:release()
+                error(statement .. ": " .. tostring(err))
+            end
         end
 
         local prepared = false
