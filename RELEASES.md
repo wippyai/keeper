@@ -1,5 +1,19 @@
 # Release Notes
 
+## keeper/keeper 0.5.107
+
+Hub plans keep omitted namespace requirement defaults implicit in native
+previews and install payloads. Requirement rows and recommended parameters
+still contain the resolved default. Supplied and recorded bindings remain
+explicit, including bindings equal to a default. The same planning path
+covers single-component and batch requests. Existing stored bindings receive
+no migration or automatic cleanup.
+
+The full Keeper gate passes 1,886 tests on SQLite and Postgres with the
+existing placeholder skip. The three-case defaults regression passes on
+both engines, lint reports no issues, and the focused API plan/install
+smoke passes for Core and Component on both engines.
+
 ## keeper/keeper 0.5.106
 
 Declared empty array and object requirement defaults count as present
