@@ -1,0 +1,23 @@
+version: "1.0"
+namespace: app.empty
+entries:
+  - name: dependency
+    kind: ns.dependency
+    component: keeper/empty-fixture
+    version: "*"
+    parameters:
+      - name: empty.fixture:text
+        value: ""
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub_empty
+    source: file://test.lua
+    method: define_tests
+    modules: [registry]
+    imports:
+      test: wippy.test:test
+      planner: keeper.hub:planner
+      service: keeper.hub:service
+      gov_consts: keeper.gov:consts

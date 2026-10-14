@@ -3,3 +3,4 @@ workspace:
   replacements:
     keeper/keeper: ..
     keeper/defaults-fixture: ../../test/fixtures/defaults-module
+    keeper/empty-fixture: ../../test/fixtures/empty-module

@@ -1,0 +1,16 @@
+version: "1.0"
+namespace: empty.fixture
+entries:
+  - name: definition
+    kind: ns.definition
+  - name: text
+    kind: ns.requirement
+    meta:
+      value_type: string
+    default: ""
+    targets:
+      - entry: empty.fixture:resolved
+        path: .value
+  - name: resolved
+    kind: registry.entry
+    value: unresolved
