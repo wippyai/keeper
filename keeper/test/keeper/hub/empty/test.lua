@@ -26,14 +26,14 @@ local function define_tests()
                     local svc = service.new()
                     local result, plan_err = svc:plan_install(request)
                     test.is_nil(plan_err)
-                    test.is_true(result.applicable)
-                    test.not_nil(result.native_plan.digest)
                     local payload = batch and result.install_payload.dependencies[1] or result.install_payload
                     assert_empty(payload.parameters)
+                    test.is_true(result.applicable)
+                    test.not_nil(result.native_plan.digest)
                     local installed, install_err = svc:install(result.install_payload)
                     test.is_nil(install_err)
                     test.not_nil(installed)
-                    test.is_true(installed.execution.success)
+                    for _, step in ipairs(installed.execution) do test.eq(step.status, "ok") end
                     stored, read_err = registry.get(stored.id)
                     test.is_nil(read_err)
                     assert_empty(stored.data.parameters)
@@ -65,6 +65,28 @@ local function define_tests()
                     test.eq(#result.missing, 1, "an empty binding does not satisfy a required value")
                 end
             end
+        end)
+
+        it("places an explicit empty transitive binding on its own dependency", function()
+            local pl = planner.new({registry = {find = function() return {}, nil end}}) :: any
+            pl.existing_parameter_values = function() return {}, nil end
+            pl.resolve_dependency_destination_args = function(_, args)
+                args.id = "app.empty:child"
+                return args, nil
+            end
+            local result, plan_err = pl:plan_requirements({{module = "example/options",
+                namespace = "example.options", depth = 1, direct = false,
+                requirements = {{name = "text", default = "fallback", meta = {value_type = "string"}}}}},
+                {{name = "example.options:text", value = ""}})
+            test.is_nil(plan_err)
+            test.eq(#result.install_parameters, 0)
+            local bindings, binding_err = pl:plan_binding_dependencies(result.requirements,
+                {id = "app.empty:parent", data = {component = "example/parent"}})
+            test.is_nil(binding_err)
+            test.eq(#bindings, 1)
+            test.eq(bindings[1].component, "example/options")
+            test.eq(#bindings[1].parameters, 1)
+            test.eq(bindings[1].parameters[1].value, "")
         end)
     end)
 end
