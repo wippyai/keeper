@@ -80,6 +80,11 @@ for users and MCP agents to select explicitly. The install API rejects unbound o
 invalid required values with the requirement id and expected kind; the dialog
 shows the same requirement state and disables Apply until it is complete.
 
+Declared defaults remain resolved values in requirement rows and recommended
+parameters. Native previews and install payloads leave those defaults implicit
+in dependency entries. A supplied or recorded binding is not removed merely
+because its value equals a declared default.
+
 Resource validation includes entries introduced by the selected package graph.
 The selected kind takes precedence when a package replaces an existing entry.
 `meta.value_type` declares a literal value: `boolean`, `number`, `integer`,

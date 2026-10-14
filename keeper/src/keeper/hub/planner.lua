@@ -2280,11 +2280,13 @@ function Planner:plan_requirements(graph, supplied_parameters)
         return tostring(a.name) < tostring(b.name)
     end)
 
-    local parameters = {}
+    local parameters, install_parameters = {}, {}
     for _, row in ipairs(out) do
         if row.missing then table.insert(missing, row.parameter_name) end
         if row.transitive ~= true and not value_is_empty(row.value) and row.invalid ~= true then
-            table.insert(parameters, { name = row.parameter_name, value = row.value })
+            local parameter = { name = row.parameter_name, value = row.value }
+            table.insert(parameters, parameter)
+            if row.value_source ~= "default" then table.insert(install_parameters, parameter) end
         end
     end
 
@@ -2292,6 +2294,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
         requirements = out,
         values = values,
         parameters = parameters,
+        install_parameters = install_parameters,
         missing = missing,
         count = #out,
     }, nil
@@ -2404,7 +2407,7 @@ function Planner:preview_install(entry, requirement_plan)
     for _, dependency in ipairs(self.batch_entries or {}) do include(dependency) end
     local root_args = shallow_copy(entry.data)
     root_args.id, root_args.meta = entry.id, entry.meta
-    root_args.parameters = requirement_plan.parameters
+    root_args.parameters = requirement_plan.install_parameters
     local root, root_err = M.build_dependency_entry(root_args)
     if not root then return nil, root_err end
     include(root)
@@ -2620,7 +2623,7 @@ function Planner:plan_install(args)
             namespace = M.dependency_summary(entry).namespace,
             component = data.component,
             version = data.version,
-            parameters = req_plan.parameters,
+            parameters = req_plan.install_parameters,
             requirement_bindings = reviewed,
             migration_policy = M.migration_policy_for(planned_args),
         },
