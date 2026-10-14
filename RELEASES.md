@@ -1,5 +1,20 @@
 # Release Notes
 
+## keeper/keeper 0.5.108
+
+Hub plans and installs preserve explicit empty-string requirement bindings
+in direct parameters and transitive binding dependencies. Stored bindings
+survive single and batch updates with supplied or omitted parameter arrays.
+Whitespace-only strings keep their exact values. Required-value validation
+and implicit requirement defaults retain their behavior. Existing data
+receives no migration or rewrite.
+
+The full Keeper gate passes 1,903 tests on SQLite and Postgres with the
+existing placeholder skip. The four-case empty-binding regression fails
+on master and passes after the fix on both engines. The existing defaults
+regression and 224-case Hub suite pass on both engines, lint reports no
+issues, and the API plan/install preservation guard passes on both engines.
+
 ## keeper/keeper 0.5.107
 
 Hub plans keep omitted namespace requirement defaults implicit in native
