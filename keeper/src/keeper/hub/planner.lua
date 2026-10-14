@@ -411,6 +411,11 @@ local function value_is_empty(value): boolean
     return false
 end
 
+local function requirement_has_binding(row): boolean
+    return not value_is_empty(row.value) or (row.value ~= nil and row.value_source ~= nil
+        and row.value_source ~= "empty" and row.value_source ~= "conflict")
+end
+
 -- Structured values are compared and deduplicated by content: two objects with
 -- the same fields are the same configuration regardless of table identity.
 local function value_key(value): string
@@ -2283,7 +2288,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
     local parameters, install_parameters = {}, {}
     for _, row in ipairs(out) do
         if row.missing then table.insert(missing, row.parameter_name) end
-        if row.transitive ~= true and not value_is_empty(row.value) and row.invalid ~= true then
+        if row.transitive ~= true and requirement_has_binding(row) and row.invalid ~= true then
             local parameter = { name = row.parameter_name, value = row.value }
             table.insert(parameters, parameter)
             if row.value_source ~= "default" then table.insert(install_parameters, parameter) end
@@ -2322,7 +2327,7 @@ end
 function Planner:plan_binding_dependencies(requirements, root_entry)
     local by_module = {}
     for _, row in ipairs(requirements or {}) do
-        if row.transitive == true and not value_is_empty(row.value) and row.invalid ~= true
+        if row.transitive == true and requirement_has_binding(row) and row.invalid ~= true
             and row.value_source ~= "default" then
             local parameters = by_module[row.module] or {}
             by_module[row.module] = parameters
