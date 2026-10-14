@@ -2,6 +2,7 @@ local test = require("test")
 local planner = require("planner")
 local service = require("service")
 local registry = require("registry")
+local gov_consts = require("gov_consts")
 
 local function assert_empty(parameters)
     test.eq(#parameters, 1, "the explicit empty binding survives")
@@ -11,6 +12,16 @@ end
 
 local function define_tests()
     describe("explicit empty requirement bindings", function()
+        local namespaces
+        test.before_each(function()
+            namespaces = gov_consts.get_managed_namespaces()
+            local _, set_err = gov_consts.set_managed_namespaces({"app"})
+            test.is_nil(set_err)
+        end)
+        test.after_each(function()
+            local _, set_err = gov_consts.set_managed_namespaces(namespaces)
+            test.is_nil(set_err)
+        end)
         for _, batch in ipairs({false, true}) do
             it("preserves a stored empty string through " .. (batch and "batch" or "single") .. " plan and install", function()
                 local stored, read_err = registry.get("app.empty:dependency")

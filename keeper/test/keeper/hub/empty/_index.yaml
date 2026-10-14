@@ -20,3 +20,4 @@ entries:
       test: wippy.test:test
       planner: keeper.hub:planner
       service: keeper.hub:service
+      gov_consts: keeper.gov:consts
