@@ -7,7 +7,7 @@ entries:
     kind: ns.requirement
     meta:
       value_type: string
-    default: fallback
+    default: ""
     targets:
       - entry: empty.fixture:resolved
         path: .value
