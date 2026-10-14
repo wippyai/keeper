@@ -2,6 +2,15 @@ version: "1.0"
 namespace: keeper.hub
 
 entries:
+  # keeper.hub:ownership
+  - name: ownership
+    kind: library.lua
+    meta:
+      comment: Registry-owned ownership index resolving which module owns each resident entry
+    source: file://ownership.lua
+    modules:
+      - registry
+
   # keeper.hub:planner
   - name: planner
     kind: library.lua
@@ -11,16 +20,11 @@ entries:
     modules:
       - registry
       - hub
+      - json
     imports:
       gov_consts: keeper.gov:consts
+      ownership: keeper.hub:ownership
 
-  # keeper.hub:lockfile
-  - name: lockfile
-    kind: library.lua
-    meta:
-      comment: Deterministic wippy.lock updater for Hub install and uninstall operations
-    source: file://lockfile.lua
-    
   # keeper.hub:service
   - name: service
     kind: library.lua
@@ -33,14 +37,34 @@ entries:
       - sql
       - uuid
       - process
-      - fs
-      - yaml
+      - system
     imports:
+      bootloader: wippy.bootloader:bootloader
+      bootloader_registry: wippy.bootloader:bootloader_registry
       gov_consts: keeper.gov:consts
       governance: keeper.state.publish:governance
-      lockfile: keeper.hub:lockfile
       materialize: keeper.state.persist:materialize
       planner: keeper.hub:planner
+      ownership: keeper.hub:ownership
+      sql_dialect: keeper.internal:sql_dialect
+      step_runner: keeper.develop.integrate.pipeline:step_runner
+
+  # keeper.hub:security_scan
+  - name: security_scan
+    kind: library.lua
+    meta:
+      comment: Read-only Hub module security reviewer for install planning
+    source: file://security_scan.lua
+    modules:
+      - hub
+      - json
+      - registry
+      - time
+    imports:
+      keeper_config: keeper:config
+      llm: wippy.llm:llm
+      planner: keeper.hub:planner
+      prompt: wippy.llm:prompt
     
   # keeper.hub:test
   - name: test
@@ -50,13 +74,32 @@ entries:
       comment: Hub service unit tests for dependency patches, migration policy, and dry-run behavior
       suite: hub
     source: file://test.lua
+    modules:
+      - http_client
+      - json
+      - sql
     imports:
+      api_test: keeper.tests:api_test
+      api_http: keeper.hub.api:http
+      gov_consts: keeper.gov:consts
       hub_dependencies_tool: keeper.hub.tools:dependencies
       hub_migrations_tool: keeper.hub.tools:migrations
       hub_service: keeper.hub:service
-      lockfile: keeper.hub:lockfile
       planner: keeper.hub:planner
+      ownership: keeper.hub:ownership
+      security_scan: keeper.hub:security_scan
+      requirement_fill: keeper.hub:requirement_fill
       test: wippy.test:test
     method: define_tests
     pool:
       size: 1
+
+  - name: requirement_fill
+    kind: library.lua
+    source: file://requirement_fill.lua
+    modules:
+      - json
+    imports:
+      llm: wippy.llm:llm
+      prompt: wippy.llm:prompt
+      planner: keeper.hub:planner

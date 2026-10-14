@@ -45,7 +45,7 @@ local function define_tests()
             })
             test.is_nil(err)
             test.eq(#out, 1)
-            test.not_nil(missing)
+            if not missing then error("expected missing ids") end
             test.eq(#missing, 1)
             test.eq(missing[1], "nope:x")
         end)

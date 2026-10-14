@@ -2,6 +2,21 @@ import type { ProxyApiInstance } from '../types'
 
 type Api = ProxyApiInstance['api']
 
+export interface HubRequestError {
+  code?: string
+  message: string
+  details?: unknown
+}
+
+export function hubRequestError(error: any): HubRequestError {
+  const data = error.response?.data
+  return {
+    code: data?.code,
+    message: data?.error || data?.message || error.message || 'Request failed',
+    details: data?.details,
+  }
+}
+
 export interface HubMigration {
   id: string
   module?: string
@@ -35,10 +50,34 @@ export interface HubDependency {
   meta?: Record<string, any>
 }
 
+// A dependency the list endpoint reports as an installed registry root;
+// `used_by` names the other installed modules that also reach it.
+export interface DependencyRoot extends HubDependency {
+  is_root?: boolean
+  used_by?: string[]
+  used_by_count?: number
+}
+
+// Full-inventory entry from `dependencies.modules`: covers roots AND the
+// transitive modules pulled in beneath them. `transitive` is the inverse of
+// `is_root`; `source` distinguishes hub-published modules from local ones.
+export interface ModuleInventoryEntry {
+  name: string
+  version?: string
+  is_root?: boolean
+  transitive?: boolean
+  source?: 'hub' | 'local' | string
+  source_path?: string
+  used_by?: string[]
+  used_by_count?: number
+}
+
 export interface ListDepsResponse {
   success: boolean
-  dependencies: HubDependency[]
+  dependencies: DependencyRoot[]
   count: number
+  module_count?: number
+  modules?: ModuleInventoryEntry[]
 }
 
 export interface ListMigrationsResponse {
@@ -46,6 +85,9 @@ export interface ListMigrationsResponse {
   migrations: HubMigration[]
   count: number
 }
+
+export type RequirementValue = string | number | boolean | unknown[] | Record<string, unknown>
+export type RequirementLiteralType = 'string' | 'boolean' | 'number' | 'integer' | 'object' | 'array'
 
 export interface InstallPayload {
   id?: string
@@ -58,7 +100,8 @@ export interface InstallPayload {
   run_migrations?: boolean
   dry_run?: boolean
   source?: string
-  parameters?: Record<string, string> | Array<{ name: string; value: string }>
+  parameters?: Record<string, RequirementValue> | Array<{ name: string; value: RequirementValue }>
+  requirement_bindings?: Array<{ name: string; value: RequirementValue }>
 }
 
 export interface HubPlanRequirement extends HubRequirement {
@@ -70,14 +113,17 @@ export interface HubPlanRequirement extends HubRequirement {
   version?: string
   depth?: number
   dependency_path?: string
+  expected_type?: RequirementLiteralType
   expected_kind?: string
   required?: boolean
   missing?: boolean
-  value?: string
+  value?: RequirementValue
   value_source?: 'provided' | 'provided_bare' | 'existing' | 'existing_bare' | 'suggested' | 'default' | 'empty' | string
   invalid?: boolean
   invalid_reason?: string
-  suggestions?: Array<{ value: string; label?: string; source?: string; kind?: string; preferred?: boolean; dependency_id?: string }>
+  choice_reason?: string
+  resolution_error?: {kind?: string; code: string; message: string}
+  suggestions?: Array<{ value: RequirementValue; label?: string; source?: string; kind?: string; preferred?: boolean; dependency_id?: string }>
   transitive?: boolean
 }
 
@@ -101,7 +147,15 @@ export interface HubInstallPlanNode {
   digest?: string
   yanked?: boolean
   protected?: boolean
+  // Resolution state relative to the committed registry, filled by the planner.
+  // installed: this module is already present; shared: it is already
+  // reached from another installed root, so installing here only reuses it.
+  installed?: boolean
+  shared?: boolean
 }
+
+// Semantic alias for HubInstallPlanNode used by the install tree UI.
+export type InstallPlanNode = HubInstallPlanNode
 
 export interface HubInstallPlanResponse {
   success: boolean
@@ -111,8 +165,9 @@ export interface HubInstallPlanResponse {
   requirements: HubPlanRequirement[]
   requirement_count: number
   missing_requirements: string[]
-  parameter_values: Record<string, string>
-  recommended_parameters: Array<{ name: string; value: string }>
+  applicable?: boolean
+  parameter_values: Record<string, RequirementValue>
+  recommended_parameters: Array<{ name: string; value: RequirementValue }>
   migration_policy?: 'none' | 'up' | string
   install_payload: InstallPayload
 }
@@ -125,11 +180,67 @@ export interface UninstallPayload {
   dry_run?: boolean
 }
 
-export async function listHubDependencies(api: Api, opts: { component?: string; entries?: boolean; migrations?: boolean } = {}): Promise<ListDepsResponse> {
+export interface UninstallPreviewEntry {
+  name: string
+  version?: string
+}
+
+// Dry-run uninstall projection. removed = the target plus its exclusive
+// subtree; kept = target deps retained because another remaining root still
+// needs them; kept_under_uncertainty = deps the planner withholds because the
+// graph is incomplete and it cannot prove they are safe to drop.
+export interface UninstallPreview {
+  removed: UninstallPreviewEntry[]
+  kept: UninstallPreviewEntry[]
+  kept_under_uncertainty: UninstallPreviewEntry[]
+  warnings: string[]
+}
+
+export interface UninstallPreviewResponse {
+  success: boolean
+  preview?: UninstallPreview
+  [key: string]: any
+}
+
+export type HubScanStatus = 'clean' | 'warnings' | 'critical' | 'error' | string
+export type HubScanFindingSeverity = 'info' | 'warning' | 'critical' | string
+
+export interface HubScanFinding {
+  severity: HubScanFindingSeverity
+  title: string
+  detail?: string
+  location?: string
+  module?: string
+  version?: string
+}
+
+export interface HubScanModuleResult {
+  module: string
+  version?: string
+  status: HubScanStatus
+  summary: string
+  findings: HubScanFinding[]
+}
+
+export interface HubScanResponse {
+  success: boolean
+  overall_status: HubScanStatus
+  overall_summary: string
+  modules: HubScanModuleResult[]
+  scanned: number
+  total: number
+}
+
+function emptyUninstallPreview(): UninstallPreview {
+  return { removed: [], kept: [], kept_under_uncertainty: [], warnings: [] }
+}
+
+export async function listHubDependencies(api: Api, opts: { component?: string; entries?: boolean; migrations?: boolean; modules?: boolean } = {}): Promise<ListDepsResponse> {
   const params: any = {}
   if (opts.component) params.component = opts.component
   if (opts.entries === false) params.entries = false
   if (opts.migrations === false) params.migrations = false
+  if (opts.modules === false) params.modules = false
   const { data } = await api.get<ListDepsResponse>('/api/v1/keeper/hub/dependencies', { params })
   return data
 }
@@ -144,8 +255,32 @@ export async function planHubInstall(api: Api, payload: InstallPayload): Promise
   return data
 }
 
+export async function fillHubRequirementGaps(api: Api, payload: InstallPayload & { requirement_ids?: string[] }): Promise<HubInstallPlanResponse> {
+  const { data } = await api.post<HubInstallPlanResponse>('/api/v1/keeper/hub/dependencies/fill-gaps', payload)
+  return data
+}
+
 export async function uninstallHubDependency(api: Api, payload: UninstallPayload): Promise<any> {
   const { data } = await api.post('/api/v1/keeper/hub/dependencies/uninstall', payload)
+  return data
+}
+
+// Dry-run the uninstall to obtain the removed/kept projection before the user
+// confirms. Forces dry_run:true regardless of the passed payload.
+export async function planHubUninstall(api: Api, payload: UninstallPayload): Promise<UninstallPreview> {
+  const { data } = await api.post<UninstallPreviewResponse>('/api/v1/keeper/hub/dependencies/uninstall', { ...payload, dry_run: true })
+  const preview = data?.preview
+  if (!preview) return emptyUninstallPreview()
+  return {
+    removed: preview.removed || [],
+    kept: preview.kept || [],
+    kept_under_uncertainty: preview.kept_under_uncertainty || [],
+    warnings: preview.warnings || [],
+  }
+}
+
+export async function scanHubInstall(api: Api, payload: InstallPayload): Promise<HubScanResponse> {
+  const { data } = await api.post<HubScanResponse>('/api/v1/keeper/hub/scan', payload)
   return data
 }
 
@@ -216,7 +351,7 @@ export interface HubDependencyRef {
 export interface HubRequirement {
   name?: string
   description?: string
-  default?: string
+  default?: RequirementValue
   targets?: Array<{ entry?: string; path?: string }>
 }
 

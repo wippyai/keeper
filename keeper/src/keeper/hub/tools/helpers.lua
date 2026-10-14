@@ -1,5 +1,21 @@
 local M = {}
 
+function M.input_table(input)
+    if input == nil then return {}, nil end
+    if type(input) ~= "table" then return nil, "input must be an object" end
+    return input, nil
+end
+
+function M.require_access(security, resource)
+    if not security.actor() then
+        return nil, "security actor is required"
+    end
+    if security.can("access", resource) ~= true then
+        return nil, "access denied"
+    end
+    return true, nil
+end
+
 function M.current_actor_id(security)
     local actor = security.actor()
     if not actor or type(actor.id) ~= "function" then

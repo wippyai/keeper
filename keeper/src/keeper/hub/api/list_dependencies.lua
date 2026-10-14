@@ -13,6 +13,7 @@ local function handler()
         component = req:query("component"),
         include_entries = api_http.query_bool(req, "entries", true),
         include_migrations = api_http.query_bool(req, "migrations", true),
+        include_modules = api_http.query_bool(req, "modules", true),
     })
     if not result then
         api_http.write_service_error(res, service_err)

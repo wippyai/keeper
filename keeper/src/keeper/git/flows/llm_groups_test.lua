@@ -95,8 +95,10 @@ local cases = {
             )
             test.is_nil(err)
             test.eq(#out, 2)
-            test.eq(out[2].title, "Misc")
-            test.eq(#out[2].change_ids, 2)
+            local fallback = out[2]
+            if not fallback then error("expected fallback cluster") end
+            test.eq(fallback.title, "Misc")
+            test.eq(#fallback.change_ids, 2)
         end,
     },
     {
@@ -108,7 +110,9 @@ local cases = {
             )
             test.is_nil(err)
             test.eq(#out, 2)
-            test.eq(out[2].title, "Remaining")
+            local fallback = out[2]
+            if not fallback then error("expected fallback group") end
+            test.eq(fallback.title, "Remaining")
         end,
     },
     {

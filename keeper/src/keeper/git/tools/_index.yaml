@@ -160,7 +160,7 @@ entries:
               "enum": ["manual", "ai"],
               "description": "manual returns synchronously; ai starts an async LLM rebuild and returns a request id"
             },
-            "model": { "type": "string", "description": "Override LLM class for clustering (default: class:smart)" },
+            "model": { "type": "string", "description": "Override LLM class for clustering (default: class:premium)" },
             "max_changes": { "type": "integer", "description": "Max pending changes to consider (default: 2000)" },
             "change_source": {
               "type": "string",

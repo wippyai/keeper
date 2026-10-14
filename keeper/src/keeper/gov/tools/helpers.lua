@@ -8,7 +8,8 @@ function M.format_stats(stats)
     local ordered = {
         "created", "updated", "deleted", "unchanged", "skipped", "total",
         "create", "update", "delete",
-        "skipped_unmanaged_source", "skipped_unmanaged_registry", "managed_namespaces",
+        "skipped_unmanaged_source", "skipped_unmanaged_registry", "skipped_unmounted_registry",
+        "managed_namespaces",
     }
     for _, k in ipairs(ordered) do
         if stats[k] ~= nil then
@@ -64,6 +65,7 @@ function M.run_sync(opts, input)
         version       = result.version,
         stats         = result.stats,
         details       = result.details,
+        file_ops      = result.file_ops,
         journaled     = diff_rows,
         journal_error = diff_error,
     }

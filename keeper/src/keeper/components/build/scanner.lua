@@ -7,9 +7,10 @@
 
 local fs = require("fs")
 local json = require("json")
-local yaml = require("yaml")
+local registry = require("registry")
 
 local consts = require("consts")
+local ownership = require("ownership")
 
 local M = {}
 
@@ -25,23 +26,15 @@ end
 
 local function read_json(vol, path)
     local content, err = vol:readfile(path)
-    if not content then return nil, err end
+    if type(content) ~= "string" then return nil, err or "read returned non-string content" end
     local decoded, jerr = json.decode(content)
     if not decoded then return nil, "json decode failed: " .. (jerr or "unknown") end
     return decoded
 end
 
-local function module_owned_app_slugs_from_lock(lock_content)
+local function module_owned_app_slugs_from_modules(modules: string[]?)
     local out = {}
-    if type(lock_content) ~= "string" or lock_content == "" then return out end
-
-    local ok, decoded = pcall(yaml.decode, lock_content)
-    if not ok or type(decoded) ~= "table" or type(decoded.modules) ~= "table" then
-        return out
-    end
-
-    for _, mod in ipairs(decoded.modules) do
-        local name = type(mod) == "table" and mod.name or nil
+    for _, name in ipairs(modules or {}) do
         local slugs = type(name) == "string" and MODULE_OWNED_APP_SLUGS[name] or nil
         if slugs then
             for slug, blocked in pairs(slugs) do
@@ -53,11 +46,14 @@ local function module_owned_app_slugs_from_lock(lock_content)
     return out
 end
 
-local function module_owned_app_slugs(vol)
-    if not vol:exists("wippy.lock") then return {} end
+local function module_owned_app_slugs()
+    local by_module, _, load_err = ownership.new(registry):load()
+    if not by_module then return nil, load_err end
 
-    local content = vol:readfile("wippy.lock")
-    return module_owned_app_slugs_from_lock(content)
+    local modules = {}
+    for name in pairs(by_module) do table.insert(modules, name) end
+    table.sort(modules)
+    return module_owned_app_slugs_from_modules(modules), nil
 end
 
 local function is_component_dir_name(name)
@@ -397,7 +393,8 @@ end
 function M.scan()
     local vol, err = get_fs()
     if not vol then return nil, err end
-    local blocked_local_apps = module_owned_app_slugs(vol)
+    local blocked_local_apps, owned_err = module_owned_app_slugs()
+    if not blocked_local_apps then return nil, owned_err end
 
     local result = {
         applications = {},
@@ -518,7 +515,7 @@ function M.read_doc(rel_path)
 end
 
 M._test = {
-    module_owned_app_slugs_from_lock = module_owned_app_slugs_from_lock,
+    module_owned_app_slugs_from_modules = module_owned_app_slugs_from_modules,
     is_component_dir_name = is_component_dir_name,
 }
 

@@ -4,6 +4,7 @@ local hub_service = require("hub_service")
 local helpers = require("helpers")
 
 local M = {}
+local TOOL_ID = "keeper.hub.tools:migrations"
 
 type HandleDeps = {
     actor_id: string?,
@@ -12,7 +13,9 @@ type HandleDeps = {
 
 function M._handle(input: unknown?, deps: HandleDeps?)
     deps = deps or {}
-    input = input or {}
+    local normalized, input_err = helpers.input_table(input)
+    if not normalized then return nil, input_err end
+    input = normalized
     local args_input = input :: any
     local action = args_input.action or "list"
     local svc = (deps.hub_service or hub_service) :: any
@@ -31,7 +34,11 @@ function M._handle(input: unknown?, deps: HandleDeps?)
 end
 
 local function handler(input)
-    input = input or {}
+    local allowed, access_err = helpers.require_access(security, TOOL_ID)
+    if not allowed then return nil, access_err end
+    local normalized, input_err = helpers.input_table(input)
+    if not normalized then return nil, input_err end
+    input = normalized
     return audit.wrap({
         tool = "hub_migrations",
         discriminator = "hub_migrations." .. tostring(input.action or "list"),

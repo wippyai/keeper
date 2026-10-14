@@ -14,5 +14,5 @@ entries:
     source: file://01_create_overlay_tables.lua
     imports:
       migration: wippy.migration:migration
+      state_schema: keeper.state.persist:schema
     method: migrate
-    

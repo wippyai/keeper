@@ -2,6 +2,29 @@ version: "1.0"
 namespace: keeper.git.persist
 
 entries:
+  # keeper.git.persist:schema
+  - name: schema
+    kind: library.lua
+    meta:
+      comment: Idempotent keeper_git_runs schema bootstrap shared by migration and first-use guards
+    source: file://schema.lua
+    method: schema
+
+  # keeper.git.persist:schema_test
+  - name: schema_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Unit tests for git run schema bootstrap
+      suite: git
+    source: file://schema_test.lua
+    imports:
+      schema: keeper.git.persist:schema
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+
   # keeper.git.persist:run_repo
   - name: run_repo
     kind: library.lua
@@ -13,4 +36,4 @@ entries:
       - json
     imports:
       git_consts: keeper.git:consts
-    
+      schema: keeper.git.persist:schema

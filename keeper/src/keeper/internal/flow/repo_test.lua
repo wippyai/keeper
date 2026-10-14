@@ -10,6 +10,24 @@ local function define_tests()
             return row
         end
 
+        describe("overview aggregate filters", function()
+            it("executes combined failure, running, and node-count filters", function()
+                local rows = repo.overview({ has_failures = true, has_running = true, min_nodes = 2 }, 5)
+                test.not_nil(rows)
+                for _, row in ipairs(rows) do
+                    test.is_true(row.failed_nodes > 0)
+                    test.is_true(row.running_nodes > 0)
+                    test.is_true(row.node_count >= 2)
+                end
+            end)
+
+            it("returns only flows containing failed nodes", function()
+                local rows = repo.overview({ has_failures = true }, 5)
+                test.not_nil(rows)
+                for _, row in ipairs(rows) do test.is_true(row.failed_nodes > 0) end
+            end)
+        end)
+
         describe("decode_content", function()
             it("returns nil when content is absent", function()
                 test.is_nil(repo.decode_content({}))

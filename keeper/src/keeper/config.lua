@@ -63,4 +63,25 @@ function M.mcp_route(): string
     return read_default("mcp_route")
 end
 
+function M.mcp_max_sessions_per_token(): integer
+    local raw = read_default("mcp_max_sessions_per_token")
+    local number = tonumber(raw)
+    local value = number and math.tointeger(number)
+    if not value or value < 1 then
+        error("Keeper configuration mcp_max_sessions_per_token must be a positive integer")
+    end
+    return value
+end
+
+function M.mcp_group_resolver(): (string?, unknown?)
+    local entry, err = registry.get("keeper.config:mcp_group_resolver")
+    if err or not entry then return nil, config_error("mcp_group_resolver", "missing", err) end
+    local value = (entry.data or {}).default
+    if value == nil or value == "" then return "", nil end
+    if type(value) ~= "string" then
+        return nil, config_error("mcp_group_resolver", "invalid", "function id must be a string")
+    end
+    return value, nil
+end
+
 return M

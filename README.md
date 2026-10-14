@@ -33,6 +33,10 @@ so deployments can install or remove usage analytics independently.
 
 ## Requirements
 
+Keeper requires Wippy v0.3.44a or newer. Hub install previews use
+`registry.snapshot():changes():plan()` to resolve module sources and requirements
+before registry changes apply.
+
 `keeper/keeper` is configured through namespace requirements, so app projects can
 bind Keeper to their own runtime resources without editing Keeper entries:
 
@@ -68,6 +72,31 @@ The Keeper Hub APIs are designed for runtime dependency management:
 
 Install planning should be used before install so the UI can show the complete
 requirement list and keep the user in the loop. Do not guess requirement values.
+
+The planner keeps existing exact bindings, then uses a compatible declared default,
+then binds a sole compatible `meta.value_kind` registry candidate. Agreeing bare
+application profile values remain reusable. Multiple candidates remain suggestions
+for users and MCP agents to select explicitly. The install API rejects unbound or
+invalid required values with the requirement id and expected kind; the dialog
+shows the same requirement state and disables Apply until it is complete.
+
+Declared defaults remain resolved values in requirement rows and recommended
+parameters. Native previews and install payloads leave those defaults implicit
+in dependency entries. A supplied or recorded binding is not removed merely
+because its value equals a declared default.
+
+Resource validation includes entries introduced by the selected package graph.
+The selected kind takes precedence when a package replaces an existing entry.
+`meta.value_type` declares a literal value: `boolean`, `number`, `integer`,
+`string`, `object`, or `array`. It takes precedence over `meta.value_kind`, which
+can retain a semantic hint for a literal descriptor. Object and array defaults
+accept JSON text; malformed defaults reject the plan. Requirements without
+`value_type` retain their existing binding behavior.
+
+The plan and install actions accept a `dependencies` array. Keeper resolves
+all requested roots together before requirement validation and commits them in
+one governance changeset. Request order does not determine which dependency
+capabilities are available. Existing single-component requests keep their shape.
 
 ## Verify
 

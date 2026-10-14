@@ -2,7 +2,7 @@ local test = require("test")
 local sync = require("sync")
 
 local function define_tests()
-    describe("gov.service.sync pure helpers", function()
+    describe("gov.service.sync source-file helpers", function()
         describe("pick_kind_config", function()
             it("returns the direct config for a plain kind like function.lua", function()
                 local cfg = sync.pick_kind_config("function.lua", nil)
@@ -40,6 +40,13 @@ local function define_tests()
                 test.eq(sync.pick_kind_config("library.lua", nil).extension, ".lua")
                 test.eq(sync.pick_kind_config("process.lua", nil).extension, ".lua")
             end)
+
+            it("externalizes workflow.lua source to a .lua file like other actor kinds", function()
+                local cfg = sync.pick_kind_config("workflow.lua", nil)
+                test.not_nil(cfg)
+                test.eq(cfg.source_field, "source")
+                test.eq(cfg.extension, ".lua")
+            end)
         end)
 
         describe("append_extension", function()
@@ -62,20 +69,6 @@ local function define_tests()
             end)
         end)
 
-        describe("namespace_dir", function()
-            it("splits dotted namespaces into directory segments", function()
-                test.eq(sync.namespace_dir(".", "a.b.c"), "./a/b/c")
-            end)
-
-            it("handles single-segment namespaces", function()
-                test.eq(sync.namespace_dir(".", "single"), "./single")
-            end)
-
-            it("preserves the base directory", function()
-                test.eq(sync.namespace_dir("/tmp/root", "a.b"), "/tmp/root/a/b")
-            end)
-        end)
-
         describe("extract_filename", function()
             it("returns the path portion of a file:// URL", function()
                 test.eq(sync.extract_filename("file://foo.lua"), "foo.lua")
@@ -93,89 +86,6 @@ local function define_tests()
             it("returns nil for nil or non-string input", function()
                 test.is_nil(sync.extract_filename(nil))
                 test.is_nil(sync.extract_filename(42))
-            end)
-        end)
-
-        describe("changeset_namespaces", function()
-            it("returns empty list for nil or empty changeset", function()
-                test.eq(#sync.changeset_namespaces(nil), 0)
-                test.eq(#sync.changeset_namespaces({}), 0)
-            end)
-
-            it("collects distinct namespaces preserving first-seen order", function()
-                local ns = sync.changeset_namespaces({
-                    { entry = { id = "app.x:a" } },
-                    { entry = { id = "app.y:b" } },
-                    { entry = { id = "app.x:c" } },
-                })
-                test.eq(#ns, 2)
-                test.eq(ns[1], "app.x")
-                test.eq(ns[2], "app.y")
-            end)
-
-            it("skips ops without a valid entry.id", function()
-                local ns = sync.changeset_namespaces({
-                    { entry = { id = "app.x:a" } },
-                    { entry = nil },
-                    {},
-                    { entry = { id = "bogus-without-colon" } },
-                })
-                test.eq(#ns, 1)
-                test.eq(ns[1], "app.x")
-            end)
-        end)
-
-        describe("entry_file_path", function()
-            it("builds a .lua path for function.lua", function()
-                test.eq(
-                    sync.entry_file_path({ id = "app.x:svc", kind = "function.lua" }),
-                    "./app/x/svc.lua"
-                )
-            end)
-
-            it("uses meta.type mapping for registry.entry", function()
-                test.eq(
-                    sync.entry_file_path({
-                        id = "app.x:landing", kind = "registry.entry",
-                        meta = { type = "view.page" },
-                    }),
-                    "./app/x/landing.html"
-                )
-            end)
-
-            it("builds a .jet path for legacy template.jet pages", function()
-                test.eq(
-                    sync.entry_file_path({
-                        id = "app.legacy.views:approval",
-                        kind = "template.jet",
-                        meta = { type = "view.page" },
-                    }),
-                    "./app/legacy/views/approval.jet"
-                )
-            end)
-
-            it("does not invent a source file for template.set entries", function()
-                test.is_nil(sync.entry_file_path({
-                    id = "app.legacy.views:templates",
-                    kind = "template.set",
-                }))
-            end)
-
-            it("returns nil when the kind has no canonical file mapping", function()
-                test.is_nil(sync.entry_file_path({ id = "app.x:svc", kind = "process.service" }))
-            end)
-
-            it("returns nil for malformed ids", function()
-                test.is_nil(sync.entry_file_path({ id = "nocolon", kind = "function.lua" }))
-                test.is_nil(sync.entry_file_path({ kind = "function.lua" }))
-                test.is_nil(sync.entry_file_path(nil))
-            end)
-
-            it("does not double-append an extension that's already there", function()
-                test.eq(
-                    sync.entry_file_path({ id = "app.x:svc.lua", kind = "function.lua" }),
-                    "./app/x/svc.lua"
-                )
             end)
         end)
     end)

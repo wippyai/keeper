@@ -6,8 +6,53 @@ entries:
   - name: helpers
     kind: library.lua
     meta:
-      comment: Shared helpers for Hub MCP tool wrappers
+      comment: Shared helpers for Hub agent tool wrappers
     source: file://helpers.lua
+
+  # keeper.hub.tools:catalog
+  - name: catalog
+    kind: function.lua
+    meta:
+      type: tool
+      title: Hub Catalog
+      public: true
+      comment: Browse Hub components, inspect published versions, and read component documentation through the native Hub client.
+      tags:
+        - hub
+        - catalog
+        - components
+      input_schema: |
+        {
+          "type": "object",
+          "properties": {
+            "action": {"type": "string", "enum": ["browse", "versions", "readme"]},
+            "query": {"type": "string", "description": "Optional component search text for browse."},
+            "component": {"type": "string", "description": "Component reference in org/name form; required for versions and readme."},
+            "version": {"type": "string", "description": "Optional published version for readme."},
+            "visibility": {"type": "string", "description": "Optional visibility filter for browse."},
+            "type": {"type": "string", "description": "Optional module type filter for browse."},
+            "sort": {"type": "string", "description": "Optional Hub sort order for browse."},
+            "page": {"type": "integer", "minimum": 1},
+            "page_size": {"type": "integer", "minimum": 1, "maximum": 100}
+          },
+          "required": ["action"],
+          "additionalProperties": false
+        }
+      llm_alias: hub_catalog
+      llm_description: Browse or search the Wippy Hub catalog, list a component's published versions, and read its documentation.
+      mcp:
+        required_scopes:
+          - hub.read
+    source: file://catalog.lua
+    modules:
+      - security
+      - hub
+    imports:
+      audit: keeper.task:audit
+      helpers: keeper.hub.tools:helpers
+    method: handler
+    pool:
+      size: 2
 
   # keeper.hub.tools:dependencies
   - name: dependencies
@@ -15,6 +60,7 @@ entries:
     meta:
       type: tool
       title: Hub Dependencies
+      public: true
       comment: List, plan, install/update, and uninstall Wippy Hub dependencies
       tags:
         - hub
@@ -25,15 +71,18 @@ entries:
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["list", "plan", "install", "uninstall"],
+              "enum": ["list", "plan", "fill_gaps", "install", "uninstall"],
               "description": "Hub dependency operation"
             },
-            "component": {"type": "string", "description": "Hub module ref in org/name form"},
-            "version": {"type": "string", "description": "Version or semver constraint, e.g. 0.5.0 or >=v0.0.0"},
+            "dependencies": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"component": {"type": "string"}, "version": {"type": "string"}, "id": {"type": "string"}, "parameters": {}, "requirement_bindings": {"type": "array"}}, "required": ["component"]}, "description": "Plan or install/update a complete dependency batch in one native resolution and governance changeset"},
+            "component": {"type": "string", "description": "Hub component ref in org/name form"},
+            "version": {"type": "string", "description": "Install/plan: the version range the dependency entry declares. An exact release V raises the floor and is declared as >=V (0.1.41 declares >=0.1.41); a range (>=0.1.41, ^0.1.0, =0.1.41 to pin) or an @label is declared as given. Omit it to keep an existing entry's declaration, or to declare any version for a new entry. The runtime keeps an installed module while the declaration admits it and otherwise selects the highest admitted release; the plan reports that selection."},
             "id": {"type": "string", "description": "Explicit ns.dependency entry id for uninstall/list targeting"},
             "namespace": {"type": "string", "description": "Dependency namespace override for install. Omit to reuse an existing dependency entry or choose a managed dependency namespace cluster."},
             "name": {"type": "string", "description": "Dependency entry name for install"},
             "parameters": {"description": "Requirement values as an object map or array of {name,value}"},
+            "requirement_bindings": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "value": {}}, "required": ["name", "value"]}, "description": "Reviewed fully-qualified bindings for requirements in the resolved plan, including transitive modules"},
+            "requirement_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string"}, "description": "fill_gaps: limit suggestions to these fully-qualified planned requirement ids. Omit to consider all gaps. Review returned values before install."},
             "migration_policy": {"type": "string", "enum": ["none", "up", "block", "leave", "down"], "description": "Install: none/up. Uninstall: block/leave/down."},
             "run_migrations": {"type": "boolean", "description": "Install shortcut for migration_policy=up"},
             "dry_run": {"type": "boolean", "description": "Return the planned patches/actions without publishing"},
@@ -47,7 +96,7 @@ entries:
       llm_alias: hub_dependencies
       llm_description: |
         Manage Wippy Hub dependencies through the canonical Keeper service. Use action=list for installed ns.dependency entries,
-        action=plan to resolve the full transitive module graph and all requirements, action=install to add/update a dependency,
+        action=plan to resolve the full transitive module graph and all requirements, action=fill_gaps to request fast-model candidate choices without applying, action=install to add/update dependencies. Supply dependencies for a bulk plan and atomic update,
         and action=uninstall to remove one. Always plan first when requirements may be missing. Use dry_run=true for safety.
       mcp:
         required_scopes:
@@ -63,6 +112,7 @@ entries:
       helpers: keeper.hub.tools:helpers
       hub_service: keeper.hub:service
       planner: keeper.hub:planner
+      requirement_fill: keeper.hub:requirement_fill
     method: handler
     pool:
       size: 2
@@ -73,6 +123,7 @@ entries:
     meta:
       type: tool
       title: Hub Migrations
+      public: true
       comment: List and run Hub-owned migrations for installed dependencies
       tags:
         - hub
@@ -86,7 +137,7 @@ entries:
               "enum": ["list", "run"],
               "description": "List migrations or run/unrun them"
             },
-            "component": {"type": "string", "description": "Optional Hub module ref in org/name form"},
+            "component": {"type": "string", "description": "Optional Hub component ref in org/name form"},
             "entry_ids": {"type": "array", "items": {"type": "string"}, "description": "Explicit migration entry ids"},
             "operation": {"type": "string", "enum": ["up", "down"], "description": "Migration operation for action=run"},
             "dry_run": {"type": "boolean", "description": "Return selected migrations without executing"},

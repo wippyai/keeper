@@ -39,6 +39,8 @@ entries:
     source: file://policy.lua
     modules:
       - registry
+    imports:
+      mcp_collections: keeper.mcp.auth:collections
     
   # keeper.mcp.auth:tokens
   - name: tokens
@@ -54,4 +56,26 @@ entries:
       - hash
     imports:
       mcp_consts: keeper.mcp:consts
+      mcp_collections: keeper.mcp.auth:collections
+
+  - name: collections
+    kind: library.lua
+    source: file://collections.lua
+    modules: [json]
     
+  - name: auth_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: mcp
+    source: file://auth_test.lua
+    modules: [sql, hash]
+    imports:
+      migration_runner: wippy.migration:runner
+      mcp_handler_core: keeper.mcp.transport:handler_core
+      mcp_tokens: keeper.mcp.auth:tokens
+      mcp_consts: keeper.mcp:consts
+      test: wippy.test:test
+      mcp_auth: keeper.mcp.auth:auth
+      keeper_config: keeper:config
+    method: run

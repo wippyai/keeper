@@ -43,8 +43,8 @@ keeper platform.
 Use `list_models` (or `get_entries kind=registry.entry meta.type=llm.model`)
 to see available models. Match capabilities to need:
 
-- Orchestration / planning / design → `class:smart`
-- Focused implementation → `class:coder` or `class:fast`
+- Orchestration / planning / design → `class:premium`
+- Focused implementation → `class:premium` or `class:fast`
 - Cheap tool-calling / classification → `class:nano`
 
 `thinking_effort` only works on models with `extended_thinking` or

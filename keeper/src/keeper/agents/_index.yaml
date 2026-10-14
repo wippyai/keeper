@@ -44,24 +44,36 @@ entries:
       ## Workflow
 
       1. **Set branch** — main is read-only. Call `set_branch` before any write.
-      2. **Explore** — use `explore_state` / `get_entries` to find existing entries and understand structure.
-      3. **Implement** — use `edit` (create / str_replace / delete) one entry at a time. Or delegate to a specialist via `implement_task` when the task is large.
-      4. **Integrate** — changes don't reflect until integrated. Call `push` to publish the branch to main through governance.
+      2. **Ground first** — before creating a new tool, function, or other entry, inspect at least one comparable existing entry with `explore_state` / `get_entries`. Search the internal Keeper knowledge base with `kb_read` for patterns and anti-patterns, and read the relevant Wippy docs with `fetch_docs`; start with its `index` action when the API surface is unfamiliar.
+      3. **Research when the surface is unclear** — delegate a focused question to `research`. It can search the internal Keeper knowledge base, scan real registry examples and patterns, and read authoritative docs. Give it the proposed entry kind, namespace, and the specific API or convention you need confirmed. Do not invent an API, schema, import, or registry convention when this research can verify it.
+      4. **Implement** — use `edit` (create / str_replace / delete) one entry at a time. Or delegate to a specialist via `implement_task` when the task is large.
+      5. **Integrate** — changes don't reflect until integrated. Call `push` to publish the branch to main through governance.
 
       ## Key Principles
 
       - Set branch first, always
-      - Explore to understand existing code before changing it
+      - For a new instrument, ground the design in real entries, KB findings, and docs before editing
+      - **Declaration-first engineering** — the YAML definition and Lua source are one executable unit. YAML declares the entry kind, imports, runtime modules, handler method, input schema, router/path, requirements, dependencies, storage, and lifecycle; Lua implements only that declared contract. Read both before changing either.
+      - Start a change from the declaration: identify the entry `kind` and every field that gives its source code capability or runtime meaning. A Lua edit cannot create an import, grant a runtime module, change a handler method, or repair a missing dependency declaration.
+      - Before creating or modifying a declaration, trace its consumers and dependencies: the caller or trait that exposes it, imported entry IDs, requirements and parameters, route/service bindings, and the verification path. Preserve the surrounding declaration pattern unless research proves a deliberate deviation.
+      - Copy the verified local pattern; never fabricate tool schemas, imports, module APIs, or entry conventions
+      - A registry entry id such as `namespace:name` is never a Lua `require` target. To use another registry entry, declare it under the entry YAML's `imports:` map (`local_alias: namespace:name`) and then use `require("local_alias")` in Lua. Only use bare runtime modules from a verified `modules:` declaration with `require`.
+      - Before writing or changing a tool, inspect a comparable `function.lua` definition *and its source*: verify its `kind`, `meta.type`, `meta.input_schema` representation, `imports`, `modules`, `method`, and the returned Lua handler shape. Do not turn a source-code observation or a user example into a platform rule.
+      - If an existing entry appears to use an invalid import, malformed schema, or an unverified client API, treat it as evidence to investigate—not a template to copy. Ask `research` for a known-good precedent and documentation before proposing code.
       - One entry per edit call; never bundle multiple entries
       - Integrate to make changes live
       - Never invent entry IDs or assume they exist — verify via explore_state
 
-      You execute: set branch → explore → implement → integrate.
-    model: class:coder
+      You execute: set branch → research/explore/docs → implement → integrate.
+    model: class:premium
     temperature: 0.3
     max_tokens: 16000
     tools:
       - keeper.develop:implement_task
+    delegates:
+      - id: keeper.agents:researcher
+        name: research
+        rule: Research a proposed implementation before I create it. Find comparable registry entries and established patterns, search the knowledge base for conventions and anti-patterns, and read authoritative Wippy documentation for unfamiliar APIs. Return concrete entry ids, doc paths, and cautions; do not edit anything.
     memory:
       - Set branch first, always
       - Changes don't reflect until integrated
@@ -69,12 +81,17 @@ entries:
       - implement_task handles single focused tasks
       - Explore state to find existing entries
       - Never invent entry IDs or assume they exist
+      - Search the internal Keeper knowledge base with kb_read before designing an unfamiliar entry
+      - Treat YAML declarations as the executable contract; inspect declaration, source, consumers, and dependencies together
+      - Registry ids use `namespace:name`; declare them in YAML `imports`, then require the local alias in Lua
+      - Verify tool YAML and its Lua source before copying; an existing broken entry is not a valid pattern
     traits:
       - keeper.agents.traits.state:editor
       - keeper.agents.traits.state:manager
       - keeper.agents.traits.state:explorer
       - keeper.agents.traits.state:comparer
       - keeper.agents.traits.state:publisher
+      - keeper.agents.traits.knowledge:reader
       - keeper.agents.traits.inspect:data_inspector
       - keeper.agents.traits.inspect:flow_debugger
       - keeper.agents.traits.inspect:test_runner
@@ -207,7 +224,7 @@ entries:
         gut feel.
       A spec that paraphrases-with-confidence is the failure mode we
       pay for in bounces; an extra research call is the cheap insurance.
-    model: class:smart
+    model: class:premium
     max_tokens: 16000
     tools:
       - keeper.task.tools:save_context
@@ -355,7 +372,7 @@ entries:
       - If the spec lists exactly N entries, create exactly N — no bonus test entries,
         no auxiliary helpers.
       - Copy spec payload shapes verbatim when they are given as JSON literals.
-    model: class:coder
+    model: class:premium
     temperature: 0.3
     max_tokens: 16000
     tools:
@@ -407,7 +424,7 @@ entries:
 
       Do not implement directly. The Keeper task pipeline owns the actual
       design/plan/implement/review/integrate/test cycle and rollback behavior.
-    model: class:smart
+    model: class:premium
     temperature: 0.2
     max_tokens: 6000
     tools:
@@ -539,7 +556,7 @@ entries:
       2. Exit — the orchestrator commits; push auto-rebuilds any component whose
          source you touched and reports build status back in the submit response.
       3. Verify the file you wrote is on disk and matches what you intended via fs view BEFORE exiting. The orchestrator does not validate fs writes for you.
-    model: class:coder
+    model: class:premium
     temperature: 0.3
     max_tokens: 16000
     tools:
@@ -688,7 +705,7 @@ entries:
       - status="spec_wrong" — the plan itself cannot be realised; back to design.
       - status="stuck" — retries not converging.
       - status="ask_user" — after calling step_block with the question.
-    model: class:orchestrator
+    model: class:premium
     max_tokens: 16000
     tools:
       - keeper.state.tools:compare
@@ -962,7 +979,7 @@ entries:
       ```
       { "status": "planned", "summary": "2 impl steps, 1 endpoint_probe — BE only" }
       ```
-    model: class:orchestrator
+    model: class:premium
     max_tokens: 16000
     tools:
       - keeper.task.tools:save_context
@@ -1116,7 +1133,7 @@ entries:
       Review → implement is capped at 1. A second round of bugs force-finishes the task — so do
       NOT return bugs for style, missing comments, or subjective taste; only concrete spec
       mismatches. Style nits go in summary but the exit is approved.
-    model: class:orchestrator
+    model: class:premium
     max_tokens: 6000
     tools:
       - keeper.state.tools:get_entries
@@ -1185,7 +1202,7 @@ entries:
       - One verify_api + one review_ui per phase. Do NOT re-delegate the same target set.
       - Never ask verifier to probe unauthenticated paths — test_endpoint runs as authenticated
         actor. "401 without auth" wastes a whole round.
-    model: class:orchestrator
+    model: class:premium
     max_tokens: 6000
     tools:
       - keeper.state.tools:get_entries

@@ -2,6 +2,21 @@ version: "1.0"
 namespace: keeper.hub.api
 
 entries:
+  - name: fill_gaps
+    kind: function.lua
+    source: file://fill_gaps.lua
+    method: handler
+    modules: [http]
+    imports:
+      api_http: keeper.hub.api:http
+      requirement_fill: keeper.hub:requirement_fill
+    pool: {size: 2}
+  - name: fill_gaps.endpoint
+    kind: http.endpoint
+    meta: {router: 'app:api'}
+    method: POST
+    func: fill_gaps
+    path: /keeper/hub/dependencies/fill-gaps
   # keeper.hub.api:browse_modules
   - name: browse_modules
     kind: function.lua
@@ -189,6 +204,31 @@ entries:
     method: POST
     func: plan_install
     path: /keeper/hub/dependencies/plan
+
+  # keeper.hub.api:scan
+  - name: scan
+    kind: function.lua
+    meta:
+      comment: Run a read-only LLM security review over Hub modules planned for install
+      router: app:api
+    source: file://scan.lua
+    modules:
+      - http
+    imports:
+      api_http: keeper.hub.api:http
+      security_scan: keeper.hub:security_scan
+    method: handler
+    pool:
+      size: 2
+
+  # keeper.hub.api:scan.endpoint
+  - name: scan.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: scan
+    path: /keeper/hub/scan
     
   # keeper.hub.api:run_migrations
   - name: run_migrations
@@ -239,3 +279,16 @@ entries:
     method: POST
     func: uninstall_dependency
     path: /keeper/hub/dependencies/uninstall
+
+  # keeper.hub.api:scan_dependency
+  - name: scan_dependency
+    kind: function.lua
+    meta:
+      comment: Agent security scan of a Hub dependency's install graph (per module)
+    source: file://scan_dependency.lua
+    modules:
+      - http
+      - funcs
+    imports:
+      api_http: keeper.hub.api:http
+    method: handler

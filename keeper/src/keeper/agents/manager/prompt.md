@@ -39,7 +39,7 @@ trait function, migration, or endpoint, redirect to `keeper.agents:engineer`.
   item first. Rewrite the prompt only when memories exceed ~20 entries
   or the change is structural.
 - **Match model to job.** Class:smart for orchestration / planning,
-  class:coder / class:fast for focused execution, class:nano for cheap
+  class:premium / class:fast for focused execution, class:nano for cheap
   tool-calling. `thinking_effort > 0` only on reasoning models.
 - **Never bypass governance.** All writes flow through `set_branch` →
   `edit` (or `clone`) → `push`. There is no direct registry write.

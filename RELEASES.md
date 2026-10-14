@@ -1,5 +1,714 @@
 # Release Notes
 
+## keeper/keeper 0.5.107
+
+Hub plans keep omitted namespace requirement defaults implicit in native
+previews and install payloads. Requirement rows and recommended parameters
+still contain the resolved default. Supplied and recorded bindings remain
+explicit, including bindings equal to a default. The same planning path
+covers single-component and batch requests. Existing stored bindings receive
+no migration or automatic cleanup.
+
+The full Keeper gate passes 1,886 tests on SQLite and Postgres with the
+existing placeholder skip. The three-case defaults regression passes on
+both engines, lint reports no issues, and the focused API plan/install
+smoke passes for Core and Component on both engines.
+
+## keeper/keeper 0.5.106
+
+Declared empty array and object requirement defaults count as present
+defaults. Install and batch update plans no longer report an optional
+requirement with a `[]` or `{}` default as missing, so a module batch can
+apply before the root application supplies the value. Absent defaults stay
+unresolved.
+
+Both full Keeper gates pass 1,850 tests with the existing placeholder skip,
+lint is clean, and a published-release Keeper, module batch and root
+application update passes on SQLite and Postgres.
+
+## keeper/keeper 0.5.105
+
+Installing or updating a module whose required requirement has no default now
+opens the requirements step with that row instead of failing. The planner reads
+the requirement declarations that native expansion reports for the newly
+selected module (runtime with structured expansion diagnostics), re-plans them
+through the normal requirement planning, and validates reviewed values against
+the resolved requirements; "Suggest with AI" works for these rows. Without such
+a runtime the behaviour is unchanged.
+
+Both full Keeper gates pass 1,838 tests with the existing placeholder skip,
+lint is clean, and required-requirement install plus AI accept, reject, edit
+and update flows pass on SQLite and Postgres.
+
+## keeper/keeper 0.5.104
+
+Install and update dialogs offer "Suggest with AI" for unresolved
+requirements. Suggestions are scoped to the rows that need them, chosen only
+from the planner's valid candidates (typed literals where allowed),
+re-validated through a fresh install plan, shown with the model's reason, and
+applied only after review. Typed values round-trip, stale plan responses are
+ignored, unset collection defaults plan correctly, and typed native errors
+appear in the dialog.
+
+Both full Keeper gates pass with no branch-introduced failures, lint is clean,
+84 frontend tests pass, and real-model browser flows pass.
+
+## keeper/keeper 0.5.103
+
+Entry definitions render verbatim. `get_entries` and the other entry
+renderers kept dropping lines starting with `#` and blank lines while
+dedenting, so documentation pages lost their markdown headings and paragraph
+breaks even with `full=true`. Lines inside an entry now render as authored;
+entry-level header comments stay outside the entry.
+
+The full Keeper suite passes 1,824 tests on SQLite and Postgres with the
+existing PM HTTP placeholder skip; lint reports no issues.
+
+## keeper/keeper 0.5.102
+
+Registry operations never write source files. The registry is the store and
+source files load into it once at boot; governance applies, Hub installs and
+updates, and rollbacks are registry-only. Files are written only by the
+explicit registry-to-filesystem sync (`sync_to_fs`). Hub updates no longer
+rewrite deployment sources such as `src/app/deps/_index.yaml`, so a cold boot
+keeps the updated module versions, and installs work on a read-only source
+tree.
+
+The full Keeper suite passes 1,823 tests on SQLite and Postgres with the
+existing PM HTTP placeholder skip; lint reports no issues. A local read-only
+end-to-end run passes single, batch, root and rejected installs with unchanged
+files and updated versions after a cold reboot.
+
+## keeper/keeper 0.5.101
+
+Batch planning takes one snapshot of the installed dependency catalog and of
+each shared module's version metadata per plan and reuses it for every root,
+instead of re-reading them per root. A 77-root module batch on a production
+copy no longer times out; plans are unchanged.
+
+The full Keeper suite passes 1,853 tests on SQLite and Postgres with the
+existing PM HTTP placeholder skip. Lint reports no issues.
+
+## keeper/keeper 0.5.100
+
+Hub plans validate logical security scopes, such as policy groups and role
+descriptors, against the complete projected registry: the live registry with
+the planned changes applied. A batch that introduces a new group now validates
+against that group, and a scope from a policy the same batch deletes is
+rejected. Single-component requests and stored data remain unchanged.
+
+The full Keeper suite passes 1,851 tests on Postgres with the existing PM HTTP
+placeholder skip; on SQLite all tests pass, with the changeset group rerun alone
+(162/162) after a host-load timeout. Lint reports no issues.
+
+## keeper/keeper 0.5.99
+
+Hub plans resolve all requested dependency roots together before requirement
+validation and preview their final bindings through the native planner. Bulk
+installs apply one governance changeset, so dependency capabilities introduced
+by another root are available regardless of request order.
+
+Requirement validation includes resources introduced by the selected package
+and uses their selected kinds. Optional `meta.value_type` declares boolean,
+number, integer, string, object, or array literals without treating semantic
+`meta.value_kind` hints as registry references. Requirements without
+`value_type` keep their existing behavior. Single-component requests and
+stored data remain unchanged.
+
+The full Keeper suite passes 1,850 tests on SQLite and Postgres, with the one
+existing PM HTTP placeholder skip. All 193 Hub tests pass on both engines, and
+lint reports no issues.
+
+## keeper/keeper 0.5.98
+
+The MCP authorization tests use a Keeper-owned unscoped tool fixture in the test
+host instead of `wippy.agent.tools:delay_tool`, a fixture that wippy/agent 0.5.3
+no longer ships. The test host resolves wippy/agent 0.5.3 and wippy/llm 0.5.5.
+The logger process filter behavior has end-to-end tests through the logger client.
+
+## keeper/keeper 0.5.97
+
+The system tool's log `filter` accepts a bare word as a substring match on the
+message. Any other filter is an expression; one that does not compile returns an
+error showing the expression syntax and examples, so a filter that matches
+nothing is distinguishable from an empty log. The tool schema documents both forms.
+
+## keeper/keeper 0.5.96
+
+The component scanner resolves module-owned frontend apps from the registry
+ownership snapshot, so a host `frontend/applications/keeper` directory is never
+offered as editable when `keeper/keeper` is installed; a snapshot read failure is
+returned instead of ignored. The knowledge changelog raises when an insert fails
+instead of dropping the row. The Keeper suites pass on SQLite and Postgres.
+
+## keeper/keeper 0.5.95
+
+The minimum runtime is Wippy v0.3.44a. Hub plans preview native registry changes
+before resolving requirements, including modules not yet installed from local
+replacement trees. Requirement planning is deterministic: an existing exact
+binding, then a compatible declared default, then the sole registry candidate of
+the declared `meta.value_kind`. Several candidates remain suggestions, and a plan
+with an unbound required requirement is not applicable; install refuses it with
+`REQUIREMENTS_MISSING` naming each requirement and its kind.
+
+The install dialog's Fill gaps action, the `POST /keeper/hub/dependencies/fill-gaps`
+endpoint and the `hub_dependencies` MCP action `fill_gaps` ask a `class:fast` model
+to choose one compatible candidate per unbound requirement. Each choice carries a
+reason and `value_source: llm`, stays editable and applies only through a reviewed
+install. Unavailable or invalid choices leave the requirement unbound with a typed
+error. Transitive requirements accept reviewed `requirement_bindings`, which install
+through native child dependency entries.
+
+## keeper/keeper 0.5.94
+
+Hub installation plans use the active local replacement source when the runtime
+serves a module from a replacement tree. Its resolved version, requirements and
+dependency edges come from one atomic registry snapshot. Published Hub modules
+keep their catalog resolution path. Raised release constraints retain the local
+source metadata, and security review inspects the planned source. Migration
+selection still checks the applied registry version and each planned module
+version before running migrations.
+
+## keeper/keeper 0.5.93
+
+MCP token and preset collection fields serialize as arrays, including empty
+scopes and active traits. The Keeper MCP settings page matches presets and
+creates scoped credentials when a root token has no active traits. Existing
+empty collections keep their meaning without a database migration. Invalid
+stored collection JSON returns an error.
+
+## keeper/keeper 0.5.92
+
+Keeper MCP actors can carry the user's live group memberships. The optional
+`keeper:mcp_group_resolver` requirement names a host function that Keeper calls
+with `{id}` at MCP authentication; the returned `groups` become the actor's
+`meta.security_groups`, so hosts that grant component access to groups accept
+Keeper MCP calls. An inactive subject is denied, and resolver failures fail
+authentication with `KEEPER_MCP_GROUP_RESOLUTION_FAILED`. Without a binding the
+actor is unchanged.
+
+The Hub module inspection tools (`list_module_namespaces`,
+`read_module_entries`) declare the `hub.read` MCP scope.
+
+## keeper/keeper 0.5.91
+
+Filesystem sync preserves the indentation of an existing dependency sequence
+when it adds, replaces or removes entries, so an indentless or four-space
+`_index.yaml` stays parseable after onboarding installs and the application
+restarts cleanly.
+
+Require `wippy/migration >=0.3.21`, the guarded runner matching Keeper's
+concurrent-install fix in 0.5.90. Previously the `>=0.3.15` range admitted an
+already-locked, unguarded runner, so updating Keeper alone could leave the
+database migration and ledger-creation races unfixed. Applications must resolve
+the updated dependency; no application lock is changed remotely. A conflicting
+application pin to an older migration version must be updated explicitly.
+
+The canonical migration interface and public Keeper API are unchanged. The
+test host locks the published migration 0.3.21 and test runner 0.4.20 rather
+than relying on local companion sources. Missing migrations and runner failures
+remain errors, and no legacy ownership-ledger repair is introduced.
+
+Verified on released runtime v0.3.44a: 390 Keeper entries lint-clean; migration
+handler 11/11; live migration pipeline 2/2; Hub 159/159; step-runner smoke;
+resolution permission regression; state-orchestrator regressions 2/2. The test
+host uses the published dependencies, not locally replaced companion sources.
+
+## keeper/keeper 0.5.90
+
+Hub installs accept migrations that a concurrent runner already completed, so a
+fresh install no longer fails when two runners apply the same migration. Hub
+administrator tools receive `registry.resolution.get`, which Wippy 0.3.44a
+requires for the resolution data Keeper reads for module ownership and install
+planning. Lint is clean against the corrected registry types: entry arrays pass
+directly to `registry.build_delta`, upload uses `registry.Entry`, the state
+orchestrator returns a `process.pid()` error before registering, and the state
+explorer guards optional results before sorting.
+
+### Verification
+
+- Keeper lint checked 390 entries with zero diagnostics on Wippy 0.3.44a.
+- Keeper Hub tests passed 159/159.
+
+## keeper/keeper 0.5.89
+
+Hub ownership reads only registry entry metadata. Module owner and root come
+from each snapshot entry's `registry.owner`/`registry.root` and versions from
+`state.resolution`; the legacy `state.provenance` fallback is removed, and an
+entry without registry ownership fails closed. The test harness resolves the
+locally replaced keeper without pinning its version in the lock. Lint is clean:
+typed MCP broker arguments, the compare tool's `goal`/`full` parameters, and an
+integer `mcp_max_sessions_per_token`.
+
+## keeper/keeper 0.5.88
+
+MCP Streamable HTTP brokers are per initialized session instead of per token.
+
+Keeper keyed each MCP broker by the bearer token, so a second GET stream for
+the same token cancelled the first broker and clients reconnected in a loop.
+Initialize now issues an `Mcp-Session-Id` bound to the authenticated token;
+each session owns its broker, a missing session id returns 400, an unknown or
+expired one returns 404, and DELETE ends the session. Sessions per token are
+capped by `keeper:mcp_max_sessions_per_token` (default 16); initialize beyond
+the cap returns 429 with a JSON-RPC error. The broker registers its own slot
+and name and acknowledges readiness before initialize returns, keeps one
+resettable idle timer, and exits on a failed readiness reply without a
+redundant cancel. Transport permissions are split per HTTP method.
+
+## keeper/keeper 0.5.87
+
+Hub install declares version ranges, replaces an application-owned root
+without conflicting with it, and selects migrations from the registry its apply
+produced.
+
+An install with an exact version wrote that release into the `ns.dependency`
+entry, so `install component=X version=0.1.41` turned the application's
+`>=0.1.36` declaration into a pin, and an install without a version rewrote the
+declaration to `>=v0.0.0`. The entry is the application's authored range, and
+the runtime keeps an installed module while the declaration still admits it.
+Install now declares an exact release V as the raised floor `>=V` (written
+without a `v` prefix), declares a range or an `@label` as given, keeps an
+existing entry's declaration when no version is supplied, and rejects a version
+that is neither a release nor a range. The plan selects versions the way the
+runtime does - an installed module keeps its version while every constraint
+admits it, otherwise the highest admitted release - so the version a plan
+reports is the version the apply installs.
+
+The planner classified installed constraints by owner before root. The runtime
+marks an application's own dependency declarations as roots while they stay
+owned by the application module, so such a root was either dropped (owner not
+reachable) or reported as an edge of the application module, and replacing it
+conflicted with its own recorded version. Roots are now classified first: the
+root being replaced is dropped, every other root constrains the plan and is
+reported by its entry id. Module-owned edges are unchanged. The service's
+duplicate component, id, namespace and summary helpers are the planner's.
+
+`migrations_up` captures the ownership index anew and requires its snapshot to
+be at or after the registry version the governance apply committed, with every
+planned module installed at its planned version. Otherwise the install fails
+with `MIGRATION_SELECTION_STALE`, naming the snapshot, the applied version and
+the mismatched modules, and restores the baseline registry version.
+
+### Verification
+
+- Hub suite: 158 of 158 pass. Ten new or changed tests fail on 0.5.86: an
+  exact release is declared as `>=V`, an install without a version keeps the
+  declaration, an invalid version is rejected, an installed release is kept
+  while admitted, an application-owned root is replaced without conflict and
+  every other application-owned root constrains the plan by entry id, and a
+  stale snapshot or a mismatched module version fails with
+  `MIGRATION_SELECTION_STALE` and restores the registry. Install tests use a
+  governance fake that commits the changeset and advances the registry.
+- On an isolated instance (nightly runtime, Keeper loaded from this source
+  through a workspace replacement): `kickside/cron` pinned with `=0.1.37`, then
+  installed with `version=0.1.38`; `app.deps:kickside_cron` holds `>=0.1.38`,
+  the resolved module is 0.1.38, and the install itself applied
+  `kickside.cron.migrations:03_component_owner`. A reinstall without a version
+  kept `>=0.1.38`. The instance restarted and replayed registry history to
+  version 3 without errors.
+
+## keeper/keeper 0.5.86
+
+Hub install now runs the bootloaders of the modules it brings online. Boot runs
+every `meta.type: bootloader` entry after migrations - cache warms, projection
+reconcile triggers, settings seeds - but a hot install stopped at `migrations_up`,
+so an installed or updated module came up with none of that work done until the
+next restart.
+
+The install ends with a `bootloaders` step after migrations. A module is in
+scope when the apply changed its resolved version (a new module counts) or
+created or re-parameterized its dependency root. Its bootloaders run through the
+framework's own path: `wippy.bootloader:bootloader_registry` discovers and
+orders them by `meta.order`, then id, and `wippy.bootloader:bootloader`
+`run_chain` executes them with the boot chain's `meta.requires` checks, status
+handling and stop-on-error. Bootloaders of modules the apply left unchanged ran
+when the runtime booted; they satisfy a `meta.requires` and are not re-run. A
+failing bootloader fails the install with `BOOTLOADERS_FAILED`, naming the
+bootloader and carrying its message, and the registry is restored to the
+baseline version, as a migration failure is. Migration failures now carry the
+migration's message in the error text as well.
+
+Requires `wippy/bootloader` with `run_chain` (declared as `>=v0.3.16`).
+
+Services still restart at the governance apply, before migrations: the module
+lands atomically through its `ns.dependency` entry, its migrations exist only
+after that apply, and the runtime exposes no way to hold or restart a service
+from Lua. Ordering service start after migrations and bootloaders needs a
+runtime-side completion gate.
+
+### Verification
+
+- Hub suite: four new tests fail on 0.5.85 and pass - the changed module's
+  bootloaders run after its migrations in declared order with every other
+  bootloader passed as satisfied (single and batch install), a failing bootloader
+  fails the install with its message and restores the registry, and an install
+  that changes no module runs none. The install ledger test now expects the
+  fourth `bootloaders` step. 148 of 148 pass against `wippy/bootloader` with
+  `run_chain`.
+- On the test host's real registry and framework, the step scoped to
+  `wippy/bootloader` ran `wippy.bootloader.bootloaders:encryption_key` through
+  `run_chain` and reported success; scoped to `wippy/migration` it ran
+  `wippy.migration:migration_bootloader` with its `encryption_key` prerequisite
+  satisfied and surfaced that bootloader's own failure message.
+
+## keeper/keeper 0.5.85
+
+Hub install carries a table-valued requirement parameter as structured data. A
+parameter whose value is an object or an array reached the plan, the
+suggestions and the published `ns.dependency` entry as the literal string
+`table: 0x...`: the parameter serializer kept booleans and numbers as they came
+and sent everything else through `tostring`, so a string survived as itself
+while a table became its address. Installing a module that configures a
+structured requirement - a grant appended to `.meta.provision.grants`, for
+instance - replaced the recorded object with that address.
+
+A table now travels through the plan as a copy of itself, and values are
+compared, deduplicated and labelled by content, so the emitted patch renders a
+nested mapping (a sequence when the value is an array) and scalars render
+exactly as before. A requirement that declares `meta.value_kind` still accepts
+only a registry id; a structured literal satisfies only a requirement that
+names no kind. The Hub service no longer carries its own copy of the parameter
+normalizer and entry builder - it uses the planner's, so a plan and the entry
+it publishes cannot serialize the same parameter differently again.
+
+## keeper/keeper 0.5.84
+
+The Keeper MCP endpoint now serves its Streamable HTTP event stream. A GET to
+the MCP route answered 500 ("not allowed to spawn processes with custom
+context") instead of opening the stream: the handler had no permission to stand
+up its per-session broker, and the router lacked the sse_relay middleware that
+takes over the connection the handler hands off. Clients that tolerate a failed
+stream carried on over POST, so the endpoint looked healthy; clients that wait
+for the stream, such as Microsoft Copilot Studio, stalled on loading tools.
+
+The router now carries sse_relay, and the GET handler declares five narrow
+policies covering exactly what it does: create the broker's context with the
+token subject's actor and scope, spawn keeper.mcp.transport:broker and nothing
+else, place it on the configured process host (bound from keeper:process_host),
+register and release names under mcp.session.*, and adopt or cancel the broker
+a previous connection registered. Applications that added these grants or the
+middleware through their own overrides can remove them.
+
+### Verification
+
+- MCP suite: three new tests pass after failing on 0.5.83 - the router relays
+  the handed-off stream, the handler holds each permission its broker needs,
+  and it holds none for other entries, hosts, or registry names. The suite's
+  four remaining failures are unchanged from 0.5.83 (the test host has no
+  app_users table; one Hub tool lacks an MCP scope mapping).
+- Live, on an application running runtime 0.3.27a with the same transport code:
+  GET returned 500 before; with these policies and middleware it returns 200
+  text/event-stream, a reconnect with the same token returns a new stream, the
+  heartbeat arrives at 25 seconds, and POST initialize still returns 200.
+
+## keeper/keeper 0.5.83
+
+Hub installation now applies inferred host bindings for newly installed
+transitive modules together with the requested dependency in one registry
+transaction. Previously a KB10 plan correctly inferred Knowledge's router,
+server, and security bindings, but installation discarded them and failed.
+Single installs and onboarding batches now retain those bindings; explicit
+batch configuration takes precedence over inferred values.
+
+Existing dependency configuration is preserved. Newly inferred binding roots
+use an unrestricted version constraint so the package dependency edges still
+control compatible versions. If another operation creates a binding after
+planning, installation fails with a conflict instead of overwriting it.
+Removing a parent leaves the child's configuration root installed; removing
+a child still required by another module remains blocked.
+
+When migrations are requested, installation discovers pending migrations
+across the selected dependency graph after applying the registry changes.
+An explicitly empty migration selection now runs nothing, rather than falling
+through to all migrations in the application.
+
+### Verification
+
+- Keeper Hub: 141 tests pass, including regressions first observed failing for
+  transitive bindings, batch installation, child migrations, empty migration
+  selection, and concurrent binding creation. Update, rollback, and shared
+  dependency removal are covered.
+- Local Kickside 0.1.131 on runtime 0.3.42a: KB10 installation applies both
+  dependency roots and all five KB10 migrations. Knowledge engine discovery
+  and create/read/delete return HTTP 200. Reinstalling preserves bindings
+  and selects zero already-applied migrations.
+- Existing onboarding frontend suite: 11 tests pass. No frontend assets changed.
+
+## keeper/keeper 0.5.82
+
+`keeper/keeper@0.5.82` runs the migrations of a module the Hub installs. The
+hub service caches one registry-ownership snapshot per request; install
+planning captured it before the governance publish added the module's entries,
+and the `migrations_up` step discovered migrations from that same stale
+snapshot, so every fresh install reported the step ok with zero migrations and
+left them pending (onboarding bundles then failed at first use, for example
+`create_store: no such table: kb10_stores`). The service now drops the cached
+index whenever it commits a registry mutation (dependency publish, version
+restore), so post-apply reads capture the committed state.
+
+This release also lands the two hotfixes previously published straight from
+their branches: 0.5.80 (MCP enabled switch) and 0.5.81 (typed host options).
+
+### Verification
+
+- `keeper.hub:test` gains `runs the migrations of the module the governance
+  apply installs`: the governance publish is what adds the module and its
+  migration entry, and the install result must carry that migration in
+  `entry_ids` with the handler invoked. Keeper Hub tests pass 127/127.
+
+## keeper/keeper 0.5.81
+
+`keeper/keeper@0.5.81` preserves typed host options through Hub install
+planning. Scalar dependency parameters keep their JSON types, so `false`
+defaults survive instead of collapsing to strings, and the dataflow overview
+uses portable aggregate filters that also run on Postgres.
+
+### Verification
+
+- `keeper.hub:test` covers typed option preservation and false defaults.
+- `keeper.internal.flow:repo_test` covers the overview aggregate on both
+  SQL dialects.
+
+## keeper/keeper 0.5.80
+
+`keeper/keeper@0.5.80` makes `MCP_ENABLED=false` close the MCP transport. The
+endpoint handlers read `keeper.mcp:enabled` and `PUBLIC_API_URL` through the
+env registry, but their policy set granted no `env.get`, so the read was denied
+and the transport fell back to its enabled default. The new
+`keeper.mcp.security:endpoint_env_read` policy grants exactly those two reads.
+
+### Verification
+
+- `keeper.mcp:test` gains a policy check that evaluates the endpoint scope
+  against `env.get` on both variables.
+
+## keeper/keeper 0.5.79
+
+`keeper/keeper@0.5.79` reports the `_index.yaml` files a filesystem sync
+rewrites. `sync_to_fs` now surfaces the managed namespace index writes it makes
+alongside the entry-source writes, so a caller sees the full set of files a sync
+touched instead of only the sources.
+
+### Verification
+
+- Keeper filesystem-sync tests passed, including the new index-write reporting.
+
+## keeper/keeper 0.5.78
+
+`keeper/keeper@0.5.78` removes a managed namespace index when its final entry
+is deleted. Dynamic module uninstall no longer leaves an invalid empty
+`_index.yaml` that prevents the application from restarting.
+
+### Verification
+
+- Keeper Hub tests passed 126/126.
+- Filesystem-sync tests passed 45/45, including final-entry deletion.
+- Keeper lint checked 350 entries with zero errors.
+
+## keeper/keeper 0.5.77
+
+`keeper/keeper@0.5.77` reads installed-module ownership from the registry's
+atomic snapshot without relying on author metadata. It supports both the
+released provenance-map snapshot and the current per-entry registry metadata
+during the Runtime rollout.
+
+### Verification
+
+- Keeper Hub tests passed 126/126 on both the released and current Runtime.
+- Keeper lint checked 384 entries with zero errors.
+
+## keeper/keeper 0.5.76
+
+`keeper/keeper@0.5.76` updates several dependency roots in one governance
+changeset. This lets interdependent modules cross a contract boundary without
+publishing an invalid intermediate registry; the singular install request is
+unchanged.
+
+### Verification
+
+- Atomic multi-root publish, contract-boundary, duplicate-root, and singular
+  install tests passed.
+- Keeper lint checked 384 entries with zero errors.
+
+## keeper/keeper 0.5.74
+
+`keeper/keeper@0.5.74` runs migrations by default on install. `plan_install`
+used to default `migration_policy` to `none`, so a version that ships a new
+migration could land with its code running against a missing table until
+someone noticed the failing tasks. `planner.migration_policy_for` now answers
+`up` unless the caller names a policy or passes `run_migrations=false`.
+
+### Verification
+
+- `keeper.hub:test` passed.
+
+## keeper/keeper 0.5.73
+
+`keeper/keeper@0.5.73` preserves installed dependency configuration when a
+different package is added from the Hub.
+
+- Every existing dependency binding is an installed-module boundary, whether
+  it is an application root or a package-owned transitive edge.
+- Requirement planning skips installed non-target modules. Their concrete
+  parameter bindings are neither guessed again nor rejected because an
+  unrelated install traverses them.
+- Direct installation or update of the target module remains configurable.
+- The install changeset contains only the newly requested root and leaves
+  existing dependency parameters unchanged.
+- `keeper.hub:test` passed 117/117, including root, transitive-edge, and service
+  changeset regressions. Keeper Hub lint checked 17 entries with no issues.
+
+## keeper/keeper 0.5.71
+
+`keeper/keeper@0.5.71` lets a requirement that names the `db.sql` kind family
+find the databases that satisfy it.
+
+- A resource carries a concrete kind — `app:db` is a `db.sql.sqlite` or a
+  `db.sql.postgres` entry — while a requirement declares the family it accepts,
+  so `db.sql` joins `env.storage` in the planner's kind-family table.
+- An install plan now offers the instance's databases as candidates for such a
+  requirement, and a supplied `app:db` stays valid instead of being refused as a
+  value that must reference an existing `db.sql` and dropped from the payload.
+- `keeper.hub:test` passed 112/112, including a new case covering both the
+  candidate list and the supplied value reaching `install_payload`.
+
+## keeper/keeper 0.5.67
+
+`keeper/keeper@0.5.67` preserves application deployment-root authority when
+Hub installs or updates a managed dependency.
+
+- Created and updated dependency entries explicitly remain deployment roots;
+  package-owned transitive edges are still resolved without becoming roots.
+- Subsequent installs can therefore reuse the application's declared bindings
+  instead of reporting unrelated requirements as unresolved.
+- `keeper.hub:test` passed 116/116, including both create and update changeset
+  assertions for deployment-root authority.
+
+## keeper/keeper 0.5.65
+
+`keeper/keeper@0.5.65` lets a newly installed plugin consume an application's
+declarative requirement profile without repeating the same values in the Hub
+dialog.
+
+- Bare requirement names are reused only when governance-managed deployment
+  roots agree on one compatible value.
+- Package-owned transitive edges remain excluded from configuration reuse.
+- Conflicting application values remain explicit and require a user choice.
+- `keeper.hub:test` passed 116/116, including cross-root reuse, ambiguity,
+  resource-kind validation, and package-edge isolation.
+
+## keeper/keeper 0.5.64
+
+`keeper/keeper@0.5.64` makes Hub dependency changes operate on application
+roots consistently across install, uninstall, undo/redo, source persistence,
+and process restarts.
+
+### Highlights
+
+- Package-owned dependency edges remain part of graph resolution but can no
+  longer be selected as mutable application install roots.
+- Installing an already-transitive module creates a managed application root;
+  removing that redundant root keeps the transitive module and its migrations.
+- Explicit dependency IDs cannot create a second application root for a
+  component; both planning and apply enforce the invariant.
+- Dependency resolution intersects every incoming constraint across diamonds,
+  cycles, and existing reachable roots, while ignoring unreachable orphan
+  package edges and dependencies replaced by the current plan.
+- Package-owned dependency parameters are not reused as application bindings,
+  preventing a transitive package's private configuration from leaking into a
+  new root install.
+- Governance undo/redo now reconstructs the applied registry delta so source
+  YAML, the state index, and observers receive the same change.
+- Filesystem sync recognizes canonical entry blocks regardless of YAML field
+  order, including version-first blocks at end of file.
+- A filesystem-sync failure restores the registry baseline and attempts the
+  inverse source update instead of reporting a successful partial transition.
+- Keeper's fixture application is excluded from both published artifacts and
+  local replacement loads, so its app roots cannot pull fixture modules into a
+  consuming application.
+
+### Verification
+
+- `keeper.hub:test` passed 116/116, including compatible and incompatible
+  diamonds, version-narrowing cycles, existing-root intersections, orphan
+  edges, explicit duplicate roots, and parameter provenance.
+- Governance changeset, sync, and service suites passed 101/101.
+- Keeper lint checked 380 entries with no errors and four pre-existing
+  warnings.
+
+## keeper/keeper 0.5.58
+
+`keeper/keeper@0.5.58` removes all runtime reads and writes of `wippy.lock` from
+Hub install, update, uninstall, planning, and component discovery. Committed
+registry dependencies and module metadata are now the live source of truth;
+lock generation remains outside Keeper's running Lua services.
+
+### Verification
+
+- `keeper.hub:test` passed 98/98.
+- `keeper.components.build:scanner_test` passed 5/5.
+
+## keeper/keeper 0.5.57
+
+`keeper/keeper@0.5.57` restores the declared Dataflow lower-bound range. The
+module remains free of a module-root `wippy.lock`; consuming applications select
+the compatible Dataflow version.
+
+## keeper/keeper 0.5.56
+
+`keeper/keeper@0.5.56` removes the module-local dependency lock. Keeper now
+publishes only its declared dependency ranges; its test application retains its
+own independent lock. The Dataflow declaration is constrained to the compatible
+0.4 line (`>=v0.4.31 <v0.5.0`), so Hub resolves it to `0.4.31` rather than the
+incompatible pre-1.0 0.5 line.
+
+## keeper/keeper 0.5.55
+
+`keeper/keeper@0.5.55` hardens Coder's implementation guidance around Wippy
+registry imports and verified tool patterns.
+
+### Highlights
+
+- Registry IDs must be declared in YAML `imports` and used through their local
+  alias; Coder must not pass `namespace:name` directly to Lua `require`.
+- Coder treats the YAML declaration and Lua source as one executable contract,
+  tracing imports, modules, method, schema, dependencies, and consumers first.
+- Coder now validates a comparable tool's definition and source before copying
+  its schema, imports, modules, method, or handler shape.
+- An invalid or unverified existing entry is a research signal, never a template.
+
+### Verification
+
+- `./test.sh keeper.agents.tools:test` passed 61/61.
+
+## keeper/keeper 0.5.54
+
+`keeper/keeper@0.5.54` reissues the Coder grounding update in a fresh package
+version after verification found that the prior Hub version resolved to stale
+package contents.
+
+### Verification
+
+- `./test.sh keeper.agents.tools:test`
+- Installed-package inspection after the app updates to `0.5.54`.
+
+## keeper/keeper 0.5.53
+
+`keeper/keeper@0.5.53` grounds the public Coder agent before it creates new
+tools or other registry entries.
+
+### Highlights
+
+- Coder can directly search Keeper knowledge and read authoritative Wippy docs.
+- Coder can delegate focused, read-only pattern research to Task Researcher.
+- Coder must inspect comparable entries, KB findings, and documentation before
+  creating an unfamiliar tool, API surface, import, or schema.
+
+### Verification
+
+- `./test.sh keeper.agents.tools:test` passed 61/61.
+
+
 ## keeper/keeper 0.5.18
 
 `keeper/keeper@0.5.18` preserves legacy Jet view support while keeping Keeper's

@@ -4,45 +4,23 @@ local test = require("test")
 local function define_tests()
     describe("components scanner policy", function()
         it("marks keeper app source as module-owned when keeper/keeper is installed", function()
-            local slugs = scanner._test.module_owned_app_slugs_from_lock([[
-directories:
-  src: ./src/app
-modules:
-  - name: keeper/keeper
-    version: 0.4.2
-    hash: abc
-]])
+            local slugs = scanner._test.module_owned_app_slugs_from_modules({ "keeper/keeper" })
             test.eq(slugs.keeper, true)
         end)
 
-        it("does not hide plugin replacement frontends", function()
-            local slugs = scanner._test.module_owned_app_slugs_from_lock([[
-directories:
-  src: ./src/app
-modules:
-  - name: wippy/dataflow
-    version: 0.4.10
-replacements:
-  - from: keeper/git
-    to: ./plugins/git
-]])
+        it("does not hide unrelated module frontends", function()
+            local slugs = scanner._test.module_owned_app_slugs_from_modules({ "wippy/dataflow", "keeper/git" })
             test.is_nil(slugs.git)
         end)
 
         it("does not hide unrelated modules with the same package suffix", function()
-            local slugs = scanner._test.module_owned_app_slugs_from_lock([[
-modules:
-  - name: example/keeper
-    version: 1.0.0
-]])
+            local slugs = scanner._test.module_owned_app_slugs_from_modules({ "example/keeper" })
             test.is_nil(slugs.keeper)
         end)
 
-        it("treats missing or malformed lock content as no module-owned apps", function()
-            local empty = scanner._test.module_owned_app_slugs_from_lock("")
-            local malformed = scanner._test.module_owned_app_slugs_from_lock("modules: [")
+        it("treats a missing installed-module list as no module-owned apps", function()
+            local empty = scanner._test.module_owned_app_slugs_from_modules(nil)
             test.is_nil(empty.keeper)
-            test.is_nil(malformed.keeper)
         end)
 
         it("accepts only clean component directory names", function()

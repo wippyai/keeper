@@ -122,6 +122,29 @@ local function define_tests()
             end)
         end)
 
+        describe("source authority", function()
+            it("keeps application and mounted-module entries while preserving unmounted modules", function()
+                local retained, skipped = upload.retain_authoritative_entries({
+                    { id = "app:host", kind = "registry.entry" },
+                    { id = "example.local:item", kind = "registry.entry",
+                      meta = { module = "example/local" } },
+                    { id = "example.packed:item", kind = "registry.entry",
+                      meta = { module = "example/packed" } },
+                }, {
+                    host = true,
+                    modules = { ["example/local"] = true },
+                    roots = { "application", "example/local" },
+                })
+                test.eq(#retained, 2)
+                test.eq(retained[1].id, "app:host")
+                test.eq(retained[2].id, "example.local:item")
+                test.eq(#skipped, 1)
+                test.eq(skipped[1].id, "example.packed:item")
+                test.eq(skipped[1].module, "example/packed")
+            end)
+
+        end)
+
         describe("registry delta visibility", function()
             it("detects meta-only updates used by sync_from_fs", function()
                 local current = {

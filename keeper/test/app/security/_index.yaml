@@ -16,7 +16,7 @@ entries:
   - name: user_policy
     kind: security.policy
     meta:
-      comment: Default user policy used by userspace/users test bootstrap
+      comment: Default user policy used by Keeper module tests
     groups:
       - app.security:user
     policy:

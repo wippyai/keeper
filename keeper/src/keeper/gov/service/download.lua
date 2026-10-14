@@ -104,6 +104,19 @@ local function should_write_file(fs, file_path, content)
     return false
 end
 
+-- Pure: how many of the written paths are namespace index files.
+function M.count_index_files(written_files)
+    local count = 0
+    if type(written_files) ~= "table" then return count end
+    local suffix = "/" .. tostring(consts.FILESYSTEM.INDEX_FILENAME)
+    for path, _ in pairs(written_files) do
+        if type(path) == "string" and path:sub(-#suffix) == suffix then
+            count = count + 1
+        end
+    end
+    return count
+end
+
 -- Pure: turn a { [path] = "create"|"update" } map into a stable list of
 -- { path, op } rows sorted by path so callers can surface deterministic output.
 function M.compute_file_ops(written_files)
@@ -322,6 +335,7 @@ local function download(options: unknown)
     end
 
     local file_ops = M.compute_file_ops(written_files)
+    stats.index_files = M.count_index_files(written_files)
 
     log:info("Download completed", stats)
     return {

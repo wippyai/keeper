@@ -286,6 +286,26 @@ local function define_tests()
                 test.is_true(result:find("return 42") ~= nil)
             end)
 
+            it("renders block scalar content verbatim, including # lines and blank lines", function()
+                local entry = {
+                    id = "test.docs:glossary",
+                    kind = "registry.entry",
+                    chunks = {
+                        {
+                            type = "definition",
+                            content = "version: \"1.0\"\nnamespace: test.docs\n\nentries:\n  # test.docs:glossary\n  - name: glossary\n    kind: registry.entry\n    meta:\n      type: wippy.documentation.page\n    content: |\n      # Glossary\n\n      Terms used in the handbook.\n\n      ## Registry\n      LONGLINE\n",
+                        },
+                    },
+                }
+                entry.chunks[1].content = entry.chunks[1].content:gsub("LONGLINE", string.rep("x", 600))
+                local result = materialize.format_entry_structured(entry, false)
+                test.not_nil(result)
+                test.is_true(result:find("\ncontent: |\n  # Glossary\n\n  Terms used in the handbook.\n\n  ## Registry\n  " .. string.rep("x", 600) .. "\n", 1, true) ~= nil,
+                    "page content must keep headings, blank lines and long values")
+                test.is_true(result:find("<definition>\nname: glossary\n", 1, true) ~= nil, "entry renders dedented from its list marker")
+                test.is_nil(result:find("# test.docs:glossary", 1, true), "entry-level header comment stays outside the entry")
+            end)
+
             it("returns nil for nil entry", function()
                 local result = materialize.format_entry_structured(nil)
                 test.is_nil(result)

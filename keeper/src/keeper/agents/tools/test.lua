@@ -238,8 +238,8 @@ local function define_tests()
                 test.eq(delegates.engineer, "keeper.agents:engineer")
             end)
 
-            it("coder has direct edit, inspect, branch, push, and task-launch tools", function()
-                local tools = collect_agent_tools("keeper.agents:coder")
+            it("coder has grounded research, edit, inspect, branch, push, and task-launch tools", function()
+                local tools, coder = collect_agent_tools("keeper.agents:coder")
                 local required = {
                     "keeper.develop:implement_task",
                     "keeper.state.tools:edit",
@@ -250,11 +250,34 @@ local function define_tests()
                     "keeper.state.tools:compare",
                     "keeper.state.tools:branch",
                     "keeper.state.tools:push",
+                    "keeper.knowledge.tools:kb_read",
+                    "keeper.knowledge.tools:fetch_docs",
                 }
                 for _, tool_id in ipairs(required) do
                     test.is_true(tools[tool_id] == true,
                         "coder missing tool through direct refs or traits: " .. tool_id)
                 end
+
+                local delegates = {}
+                for _, delegate in ipairs((coder.data and coder.data.delegates) or {}) do
+                    delegates[delegate.name] = delegate.id
+                end
+                test.eq(delegates.research, "keeper.agents:researcher")
+
+                local prompt = coder.data and coder.data.prompt or ""
+                local memory = table.concat((coder.data and coder.data.memory) or {}, "\n")
+                test.is_true(prompt:find("local_alias: namespace:name", 1, true) ~= nil,
+                    "coder prompt must define registry-entry imports")
+                test.is_true(prompt:find("invalid import", 1, true) ~= nil,
+                    "coder prompt must reject invalid-import examples")
+                test.is_true(memory:find("Registry ids use", 1, true) ~= nil,
+                    "coder memory must retain registry-import guidance")
+                test.is_true(memory:find("internal Keeper knowledge base", 1, true) ~= nil,
+                    "coder memory must retain internal-KB guidance")
+                test.is_true(prompt:find("Declaration-first engineering", 1, true) ~= nil,
+                    "coder prompt must treat declarations as executable contracts")
+                test.is_true(memory:find("YAML declarations as the executable contract", 1, true) ~= nil,
+                    "coder memory must retain declaration-first guidance")
             end)
 
             it("agent manager has clone/analyze plus edit, branch, and push tools", function()
@@ -538,6 +561,18 @@ local function define_tests()
                 })
                 test.is_nil(err)
                 test.eq(filter, '(level >= 2) and (path == "gov.service.upload")')
+            end)
+
+            it("combines friendly log levels with a bare substring filter", function()
+                local filter, err = system.resolve_log_filter({ level = "warn", filter = "job_worker" })
+                test.is_nil(err)
+                test.eq(filter, '(level == 1) and (message contains "job_worker")')
+            end)
+
+            it("turns a bare substring filter into a message match", function()
+                local filter, err = system.resolve_log_filter({ filter = "lease" })
+                test.is_nil(err)
+                test.eq(filter, 'message contains "lease"')
             end)
 
             it("rejects unknown friendly log levels", function()

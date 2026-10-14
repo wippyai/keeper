@@ -78,7 +78,7 @@ local function define_tests()
                     "one or more handlers reported failure", P.IMPLEMENT)
 
                 local row = latest_summary(task_id)
-                test.not_nil(row, "phase_summary_integrate must be recorded")
+                if not row then error("phase_summary_integrate must be recorded") end
                 test.not_nil(row.content)
                 test.is_true(row.content:find("Stage handlers failed:", 1, true) ~= nil,
                     "summary must name the failing stage")

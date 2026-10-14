@@ -144,12 +144,12 @@ local function define_tests()
                 finish.handle(id, P.DESIGN, { status = "abandoned", summary = "not feasible" })
 
                 local exited = nodes_reader.latest_of_type(id, "phase_exited")
-                test.not_nil(exited, "expected phase_exited node after finish")
+                if not exited then error("expected phase_exited node after finish") end
                 test.eq(exited.discriminator, P.DESIGN)
                 test.eq(exited.status, "passed")
 
                 local transition = nodes_reader.latest_of_type(id, "phase_transition")
-                test.not_nil(transition, "expected phase_transition node")
+                if not transition then error("expected phase_transition node") end
                 test.eq(transition.discriminator, P.DESIGN .. "->" .. P.ABANDONED)
             end)
 
@@ -176,7 +176,7 @@ local function define_tests()
                     "stuck must park the task in waiting_for_user, not auto-advance")
 
                 local override = nodes_reader.latest_of_type(id, "override")
-                test.not_nil(override, "verification rewrite must emit an override node")
+                if not override then error("verification rewrite must emit an override node") end
                 test.eq(override.discriminator, S.STAGED)
                 test.eq(override.metadata.new_signal, S.STUCK)
 
@@ -198,7 +198,7 @@ local function define_tests()
                 test.eq(row.phase, P.FINISH)
 
                 local override = nodes_reader.latest_of_type(id, "override")
-                test.not_nil(override, "verification rewrite must emit an override node")
+                if not override then error("verification rewrite must emit an override node") end
                 test.eq(override.metadata.new_signal, S.ALREADY_DONE)
             end)
 
@@ -242,7 +242,7 @@ local function define_tests()
                     "implement cannot close a task as already_done without either edits or a prior merge")
 
                 local override = nodes_reader.latest_of_type(id, "override")
-                test.not_nil(override)
+                if not override then error("expected override node") end
                 test.eq(override.metadata.new_signal, S.STUCK)
             end)
 
@@ -277,7 +277,7 @@ local function define_tests()
                     "approved on rejected changeset must bounce back to implement")
 
                 local override = nodes_reader.latest_of_type(id, "override")
-                test.not_nil(override)
+                if not override then error("expected override node") end
                 test.eq(override.metadata.new_signal, S.BUGS)
             end)
         end)
@@ -297,7 +297,7 @@ local function define_tests()
                     "unmerged overlay changes still need review/integrate")
 
                 local transition = nodes_reader.latest_of_type(id, "phase_transition")
-                test.not_nil(transition)
+                if not transition then error("expected transition node") end
                 test.eq(transition.discriminator, P.DESIGN .. "->" .. P.REVIEW)
                 test.eq(transition.metadata.signal, S.ALREADY_DONE)
 

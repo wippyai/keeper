@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   installHubDependency,
   planHubInstall,
+  planHubUninstall,
+  scanHubInstall,
   uninstallHubDependency,
   type HubInstallPlanResponse,
   type HubRequirement,
@@ -73,6 +75,28 @@ describe('hub API', () => {
     expect(api.post).toHaveBeenCalledWith('/api/v1/keeper/hub/dependencies/plan', payload)
   })
 
+  it('runs the pre-install security scan through the hub scan endpoint', async () => {
+    const scan = {
+      success: true,
+      overall_status: 'clean',
+      overall_summary: 'Security review found no issues in scanned modules.',
+      modules: [{
+        module: 'wippy/dummy',
+        version: '0.1.2',
+        status: 'clean',
+        summary: 'Reviewed module; no risky patterns found.',
+        findings: [],
+      }],
+      scanned: 1,
+      total: 1,
+    }
+    const api = { post: vi.fn().mockResolvedValue({ data: scan }) } as any
+    const payload: InstallPayload = { component: 'wippy/dummy', version: '0.1.2' }
+
+    await expect(scanHubInstall(api, payload)).resolves.toEqual(scan)
+    expect(api.post).toHaveBeenCalledWith('/api/v1/keeper/hub/scan', payload)
+  })
+
   it('sends uninstall migration policy so applied migrations can be rolled back', async () => {
     const api = { post: vi.fn().mockResolvedValue({ data: { success: true } }) } as any
     const payload: UninstallPayload = {
@@ -83,6 +107,30 @@ describe('hub API', () => {
 
     await expect(uninstallHubDependency(api, payload)).resolves.toEqual({ success: true })
     expect(api.post).toHaveBeenCalledWith('/api/v1/keeper/hub/dependencies/uninstall', payload)
+  })
+
+  it('forces dry_run and returns the typed removal preview', async () => {
+    const preview = {
+      removed: [{ name: 'wippy/relay', version: '0.3.8' }],
+      kept: [{ name: 'wippy/terminal', version: '0.2.0' }, { name: 'wippy/test', version: '0.1.0' }],
+      kept_under_uncertainty: [],
+      warnings: [],
+    }
+    const api = { post: vi.fn().mockResolvedValue({ data: { success: true, preview } }) } as any
+
+    await expect(planHubUninstall(api, { id: 'app.deps:relay', component: 'wippy/relay' })).resolves.toEqual(preview)
+    expect(api.post).toHaveBeenCalledWith('/api/v1/keeper/hub/dependencies/uninstall', {
+      id: 'app.deps:relay',
+      component: 'wippy/relay',
+      dry_run: true,
+    })
+  })
+
+  it('falls back to an empty preview when the response omits one', async () => {
+    const api = { post: vi.fn().mockResolvedValue({ data: { success: true } }) } as any
+    await expect(planHubUninstall(api, { component: 'wippy/relay' })).resolves.toEqual({
+      removed: [], kept: [], kept_under_uncertainty: [], warnings: [],
+    })
   })
 
   it('models configuration requirements returned by hub versions', () => {

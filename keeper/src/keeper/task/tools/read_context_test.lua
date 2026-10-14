@@ -76,7 +76,7 @@ local function define_tests()
 
                 local out, err = read_context.read(task_id)
                 test.is_nil(err)
-                test.not_nil(out)
+                if not out then error("expected context output") end
                 test.is_true(out:find("## Live State", 1, true) ~= nil,
                     "Live State heading must be present")
                 test.is_true(out:find("- task_id: " .. task_id, 1, true) ~= nil,
@@ -105,7 +105,7 @@ local function define_tests()
             test.not_nil(ws)
 
             local out = read_context.read(task_id)
-            test.not_nil(out)
+            if not out then error("expected context output") end
             test.is_true(out:find("## Live State", 1, true) ~= nil,
                 "Live State must render on empty-findings path")
             test.is_true(out:find("No prior findings saved", 1, true) ~= nil,
@@ -117,7 +117,7 @@ local function define_tests()
             function()
                 local task_id = make_task("no changeset probe")
                 local out = read_context.read(task_id)
-                test.not_nil(out)
+                if not out then error("expected context output") end
                 test.is_true(out:find("active_changeset_id: %(none", 1) ~= nil,
                     "When there is no active changeset, the preamble says so explicitly")
                 cleanup_task(task_id)
@@ -149,7 +149,7 @@ local function define_tests()
                     'Reference impl: <embed id="keeper.develop.context:format_context" mode="full" />')
 
                 local out = read_context.read(task_id)
-                test.not_nil(out)
+                if not out then error("expected context output") end
                 -- The specific placeholder we wrote must be gone. We check
                 -- the exact placeholder string rather than any "<embed"
                 -- substring because the resolved entry's own source code
@@ -177,7 +177,7 @@ local function define_tests()
                     'Vanished entry: <embed id="ns:does_not_exist_xyz" mode="full" />')
 
                 local out = read_context.read(task_id)
-                test.not_nil(out)
+                if not out then error("expected context output") end
                 test.is_true(out:find("<embed", 1, true) == nil,
                     "Even an unresolvable embed is replaced (with an error marker), never left raw")
                 test.is_true(out:find("Entry not found: ns:does_not_exist_xyz", 1, true) ~= nil,

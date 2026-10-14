@@ -72,6 +72,7 @@ entries:
       nodes_reader: keeper.task.persist:nodes_reader
       nodes_writer: keeper.task.persist:nodes_writer
       state_machine: keeper.task.phases:state_machine
+      task_consts: keeper.task:consts
       task_reader: keeper.task.persist:reader
       task_writer: keeper.task.persist:writer
       test: wippy.test:test
@@ -360,4 +361,3 @@ entries:
       nodes_writer: keeper.task.persist:nodes_writer
       task_writer: keeper.task.persist:writer
     method: handler
-

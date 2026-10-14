@@ -33,12 +33,15 @@ M.CAPABILITIES = {
     tools = { listChanged = true },
 }
 
--- Streamable HTTP transport. GET / upgrades to SSE via sse_relay; a per-session
--- broker process forwards JSON-RPC notifications from POST handlers to the
--- client. Name prefix keys the broker by session token so reconnects can
--- hot-swap the prior stream.
+-- Streamable HTTP transport. Initialize creates one broker per MCP session;
+-- GET / attaches SSE streams to it via sse_relay. The broker name combines
+-- the token hash and session ID so sessions sharing a token stay separate.
 M.SSE_BROKER_NAME_PREFIX = "mcp.session."
+M.SSE_BROKER_READY_TOPIC_PREFIX = "mcp.broker.ready."
+M.SSE_BROKER_READY_TIMEOUT = "5s"
 M.SSE_MESSAGE_TOPIC = "message"
+M.MCP_ACTIVITY_TOPIC = "mcp.activity"
+M.SSE_IDLE_TIMEOUT = "30m"
 
 -- Topic POST handlers publish on to reach the per-session broker; the
 -- broker re-emits the payload to the SSE stream PID on SSE_MESSAGE_TOPIC.

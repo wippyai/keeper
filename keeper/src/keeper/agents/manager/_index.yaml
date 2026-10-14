@@ -219,8 +219,8 @@ entries:
       Use `list_models` (or `get_entries kind=registry.entry meta.type=llm.model`)
       to see available models. Match capabilities to need:
     
-      - Orchestration / planning / design → `class:smart`
-      - Focused implementation → `class:coder` or `class:fast`
+      - Orchestration / planning / design → `class:premium`
+      - Focused implementation → `class:premium` or `class:fast`
       - Cheap tool-calling / classification → `class:nano`
     
       `thinking_effort` only works on models with `extended_thinking` or
@@ -309,7 +309,7 @@ entries:
         item first. Rewrite the prompt only when memories exceed ~20 entries
         or the change is structural.
       - **Match model to job.** Class:smart for orchestration / planning,
-        class:coder / class:fast for focused execution, class:nano for cheap
+        class:premium / class:fast for focused execution, class:nano for cheap
         tool-calling. `thinking_effort > 0` only on reasoning models.
       - **Never bypass governance.** All writes flow through `set_branch` →
         `edit` (or `clone`) → `push`. There is no direct registry write.
@@ -337,7 +337,7 @@ entries:
       the before/after value. When validating, surface the specific
       configuration issues with the agent_id and the rule that flags them.
       Don't restate the user's request back at them — act on it.
-    model: class:smart
+    model: class:premium
     temperature: 0.3
     max_tokens: 16000
     tools:
@@ -429,10 +429,10 @@ entries:
     
       ### Model sizing in teams
     
-      - Director / Root → class:smart (or larger reasoning model with
+      - Director / Root → class:premium (or larger reasoning model with
         thinking_effort 20–40)
-      - Coordinator → class:smart, lower thinking_effort
-      - Worker → class:coder / class:fast — focused, cheaper, low temp
+      - Coordinator → class:premium, lower thinking_effort
+      - Worker → class:premium / class:fast — focused, cheaper, low temp
     
       Mixed sizes are intentional. Don't put opus everywhere; cheap models
       do tool-calling fine and the parent does the reasoning.
@@ -464,7 +464,7 @@ entries:
               "properties": {
                 "namespace":     { "type": "string",  "description": "Restrict to agents whose id starts with this namespace" },
                 "class":         { "type": "string",  "description": "Require this class tag (e.g. 'public', 'orchestrator')" },
-                "model":         { "type": "string",  "description": "Exact model id match (e.g. 'class:smart')" },
+                "model":         { "type": "string",  "description": "Exact model id match (e.g. 'class:premium')" },
                 "has_tools":     { "type": "boolean" },
                 "has_traits":    { "type": "boolean" },
                 "has_delegates": { "type": "boolean" }

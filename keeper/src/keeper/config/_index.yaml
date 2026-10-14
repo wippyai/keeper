@@ -35,3 +35,22 @@ entries:
     meta:
       comment: Route prefix for Keeper MCP on the host app gateway
     default: /keeper-mcp/
+
+  # keeper.config:mcp_max_sessions_per_token
+  - name: mcp_max_sessions_per_token
+    kind: registry.entry
+    meta:
+      comment: Maximum live MCP sessions allowed for one bearer token
+
+  # keeper.config:hub_security_scan_model
+  - name: hub_security_scan_model
+    kind: registry.entry
+    meta:
+      comment: Model class used for Keeper Hub security scans
+    default: class:fast
+
+  - name: mcp_group_resolver
+    kind: registry.entry
+    meta:
+      comment: Optional host function resolving live MCP subject groups.
+    default: ""
