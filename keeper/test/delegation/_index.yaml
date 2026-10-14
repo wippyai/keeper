@@ -1,0 +1,60 @@
+version: "1.0"
+namespace: app.delegation
+entries:
+  - name: state
+    kind: store.memory
+    max_size: 100
+  - name: generate
+    kind: function.lua
+    source: file://provider.lua
+    method: generate
+    modules: [store]
+  - name: driver
+    kind: contract.binding
+    contracts:
+      - contract: wippy.llm:generator
+        methods:
+          generate: app.delegation:generate
+  - name: provider
+    kind: registry.entry
+    meta:
+      type: llm.provider
+      name: keeper-delegation-test
+    driver:
+      id: app.delegation:driver
+  - name: model
+    kind: registry.entry
+    meta:
+      type: llm.model
+      name: keeper-delegation-test
+      capabilities: [generate, tool_use]
+    max_tokens: 4096
+    output_tokens: 256
+    providers:
+      - id: app.delegation:provider
+        provider_model: test
+  - name: agent
+    kind: registry.entry
+    meta:
+      type: agent.gen1
+      name: Keeper delegation test
+    model: keeper-delegation-test
+    prompt: Return the deterministic delegated answer.
+    tools: []
+  - name: native_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: keeper-delegation-native
+      timeout: 30s
+    source: file://native_test.lua
+    method: run
+    modules: [store, time, sql]
+    imports:
+      test: wippy.test:test
+      flow: userspace.dataflow.flow:flow
+      client: userspace.dataflow:client
+      consts: userspace.dataflow:consts
+      node_reader: userspace.dataflow.persist:node_reader
+      data_reader: userspace.dataflow.persist:data_reader
+      sql_dialect: keeper.internal:sql_dialect

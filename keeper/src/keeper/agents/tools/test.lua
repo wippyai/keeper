@@ -24,7 +24,7 @@ local function collect_agent_tools(agent_id)
     return seen, entry
 end
 
-local function fake_delegate_flow()
+local function fake_delegate_flow(run_result)
     local captured = {}
     local builder = {}
 
@@ -76,7 +76,7 @@ local function fake_delegate_flow()
 
     function builder:run()
         captured.ran = true
-        return { output = "done" }
+        return run_result or { output = "done" }
     end
 
     return {
@@ -376,6 +376,52 @@ local function define_tests()
                 test.eq(fake.captured.agent_config.arena.context.delegate_target_agent_id,
                     "keeper.agents:researcher")
                 test.eq(fake.captured.agent_config.arena.max_iterations, 4)
+            end)
+
+            local function run_delegate(run_result)
+                local fake = fake_delegate_flow(run_result)
+                local old = delegate._set_deps({
+                    flow = fake.module,
+                    ctx = { all = function() return {} end },
+                    agent_registry = {
+                        get_by_id = function(id)
+                            return { id = id, title = "Researcher", name = "researcher" }
+                        end,
+                    },
+                })
+                local out, err = delegate.handler({
+                    agent_id = "keeper.agents:researcher",
+                    message = "inspect this",
+                })
+                delegate._set_deps(old)
+                return out, err, fake
+            end
+
+            it("wraps a plain run output in the tool envelope", function()
+                local out, err = run_delegate({ output = "done" })
+
+                test.is_nil(err)
+                test.is_false(out.detached)
+                test.eq(out.agent_id, "keeper.agents:researcher")
+                test.eq(out.result.output, "done")
+                test.is_nil(out._control)
+            end)
+
+            it("exposes a nested control envelope at the top level", function()
+                local commands = { { type = "CREATE_NODE", payload = { node_id = "n1" } } }
+                local out, err = run_delegate({ _control = { commands = commands } })
+
+                test.is_nil(err)
+                test.not_nil(out._control)
+                test.eq(out._control.commands[1].payload.node_id, "n1")
+                test.is_nil(out.result)
+            end)
+
+            it("keeps its own fields beside a control envelope", function()
+                local out = run_delegate({ _control = { commands = {} } })
+
+                test.is_false(out.detached)
+                test.eq(out.agent_id, "keeper.agents:researcher")
             end)
         end)
 
