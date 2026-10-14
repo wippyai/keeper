@@ -15,27 +15,33 @@ local OP = M.OP
 type RegistryEntry = registry.Entry
 
 type SourceAuthority = {
-    host: boolean,
-    modules: {[string]: boolean},
-    roots: {string},
+    owners: {[string]: boolean},
+    ordered_owners: {string},
 }
 
-function M.retain_authoritative_entries(entries: {RegistryEntry}, authority: SourceAuthority)
+-- Ownership is registry provenance, never authored meta.module. Missing owner
+-- on a snapshot row denotes the application, as in older registry snapshots.
+function M.registry_owners(entries)
+    local owners = {}
+    for _, entry in ipairs(entries or {}) do
+        local owner = entry.registry and entry.registry.owner
+        owners[entry.id] = type(owner) == "string" and owner ~= "" and owner or "application"
+    end
+    return owners
+end
+
+function M.retain_authoritative_entries(entries: {RegistryEntry}, authority: SourceAuthority, owners)
     local retained: {RegistryEntry} = {}
     local skipped = {}
     for _, entry in ipairs(entries or {}) do
-        local module = entry.meta and entry.meta.module
-        local authoritative = authority.host and (module == nil or module == "")
-        if type(module) == "string" and module ~= "" then
-            authoritative = authority.modules[module] == true
-        end
-        if authoritative then
+        local owner = owners[entry.id]
+        if owner and authority.owners[owner] == true then
             table.insert(retained, entry)
         else
             table.insert(skipped, {
                 id = entry.id,
                 namespace = entry.id:match("^([^:]+):") or "unknown",
-                module = module,
+                module = owner,
             })
         end
     end
@@ -135,7 +141,7 @@ local function add_skip_stats(stats, filesystem_skipped, registry_skipped, manag
     return stats
 end
 
-local function build_details(managed_namespaces, filesystem_skipped, registry_skipped, unmounted_registry, source_roots)
+local function build_details(managed_namespaces, filesystem_skipped, registry_skipped, unmounted_registry, source_owners)
     return {
         managed_namespaces = managed_namespaces or {},
         skipped_unmanaged = {
@@ -143,7 +149,7 @@ local function build_details(managed_namespaces, filesystem_skipped, registry_sk
             registry = M.skipped_summary(registry_skipped),
             unmounted_registry = M.skipped_summary(unmounted_registry),
         },
-        source_roots = source_roots or {},
+        source_owners = source_owners or {},
     }
 end
 
@@ -183,14 +189,19 @@ local function get_registry_entries(options)
 
     local snapshot, err = registry.snapshot()
     if not snapshot then
-        return nil, nil, nil, "Failed to get registry snapshot: " .. tostring(err)
+        return nil, nil, nil, nil, "Failed to get registry snapshot: " .. tostring(err)
     end
 
+    local state, state_err = snapshot:state()
+    if not state or type(state.entries) ~= "table" then
+        return nil, nil, nil, nil, "Failed to get registry provenance: " .. tostring(state_err)
+    end
+    local owners = M.registry_owners(state.entries)
     local all_entries = snapshot:entries()
     local filtered_entries, skipped, managed_namespaces, filter_err =
         filter_managed_entries(all_entries :: {RegistryEntry}, options, "registry")
     if not filtered_entries then
-        return nil, nil, nil, filter_err
+        return nil, nil, nil, nil, filter_err
     end
 
     log:info("Retrieved registry entries", {
@@ -198,41 +209,46 @@ local function get_registry_entries(options)
         managed_count = #filtered_entries
     })
 
-    return filtered_entries, skipped, managed_namespaces
+    return filtered_entries, skipped, managed_namespaces, owners
 end
 
 -- Get filesystem entries (filtered to managed namespaces)
 local function get_filesystem_entries(options)
     log:debug("Getting filesystem entries", options)
 
-    local source_modules = rawget(system, "source_modules")
-    local load_sources = rawget(loader, "load_sources")
-    if (source_modules == nil) ~= (load_sources == nil) then
-        return nil, nil, nil, nil, "runtime module-source capabilities are incomplete"
-    end
-
-    local authority: SourceAuthority = { host = true, modules = {}, roots = { "application" } }
+    local source = rawget(system, "source")
+    local authority: SourceAuthority = {
+        owners = { application = true },
+        ordered_owners = { "application" },
+    }
     local all_entries: {RegistryEntry} = {}
 
-    if source_modules ~= nil and load_sources ~= nil then
-        if type(source_modules) ~= "function" or type(load_sources) ~= "function" then
-            return nil, nil, nil, nil, "runtime module-source capabilities have invalid types"
+    if source ~= nil then
+        if type(source) ~= "table" then
+            return nil, nil, nil, nil, "runtime source capability has an invalid type"
         end
-        local modules, modules_err = source_modules()
-        if not modules then return nil, nil, nil, nil, tostring(modules_err) end
-        for _, module in ipairs(modules) do
-            if type(module) ~= "string" then
-                return nil, nil, nil, nil, "runtime returned an invalid module-source identifier"
-            end
-            local module_name: string = module
-            authority.modules[module_name] = true
-            table.insert(authority.roots, module_name)
+        local load = rawget(source, "load")
+        if type(load) ~= "function" then
+            return nil, nil, nil, nil, "runtime source load capability is unavailable"
         end
-        local loaded, load_err = load_sources()
+        local loaded, load_err = load()
         if not loaded then
             return nil, nil, nil, nil, "Failed to load deployment sources: " .. tostring(load_err)
         end
-        all_entries = M.retain_authoritative_entries(loaded :: {RegistryEntry}, authority)
+        if type(loaded.owners) ~= "table" or type(loaded.entries) ~= "table" then
+            return nil, nil, nil, nil, "runtime returned an invalid deployment source snapshot"
+        end
+        authority = { owners = {}, ordered_owners = {} }
+        for _, owner in ipairs(loaded.owners) do
+            if type(owner) ~= "string" or owner == "" then
+                return nil, nil, nil, nil, "runtime returned an invalid source owner"
+            end
+            if not authority.owners[owner] then
+                authority.owners[owner] = true
+                table.insert(authority.ordered_owners, owner)
+            end
+        end
+        all_entries = loaded.entries :: {RegistryEntry}
     else
         -- Older runtimes expose only the application filesystem. Module-owned
         -- snapshots stay outside this sync operation.
@@ -251,7 +267,7 @@ local function get_filesystem_entries(options)
             return nil, nil, nil, nil,
                 "Failed to load application source: " .. tostring(load_err)
         end
-        all_entries = M.retain_authoritative_entries(host_entries :: {RegistryEntry}, authority)
+        all_entries = host_entries :: {RegistryEntry}
     end
 
     local filtered_entries, skipped, managed_namespaces, filter_err =
@@ -301,7 +317,7 @@ local function has_changes(options)
     log:info("Checking for changes between registry and filesystem")
 
     -- Get current registry entries (managed namespaces only)
-    local currentEntries, registry_skipped, managed_namespaces, err = get_registry_entries(options)
+    local currentEntries, registry_skipped, managed_namespaces, owners, err = get_registry_entries(options)
     if not currentEntries then
         return {
             success = false,
@@ -318,7 +334,7 @@ local function has_changes(options)
         }
     end
     local unmounted_registry
-    currentEntries, unmounted_registry = M.retain_authoritative_entries(currentEntries, authority)
+    currentEntries, unmounted_registry = M.retain_authoritative_entries(currentEntries, authority, owners)
 
     -- Build delta between current registry entries and filesystem entries
     local comparison, err = compare_entries(currentEntries, filesystemEntries)
@@ -339,7 +355,7 @@ local function has_changes(options)
         has_changes = comparison.has_changes,
         count = comparison.count,
         details = build_details(managed_namespaces, filesystem_skipped, registry_skipped,
-            unmounted_registry, authority.roots),
+            unmounted_registry, authority.ordered_owners),
     }
 end
 
@@ -348,7 +364,7 @@ local function upload(options)
     log:info("Starting upload operation")
 
     -- Get current registry entries (managed namespaces only)
-    local currentEntries, registry_skipped, managed_namespaces, err = get_registry_entries(options)
+    local currentEntries, registry_skipped, managed_namespaces, owners, err = get_registry_entries(options)
     if not currentEntries then
         return {
             success = false,
@@ -365,7 +381,7 @@ local function upload(options)
         }
     end
     local unmounted_registry
-    currentEntries, unmounted_registry = M.retain_authoritative_entries(currentEntries, authority)
+    currentEntries, unmounted_registry = M.retain_authoritative_entries(currentEntries, authority, owners)
 
     -- Build delta between current registry entries and filesystem entries
     local comparison, err = compare_entries(currentEntries, filesystemEntries)
@@ -391,7 +407,7 @@ local function upload(options)
                 delete = 0
             }, filesystem_skipped, registry_skipped, managed_namespaces, unmounted_registry),
             details = build_details(managed_namespaces, filesystem_skipped, registry_skipped,
-                unmounted_registry, authority.roots),
+                unmounted_registry, authority.ordered_owners),
         }
     end
 
@@ -416,7 +432,7 @@ local function upload(options)
         count = comparison.count,
         stats = stats,
         details = build_details(managed_namespaces, filesystem_skipped, registry_skipped,
-            unmounted_registry, authority.roots),
+            unmounted_registry, authority.ordered_owners),
     }
 end
 
