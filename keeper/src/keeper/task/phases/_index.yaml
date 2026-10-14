@@ -55,6 +55,7 @@ entries:
       nodes_reader: keeper.task.persist:nodes_reader
       nodes_writer: keeper.task.persist:nodes_writer
       phase_spawner: keeper.task.service:phase_spawner
+      sql_dialect: keeper.internal:sql_dialect
       state_machine: keeper.task.phases:state_machine
       task_consts: keeper.task:consts
       task_reader: keeper.task.persist:reader

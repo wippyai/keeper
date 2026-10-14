@@ -7,6 +7,7 @@ local system = require("system")
 local json = require("json")
 
 local logger_client = require("logger_client")
+local logger_filter = require("logger_filter")
 local render = require("render")
 
 local M = {}
@@ -75,8 +76,7 @@ end
 
 function M.resolve_log_filter(params)
     params = params or {}
-    local filter = params.filter
-    if filter == "" then filter = nil end
+    local filter = logger_filter.normalize(params.filter)
 
     local level_expr, err = M.log_level_filter(params.level)
     if err then return nil, err end
@@ -377,8 +377,7 @@ end
 -- ---------------------------------------------------------------------------
 
 function ACTIONS.log_composition(params)
-    local filter = params.filter
-    if filter == "" then filter = nil end
+    local filter = logger_filter.normalize(params.filter)
     local result, err = logger_client.get_composition(filter, params.timeout or "5s")
     if err then return nil, "log_composition: " .. tostring(err) end
 

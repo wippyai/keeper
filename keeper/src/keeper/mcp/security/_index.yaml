@@ -76,3 +76,85 @@ entries:
         - registry.find
         - registry.get
       effect: allow
+
+  # keeper.mcp.security:endpoint_env_read
+  - name: endpoint_env_read
+    kind: security.policy
+    meta:
+      comment: The public Keeper MCP endpoint may read its transport switch and the public base URL it advertises.
+    policy:
+      resources:
+        - keeper.mcp:enabled
+        - PUBLIC_API_URL
+      actions:
+        - env.get
+      effect: allow
+
+  # keeper.mcp.security:sse_broker_identity
+  - name: sse_broker_identity
+    kind: security.policy
+    meta:
+      comment: MCP initialization spawns its session broker with a fresh context carrying the token subject's actor and scope; the runtime gates with_context on process.context and with_actor/with_scope on process.security.
+    policy:
+      resources:
+        - context
+        - security
+      actions:
+        - process.context
+        - process.security
+      effect: allow
+
+  # keeper.mcp.security:sse_broker_spawn
+  - name: sse_broker_spawn
+    kind: security.policy
+    meta:
+      comment: MCP initialization may spawn the per-session SSE broker, and no other process.
+    policy:
+      resources: keeper.mcp.transport:broker
+      actions:
+        - process.spawn
+      effect: allow
+
+  # keeper.mcp.security:sse_broker_host
+  - name: sse_broker_host
+    kind: security.policy
+    meta:
+      comment: MCP initialization may place its session broker on Keeper's process host. The resource is bound from the keeper:process_host requirement, so it follows the host the application configures.
+    policy:
+      resources: app:processes
+      actions:
+        - process.host
+      effect: allow
+
+  # keeper.mcp.security:sse_broker_unregister
+  - name: sse_broker_unregister
+    kind: security.policy
+    meta:
+      comment: DELETE may unregister its authenticated session name. Brokers register their own session and slot names during startup.
+    policy:
+      resources: mcp.session.*
+      actions:
+        - process.registry.unregister
+      effect: allow
+
+  # keeper.mcp.security:sse_broker_cancel
+  - name: sse_broker_cancel
+    kind: security.policy
+    meta:
+      comment: POST cancels a broker on readiness timeout or missing reply; DELETE cancels its authenticated session broker.
+    policy:
+      resources: '*'
+      actions:
+        - process.cancel
+      effect: allow
+
+  # keeper.mcp.security:sse_broker_send
+  - name: sse_broker_send
+    kind: security.policy
+    meta:
+      comment: POST sends session activity and tool-surface notifications to the resolved MCP broker.
+    policy:
+      resources: '*'
+      actions:
+        - process.send
+      effect: allow

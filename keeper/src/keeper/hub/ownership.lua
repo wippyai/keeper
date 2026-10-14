@@ -8,10 +8,9 @@ local function trim(value: unknown): string
 end
 
 -- Ownership is read from one registry snapshot, so a dynamic install or
--- uninstall cannot produce a mixed inventory. Current runtimes attach
--- registry-owned metadata to each state entry. During rollout, released
--- runtimes may instead return the same ownership in the snapshot's atomic
--- provenance map. Author metadata is never an ownership source.
+-- uninstall cannot produce a mixed inventory. Ownership is the registry-owned
+-- metadata on each state entry and versions come from state.resolution.
+-- Author metadata is never an ownership source.
 function M.new(registry_module)
     return setmetatable({
         registry = registry_module,
@@ -42,12 +41,22 @@ function Index:capture()
     if type(state) ~= "table" or type(state.entries) ~= "table" then
         return nil, "registry snapshot returned malformed ownership state"
     end
+    local version_reader = snapshot.version
+    local version = type(version_reader) == "function" and version_reader(snapshot) or nil
     self.snapshot = {
         entries = state.entries,
-        provenance = state.provenance,
         resolution = state.resolution,
+        version = version and tonumber(version:id()) or nil,
     }
     return self.snapshot, nil
+end
+
+-- Registry version the captured snapshot belongs to.
+function Index:version_id()
+    local snapshot, capture_err = self:capture()
+    if not snapshot then return nil, capture_err end
+    if snapshot.version == nil then return nil, "registry snapshot does not report its version" end
+    return snapshot.version, nil
 end
 
 local function resolved_versions(resolution)
@@ -62,16 +71,9 @@ local function resolved_versions(resolution)
     return versions
 end
 
-local function entry_ownership(snapshot, row)
+local function entry_ownership(row)
     if type(row.registry) == "table" then
-        return trim(row.registry.owner), row.registry.root == true, ""
-    end
-    if type(snapshot.provenance) == "table" then
-        local record = snapshot.provenance[tostring(row.id)]
-        if type(record) ~= "table" then
-            return nil, nil, "registry snapshot has no ownership for " .. tostring(row.id)
-        end
-        return trim(record.module), record.root == true, trim(record.version)
+        return trim(row.registry.owner), row.registry.root == true, nil
     end
     return nil, nil, "registry snapshot entry has no registry ownership for " .. tostring(row.id)
 end
@@ -88,9 +90,9 @@ function Index:load()
     local versions = resolved_versions(snapshot.resolution)
     for _, row in ipairs(snapshot.entries) do
         local id = tostring(row.id)
-        local name, root, map_version = entry_ownership(snapshot, row)
-        if name == nil then return nil, nil, map_version end
-        local version = versions[name] or map_version
+        local name, root, ownership_err = entry_ownership(row)
+        if name == nil then return nil, nil, ownership_err end
+        local version = versions[name] or ""
         by_id[id] = {
             module = name,
             version = version,
@@ -160,6 +162,25 @@ function Index:root_of(id)
     if not by_id then return nil, load_err end
     local p = by_id[tostring(id)]
     return p ~= nil and p.root == true, nil
+end
+
+function Index:selection_of(component)
+    local snapshot, capture_err = self:capture()
+    if not snapshot then return nil, capture_err end
+    local resolution = snapshot.resolution
+    if type(resolution) ~= "table" or type(resolution.modules) ~= "table" then return nil, nil end
+    for _, module in ipairs(resolution.modules) do
+        if trim(module.name) == trim(component) then
+            return {
+                version = trim(module.version),
+                source = trim(module.source),
+                digest = trim(module.digest),
+                size_bytes = module.size_bytes,
+                protected = module.protected,
+            }, nil
+        end
+    end
+    return nil, nil
 end
 
 -- Installed module name -> resolved version, for inventory listings.

@@ -1,11 +1,12 @@
 local test = require("test")
 local uuid = require("uuid")
 local sql = require("sql")
+local time = require("time")
 local changelog = require("changelog")
 
 local function define_tests()
     describe("Knowledge Changelog", function()
-        local test_version = "v-" .. uuid.v7()
+        local test_version = time.now():unix()
         local test_namespace = "test.ns." .. uuid.v7():sub(1, 8)
         local test_request_id = "req-" .. uuid.v7()
         local test_user_id = "user-" .. uuid.v7()

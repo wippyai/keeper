@@ -3,6 +3,7 @@ local audit = require("audit")
 local hub_service = require("hub_service")
 local helpers = require("helpers")
 local planner = require("planner")
+local requirement_fill = require("requirement_fill")
 
 local M = {}
 local TOOL_ID = "keeper.hub.tools:dependencies"
@@ -11,6 +12,7 @@ type HandleDeps = {
     actor_id: string?,
     hub_service: unknown?,
     planner: unknown?,
+    requirement_fill: unknown?,
 }
 
 function M._handle(input: unknown?, deps: HandleDeps?)
@@ -28,6 +30,8 @@ function M._handle(input: unknown?, deps: HandleDeps?)
         return svc.list_dependencies(args)
     elseif action == "plan" then
         return plan.plan_install(args)
+    elseif action == "fill_gaps" then
+        return (deps.requirement_fill or requirement_fill).fill_gaps(args)
     elseif action == "install" then
         if not deps.actor_id or deps.actor_id == "" then
             return nil, "actor_id is required"

@@ -1,7 +1,7 @@
 local logger = require("logger")
 local time = require("time")
 local json = require("json")
-local expr = require("expr")
+local logger_filter = require("logger_filter")
 local events = require("events")
 local notify = require("notify")
 local events_consts = require("events_consts")
@@ -53,13 +53,14 @@ local function buffer_get_all(buf)
 end
 
 local function apply_filter(logs, filter_expr)
-    if not filter_expr or filter_expr == "" then
+    local normalized = logger_filter.normalize(filter_expr)
+    if not normalized then
         return logs, nil
     end
 
-    local program, err = expr.compile(filter_expr)
-    if err then
-        return nil, consts.ERRORS.FILTER_COMPILE_FAILED .. ": " .. err
+    local program, err = logger_filter.compile(normalized)
+    if err or not program then
+        return nil, consts.ERRORS.FILTER_COMPILE_FAILED .. ": " .. tostring(err)
     end
 
     local filtered = {}

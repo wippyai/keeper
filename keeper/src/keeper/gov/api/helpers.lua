@@ -35,12 +35,9 @@ function M.apply_version_with_journal(target_version_id, timeout)
         return { ok = true, journaled = 0 }, after_err
     end
 
-    -- registry.build_delta accepts entry arrays at runtime and in
-    -- registry/spec.md; the runtime type metadata currently labels these
-    -- parameters as registry.Version.
     local changeset, delta_err = registry.build_delta(
-        before_entries :: registry.Version,
-        after_entries :: registry.Version
+        before_entries,
+        after_entries
     )
     if not changeset then
         return { ok = true, journaled = 0 }, delta_err
