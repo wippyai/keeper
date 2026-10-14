@@ -1,15 +1,16 @@
 local registry = require("registry")
+local json = require("json")
 local hub_sdk = require("hub")
 local gov_consts = require("gov_consts")
 local ownership = require("ownership")
 
 type ServiceError = unknown
-type Parameter = { name: string, value: string }
+type Parameter = { name: string, value: any }
 type RequirementTarget = { entry?: string, path?: string }
 type HubRequirement = {
     name?: string,
     description?: string,
-    default?: string,
+    default?: any,
     required?: boolean,
     meta?: {[string]: unknown},
     targets?: { RequirementTarget },
@@ -29,12 +30,15 @@ type VersionPart = {
 }
 type VersionItem = {
     id?: string,
+    source?: string,
+    entries?: { unknown },
     version: string,
     yanked?: boolean,
     dependencies?: { HubDependencyRef },
     requirements?: { HubRequirement },
     entry_count?: number,
     entry_kinds?: { string },
+    resource_kinds?: {[string]: string},
     lua_modules?: { string },
     size_bytes?: number,
     digest?: string,
@@ -58,6 +62,7 @@ type GraphNode = {
     namespace: string,
     version: string,
     version_id?: string,
+    source?: string,
     constraint: string,
     depth: number,
     parent: string?,
@@ -65,6 +70,7 @@ type GraphNode = {
     direct: boolean,
     dependencies: { HubDependencyRef },
     requirements: { HubRequirement },
+    resource_kinds?: {[string]: string},
 }
 type ConstraintPart = {
     op: string,
@@ -382,6 +388,60 @@ local function default_dependency_namespace_for(gov): string
     return (roots[1] or "app") .. ".deps"
 end
 
+local function deep_copy(value)
+    if type(value) ~= "table" then return value end
+    local out = {}
+    for k, v in pairs(value) do out[k] = deep_copy(v) end
+    return out
+end
+
+-- A requirement parameter carries the shape the module declares: scalars keep
+-- their JSON types (especially false), and an object or array value stays
+-- structured data all the way into the dependency entry.
+local function parameter_value(value)
+    local kind = type(value)
+    if kind == "table" then return deep_copy(value) end
+    if kind == "boolean" or kind == "number" then return value end
+    return tostring(value or "")
+end
+
+local function value_is_empty(value): boolean
+    if value == nil then return true end
+    if type(value) == "string" then return trim(value) == "" end
+    return false
+end
+
+-- Structured values are compared and deduplicated by content: two objects with
+-- the same fields are the same configuration regardless of table identity.
+local function value_key(value): string
+    if type(value) ~= "table" then return type(value) .. ":" .. tostring(value) end
+    local keys = {}
+    for k in pairs(value) do table.insert(keys, k) end
+    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+    local parts = {}
+    for _, k in ipairs(keys) do
+        table.insert(parts, tostring(k) .. "=" .. value_key(value[k]))
+    end
+    return "table:{" .. table.concat(parts, ",") .. "}"
+end
+
+local function value_label(value): string
+    if type(value) ~= "table" then return tostring(value) end
+    local encoded, encode_err = json.encode(value)
+    if encoded and not encode_err then return encoded end
+    return value_key(value)
+end
+
+function M.parameter_value_is_empty(value): boolean
+    return value_is_empty(value)
+end
+
+-- Callers matching a planned parameter against a recorded one compare by
+-- content: a structured value is never the same table on both sides.
+function M.parameter_values_equal(a, b): boolean
+    return value_key(a) == value_key(b)
+end
+
 function M.normalize_parameters(input): ({ Parameter }?, unknown?)
     if input == nil then return {}, nil end
     if type(input) ~= "table" then
@@ -401,7 +461,7 @@ function M.normalize_parameters(input): ({ Parameter }?, unknown?)
         end
         seen[name] = true
         if value == nil then value = "" end
-        table.insert(out, { name = name, value = tostring(value) })
+        table.insert(out, { name = name, value = parameter_value(value) })
         return nil
     end
 
@@ -583,6 +643,41 @@ local function is_semver_constraint(constraint: string): boolean
     return false
 end
 
+-- The version an ns.dependency entry declares. The entry is the application's
+-- authored range, and the runtime keeps an installed module while the range
+-- still admits it, so an entry never holds a bare release: an exact release V
+-- raises the floor to >=V (npm install foo@V, cargo add), a range or a @label
+-- is declared as given, and no version declares the default range. The release
+-- is written without a v prefix, the form Hub releases and the application's
+-- own declarations use.
+function M.declared_version(requested): (string?, unknown?)
+    local version = trim(requested)
+    if version == "" then return M.DEFAULT_VERSION, nil end
+    if starts_with(version, "@") then
+        if #version == 1 then
+            return nil, err("BAD_REQUEST", "version label must name a label after @", { version = version }) :: unknown?
+        end
+        return version, nil
+    end
+    if is_semver_constraint(version) then
+        for _, part in ipairs(split_constraint(version)) do
+            if not parse_constraint_part(part) then
+                return nil, err("BAD_REQUEST", "version " .. version
+                    .. " is neither an exact release (0.1.41) nor a range (>=0.1.41, ^0.1.0, =0.1.41)",
+                    { version = version }) :: unknown?
+            end
+        end
+        return version, nil
+    end
+    local release = version_parts(version)
+    if not release then
+        return nil, err("BAD_REQUEST", "version " .. version
+            .. " is neither an exact release (0.1.41) nor a range (>=0.1.41, ^0.1.0, =0.1.41)",
+            { version = version }) :: unknown?
+    end
+    return ">=" .. release.raw, nil
+end
+
 local function version_satisfies(version, constraint): boolean
     local parsed = version_parts(version)
     if not parsed then return false end
@@ -629,15 +724,36 @@ local function requirement_required(req): boolean
     return true
 end
 
--- A requirement resolves to registry candidates only through the type it
--- declares (meta.value_kind on the ns.requirement entry). There is no
--- inference from requirement names or target paths: names are module-authored
--- identifiers the installer cannot enumerate, so keying on them couples the
--- planner to individual modules.
+-- value_type describes literals; value_kind describes registry references
+-- when no literal type is declared. Requirement names do not infer types.
 local function requirement_value_kind(req): string?
+    if trim(req and req.meta and req.meta.value_type) ~= "" then return nil end
     local explicit = trim(req and req.meta and req.meta.value_kind)
     if explicit ~= "" then return explicit end
     return nil
+end
+
+local LITERAL_TYPES = {boolean = true, number = true, integer = true, string = true, object = true, array = true}
+
+local function literal_type_matches(expected, value): boolean
+    if expected == "integer" then
+        if type(value) ~= "number" then return false end
+        local numeric = value :: number
+        return numeric % 1 == 0
+    end
+    if expected == "array" then return is_array(value) end
+    if expected == "object" then
+        return type(value) == "table" and (next(value) == nil or not is_array(value))
+    end
+    return type(value) == expected
+end
+
+local function requirement_id(node, req): string
+    local namespace = trim(req.namespace)
+    if namespace == "" then
+        namespace = tostring(node.namespace or M.module_namespace(node.module) or node.module)
+    end
+    return namespace .. ":" .. trim(req.name)
 end
 
 -- Kind families: a requirement names the family it accepts, while the resource
@@ -665,6 +781,8 @@ function M.new(deps: PlannerDeps?)
         gov = deps.gov or gov_consts,
         ownership = deps.ownership or ownership,
         version_cache = {},
+        version_details_cache = {},
+        artifact_cache = {},
     }, Planner) :: PlannerInstance
 end
 
@@ -686,6 +804,7 @@ function Planner:find_entries(criteria)
 end
 
 function Planner:dependency_entries()
+    if self.__dependency_entries then return self.__dependency_entries, nil end
     local rows, rows_err = self:find_entries({ [".kind"] = "ns.dependency" })
     if not rows then return nil, rows_err end
     -- Sort a copy: registry.find may hand back a backing slice, and sorting it
@@ -693,6 +812,7 @@ function Planner:dependency_entries()
     local out = {}
     for _, entry in ipairs(rows) do table.insert(out, entry) end
     table.sort(out, function(a, b) return tostring(a.id) < tostring(b.id) end)
+    self.__dependency_entries = out
     return out, nil
 end
 
@@ -889,12 +1009,22 @@ function Planner:resolve_dependency_destination_args(args): (unknown?, unknown?)
                 .. tostring(destination_namespace or ""),
             { id = destination_id, namespace = destination_namespace, component = parsed.component }) :: unknown?
     end
+    local recorded_data = existing and type((existing :: any).data) == "table" and (existing :: any).data or {}
+    -- An update that supplies no version keeps the destination's declared
+    -- range: the declaration is authored application state, and reinstalling
+    -- a component does not rewrite what the application accepts.
+    if trim(out.version) == "" and trim(recorded_data.version) ~= "" then
+        out.version = trim(recorded_data.version)
+    else
+        local declared, version_err = M.declared_version(out.version)
+        if not declared then return nil, version_err end
+        out.version = declared
+    end
     -- An update that supplies no parameters keeps the destination's recorded
     -- ones: absence means unchanged, never re-planned. Re-planning let another
     -- root's same-named parameter replace an operator's recorded value.
     local parameters_empty = type(out.parameters) == "table" and next(out.parameters) == nil
     if out.parameters == nil or parameters_empty then
-        local recorded_data = existing and type((existing :: any).data) == "table" and (existing :: any).data or {}
         local recorded_params = type(recorded_data.parameters) == "table" and recorded_data.parameters or {}
         if #recorded_params > 0 then
             local copied = {}
@@ -905,6 +1035,45 @@ function Planner:resolve_dependency_destination_args(args): (unknown?, unknown?)
         end
     end
     return out, nil
+end
+
+function Planner:replacement_version(component)
+    local native = self.native_modules and self.native_modules[component] == true
+    local index = native and self.native_ownership or self:ownership_index()
+    local selection, selection_err = index:selection_of(component)
+    if selection_err then return nil, err("INTERNAL", tostring(selection_err)) end
+    if not selection or (not native and selection.source ~= "replacement-tree-v1") then return nil, nil end
+    local entries, entries_err = index:entries_for(component)
+    if entries_err then return nil, err("INTERNAL", tostring(entries_err)) end
+    local children, children_err = self:installed_child_components(component, index)
+    if children_err then return nil, children_err end
+    local dependencies = {}
+    for _, child in ipairs(children) do
+        local parsed, parse_err = M.parse_component(child.ref)
+        if not parsed then return nil, parse_err end
+        table.insert(dependencies, {
+            org = parsed.org, name = parsed.module, version_constraint = child.constraint,
+        })
+    end
+    local kinds, seen = {}, {}
+    for _, entry in ipairs(entries) do
+        if not seen[entry.kind] then
+            seen[entry.kind] = true
+            table.insert(kinds, entry.kind)
+        end
+    end
+    return {
+        version = selection.version,
+        source = selection.source,
+        digest = selection.digest,
+        size_bytes = selection.size_bytes,
+        protected = selection.protected,
+        dependencies = dependencies,
+        requirements = requirements_from_entries(entries),
+        entries = entries,
+        entry_count = #entries,
+        entry_kinds = kinds,
+    }, nil
 end
 
 function Planner:list_all_versions(component)
@@ -942,7 +1111,32 @@ function Planner:list_all_versions(component)
     return out, nil
 end
 
+local function cached_version_metadata(cache, component, selected, load)
+    local identity = selected and (trim(selected.version) ~= "" and "version:" .. trim(selected.version)
+        or trim(selected.id) ~= "" and "id:" .. trim(selected.id))
+    if not identity then return load() end
+    local module_cache = cache[component]
+    if module_cache and module_cache[identity] then return module_cache[identity], nil end
+    local value, load_err = load()
+    if not value then return nil, load_err end
+    if not module_cache then module_cache = {}; cache[component] = module_cache end
+    module_cache[identity] = value
+    return value, nil
+end
+
 function Planner:version_details(component, selected)
+    return cached_version_metadata(self.version_details_cache, component, selected, function()
+        return self:load_version_details(component, selected)
+    end)
+end
+
+function Planner:load_version_details(component, selected)
+    local replacement, replacement_err = self:replacement_version(component)
+    if replacement_err then return nil, replacement_err end
+    if replacement and selected then
+        replacement.version = selected.version
+        return replacement, nil
+    end
     if not selected or not self.catalog or not self.catalog.versions or not self.catalog.versions.get then
         local with_deps, dep_err = self:dependency_details(component, selected)
         if not with_deps then return nil, dep_err end
@@ -994,6 +1188,10 @@ function Planner:artifact_requirement_details(component, selected)
     else
         merged.requirements = inspected_artifact.requirements or {}
     end
+    merged.resource_kinds = {}
+    for _, entry in ipairs(inspected_artifact.entries or {}) do
+        merged.resource_kinds[entry.id] = entry.kind
+    end
     merged.entry_count = inspected_artifact.entry_count or merged.entry_count
     merged.entry_kinds = inspected_artifact.entry_kinds or merged.entry_kinds
     merged.size_bytes = inspected_artifact.size_bytes or merged.size_bytes
@@ -1003,6 +1201,22 @@ function Planner:artifact_requirement_details(component, selected)
 end
 
 function Planner:inspect_artifact(component, selected)
+    return cached_version_metadata(self.artifact_cache, component, selected, function()
+        return self:load_artifact(component, selected)
+    end)
+end
+
+function Planner:load_artifact(component, selected)
+    local replacement, replacement_err = self:replacement_version(component)
+    if replacement_err then return nil, replacement_err end
+    if replacement then
+        return {
+            module = component,
+            version = selected and selected.version or replacement.version,
+            digest = replacement.digest,
+            entries = replacement.entries,
+        }, nil
+    end
     component = trim(component)
     local selected_item = selected :: VersionItem
     if component == "" then
@@ -1124,20 +1338,14 @@ function Planner:select_version(component, constraint)
     return self:version_details(component, selected)
 end
 
--- Selects the highest published version in the intersection of every incoming
+-- Selects a source or published version in the intersection of every incoming
 -- edge constraint. A dependency graph is not a tree: diamonds and cycles can
 -- address the same module more than once, and choosing from only the first edge
 -- makes the plan depend on traversal order.
-function Planner:select_version_for_constraints(component, incoming, preferred, keep_preferred)
+function Planner:select_version_for_constraints(component, incoming, preferred, keep_preferred, installed_version)
     incoming = incoming or {}
     if #incoming == 0 then
         incoming = { { constraint = M.DEFAULT_VERSION, required_by = "root", path = component } }
-    end
-
-    local versions, versions_err = self:list_all_versions(component)
-    if not versions then return nil, versions_err end
-    if #versions == 0 then
-        return nil, err("NOT_FOUND", "no versions available for " .. component)
     end
 
     local labels = {}
@@ -1179,10 +1387,36 @@ function Planner:select_version_for_constraints(component, incoming, preferred, 
         return preferred, nil
     end
 
+    local replacement, replacement_err = self:replacement_version(component)
+    if replacement_err then return nil, replacement_err end
+    if replacement and admits(replacement) then return replacement, nil end
+
+    local versions, versions_err = self:list_all_versions(component)
+    if not versions then return nil, versions_err end
+    if #versions == 0 then
+        return nil, err("NOT_FOUND", "no versions available for " .. component)
+    end
+
+    -- The runtime resolves a declaration against the versions it has
+    -- installed first: an installed module keeps its version while every
+    -- constraint still admits it, and only a constraint that excludes it moves
+    -- the selection to the highest admitted release. The plan selects the same
+    -- way, so the version it reports is the version the apply installs.
     local selected
-    for _, item in ipairs(versions) do
-        if admits(item) and (not selected or compare_versions(item.version, selected.version) > 0) then
-            selected = item
+    local installed = trim(installed_version) ~= "" and version_parts(installed_version) or nil
+    if installed then
+        for _, item in ipairs(versions) do
+            if compare_versions(item.version, installed) == 0 and admits(item) then
+                selected = item
+                break
+            end
+        end
+    end
+    if not selected then
+        for _, item in ipairs(versions) do
+            if admits(item) and (not selected or compare_versions(item.version, selected.version) > 0) then
+                selected = item
+            end
         end
     end
     if not selected then
@@ -1280,8 +1514,11 @@ function Planner:resolve_install_graph(component, constraint, opts)
 
     local ctx, ctx_err = self:install_graph_context(parsed.component)
     if not ctx then return nil, ctx_err end
-    local installed_constraints, installed_constraints_err = self:installed_constraints(parsed.component)
+    local installed_constraints, installed_constraints_err = self:installed_constraints(
+        parsed.component, opts.dependency_id)
     if not installed_constraints then return nil, installed_constraints_err end
+    local installed_versions, installed_versions_err = self:ownership_index():module_versions()
+    if not installed_versions then return nil, err("INTERNAL", tostring(installed_versions_err)) end
     local max_depth = tonumber(opts.max_depth or M.DEFAULT_PLAN_MAX_DEPTH) or M.DEFAULT_PLAN_MAX_DEPTH
     local max_modules = tonumber(opts.max_modules or M.DEFAULT_PLAN_MAX_MODULES) or M.DEFAULT_PLAN_MAX_MODULES
     local preferred = {}
@@ -1336,7 +1573,7 @@ function Planner:resolve_install_graph(component, constraint, opts)
                         })
                     else
                         local selected, select_err = self:select_version_for_constraints(
-                            ref, incoming_by_ref[ref], preferred[ref], true)
+                            ref, incoming_by_ref[ref], preferred[ref], true, installed_versions[ref])
                         if not selected then
                             table.insert(resolution_errors, {
                                 module = ref,
@@ -1353,6 +1590,7 @@ function Planner:resolve_install_graph(component, constraint, opts)
                                 name = ref_parsed and ref_parsed.module or (string.match(ref, "/(.+)$") or ""),
                                 namespace = M.module_namespace(ref) or ref,
                                 version = selected_item.version or "",
+                                source = selected_item.source,
                                 version_id = selected_item.id,
                                 constraint = work.constraint or "",
                                 constraints = incoming_by_ref[ref],
@@ -1361,6 +1599,7 @@ function Planner:resolve_install_graph(component, constraint, opts)
                                 direct = work.depth == 0,
                                 dependencies = selected_item.dependencies or {},
                                 requirements = selected_item.requirements or {},
+                                resource_kinds = selected_item.resource_kinds,
                                 __selected = selected_item,
                             }
                             if work.parent then node.parent = work.parent end
@@ -1424,7 +1663,7 @@ function Planner:resolve_install_graph(component, constraint, opts)
             end
             node.constraints = effective_constraints
             local selected, select_err = self:select_version_for_constraints(
-                node.module, effective_constraints, node.__selected)
+                node.module, effective_constraints, node.__selected, false, installed_versions[node.module])
             if not selected then
                 table.insert(conflicts, select_err)
             else
@@ -1468,8 +1707,8 @@ end
 
 -- Child components of a locally installed module, read from the ns.dependency
 -- entries ownership attributes to it (owner == component -> data.component).
-function Planner:installed_child_components(component)
-    local rows, rows_err = self:ownership_index():entries_of_kind(component, "ns.dependency")
+function Planner:installed_child_components(component, index)
+    local rows, rows_err = (index or self:ownership_index()):entries_of_kind(component, "ns.dependency")
     if not rows then return nil, err("INTERNAL", tostring(rows_err)) end
     local out = {}
     local seen = {}
@@ -1570,17 +1809,23 @@ local function validate_parameter_targets(graph, parameters)
     return nil
 end
 
--- Version constraints the registry already records offline: deployment roots
--- pin their component and installed modules pin their children through
+-- Version constraints the registry already records offline: every deployment
+-- root pins its component, and installed modules pin their children through
 -- module-owned ns.dependency edges -- the same rows the closure resolver
--- walks. exclude_component drops the root entry being installed or updated,
--- whose recorded constraint this plan replaces.
-function Planner:installed_constraints(exclude_component)
+-- walks. A root is classified before its owner: the runtime marks an
+-- application's own dependency declarations as roots while they stay owned by
+-- the application module, and such a declaration is the application's
+-- constraint, reported by its entry id. The root this plan replaces -- the
+-- destination entry, or any root of the component being installed -- is
+-- dropped: its recorded constraint is the one this plan rewrites.
+function Planner:installed_constraints(exclude_component, exclude_id)
+    exclude_component = trim(exclude_component)
+    exclude_id = trim(exclude_id)
     local roots, roots_err = self:deployment_dependency_entries()
     if not roots then return nil, roots_err end
     local remaining_roots = {}
     for _, root in ipairs(roots) do
-        if dependency_component(root) ~= exclude_component then
+        if dependency_component(root) ~= exclude_component and tostring(root.id) ~= exclude_id then
             table.insert(remaining_roots, root)
         end
     end
@@ -1592,6 +1837,7 @@ function Planner:installed_constraints(exclude_component)
     local index = self:ownership_index()
     local out = {}
     for _, entry in ipairs(rows) do
+        local id = tostring(entry.id)
         local component = dependency_component(entry)
         local constraint = trim(entry.data and entry.data.version)
         local owner, _, owner_err = index:owner_of(entry.id)
@@ -1599,14 +1845,20 @@ function Planner:installed_constraints(exclude_component)
         local is_root, root_err = index:root_of(entry.id)
         if root_err then return nil, err("INTERNAL", tostring(root_err)) end
         if component ~= "" and constraint ~= "" then
-            if owner ~= "" then
-                if reachable[owner] == true then
-                    table.insert(out, { component = component, constraint = constraint, required_by = owner, owner = owner })
+            if is_root then
+                if component ~= exclude_component and id ~= exclude_id then
+                    table.insert(out, { component = component, constraint = constraint, required_by = id, entry_id = id })
                 end
-            elseif is_root and component ~= exclude_component then
-                table.insert(out, { component = component, constraint = constraint, required_by = "root", entry_id = tostring(entry.id) })
+            elseif owner ~= "" and reachable[owner] == true then
+                table.insert(out, { component = component, constraint = constraint, required_by = owner, owner = owner })
             end
         end
+    end
+    local planned = {}
+    for _, entry in ipairs(self.batch_entries or {}) do planned[entry.id] = entry end
+    for _, row in ipairs(out) do
+        local entry = planned[row.entry_id]
+        if entry then row.constraint = entry.data.version end
     end
     return out, nil
 end
@@ -1617,8 +1869,8 @@ end
 -- conflict the install would raise. Edges owned by a module that is itself in
 -- the resolved graph do not bind: this install re-resolves that module and
 -- rewrites its edges.
-function Planner:validate_graph_constraints(graph, component)
-    local constraints, constraints_err = self:installed_constraints(component)
+function Planner:validate_graph_constraints(graph, component, dependency_id)
+    local constraints, constraints_err = self:installed_constraints(component, dependency_id)
     if not constraints then return constraints_err end
 
     local node_by_module = {}
@@ -1662,7 +1914,7 @@ function Planner:existing_parameter_values()
             if name ~= "" then
                 table.insert(out, {
                     name = name,
-                    value = tostring(param.value or ""),
+                    value = parameter_value(param.value),
                     dependency_id = tostring(dep.id),
                     component = data.component,
                 })
@@ -1679,10 +1931,10 @@ function Planner:plan_requirements(graph, supplied_parameters)
         for _, param in ipairs(supplied_parameters) do
             local param_name = trim(param.name)
             if param_name == full_id then
-                return tostring(param.value or ""), "provided"
+                return parameter_value(param.value), "provided"
             end
             if direct and param_name == name then
-                return tostring(param.value or ""), "provided_bare"
+                return parameter_value(param.value), "provided_bare"
             end
         end
         return nil, nil
@@ -1695,9 +1947,12 @@ function Planner:plan_requirements(graph, supplied_parameters)
         local out = {}
         local seen = {}
         for _, param in ipairs(existing or {}) do
-            local value = trim(param.value)
-            if value ~= "" and param.name == name and (component == nil or param.component == component) and not seen[value] then
-                seen[value] = true
+            local value = parameter_value(param.value)
+            if type(value) == "string" then value = trim(value) end
+            local key = value_key(value)
+            if not value_is_empty(value) and param.name == name
+                and (component == nil or param.component == component) and not seen[key] then
+                seen[key] = true
                 table.insert(out, {
                     value = value,
                     dependency_id = param.dependency_id,
@@ -1708,8 +1963,47 @@ function Planner:plan_requirements(graph, supplied_parameters)
         return out
     end
 
+    local planned_resources, loaded = shallow_copy(self.native_resources), {}
+    for _, node in ipairs(graph or {}) do
+        if (node.installed ~= true or node.direct == true) and node.resource_kinds then
+            for id, kind in pairs(node.resource_kinds) do planned_resources[id] = kind end
+            loaded[node.module] = true
+        end
+    end
+
+    local function effective_candidates(kind, candidates)
+        local out = {}
+        for _, candidate in ipairs(candidates) do
+            if planned_resources[candidate.value] == nil then table.insert(out, candidate) end
+        end
+        for id, actual in pairs(planned_resources) do
+            if kind_matches(kind, actual) then
+                table.insert(out, {value = id, kind = actual, source = "package"})
+            end
+        end
+        table.sort(out, function(a, b) return tostring(a.value) < tostring(b.value) end)
+        return out
+    end
+
     local function registry_values_for_kind(kind)
         kind = trim(kind)
+        for _, node in ipairs(graph or {}) do
+            if not loaded[node.module] and (node.installed ~= true or node.direct == true) then
+                for _, actual in ipairs(node.entry_kinds or {}) do
+                    if kind_matches(kind, actual) then
+                        local artifact, artifact_err = self:inspect_artifact(node.module, {
+                            id = node.version_id, version = node.version,
+                        })
+                        if not artifact then return nil, artifact_err end
+                        for _, entry in ipairs(artifact.entries or {}) do
+                            planned_resources[entry.id] = entry.kind
+                        end
+                        loaded[node.module] = true
+                        break
+                    end
+                end
+            end
+        end
         if kind == "" then return {}, nil end
         if kind == "security.scope" then
             local out = {}
@@ -1727,34 +2021,25 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 })
             end
 
-            local scope_rows, scope_err = self:find_entries({ [".kind"] = "security.scope" })
-            if not scope_rows then return nil, scope_err end
-            for _, row in ipairs(scope_rows or {}) do
-                local meta = type(row.meta) == "table" and row.meta or {}
-                add(row.id, row.kind or kind, meta.title, meta.comment or meta.description)
-            end
-
-            local policy_rows, policy_err = self:find_entries({ [".kind"] = "security.policy" })
-            if not policy_rows then return nil, policy_err end
-            for _, row in ipairs(policy_rows or {}) do
-                local data = type(row.data) == "table" and row.data or row
-                for _, group in ipairs(type(data.groups) == "table" and data.groups or {}) do
-                    add(group, kind)
-                end
-            end
-
-            local descriptor_rows, descriptor_err = self:find_entries({ [".kind"] = "registry.entry" })
-            if not descriptor_rows then return nil, descriptor_err end
-            for _, row in ipairs(descriptor_rows or {}) do
+            local entries, entries_err = self.native_entries, nil
+            if not entries then entries, entries_err = self:find_entries({}) end
+            if not entries then return nil, entries_err end
+            for _, row in ipairs(entries) do
                 local meta = type(row.meta) == "table" and row.meta or {}
                 local data = type(row.data) == "table" and row.data or row
-                if trim(meta.type) == "kickside.security.role" then
+                if row.kind == "security.scope" then
+                    add(row.id, row.kind, meta.title, meta.comment or meta.description)
+                elseif row.kind == "security.policy" then
+                    for _, group in ipairs(type(data.groups) == "table" and data.groups or {}) do
+                        add(group, kind)
+                    end
+                elseif row.kind == "registry.entry" and trim(meta.type) == "kickside.security.role" then
                     add(data.role_id, kind, meta.title, meta.comment or meta.description)
                 end
             end
 
             table.sort(out, function(a, b) return tostring(a.value) < tostring(b.value) end)
-            return out, nil
+            return effective_candidates(kind, out), nil
         end
 
         local criteria = KIND_PREFIX_SEARCH[kind] == true and {} or { [".kind"] = kind }
@@ -1771,7 +2056,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 table.insert(out, { value = value, kind = row.kind or kind })
             end
         end
-        return out, nil
+        return effective_candidates(kind, out), nil
     end
 
     local function candidate_set(candidates)
@@ -1783,12 +2068,14 @@ function Planner:plan_requirements(graph, supplied_parameters)
     end
 
     local function add_suggestion(suggestions, seen, value, label, source, dependency_id, kind, description)
-        value = trim(value)
-        if value == "" or seen[value] then return end
-        seen[value] = true
+        value = parameter_value(value)
+        if type(value) == "string" then value = trim(value) end
+        local key = value_key(value)
+        if value_is_empty(value) or seen[key] then return end
+        seen[key] = true
         table.insert(suggestions, {
             value = value,
-            label = label or value,
+            label = label or value_label(value),
             source = source,
             dependency_id = dependency_id,
             kind = kind,
@@ -1811,15 +2098,15 @@ function Planner:plan_requirements(graph, supplied_parameters)
             for _, req in ipairs(node.requirements or {}) do
             local name = trim(req.name)
             if name ~= "" then
-                local requirement_namespace = trim(req.namespace)
-                if requirement_namespace == "" then
-                    requirement_namespace = tostring(node.namespace or M.module_namespace(node.module) or node.module)
-                end
-                local full_id = requirement_namespace .. ":" .. name
+                local full_id = requirement_id(node, req)
                 local value, source = find_supplied(full_id, name, node.direct)
                 local suggestions = {}
                 local suggestion_seen = {}
                 local expected_kind = requirement_value_kind(req)
+                local expected_type = trim(req and req.meta and req.meta.value_type)
+                if expected_type ~= "" and not LITERAL_TYPES[expected_type] then
+                    return nil, err("BAD_REQUEST", "unsupported requirement value_type: " .. expected_type)
+                end
                 local registry_candidates = {}
                 local registry_candidate_set = {}
                 if expected_kind then
@@ -1829,10 +2116,14 @@ function Planner:plan_requirements(graph, supplied_parameters)
                     registry_candidate_set = candidate_set(candidates)
                 end
 
+                -- Resource kinds resolve registry references; explicit literal
+                -- types validate the value itself without changing its shape.
                 local function compatible_value(v)
-                    v = trim(v)
-                    if v == "" then return false end
+                    if value_is_empty(v) then return false end
+                    if expected_type ~= "" then return literal_type_matches(expected_type, v) end
                     if not expected_kind then return true end
+                    if type(v) == "table" then return false end
+                    v = trim(v)
                     return registry_candidate_set[v] == true
                 end
 
@@ -1843,7 +2134,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                             suggestions,
                             suggestion_seen,
                             match.value,
-                            match.value .. " from " .. tostring(match.dependency_id),
+                            value_label(match.value) .. " from " .. tostring(match.dependency_id),
                             "existing",
                             match.dependency_id,
                             expected_kind
@@ -1862,7 +2153,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                             suggestions,
                             suggestion_seen,
                             match.value,
-                            match.value .. " from " .. tostring(match.dependency_id),
+                            value_label(match.value) .. " from " .. tostring(match.dependency_id),
                             "existing_bare",
                             match.dependency_id,
                             expected_kind
@@ -1870,21 +2161,31 @@ function Planner:plan_requirements(graph, supplied_parameters)
                     end
                 end
 
-                local default_value = trim(req.default)
+                local default_value = parameter_value(req.default)
+                if (expected_type == "object" or expected_type == "array") and type(default_value) == "string" and not value_is_empty(default_value) then
+                    local decoded, decode_err = json.decode(default_value)
+                    if decode_err then
+                        return nil, err("BAD_REQUEST", "invalid literal default for " .. full_id .. ": " .. tostring(decode_err))
+                    end
+                    default_value = decoded
+                end
+                if type(default_value) == "string" then default_value = trim(default_value) end
                 local default_compatible = compatible_value(default_value)
                 local invalid_value = false
                 local invalid_reason = nil
-                if value ~= nil and trim(value) ~= "" and not compatible_value(value) then
+                if value ~= nil and not value_is_empty(value) and not compatible_value(value) then
                     invalid_value = true
-                    invalid_reason = "value must reference an existing " .. tostring(expected_kind)
+                    invalid_reason = expected_type ~= ""
+                        and "value must be an " .. expected_type
+                        or "value must reference an existing " .. tostring(expected_kind)
                     source = tostring(source or "provided") .. "_invalid"
                 end
-                if default_value ~= "" and default_compatible then
+                if not value_is_empty(default_value) and default_compatible then
                     add_suggestion(
                         suggestions,
                         suggestion_seen,
                         default_value,
-                        "package default: " .. default_value,
+                        "package default: " .. value_label(default_value),
                         "default",
                         nil,
                         expected_kind
@@ -1898,7 +2199,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                         suggestion_seen,
                         registry_candidate.value,
                         registry_candidate.label or registry_candidate.value,
-                        "registry",
+                        registry_candidate.source or "registry",
                         nil,
                         registry_candidate.kind,
                         registry_candidate.description
@@ -1920,9 +2221,13 @@ function Planner:plan_requirements(graph, supplied_parameters)
                 -- The module's own declared default outranks bare-name reuse:
                 -- a same-named parameter on another root is a different
                 -- requirement that happens to share a name, not agreement.
-                if value == nil and source ~= "conflict" and default_value ~= "" and default_compatible then
+                if value == nil and source ~= "conflict" and not value_is_empty(default_value) and default_compatible then
                     value = default_value
                     source = "default"
+                end
+                if value == nil and source ~= "conflict" and #registry_candidates == 1 then
+                    value = registry_candidates[1].value
+                    source = "registry"
                 end
                 if value == nil and source ~= "conflict" then
                     local compatible_existing = {}
@@ -1936,7 +2241,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                         source = "conflict"
                     end
                 end
-                value = value or ""
+                if value == nil then value = "" end
                 values[full_id] = value
 
                 local row = {
@@ -1953,6 +2258,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                     default = req.default,
                     targets = req.targets or {},
                     expected_kind = expected_kind,
+                    expected_type = expected_type ~= "" and expected_type or nil,
                     required = requirement_required(req),
                     value = value,
                     value_source = source or "empty",
@@ -1961,7 +2267,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
                     suggestions = suggestions,
                     transitive = node.depth > 0,
                 }
-                row.missing = row.required and (trim(value) == "" or row.invalid == true)
+                row.missing = row.required and (value_is_empty(value) or row.invalid == true)
                 table.insert(out, row)
             end
             end
@@ -1974,11 +2280,13 @@ function Planner:plan_requirements(graph, supplied_parameters)
         return tostring(a.name) < tostring(b.name)
     end)
 
-    local parameters = {}
+    local parameters, install_parameters = {}, {}
     for _, row in ipairs(out) do
         if row.missing then table.insert(missing, row.parameter_name) end
-        if row.transitive ~= true and trim(row.value) ~= "" and row.invalid ~= true then
-            table.insert(parameters, { name = row.parameter_name, value = row.value })
+        if row.transitive ~= true and not value_is_empty(row.value) and row.invalid ~= true then
+            local parameter = { name = row.parameter_name, value = row.value }
+            table.insert(parameters, parameter)
+            if row.value_source ~= "default" then table.insert(install_parameters, parameter) end
         end
     end
 
@@ -1986,6 +2294,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
         requirements = out,
         values = values,
         parameters = parameters,
+        install_parameters = install_parameters,
         missing = missing,
         count = #out,
     }, nil
@@ -2006,8 +2315,213 @@ function M.migration_policy_for(args)
     return "up"
 end
 
+-- Runtime links a requirement through its own module's dependency entry.
+-- Inferred values for a new child therefore need a managed root of their own;
+-- putting them on the requested parent's entry cannot configure that child.
+-- Existing modules are never reconfigured here. Defaults need no host binding.
+function Planner:plan_binding_dependencies(requirements, root_entry)
+    local by_module = {}
+    for _, row in ipairs(requirements or {}) do
+        if row.transitive == true and not value_is_empty(row.value) and row.invalid ~= true
+            and row.value_source ~= "default" then
+            local parameters = by_module[row.module] or {}
+            by_module[row.module] = parameters
+            table.insert(parameters, { name = row.parameter_name, value = row.value })
+        end
+    end
+    local modules = {}
+    for component in pairs(by_module) do table.insert(modules, component) end
+    table.sort(modules)
+
+    local bindings = {}
+    local destinations = { [root_entry.id] = root_entry.data.component }
+    for _, component in ipairs(modules) do
+        -- The package edges continue to own version constraints. This root
+        -- stores host configuration without pinning future parent updates.
+        local args = { component = component, version = M.DEFAULT_VERSION, parameters = by_module[component] }
+        local destination, dest_err = self:resolve_dependency_destination_args(args)
+        if not destination then return nil, dest_err end
+        local id, id_err = M.resolve_dependency_id(destination)
+        if not id then return nil, id_err end
+        if destinations[id] then
+            args.name = M.sanitize_dependency_name(component:gsub("/", "_"))
+            destination, dest_err = self:resolve_dependency_destination_args(args)
+            if not destination then return nil, dest_err end
+            id, id_err = M.resolve_dependency_id(destination)
+            if not id then return nil, id_err end
+            if destinations[id] then
+                return nil, err("CONFLICT", "dependency binding destination collision: " .. id)
+            end
+        end
+        destinations[id] = component
+        table.insert(bindings, destination)
+    end
+    return bindings, nil
+end
+
+function Planner:preview_dependencies(dependencies)
+    local snapshot, snapshot_err = self.registry.snapshot()
+    if snapshot_err then return nil, snapshot_err end
+    local state, state_err = snapshot:state()
+    if state_err then return nil, state_err end
+    local present, desired = {}, {}
+    for _, row in ipairs(state.entries) do present[row.id], desired[row.id] = true, row end
+    local changes = snapshot:changes()
+    for _, dependency in ipairs(dependencies) do
+        local _, stage_err
+        if present[dependency.id] then _, stage_err = changes:update(dependency)
+        else _, stage_err = changes:create(dependency) end
+        if stage_err then return nil, stage_err end
+    end
+    local plan, plan_err = changes:plan()
+    if plan_err then return nil, plan_err end
+    self.native_modules = {}
+    self.native_resources = {}
+    for _, change in ipairs(plan.changes) do
+        local owner = change.entry.registry and trim(change.entry.registry.owner)
+        if owner and owner ~= "" then self.native_modules[owner] = true end
+        if change.op == "delete" then
+            desired[change.entry.id] = nil
+            self.native_resources[change.entry.id] = false
+        else
+            desired[change.entry.id] = change.entry
+            self.native_resources[change.entry.id] = change.entry.kind
+        end
+    end
+    local entries = {}
+    for _, row in pairs(desired) do entries[#entries + 1] = row end
+    self.native_entries = entries
+    local projected = {entries = entries, resolution = plan.resolution}
+    self.native_ownership = self.ownership.new({snapshot = function()
+        return {state = function() return projected, nil end}, nil
+    end})
+    return plan, nil
+end
+
+function Planner:preview_install(entry, requirement_plan)
+    local dependencies, by_id = {}, {}
+    local function include(dependency)
+        if by_id[dependency.id] then dependencies[by_id[dependency.id]] = dependency
+        else dependencies[#dependencies + 1] = dependency; by_id[dependency.id] = #dependencies end
+    end
+    for _, dependency in ipairs(self.batch_entries or {}) do include(dependency) end
+    local root_args = shallow_copy(entry.data)
+    root_args.id, root_args.meta = entry.id, entry.meta
+    root_args.parameters = requirement_plan.install_parameters
+    local root, root_err = M.build_dependency_entry(root_args)
+    if not root then return nil, root_err end
+    include(root)
+    local bindings, bindings_err = self:plan_binding_dependencies(requirement_plan.requirements, root)
+    if bindings_err then return nil, bindings_err end
+    for _, binding in ipairs(bindings) do
+        local child, child_err = M.build_dependency_entry(binding)
+        if not child then return nil, child_err end
+        local explicit = false
+        for _, entry in ipairs(self.batch_entries or {}) do
+            if entry.data.component == child.data.component then explicit = true; break end
+        end
+        if not explicit then include(child) end
+    end
+    if self.batch_entries then
+        self.batch_entries = dependencies
+        return self.batch_native, nil
+    end
+    return self:preview_dependencies(dependencies)
+end
+
+function Planner:plan_batch(args)
+    if not is_array(args.dependencies) or #args.dependencies == 0 then
+        return nil, err("BAD_REQUEST", "dependencies must be a non-empty array")
+    end
+    local inputs, entries, ids, components = {}, {}, {}, {}
+    for index, item in ipairs(args.dependencies) do
+        if type(item) ~= "table" then return nil, err("BAD_REQUEST", "dependencies must contain objects") end
+        local input = shallow_copy(item)
+        if input.migration_policy == nil then input.migration_policy = args.migration_policy end
+        if input.run_migrations == nil then input.run_migrations = args.run_migrations end
+        local destination, destination_err = self:resolve_dependency_destination_args(input)
+        if not destination then return nil, destination_err end
+        local entry, entry_err = M.build_dependency_entry(destination)
+        if not entry then return nil, entry_err end
+        if ids[entry.id] or components[entry.data.component] then
+            return nil, err("CONFLICT", "dependencies[" .. index .. "] duplicates component " .. entry.data.component .. " or dependency id " .. entry.id)
+        end
+        ids[entry.id], components[entry.data.component] = true, true
+        entries[#entries + 1], inputs[#inputs + 1] = entry, destination
+    end
+    self.batch_entries = entries
+    local native, native_err = self:preview_dependencies(entries)
+    if not native then self.batch_entries = nil; return nil, native_err end
+    self.batch_native = native
+    local plans, payload, applicable = {}, {}, true
+    for _, input in ipairs(inputs) do
+        local plan, plan_err = self:plan_install(input)
+        if not plan then self.batch_entries, self.batch_native = nil, nil; return nil, plan_err end
+        plans[#plans + 1], payload[#payload + 1] = plan, plan.install_payload
+        if not plan.applicable then applicable = false end
+    end
+    native, native_err = self:preview_dependencies(self.batch_entries)
+    self.batch_entries, self.batch_native = nil, nil
+    if not native then return nil, native_err end
+    return {plans = plans, applicable = applicable,
+        native_plan = {digest = native.digest, resolution = native.resolution},
+        install_payload = {dependencies = payload, run_migrations = args.run_migrations,
+            migration_policy = args.migration_policy}}, nil
+end
+
+local function merge_native_requirements(graph, diagnostics)
+    for _, diagnostic in ipairs(diagnostics or {}) do
+        if type(diagnostic) ~= "table" then return false end
+        local owner, requirement, owner_length = nil, nil, 0
+        for _, node in ipairs(graph) do
+            for _, existing in ipairs(node.requirements or {}) do
+                if requirement_id(node, existing) == diagnostic.requirement then
+                    owner, requirement = node, existing
+                    break
+                end
+            end
+            if owner then break end
+        end
+        local declaration = diagnostic.declaration
+        if declaration ~= nil then
+            if type(declaration) ~= "table" or declaration.kind ~= "ns.requirement"
+                or declaration.id ~= diagnostic.requirement then
+                return false
+            end
+            requirement = requirements_from_entries({declaration})[1]
+        end
+        if not requirement then return false end
+        if not owner then
+            local namespace = requirement.namespace or ""
+            for _, node in ipairs(graph) do
+                local prefix = node.namespace
+                if (namespace == prefix or namespace:sub(1, #prefix + 1) == prefix .. ".")
+                    and #prefix > owner_length then
+                    owner, owner_length = node, #prefix
+                end
+            end
+        end
+        if not owner then return false end
+        local merged, replaced = {}, false
+        for _, existing in ipairs(owner.requirements or {}) do
+            if requirement_id(owner, existing) == diagnostic.requirement then
+                merged[#merged + 1], replaced = requirement, true
+            else
+                merged[#merged + 1] = existing
+            end
+        end
+        if not replaced then merged[#merged + 1] = requirement end
+        owner.requirements = merged
+    end
+    return true
+end
+
 function Planner:plan_install(args)
     args = args or {}
+    if args.dependencies ~= nil then return self:plan_batch(args) end
+    if not self.batch_entries then
+        self.native_ownership, self.native_modules, self.native_resources, self.native_entries = nil, nil, nil, nil
+    end
     local planned_args, dest_err = self:resolve_dependency_destination_args(args)
     if not planned_args then return nil, dest_err end
 
@@ -2018,34 +2532,99 @@ function Planner:plan_install(args)
     local graph, graph_err = self:resolve_install_graph(data.component, data.version, {
         max_depth = planned_args.max_depth,
         max_modules = planned_args.max_modules,
+        dependency_id = entry.id,
     })
     if not graph then return nil, graph_err end
 
     local target_err = validate_parameter_targets(graph, data.parameters or {})
     if target_err then return nil, target_err end
 
-    local constraint_err = self:validate_graph_constraints(graph, data.component)
+    local supplied = {}
+    for _, parameter in ipairs(data.parameters or {}) do supplied[#supplied + 1] = parameter end
+    local reviewed, seen = {}, {}
+    for _, binding in ipairs(args.requirement_bindings or {}) do
+        if type(binding) ~= "table" or type(binding.name) ~= "string" or seen[binding.name] then
+            return nil, err("BAD_REQUEST", "reviewed binding must name one resolved requirement: " .. tostring(binding and binding.name))
+        end
+        seen[binding.name] = true
+        local value = {name = binding.name, value = binding.value}
+        reviewed[#reviewed + 1], supplied[#supplied + 1] = value, value
+    end
+
+    local constraint_err = self:validate_graph_constraints(graph, data.component, entry.id)
     if constraint_err then return nil, constraint_err end
 
-    local req_plan, req_err = self:plan_requirements(graph, data.parameters or {})
+    local req_plan, req_err = self:plan_requirements(graph, supplied)
     if not req_plan then return nil, req_err end
+    local native_plan, native_err = self:preview_install(entry, req_plan)
+    local native_resolution_error
+    if native_err then
+        local details = native_err:details()
+        if native_err:kind() ~= errors.INVALID or type(details) ~= "table"
+            or type(details.count) ~= "number" or type(details.errors) ~= "table" then
+            return nil, native_err
+        end
+        if type(details.requirements) == "table" and #details.requirements > 0 then
+            if not merge_native_requirements(graph, details.requirements) then return nil, native_err end
+            req_plan, req_err = self:plan_requirements(graph, supplied)
+            if not req_plan then return nil, req_err end
+            if #req_plan.missing == 0 then
+                native_plan, native_err = self:preview_install(entry, req_plan)
+                if native_err then return nil, native_err end
+            end
+        end
+        if not native_plan then
+            if #req_plan.missing == 0 then return nil, native_err end
+            native_resolution_error = {kind = native_err:kind(), message = native_err:message(), details = details}
+        end
+    end
+    if native_plan then
+        graph, graph_err = self:resolve_install_graph(data.component, data.version, {
+            max_depth = planned_args.max_depth, max_modules = planned_args.max_modules, dependency_id = entry.id,
+        })
+        if not graph then return nil, graph_err end
+        target_err = validate_parameter_targets(graph, data.parameters or {})
+        if target_err then return nil, target_err end
+        constraint_err = self:validate_graph_constraints(graph, data.component, entry.id)
+        if constraint_err then return nil, constraint_err end
+        req_plan, req_err = self:plan_requirements(graph, supplied)
+        if not req_plan then return nil, req_err end
+    end
+    local declared = {}
+    for _, node in ipairs(graph) do
+        for _, requirement in ipairs(node.requirements or {}) do
+            declared[requirement_id(node, requirement)] = true
+        end
+    end
+    for _, binding in ipairs(reviewed) do
+        if not declared[binding.name] then
+            return nil, err("BAD_REQUEST", "reviewed binding must name one resolved requirement: " .. binding.name)
+        end
+    end
+    local bindings, bindings_err = self:plan_binding_dependencies(req_plan.requirements, entry)
+    if not bindings then return nil, bindings_err end
 
     return {
         dependency = M.dependency_summary(entry),
+        native_plan = native_plan and {digest = native_plan.digest, resolution = native_plan.resolution} or nil,
+        native_resolution_error = native_resolution_error,
         graph = graph,
         module_count = #graph,
         requirements = req_plan.requirements,
         requirement_count = req_plan.count,
         missing_requirements = req_plan.missing,
+        applicable = #req_plan.missing == 0,
         parameter_values = req_plan.values,
         recommended_parameters = req_plan.parameters,
+        binding_dependencies = bindings,
         migration_policy = M.migration_policy_for(planned_args),
         install_payload = {
             id = entry.id,
             namespace = M.dependency_summary(entry).namespace,
             component = data.component,
             version = data.version,
-            parameters = req_plan.parameters,
+            parameters = req_plan.install_parameters,
+            requirement_bindings = reviewed,
             migration_policy = M.migration_policy_for(planned_args),
         },
     }, nil

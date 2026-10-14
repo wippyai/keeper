@@ -238,7 +238,7 @@ local function define_tests()
             end)
 
             it("finds nodes by content keyword", function()
-                local nodes, err = kb_repo.search_text("dependency injection", {})
+                local nodes, err = kb_repo.search_text("global state", {})
                 test.is_nil(err)
                 test.not_nil(nodes)
                 test.is_true(#nodes >= 1)

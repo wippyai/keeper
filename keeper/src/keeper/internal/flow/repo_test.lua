@@ -4,6 +4,7 @@ local sql = require("sql")
 local uuid = require("uuid")
 local repo = require("repo")
 local config = require("keeper_config")
+local sql_dialect = require("sql_dialect")
 
 local function define_tests()
     describe("Flow repo pure helpers", function()
@@ -12,6 +13,24 @@ local function define_tests()
             if not row then error("row missing at index " .. tostring(index)) end
             return row
         end
+
+        describe("overview aggregate filters", function()
+            it("executes combined failure, running, and node-count filters", function()
+                local rows = repo.overview({ has_failures = true, has_running = true, min_nodes = 2 }, 5)
+                test.not_nil(rows)
+                for _, row in ipairs(rows) do
+                    test.is_true(row.failed_nodes > 0)
+                    test.is_true(row.running_nodes > 0)
+                    test.is_true(row.node_count >= 2)
+                end
+            end)
+
+            it("returns only flows containing failed nodes", function()
+                local rows = repo.overview({ has_failures = true }, 5)
+                test.not_nil(rows)
+                for _, row in ipairs(rows) do test.is_true(row.failed_nodes > 0) end
+            end)
+        end)
 
         describe("decode_content", function()
             it("returns nil when content is absent", function()
@@ -110,7 +129,7 @@ local function define_tests()
         end
 
         local function must_exec(db, statement, params)
-            local _, err = db:execute(statement, params)
+            local _, err = sql_dialect.execute(db, statement, params)
             if err then error(statement .. ": " .. tostring(err)) end
         end
 
@@ -121,8 +140,8 @@ local function define_tests()
             if prepared then return end
             created = true
 
-            local now = os.time()
             local db = must_db()
+            local now = sql_dialect.is_postgres(db) and os.date("!%Y-%m-%dT%H:%M:%SZ") or os.time()
             must_exec(db,
                 "INSERT INTO dataflows (dataflow_id, actor_id, type, status, created_at, updated_at) " ..
                 "VALUES (?, ?, ?, ?, ?, ?)",
@@ -154,9 +173,9 @@ local function define_tests()
         after_all(function()
             if not created then return end
             local db = must_db()
-            db:execute("DELETE FROM dataflow_data WHERE dataflow_id = ?", { dataflow_id })
-            db:execute("DELETE FROM dataflow_nodes WHERE dataflow_id = ?", { dataflow_id })
-            db:execute("DELETE FROM dataflows WHERE dataflow_id = ?", { dataflow_id })
+            sql_dialect.execute(db, "DELETE FROM dataflow_data WHERE dataflow_id = ?", { dataflow_id })
+            sql_dialect.execute(db, "DELETE FROM dataflow_nodes WHERE dataflow_id = ?", { dataflow_id })
+            sql_dialect.execute(db, "DELETE FROM dataflows WHERE dataflow_id = ?", { dataflow_id })
             db:release()
         end)
 

@@ -12,12 +12,7 @@ local M = {}
 M.OP = consts.REGISTRY_OPERATIONS
 local OP = M.OP
 
-type RegistryEntry = {
-    id: string,
-    kind: string,
-    meta: {[string]: unknown}?,
-    data: unknown?,
-}
+type RegistryEntry = registry.Entry
 
 type SourceAuthority = {
     host: boolean,
@@ -280,12 +275,9 @@ local function compare_entries(currentEntries: {RegistryEntry}, targetEntries: {
         filesystem_count = #(targetEntries or {})
     })
 
-    -- registry.build_delta accepts entry arrays at runtime and in
-    -- registry/spec.md; the runtime type metadata currently labels these
-    -- parameters as registry.Version.
     local changeset, err = registry.build_delta(
-        currentEntries :: registry.Version,
-        targetEntries :: registry.Version
+        currentEntries,
+        targetEntries
     )
     if not changeset then
         return nil, "Failed to build delta: " .. tostring(err)

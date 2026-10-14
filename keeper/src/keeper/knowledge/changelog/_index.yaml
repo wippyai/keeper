@@ -27,6 +27,7 @@ entries:
     source: file://changelog_test.lua
     modules:
       - sql
+      - time
       - uuid
     imports:
       changelog: keeper.knowledge.changelog:changelog

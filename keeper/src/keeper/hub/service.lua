@@ -11,6 +11,8 @@ local governance = require("governance")
 local gov_consts = require("gov_consts")
 local step_runner = require("step_runner")
 local ownership = require("ownership")
+local bootloader = require("bootloader")
+local bootloader_registry = require("bootloader_registry")
 
 local M = {}
 
@@ -29,6 +31,8 @@ type ServiceDeps = {
     ownership: unknown?,
     governance: unknown?,
     gov_consts: unknown?,
+    bootloader: unknown?,
+    bootloader_registry: unknown?,
 }
 
 type HubService = {
@@ -43,6 +47,8 @@ type HubService = {
     ownership: unknown,
     governance: unknown,
     gov_consts: unknown,
+    bootloader: unknown,
+    bootloader_registry: unknown,
     list_dependencies: (HubService, unknown) -> (unknown, unknown?),
     list_migrations: (HubService, unknown) -> (unknown, unknown?),
     install: (HubService, unknown, unknown?) -> (unknown, unknown?),
@@ -51,8 +57,8 @@ type HubService = {
     run_migrations: (HubService, unknown, unknown?) -> (unknown, unknown?),
 }
 
-M.DEFAULT_DEP_NAMESPACE = "app.deps"
-M.DEFAULT_VERSION = ">=v0.0.0"
+M.DEFAULT_DEP_NAMESPACE = planner.DEFAULT_DEP_NAMESPACE
+M.DEFAULT_VERSION = planner.DEFAULT_VERSION
 M.MIGRATION_HANDLER_FN = "keeper.develop.integrate.handlers:migration_handler"
 M.USER_HUB_PREFIX = "user."
 M.EVENT_TOPIC = "keeper.hub"
@@ -127,6 +133,7 @@ local ERROR_KIND_BY_CODE = {
     MIGRATIONS_APPLIED = errors.CONFLICT,
     DEPENDENCY_GRAPH_FAILED = errors.CONFLICT,
     DEPENDENCY_REQUIRED = errors.CONFLICT,
+    MIGRATION_SELECTION_STALE = errors.CONFLICT,
 }
 
 local function err(code, message, details)
@@ -161,6 +168,13 @@ local function validate_resolved_graph(graph)
     return true, nil
 end
 
+local function err_code_of(e: unknown)
+    if e == nil then return nil end
+    local ok, details = pcall(function() return (e :: any):details() end)
+    if ok and type(details) == "table" then return (details :: any).code end
+    return nil
+end
+
 local function error_summary(e: unknown)
     if e == nil then return nil end
     local ok_details, details = pcall(function() return (e :: any):details() end)
@@ -190,148 +204,16 @@ local function is_array(t)
     return true
 end
 
-function M.parse_component(component)
-    component = tostring(trim(component))
-    if component == "" then
-        return nil, err("BAD_REQUEST", "component is required")
-    end
-    local org, name = string.match(component, "^([%w_.-]+)/([%w_.-]+)$")
-    if not org or not name then
-        return nil, err("BAD_REQUEST", "component must be in org/module form")
-    end
-    if org == "" or name == "" then
-        return nil, err("BAD_REQUEST", "component must include both org and module")
-    end
-    return { org = org, module = name, component = org .. "/" .. name }, nil
-end
-
-function M.sanitize_dependency_name(name)
-    name = string.gsub(string.lower(trim(name)), "[^%w_.-]", "_")
-    name = string.gsub(name, "^[_%.%-]+", "")
-    name = string.gsub(name, "[_%.%-]+$", "")
-    if name == "" then return nil end
-    return name
-end
-
-function M.validate_namespace(namespace)
-    namespace = trim(tostring(namespace or ""))
-    if namespace == "" then
-        return nil, err("BAD_REQUEST", "namespace is required")
-    end
-    if string.find(namespace, "..", 1, true) or string.sub(namespace, 1, 1) == "." or string.sub(namespace, -1) == "." then
-        return nil, err("BAD_REQUEST", "namespace must be dot-separated identifiers")
-    end
-    for part in string.gmatch(namespace, "[^.]+") do
-        if not string.match(part, "^[A-Za-z][A-Za-z0-9_]*$") then
-            return nil, err("BAD_REQUEST", "namespace must be dot-separated identifiers")
-        end
-    end
-    if not string.match(namespace, "^[A-Za-z0-9_.]+$") then
-        return nil, err("BAD_REQUEST", "namespace must be dot-separated identifiers")
-    end
-    return namespace, nil
-end
-
-function M.resolve_dependency_id(args)
-    args = args or {}
-    local explicit = tostring(trim(args.id))
-    if explicit ~= "" then
-        local ns, name = string.match(explicit, "^([^:]+):(.+)$")
-        if not ns or not name or name == "" then
-            return nil, err("BAD_REQUEST", "id must be namespace:name")
-        end
-        local ok_ns, ns_err = M.validate_namespace(ns)
-        if not ok_ns then return nil, ns_err end
-        return explicit, nil
-    end
-
-    local parsed, comp_err = M.parse_component(args.component)
-    if not parsed then return nil, comp_err end
-
-    local ns, ns_err = M.validate_namespace(args.namespace or M.DEFAULT_DEP_NAMESPACE)
-    if not ns then return nil, ns_err end
-
-    local name = trim(tostring(args.name or ""))
-    if name == "" then
-        name = M.sanitize_dependency_name(parsed.module)
-    else
-        name = M.sanitize_dependency_name(name)
-    end
-    if not name then
-        return nil, err("BAD_REQUEST", "dependency name cannot be empty")
-    end
-    return ns .. ":" .. name, nil
-end
-
-function M.normalize_parameters(input)
-    if input == nil then return {}, nil end
-    if type(input) ~= "table" then
-        return nil, err("BAD_REQUEST", "parameters must be an array of {name,value} or an object map")
-    end
-
-    local out = {}
-    local seen = {}
-
-    local function add(name, value)
-        name = trim(name)
-        if name == "" then
-            return err("BAD_REQUEST", "parameter name is required")
-        end
-        if seen[name] then
-            return err("BAD_REQUEST", "duplicate parameter: " .. name)
-        end
-        seen[name] = true
-        if value == nil then value = "" end
-        table.insert(out, { name = name, value = tostring(value) })
-        return nil
-    end
-
-    if is_array(input) then
-        for i, item in ipairs(input) do
-            if type(item) ~= "table" then
-                return nil, err("BAD_REQUEST", "parameters[" .. i .. "] must be an object")
-            end
-            local add_err = add(item.name, item.value)
-            if add_err then return nil, add_err end
-        end
-    else
-        local keys = {}
-        for k in pairs(input) do table.insert(keys, k) end
-        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
-        for _, k in ipairs(keys) do
-            local add_err = add(k, input[k])
-            if add_err then return nil, add_err end
-        end
-    end
-
-    return out, nil
-end
-
-function M.build_dependency_entry(args)
-    args = args or {}
-    local parsed, comp_err = M.parse_component(args.component)
-    if not parsed then return nil, comp_err end
-
-    local id, id_err = M.resolve_dependency_id(args)
-    if not id then return nil, id_err end
-
-    local parameters, param_err = M.normalize_parameters(args.parameters)
-    if not parameters then return nil, param_err end
-
-    local data = {
-        component = parsed.component,
-        version = trim(args.version) ~= "" and trim(args.version) or M.DEFAULT_VERSION,
-    }
-    if #parameters > 0 then data.parameters = parameters end
-
-    return {
-        id = id,
-        kind = "ns.dependency",
-        dependency_root = true,
-        meta = shallow_copy(args.meta or {}),
-        data = data,
-    }, nil
-end
+-- Dependency identity, parameter normalization and entry construction live in
+-- the planner: the plan and the published entry must name, declare and
+-- serialize a dependency the same way, structured parameter values included.
+M.parse_component = planner.parse_component
+M.sanitize_dependency_name = planner.sanitize_dependency_name
+M.validate_namespace = planner.validate_namespace
+M.resolve_dependency_id = planner.resolve_dependency_id
+M.normalize_parameters = planner.normalize_parameters
+M.build_dependency_entry = planner.build_dependency_entry
+M.dependency_summary = planner.dependency_summary
 
 function M.entry_to_set_patch(entry)
     local materialized, mat_err = materialize.entry(entry)
@@ -362,20 +244,6 @@ local function entry_summary(entry, owner_module, owner_version)
     }
 end
 
-function M.dependency_summary(entry)
-    local data = entry and entry.data or {}
-    return {
-        id = entry.id,
-        namespace = (entry.id and string.match(tostring(entry.id), "^([^:]+):")) or nil,
-        name = (entry.id and string.match(tostring(entry.id), "^[^:]+:(.+)$")) or nil,
-        kind = entry.kind,
-        component = data.component,
-        version = data.version,
-        parameters = data.parameters or {},
-        meta = entry.meta or {},
-    }
-end
-
 function M.new(deps: ServiceDeps?)
     deps = deps or {}
     return setmetatable({
@@ -390,6 +258,8 @@ function M.new(deps: ServiceDeps?)
         ownership = deps.ownership or ownership,
         governance = deps.governance or governance,
         gov_consts = deps.gov_consts or gov_consts,
+        bootloader = deps.bootloader or bootloader,
+        bootloader_registry = deps.bootloader_registry or bootloader_registry,
     }, Service) :: HubService
 end
 
@@ -427,12 +297,18 @@ function Service:emit_operation(actor_id, event, operation_id, data)
 end
 
 -- One ownership index per service instance: a single registry scan answers
--- every ownership question for the request that built it.
+-- every ownership question for the request that built it. The index holds
+-- the snapshot it captured, so a registry mutation the service commits drops
+-- it and the next read captures the committed state.
 function Service:ownership_index()
     if not self.__ownership_index then
         self.__ownership_index = self.ownership.new(self.registry)
     end
     return self.__ownership_index
+end
+
+function Service:invalidate_ownership_index()
+    self.__ownership_index = nil
 end
 
 function Service:find_entries(criteria)
@@ -562,7 +438,7 @@ function Service:migration_rows(args)
     args = args or {}
     local entries = {}
 
-    if type(args.entry_ids) == "table" and #args.entry_ids > 0 then
+    if type(args.entry_ids) == "table" then
         for _, id in ipairs(args.entry_ids) do
             local entry, get_err = self:get_entry(id)
             if not entry then return nil, get_err end
@@ -790,7 +666,7 @@ function Service:current_registry_version()
     return version, nil
 end
 
-function Service:dependency_create_or_update_op(entry)
+function Service:dependency_create_or_update_op(entry, create_only)
     if not self.registry or not self.registry.get then
         return nil, err("INTERNAL", "registry.get unavailable")
     end
@@ -825,6 +701,10 @@ function Service:dependency_create_or_update_op(entry)
     local existing, get_err = self.registry.get(entry.id)
     if get_err and not is_not_found_error(get_err) then
         return nil, err("INTERNAL", "failed to inspect dependency entry " .. tostring(entry.id) .. ": " .. tostring(get_err))
+    end
+    if existing and create_only then
+        return nil, err("CONFLICT", "dependency binding appeared after planning: " .. tostring(entry.id)
+            .. "; re-plan to preserve its configuration")
     end
     if existing then
         if existing.kind ~= "ns.dependency" then
@@ -900,7 +780,7 @@ function Service:publish_dependency_changeset(args)
         end
 
         for _, entry in ipairs(entries) do
-            local op, op_err = self:dependency_create_or_update_op(entry)
+            local op, op_err = self:dependency_create_or_update_op(entry, args.create_only and args.create_only[entry.id])
             if not op then return nil, op_err end
             table.insert(changeset, op)
             table.insert(entry_ids, entry.id)
@@ -931,6 +811,7 @@ function Service:publish_dependency_changeset(args)
             entry_ids = entry_ids,
         })
     end
+    self:invalidate_ownership_index()
 
     return {
         ok = true,
@@ -953,13 +834,57 @@ local function batch_item_error(index, service_err)
     return err(code, "dependencies[" .. tostring(index) .. "]: " .. message, details)
 end
 
-function Service:prepare_install(args)
-    local plan, plan_err = self:plan_install(args)
+-- The modules an install runs migrations for -- the installed component and
+-- every module its plan resolved -- and the version the plan resolved for each.
+local function install_migration_components(plan: any, component: string)
+    local components, seen = { component }, { [component] = true }
+    local planned = {}
+    for _, node in ipairs(plan.graph or {}) do
+        if node.module and not seen[node.module] then
+            seen[node.module] = true
+            table.insert(components, node.module)
+        end
+        if node.module and trim(node.version) ~= "" then
+            table.insert(planned, { module = tostring(node.module), version = trim(node.version) })
+        end
+    end
+    return components, planned
+end
+
+local function release_of(version)
+    return (string.gsub(trim(version), "^v", ""))
+end
+
+local function same_binding_parameters(a, b)
+    local values, count = {}, 0
+    for _, parameter in ipairs(a or {}) do
+        values[parameter.name] = parameter.value
+        count = count + 1
+    end
+    if count ~= #(b or {}) then return false end
+    for _, parameter in ipairs(b or {}) do
+        if not planner.parameter_values_equal(values[parameter.name], parameter.value) then return false end
+    end
+    return true
+end
+
+function Service:prepare_install(args, reviewed_plan)
+    local plan, plan_err = reviewed_plan, nil
+    if not plan then plan, plan_err = self:plan_install(args) end
     if not plan then return nil, plan_err end
     local graph_ok, graph_err = validate_resolved_graph(plan.graph)
     if not graph_ok then return nil, graph_err end
     if #(plan.missing_requirements or {}) > 0 then
-        return nil, err("REQUIREMENTS_MISSING", "Hub dependency requires explicit configuration", {
+        local missing = {}
+        local missing_ids = string_set(plan.missing_requirements)
+        for _, requirement in ipairs(plan.requirements or {}) do
+            local id = requirement.parameter_name or requirement.full_id
+            if missing_ids[id] then
+                table.insert(missing, tostring(id) .. " (" .. tostring(requirement.expected_kind or "literal") .. ")")
+            end
+        end
+        table.sort(missing)
+        return nil, err("REQUIREMENTS_MISSING", "Configure required bindings: " .. table.concat(missing, ", "), {
             dependency = plan.dependency,
             requirements = plan.requirements,
             missing_requirements_by_id = string_set(plan.missing_requirements),
@@ -979,11 +904,24 @@ function Service:prepare_install(args)
     if not entry then return nil, entry_err end
     local patch, patch_err = M.entry_to_set_patch(entry)
     if not patch then return nil, patch_err end
+    local entries, patches, create_only = { entry }, { patch }, {}
+    for _, binding in ipairs(plan.binding_dependencies or {}) do
+        local child, child_err = M.build_dependency_entry(binding)
+        if not child then return nil, child_err end
+        local child_patch, child_patch_err = M.entry_to_set_patch(child)
+        if not child_patch then return nil, child_patch_err end
+        table.insert(entries, child)
+        table.insert(patches, child_patch)
+        create_only[child.id] = true
+    end
     return {
         args = planned,
         plan = plan,
         entry = entry,
         patch = patch,
+        entries = entries,
+        patches = patches,
+        create_only = create_only,
         policy = planned.migration_policy,
     }, nil
 end
@@ -994,6 +932,8 @@ function Service:install_batch(args, opts)
         return nil, err("BAD_REQUEST", "dependencies must be a non-empty array")
     end
 
+    local batch, batch_err = self:plan_install(args)
+    if not batch then return nil, batch_err end
     local prepared = {}
     local seen_components = {}
     local seen_ids = {}
@@ -1011,7 +951,7 @@ function Service:install_batch(args, opts)
         if item_args.run_migrations == nil and args.run_migrations ~= nil then
             item_args.run_migrations = args.run_migrations
         end
-        local item_prepared, item_err = self:prepare_install(item_args)
+        local item_prepared, item_err = self:prepare_install(item_args, batch.plans[index])
         if not item_prepared then return nil, batch_item_error(index, item_err) end
 
         local component = tostring(item_prepared.entry.data.component)
@@ -1040,9 +980,39 @@ function Service:install_batch(args, opts)
         end
     end
 
+    -- Explicit batch items own their configuration. Add inferred bindings only
+    -- for modules not already present in that batch; shared inferred bindings
+    -- must agree and are committed once.
+    local explicit_count = #prepared
+    local create_only = {}
+    for index = 1, explicit_count do
+        local item = prepared[index]
+        for child_index = 2, #item.entries do
+            local child = item.entries[child_index]
+            local component = child.data.component
+            local existing_index = seen_components[component]
+            if existing_index then
+                if existing_index > explicit_count and not same_binding_parameters(
+                    prepared[existing_index].entry.data.parameters, child.data.parameters) then
+                    return nil, err("CONFLICT", "inferred dependency bindings disagree for " .. component)
+                end
+            else
+                if seen_ids[child.id] then
+                    return nil, err("CONFLICT", "duplicate dependency id: " .. child.id)
+                end
+                table.insert(prepared, {
+                    entry = child, patch = item.patches[child_index], plan = {}, policy = item.policy,
+                })
+                seen_components[component] = #prepared
+                seen_ids[child.id] = #prepared
+                create_only[child.id] = true
+            end
+        end
+    end
+
     local changeset = {}
     for index, item in ipairs(prepared) do
-        local op, op_err = self:dependency_create_or_update_op(item.entry)
+        local op, op_err = self:dependency_create_or_update_op(item.entry, create_only[item.entry.id])
         if not op then return nil, batch_item_error(index, op_err) end
         table.insert(changeset, op)
     end
@@ -1055,23 +1025,60 @@ function Service:install_batch(args, opts)
     }
     local entries = {}
     local migration_components = {}
+    local planned_versions = {}
     for _, item in ipairs(prepared) do
         table.insert(payload.dependencies, M.dependency_summary(item.entry))
         table.insert(payload.patches, item.patch)
         table.insert(payload.plans, item.plan)
         table.insert(payload.migration_policy, item.policy)
         table.insert(entries, item.entry)
-        if item.policy == "up" then table.insert(migration_components, item.entry.data.component) end
+        if item.policy == "up" then
+            local components, planned = install_migration_components(item.plan, item.entry.data.component)
+            for _, component in ipairs(components) do
+                table.insert(migration_components, component)
+            end
+            for _, row in ipairs(planned) do table.insert(planned_versions, row) end
+        end
+    end
+
+    local function install_steps(baseline_version, bootloader_data)
+        local steps = {
+            {
+                op = "pre_apply_validate", label = "validation",
+                data = { changeset = changeset, planned_entries = planned_entries },
+            },
+            {
+                op = "governance_apply", label = "governance",
+                data = {
+                    action = "install",
+                    entries = entries,
+                    create_only = create_only,
+                    message = "hub install " .. tostring(#entries) .. " dependencies",
+                    baseline_version = baseline_version,
+                },
+            },
+        }
+        if #migration_components > 0 then
+            table.insert(steps, {
+                op = "migrations_up", label = "migrations",
+                data = { components = migration_components, planned = planned_versions },
+            })
+        end
+        table.insert(steps, { op = "bootloaders_run", label = "bootloaders", data = bootloader_data })
+        return steps
     end
 
     if args.dry_run == true then
         payload.dry_run = true
+        payload.execution = M.planned_execution(install_steps(nil, nil))
         return payload, nil
     end
 
     local baseline_version, version_err = self:current_registry_version()
     if not baseline_version then return nil, version_err end
     payload.baseline_version = baseline_version
+    local bootloader_data, bootloader_data_err = self:bootloader_step_data(entries)
+    if not bootloader_data then return nil, bootloader_data_err end
 
     local operation_id = self:new_operation_id()
     payload.operation_id = operation_id
@@ -1080,29 +1087,8 @@ function Service:install_batch(args, opts)
         migration_policy = payload.migration_policy,
     })
 
-    local steps = {
-        {
-            op = "pre_apply_validate", label = "validation",
-            data = { changeset = changeset, planned_entries = planned_entries },
-        },
-        {
-            op = "governance_apply", label = "governance",
-            data = {
-                action = "install",
-                entries = entries,
-                message = "hub install " .. tostring(#entries) .. " dependencies",
-                baseline_version = baseline_version,
-            },
-        },
-    }
-    if #migration_components > 0 then
-        table.insert(steps, {
-            op = "migrations_up", label = "migrations",
-            data = { components = migration_components },
-        })
-    end
-
-    local ledger = step_runner.run(steps, { execute = self:install_step_dispatch(opts) })
+    local ledger = step_runner.run(install_steps(baseline_version, bootloader_data),
+        { execute = self:install_step_dispatch(opts) })
     if not ledger.success then
         return self:install_failure(ledger, payload, {
             operation_id = operation_id,
@@ -1117,11 +1103,13 @@ function Service:install_batch(args, opts)
     end
     payload.apply = apply_result
     payload.migrations = migration_result
+    payload.bootloaders = self:ledger_result(ledger, "bootloaders_run")
     payload.execution = self:project_ledger(ledger, nil)
     self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FINISHED, operation_id, {
         dependencies = payload.dependencies,
         apply = apply_result,
         migrations = migration_result,
+        bootloaders = payload.bootloaders,
         execution = payload.execution,
     })
     return payload, nil
@@ -1141,6 +1129,146 @@ function Service:run_migrations_for_components(components, opts)
         end
     end
     return self:run_migrations({ entry_ids = entry_ids, operation = "up" }, opts)
+end
+
+-- Migrations are selected from the registry the governance apply produced.
+-- The ownership index is captured anew and must belong to the applied
+-- registry version or a later one, and every module the plan resolved must be
+-- installed there at the planned version. Selecting from any other snapshot
+-- would run the migrations of modules the apply did not install -- or none of
+-- the ones it did -- so a mismatch fails the install instead.
+function Service:applied_ownership_index(applied_version, planned)
+    self:invalidate_ownership_index()
+    local index = self:ownership_index()
+    local snapshot_version, version_err = index:version_id()
+    if not snapshot_version then return nil, err("INTERNAL", tostring(version_err)) end
+    local required = tonumber(applied_version)
+    if not required then
+        return nil, err("INTERNAL", "migration selection has no applied registry version: " .. tostring(applied_version))
+    end
+    if snapshot_version < required then
+        return nil, err("MIGRATION_SELECTION_STALE",
+            "migration selection read registry version " .. tostring(snapshot_version)
+                .. ", which predates the applied version " .. tostring(required), {
+                snapshot_version = snapshot_version,
+                applied_version = required,
+            })
+    end
+
+    local stale = {}
+    for _, row in ipairs(planned or {}) do
+        local resolved, resolved_err = index:version_of(row.module)
+        if resolved == nil then return nil, err("INTERNAL", tostring(resolved_err)) end
+        if release_of(resolved) ~= release_of(row.version) then
+            table.insert(stale, {
+                module = row.module,
+                planned_version = row.version,
+                installed_version = resolved,
+            })
+        end
+    end
+    if #stale > 0 then
+        local summaries = {}
+        for _, row in ipairs(stale) do
+            local installed = row.installed_version ~= "" and row.installed_version or "nothing"
+            table.insert(summaries, row.module .. " planned " .. row.planned_version .. ", registry holds " .. installed)
+        end
+        return nil, err("MIGRATION_SELECTION_STALE",
+            "registry version " .. tostring(snapshot_version) .. " does not hold the planned modules: "
+                .. table.concat(summaries, "; "), {
+                snapshot_version = snapshot_version,
+                applied_version = required,
+                modules = planner.position_keyed(stale),
+            })
+    end
+    return index, nil
+end
+
+-- Components whose dependency root an install creates or re-parameterizes. The
+-- runtime re-materializes such a module with the new values even when its
+-- resolved version stays the same.
+function Service:reconfigured_components(entries)
+    local out = {}
+    for _, entry in ipairs(entries or {}) do
+        local existing, get_err = self:get_entry(entry.id)
+        if not existing and err_code_of(get_err) ~= "NOT_FOUND" then return nil, get_err end
+        if not existing or not same_binding_parameters(
+            existing.data and existing.data.parameters, entry.data and entry.data.parameters) then
+            table.insert(out, tostring(entry.data.component))
+        end
+    end
+    return out, nil
+end
+
+-- The data the bootloader step needs from before the apply: the resolved module
+-- versions the registry holds now and the components the apply reconfigures.
+function Service:bootloader_step_data(entries)
+    local versions, versions_err = self:ownership_index():module_versions()
+    if not versions then return nil, err("INTERNAL", tostring(versions_err)) end
+    local reconfigured, reconfigured_err = self:reconfigured_components(entries)
+    if not reconfigured then return nil, reconfigured_err end
+    return { baseline_modules = versions, reconfigured = reconfigured }, nil
+end
+
+-- Runs the bootloaders of the modules an apply brought online, the way boot runs
+-- them: framework discovery and order, then the framework chain runner with the
+-- same dependency checks and stop-on-error. A module is in scope when its
+-- resolved version differs from the baseline (a new module has none) or its root
+-- was reconfigured. Every other bootloader completed when this runtime booted,
+-- so it satisfies a meta.requires without running again.
+function Service:run_installed_bootloaders(baseline_modules, reconfigured)
+    local index = self:ownership_index()
+    local current, current_err = index:module_versions()
+    if not current then return nil, err("INTERNAL", tostring(current_err)) end
+
+    local scope = {}
+    for name, version in pairs(current) do
+        if (baseline_modules or {})[name] ~= version then scope[name] = true end
+    end
+    for _, component in ipairs(reconfigured or {}) do
+        if current[component] ~= nil then scope[component] = true end
+    end
+    local modules = {}
+    for name in pairs(scope) do table.insert(modules, name) end
+    table.sort(modules)
+
+    local result = { modules = modules, entry_ids = {}, count = 0 }
+    if #modules == 0 then return result, nil end
+
+    local discovered, find_err = self.bootloader_registry.find()
+    if find_err then
+        return nil, err("INTERNAL", "bootloader discovery failed: " .. tostring(find_err))
+    end
+    local chain, satisfied = {}, {}
+    for _, entry in ipairs(discovered or {}) do
+        local owner, _, owner_err = index:owner_of(entry.id)
+        if owner_err then return nil, err("INTERNAL", tostring(owner_err)) end
+        if scope[owner] then
+            table.insert(chain, entry)
+            table.insert(result.entry_ids, tostring(entry.id))
+        else
+            table.insert(satisfied, tostring(entry.id))
+        end
+    end
+    result.count = #chain
+    if #chain == 0 then return result, nil end
+
+    local ok, stats = self.bootloader.run_chain(chain, {}, satisfied)
+    result.stats = stats
+    if ok then return result, nil end
+
+    local rows = type(stats) == "table" and (stats :: any).bootloaders or {}
+    local failed = {}
+    for _, row in ipairs(rows) do
+        if row.status == "error" then failed = row end
+    end
+    return nil, err("BOOTLOADERS_FAILED",
+        "bootloader " .. tostring(failed.id) .. " failed: " .. tostring(failed.message),
+        {
+            bootloader = failed.id,
+            bootloader_message = failed.message,
+            bootloaders = planner.position_keyed(rows),
+        })
 end
 
 local function entry_data(entry)
@@ -1274,6 +1402,7 @@ function Service:restore_registry_version(version, reason)
     if restore_err then
         return nil, err("INTERNAL", "failed to restore registry version " .. tostring(version) .. ": " .. tostring(restore_err))
     end
+    self:invalidate_ownership_index()
     return result or { version = version }, nil
 end
 
@@ -1373,6 +1502,16 @@ function Service:project_ledger(ledger, rollback_ledger)
     return out
 end
 
+-- The steps an install would run, as the execution rows a dry-run reports:
+-- the same labels a finished install's ledger carries, each "planned".
+function M.planned_execution(steps)
+    local out = {}
+    for _, step in ipairs(steps) do
+        table.insert(out, { step = step.label or step.op, status = "planned" })
+    end
+    return out
+end
+
 -- Error details travel through a string-keyed conversion that keeps only
 -- string table keys, so the projected ledger is attached keyed by its 1-based
 -- position rendered as a string; rows keep the shape events carry and the
@@ -1403,6 +1542,10 @@ end
 
 function Service:install_step_dispatch(opts)
     local svc = self
+    -- The registry version the governance apply committed; migrations select
+    -- from a snapshot at or after it. A publish that changed nothing commits no
+    -- version and leaves the baseline current.
+    local applied_version
     return function(step)
         local op = step.op
         if op == "pre_apply_validate" then
@@ -1417,12 +1560,14 @@ function Service:install_step_dispatch(opts)
                 action = step.data.action,
                 entry = step.data.entry,
                 entries = step.data.entries,
+                create_only = step.data.create_only,
                 actor_id = opts.actor_id,
                 message = step.data.message,
             })
             if not apply_result then
                 return { op = op, label = step.label, error = apply_err }
             end
+            applied_version = apply_result.version or step.data.baseline_version
             return {
                 op = op, label = step.label, result = apply_result,
                 inverse = { op = "restore_registry_version", data = {
@@ -1433,16 +1578,12 @@ function Service:install_step_dispatch(opts)
                 } },
             }
         elseif op == "migrations_up" then
-            local migration_result, migration_err
-            if type(step.data.components) == "table" then
-                migration_result, migration_err = svc:run_migrations_for_components(
-                    step.data.components, opts)
-            else
-                migration_result, migration_err = svc:run_migrations({
-                    component = step.data.component,
-                    operation = "up",
-                }, opts)
+            local index, index_err = svc:applied_ownership_index(applied_version, step.data.planned)
+            if not index then
+                return { op = op, label = step.label, error = index_err }
             end
+            local migration_result, migration_err = svc:run_migrations_for_components(
+                step.data.components, opts)
             if not migration_result then
                 return { op = op, label = step.label, error = migration_err }
             end
@@ -1450,6 +1591,13 @@ function Service:install_step_dispatch(opts)
                 op = op, label = step.label, result = migration_result,
                 inverse = { op = "migrations_down", data = { entry_ids = migration_result.entry_ids or {} } },
             }
+        elseif op == "bootloaders_run" then
+            local boot_result, boot_err = svc:run_installed_bootloaders(
+                step.data.baseline_modules, step.data.reconfigured)
+            if not boot_result then
+                return { op = op, label = step.label, error = boot_err }
+            end
+            return { op = op, label = step.label, result = boot_result }
         end
         return { op = op, label = step.label, error = err("INTERNAL", "unknown install step: " .. tostring(op)) }
     end
@@ -1485,32 +1633,71 @@ function Service:install(args, opts)
     local plan = prepared.plan
     local planned = prepared.args
     local entry = prepared.entry
-    local patch = prepared.patch
 
-    local planned_changeset_op, planned_changeset_err = self:dependency_create_or_update_op(entry)
-    if not planned_changeset_op then return nil, planned_changeset_err end
-    local planned_changeset = { planned_changeset_op }
+    local planned_changeset = {}
+    for _, dependency in ipairs(prepared.entries) do
+        local op, op_err = self:dependency_create_or_update_op(dependency, prepared.create_only[dependency.id])
+        if not op then return nil, op_err end
+        table.insert(planned_changeset, op)
+    end
 
     local payload = {
         dependency = M.dependency_summary(entry),
-        patches = { patch },
+        patches = prepared.patches,
         migration_policy = planned.migration_policy or (args.run_migrations == true and "up" or "none"),
         plan = plan,
     }
 
-    -- Plan and guards are complete. The dry-run short-circuit is the hard
-    -- boundary before any step runs — dry_run reaches zero steps.
-    if args.dry_run == true then
-        payload.dry_run = true
-        return payload, nil
-    end
-
     local policy = planned.migration_policy
     if args.run_migrations == true then policy = "up" end
+
+    -- The ordered install steps. governance_apply is the one atomic publish;
+    -- migrations_up appears only when it has work to do; the changed modules'
+    -- bootloaders run last, as they do after migrations at boot.
+    local function install_steps(baseline_version, bootloader_data)
+        local steps = {
+            {
+                op = "pre_apply_validate", label = "validation",
+                data = {
+                    changeset = planned_changeset,
+                    planned_entries = plan.planned_entries or plan.entries or {},
+                },
+            },
+            {
+                op = "governance_apply", label = "governance",
+                data = {
+                    action = "install",
+                    entries = prepared.entries,
+                    create_only = prepared.create_only,
+                    message = "hub install " .. entry.id .. " " .. entry.data.component .. " " .. entry.data.version,
+                    baseline_version = baseline_version,
+                },
+            },
+        }
+        if policy == "up" then
+            local components, planned_versions = install_migration_components(plan, entry.data.component)
+            table.insert(steps, {
+                op = "migrations_up", label = "migrations",
+                data = { components = components, planned = planned_versions },
+            })
+        end
+        table.insert(steps, { op = "bootloaders_run", label = "bootloaders", data = bootloader_data })
+        return steps
+    end
+
+    -- Plan and guards are complete. The dry-run short-circuit is the hard
+    -- boundary before any step runs: it reports the steps it would run.
+    if args.dry_run == true then
+        payload.dry_run = true
+        payload.execution = M.planned_execution(install_steps(nil, nil))
+        return payload, nil
+    end
 
     local baseline_version, version_err = self:current_registry_version()
     if not baseline_version then return nil, version_err end
     payload.baseline_version = baseline_version
+    local bootloader_data, bootloader_data_err = self:bootloader_step_data(prepared.entries)
+    if not bootloader_data then return nil, bootloader_data_err end
 
     local operation_id = self:new_operation_id()
     payload.operation_id = operation_id
@@ -1519,30 +1706,8 @@ function Service:install(args, opts)
         migration_policy = payload.migration_policy,
     })
 
-    -- Build the ordered install steps. governance_apply is the one atomic
-    -- publish; migrations_up appears only when it has work to do.
-    local steps = {
-        {
-            op = "pre_apply_validate", label = "validation",
-            data = {
-                changeset = planned_changeset,
-                planned_entries = plan.planned_entries or plan.entries or {},
-            },
-        },
-        {
-            op = "governance_apply", label = "governance",
-            data = {
-                action = "install",
-                entry = entry,
-                message = "hub install " .. entry.id .. " " .. entry.data.component .. " " .. entry.data.version,
-                baseline_version = baseline_version,
-            },
-        },
-    }
-    if policy == "up" then
-        table.insert(steps, { op = "migrations_up", label = "migrations", data = { component = entry.data.component } })
-    end
-    local ledger = step_runner.run(steps, { execute = self:install_step_dispatch(opts) })
+    local ledger = step_runner.run(install_steps(baseline_version, bootloader_data),
+        { execute = self:install_step_dispatch(opts) })
 
     if not ledger.success then
         return self:install_failure(ledger, payload, {
@@ -1559,17 +1724,34 @@ function Service:install(args, opts)
     end
     payload.apply = apply_result
     payload.migrations = migration_result
+    payload.bootloaders = self:ledger_result(ledger, "bootloaders_run")
     payload.execution = self:project_ledger(ledger, nil)
 
     self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FINISHED, operation_id, {
         dependency = payload.dependency,
         apply = apply_result,
         migrations = migration_result,
+        bootloaders = payload.bootloaders,
         execution = payload.execution,
     })
 
     return payload, nil
 end
+
+-- Steps that fail after the registry apply: the install restores the baseline
+-- registry version and reports the step's own error under its detail key.
+type PostApplyFailure = { code: string, what: string, detail: string }
+
+local POST_APPLY_FAILURES: { [string]: PostApplyFailure } = {
+    migrations_up = { code = "MIGRATIONS_FAILED", what = "migrations", detail = "migration_error" },
+    bootloaders_run = { code = "BOOTLOADERS_FAILED", what = "bootloaders", detail = "bootloader_error" },
+}
+
+-- Post-apply step errors whose own code names the failure more precisely than
+-- the step's generic one, and so becomes the install's error code.
+local POST_APPLY_OWN_CODES = {
+    MIGRATION_SELECTION_STALE = true,
+}
 
 function Service:install_failure(ledger, payload, ctx, opts)
     local rows = ledger.execution.handlers
@@ -1597,28 +1779,30 @@ function Service:install_failure(ledger, payload, ctx, opts)
 
     local restore_ok = restore ~= nil and restore.result ~= nil and restore.error == nil
     local apply_result = self:ledger_result(ledger, "governance_apply")
+    local post_apply = POST_APPLY_FAILURES[tostring(failed_op)] :: PostApplyFailure?
     local failure_err
-    if failed_op == "migrations_up" then
+    if post_apply then
+        local summary = error_summary(failed_err)
+        local details = {
+            baseline_version = ctx.baseline_version,
+            apply = apply_result,
+            execution = execution_details(payload.execution),
+        }
+        details[post_apply.detail] = summary
+        local step_code = err_code_of(failed_err)
+        local code = POST_APPLY_OWN_CODES[tostring(step_code)] and tostring(step_code) or post_apply.code
         if restore_ok then
-            failure_err = err("MIGRATIONS_FAILED",
-                "migrations failed after dependency install; registry restored to baseline",
-                {
-                    migration_error = error_summary(failed_err),
-                    baseline_version = ctx.baseline_version,
-                    rollback = payload.rollback,
-                    apply = apply_result,
-                    execution = execution_details(payload.execution),
-                })
+            details.rollback = payload.rollback
+            failure_err = err(code,
+                post_apply.what .. " failed after dependency install; registry restored to baseline: "
+                    .. tostring(summary and summary.message),
+                details)
         else
+            details.rollback_error = payload.rollback_error
             failure_err = err("ROLLBACK_FAILED",
-                "migrations failed after dependency install and registry rollback failed",
-                {
-                    migration_error = error_summary(failed_err),
-                    baseline_version = ctx.baseline_version,
-                    rollback_error = payload.rollback_error,
-                    apply = apply_result,
-                    execution = execution_details(payload.execution),
-                })
+                post_apply.what .. " failed after dependency install and registry rollback failed: "
+                    .. tostring(summary and summary.message),
+                details)
         end
     else
         failure_err = failed_err or err("INTERNAL", "hub install failed")
