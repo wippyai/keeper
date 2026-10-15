@@ -157,11 +157,14 @@ local function fake_sql(applied, opts)
                 type = function() return opts.db_type end,
                 query = function(_, statement, params)
                     if opts.on_query then opts.on_query(statement, params) end
+                    if opts.query_error then return nil, opts.query_error end
                     local id = params and params[1]
                     if applied[id] then return { { id = id } }, nil end
                     return {}, nil
                 end,
-                release = function() end,
+                release = function()
+                    if opts.on_release then opts.on_release() end
+                end,
             }, nil
         end,
     }
@@ -1602,6 +1605,40 @@ local function define_tests()
                 test.eq(out.dependencies[1].migrations[1].status, "applied")
                 test.eq(statement, "SELECT id FROM _migrations WHERE id = $1 LIMIT 1")
             end)
+
+            for _, case in ipairs({
+                { name = "missing SQLite ledger", error = "no such table: _migrations", status = "pending" },
+                { name = "missing PostgreSQL ledger", db_type = sql.type.POSTGRES,
+                    error = 'ERROR: relation "_migrations" does not exist (SQLSTATE 42P01)', status = "pending" },
+                { name = "SQLite authorization failure", error = "access to _migrations.id is prohibited", status = "unknown" },
+                { name = "PostgreSQL permission failure", db_type = sql.type.POSTGRES,
+                    error = "ERROR: permission denied for table _migrations (SQLSTATE 42501)", status = "unknown" },
+                { name = "invalid PostgreSQL ledger schema", db_type = sql.type.POSTGRES,
+                    error = 'ERROR: column "id" of relation "_migrations" does not exist (SQLSTATE 42703)', status = "unknown" },
+                { name = "unrelated missing SQLite table", error = "no such table: other_table", status = "unknown" },
+                { name = "similarly named missing SQLite table", error = "no such table: _migrations_backup", status = "unknown" },
+            }) do
+                it("reports migration status for " .. case.name, function()
+                    local released = 0
+                    local svc = hub.new({ sql = fake_sql({}, {
+                        db_type = case.db_type,
+                        query_error = case.error,
+                        on_release = function() released = released + 1 end,
+                    }) }) :: any
+
+                    local status, status_err = svc:migration_status({
+                        id = "test.migrations:001", meta = { target_db = "app:db" },
+                    })
+
+                    test.eq(status, case.status)
+                    if case.status == "pending" then
+                        test.is_nil(status_err)
+                    else
+                        test.eq(status_err, case.error)
+                    end
+                    test.eq(released, 1)
+                end)
+            end
 
             it("does not list module-owned package dependencies as installed dependencies", function()
                 local entries = fixture_entries()
@@ -6570,6 +6607,28 @@ local function define_tests()
         end)
 
         describe("user hub events", function()
+            it("reports returned event delivery errors", function()
+                local proc = fake_process({})
+                proc.send = function() return nil, "Process not found" end
+                local svc = hub.new({ process = proc }) :: any
+
+                local ok, send_err = svc:emit_user_event("admin-1", "hub.test", {})
+
+                test.is_false(ok)
+                test.eq(send_err, "Process not found")
+            end)
+
+            it("still reports thrown event delivery errors", function()
+                local proc = fake_process({})
+                proc.send = function() error("delivery exception") end
+                local svc = hub.new({ process = proc }) :: any
+
+                local ok, send_err = svc:emit_user_event("admin-1", "hub.test", {})
+
+                test.is_false(ok)
+                test.contains(send_err, "delivery exception")
+            end)
+
             it("targets only the active user's relay hub", function()
                 local sent = {}
                 local svc = hub.new({ process = fake_process(sent), uuid = fake_uuid() }) :: any

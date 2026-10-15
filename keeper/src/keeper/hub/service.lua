@@ -282,10 +282,11 @@ function Service:emit_user_event(actor_id, event, data)
         actor_id = actor_id,
         data = data or {},
     }
-    local ok, send_result = pcall(function()
+    local ok, send_result, send_err = pcall(function()
         return self.process.send(pid, M.EVENT_TOPIC, payload)
     end)
     if not ok then return false, tostring(send_result) end
+    if send_err then return false, tostring(send_err) end
     if send_result == false then return false, "process.send returned false" end
     return true, nil
 end
@@ -425,7 +426,11 @@ function Service:migration_status(entry)
     db:release()
     if query_err then
         local msg = tostring(query_err)
-        if string.find(msg, "no such table", 1, true) or string.find(msg, "_migrations", 1, true) then
+        local missing_sqlite_table = string.match(msg, "no such table: ([%w_]+)")
+        local missing_pg_table = string.match(msg, '^relation "([^"]+)" does not exist')
+            or string.match(msg, ': relation "([^"]+)" does not exist')
+        if missing_sqlite_table == "_migrations"
+            or missing_pg_table == "_migrations" then
             return "pending", nil
         end
         return "unknown", msg
