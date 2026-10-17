@@ -1585,6 +1585,51 @@ local function define_tests()
                 test.eq(dep.migrations[1].status, "applied")
             end)
 
+            it("passes selected module sources through roots and transitive inventory", function()
+                local entries = concat_entries(
+                    { root_dep("app.deps:alpha", "wippy/alpha") },
+                    { root_dep("app.deps:beta", "wippy/beta") },
+                    installed_module("wippy/alpha", { "wippy/shared" }, "1.0.0"),
+                    installed_module("wippy/beta", {}, "2.0.0"),
+                    installed_module("wippy/shared", {}, "3.0.0")
+                )
+                for _, source in ipairs({ "replacement-tree-v1", "git", " future-source " }) do
+                    for _, include_modules in ipairs({ true, false }) do
+                        local svc = hub.new({
+                            registry = fake_registry(entries, nil, { module_sources = {
+                                ["wippy/alpha"] = "hub", ["wippy/beta"] = source,
+                                ["wippy/shared"] = source,
+                            } }),
+                            sql = fake_sql({}), planner = planner,
+                        }) :: any
+                        local out, list_err = svc:list_dependencies({ include_modules = include_modules })
+                        test.is_nil(list_err)
+                        test.eq(out.dependencies[1].source, "hub")
+                        test.eq(out.dependencies[2].source, source)
+                        test.eq(out.count, 2)
+                        if include_modules then
+                            test.eq(out.module_count, 3)
+                            test.eq(out.modules[1].source, "hub")
+                            test.eq(out.modules[2].source, source)
+                            test.eq(out.modules[3].source, source)
+                        else
+                            test.eq(out.module_count, 0)
+                        end
+                    end
+                end
+            end)
+
+            it("does not invent a source when resolution omits it", function()
+                local svc = hub.new({
+                    registry = fake_registry(fixture_entries()),
+                    sql = fake_sql({}), planner = no_requirements_planner(),
+                }) :: any
+                local out, list_err = svc:list_dependencies({})
+                test.is_nil(list_err)
+                test.is_nil(out.dependencies[1].source)
+                test.is_nil(out.modules[1].source)
+            end)
+
             it("binds migration status parameters for postgres", function()
                 local statement
                 local svc = hub.new({

@@ -513,12 +513,14 @@ function Service:installed_module_inventory(deps)
     local function ensure(name)
         local m = by_name[name]
         if not m then
+            local selection, selection_err = self:ownership_index():selection_of(name)
+            if selection_err then return nil, err("INTERNAL", tostring(selection_err)) end
             m = {
                 name = name,
                 version = module_versions[name] or "",
                 is_root = false,
                 transitive = true,
-                source = "registry",
+                source = selection and selection.source,
                 used_by = {},
                 used_by_count = 0,
                 __seen = {},
@@ -537,7 +539,8 @@ function Service:installed_module_inventory(deps)
     for _, dep in ipairs(deps or {}) do
         local comp = trim(dep.data and dep.data.component)
         if comp ~= "" then
-            local root = ensure(comp)
+            local root, root_err = ensure(comp)
+            if not root then return nil, nil, root_err end
             root.is_root = true
             root.transitive = false
             local keep
@@ -548,7 +551,8 @@ function Service:installed_module_inventory(deps)
             end
             for member in pairs(keep or {}) do
                 if member ~= comp then
-                    local m = ensure(member)
+                    local m, member_err = ensure(member)
+                    if not m then return nil, nil, member_err end
                     if not m.__seen[comp] then
                         m.__seen[comp] = true
                         table.insert(m.used_by, comp)
@@ -589,6 +593,9 @@ function Service:list_dependencies(args)
     for _, dep in ipairs(deps) do
         local summary = M.dependency_summary(dep)
         if not component_filter or summary.component == component_filter then
+            local selection, selection_err = self:ownership_index():selection_of(summary.component)
+            if selection_err then return nil, err("INTERNAL", tostring(selection_err)) end
+            summary.source = selection and selection.source
             local entries = {}
             local migrations = {}
             if summary.component and summary.component ~= "" then

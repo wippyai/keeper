@@ -173,7 +173,7 @@ function Index:selection_of(component)
         if trim(module.name) == trim(component) then
             return {
                 version = trim(module.version),
-                source = trim(module.source),
+                source = module.source,
                 digest = trim(module.digest),
                 size_bytes = module.size_bytes,
                 protected = module.protected,
