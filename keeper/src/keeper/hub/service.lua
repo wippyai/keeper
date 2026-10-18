@@ -529,6 +529,17 @@ function Service:installed_module_inventory(deps)
         return m
     end
 
+    local snapshot, snapshot_err = self:ownership_index():capture()
+    if not snapshot then return nil, nil, err("INTERNAL", tostring(snapshot_err)) end
+    local resolution = snapshot.resolution
+    local deployment = type(resolution) == "table" and resolution.lock or nil
+    local component = type(deployment) == "table" and trim(deployment.root_module) or ""
+    if component ~= "" then
+        local root = ensure(component)
+        root.is_root = true
+        root.transitive = false
+    end
+
     local instance
     if type(self.planner) == "table" and self.planner.new then
         instance = self.planner.new({ registry = self.registry })
