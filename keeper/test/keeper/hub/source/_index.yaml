@@ -1,0 +1,14 @@
+version: "1.0"
+namespace: app.source
+entries:
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub_source
+    source: file://test.lua
+    method: define_tests
+    imports:
+      test: wippy.test:test
+      service: keeper.hub:service
+      gov_consts: keeper.gov:consts
