@@ -88,6 +88,9 @@ function Index:load()
     local by_module = {}
     local by_id = {}
     local versions = resolved_versions(snapshot.resolution)
+    for name, version in pairs(versions) do
+        by_module[name] = { entries = {}, version = version }
+    end
     for _, row in ipairs(snapshot.entries) do
         local id = tostring(row.id)
         local name, root, ownership_err = entry_ownership(row)
