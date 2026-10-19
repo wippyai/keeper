@@ -112,10 +112,12 @@ local function fake_registry(entries, state_shape, registry_state)
                 end
                 table.insert(captured, row)
             end
-            local modules = {}
-            for name, version in pairs(versions) do
-                local source = (registry_state.module_sources or {})[name]
-                table.insert(modules, { name = name, version = version, source = source })
+            local modules = registry_state.modules or {}
+            if not registry_state.modules then
+                for name, version in pairs(versions) do
+                    local source = (registry_state.module_sources or {})[name]
+                    table.insert(modules, { name = name, version = version, source = source })
+                end
             end
             table.sort(modules, function(a, b) return a.name < b.name end)
             return {
@@ -138,7 +140,7 @@ local function fake_registry(entries, state_shape, registry_state)
                 state = function()
                     local state = {
                         entries = captured,
-                        resolution = { modules = modules },
+                        resolution = { modules = modules, lock = registry_state.lock },
                     }
                     if state_shape == "provenance_only" then state.provenance = captured_provenance end
                     return state, nil
@@ -1483,6 +1485,43 @@ local function define_tests()
         end)
 
         describe("inventory", function()
+            it("keeps the selected version for a deployment with no registry entries", function()
+                local reg = fake_registry({}, nil, {
+                    version = 1,
+                    modules = {{ name = "acme/application", version = "2.0.0", source = "hub" }},
+                    lock = { root_module = "acme/application" },
+                })
+                local svc = hub.new({ registry = reg, planner = no_requirements_planner() }) :: any
+
+                local out, inventory_err = svc:list_dependencies({})
+
+                test.is_nil(inventory_err)
+                test.eq(#out.modules, 1)
+                test.eq(out.modules[1].name, "acme/application")
+                test.eq(out.modules[1].version, "2.0.0")
+                test.eq(out.modules[1].is_root, true)
+            end)
+
+            it("includes the selected deployment package at its live version", function()
+                local entries = installed_module("acme/application", {}, "2.0.0")
+                local reg = fake_registry(entries, nil, {
+                    version = 1,
+                    lock = {
+                        root_module = "acme/application",
+                        modules = {{ name = "acme/application", version = "1.0.0", source = "hub" }},
+                    },
+                })
+                local svc = hub.new({ registry = reg, planner = no_requirements_planner() }) :: any
+                local out, inventory_err = svc:list_dependencies({})
+                test.is_nil(inventory_err)
+                test.eq(#out.dependencies, 0)
+                test.eq(#out.modules, 1)
+                test.eq(out.modules[1].name, "acme/application")
+                test.eq(out.modules[1].version, "2.0.0")
+                test.eq(out.modules[1].is_root, true)
+                test.eq(out.modules[1].transitive, false)
+            end)
+
             it("captures one atomic state per operation and refreshes for the next", function()
                 local entries = installed_module("wippy/first", {}, "1.0.0")
                 local reg = fake_registry(entries)
