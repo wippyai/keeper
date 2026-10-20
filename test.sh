@@ -98,9 +98,11 @@ for suite in "${SUITES[@]}"; do
     # neither test names containing "failed" nor in-progress "34/77" frames are
     # mistaken for a result.
     fail=0
-    if echo "$out" | grep -qi "no tests found"; then fail=1; fi
-    if echo "$out" | grep -qE "^[[:space:]]*FAILED([[:space:]]|$)"; then fail=1; fi
-    if ! echo "$out" | grep -qE "^[[:space:]]*PASSED([[:space:]]|$)"; then fail=1; fi
+    # Here-strings, not pipes: grep -q exits on the first match, and under
+    # pipefail the writer's SIGPIPE would turn a match into a failure.
+    if grep -qi "no tests found" <<<"$out"; then fail=1; fi
+    if grep -qE "^[[:space:]]*FAILED([[:space:]]|$)" <<<"$out"; then fail=1; fi
+    if ! grep -qE "^[[:space:]]*PASSED([[:space:]]|$)" <<<"$out"; then fail=1; fi
 
     if [ "$fail" -ne 0 ]; then
         echo ">> $suite: FAILED"

@@ -1648,6 +1648,9 @@ local function define_tests()
                         test.is_nil(list_err)
                         test.eq(out.dependencies[1].source, "hub")
                         test.eq(out.dependencies[2].source, source)
+                        test.eq(out.dependencies[1].version, ">=v0.0.0")
+                        test.eq(out.dependencies[1].installed_version, "1.0.0")
+                        test.eq(out.dependencies[2].installed_version, "2.0.0")
                         test.eq(out.count, 2)
                         if include_modules then
                             test.eq(out.module_count, 3)
@@ -5524,6 +5527,36 @@ local function define_tests()
                 test.eq(resolution["1"].module, "acme/ghost")
                 test.eq(resolution["1"].constraint, ">=v1.0.0")
                 test.contains(tostring(resolution["1"].message), "no versions available")
+            end)
+
+            it("reports an unreachable Hub as unavailable, not as a conflict", function()
+                for _, kind in ipairs({ errors.UNAVAILABLE, errors.TIMEOUT }) do
+                    local catalog = fake_catalog({})
+                    catalog.versions.list = function()
+                        return nil, errors.new({ kind = kind, message = "use of closed network connection" })
+                    end
+                    local svc = planner.new({ catalog = catalog, registry = fake_registry({}) }) :: any
+
+                    local plan, plan_err = svc:plan_install({ component = "acme/ghost", version = "=1.0.0" })
+
+                    test.is_nil(plan)
+                    test.eq(err_code(plan_err), "UNAVAILABLE")
+                    test.eq(err_kind(plan_err), errors.UNAVAILABLE)
+                    test.contains(err_message(plan_err), "hub versions lookup failed for acme/ghost")
+                end
+            end)
+
+            it("keeps other Hub lookup failures out of the unavailable class", function()
+                local catalog = fake_catalog({})
+                catalog.versions.list = function()
+                    return nil, errors.new({ kind = errors.INTERNAL, message = "bad payload" })
+                end
+                local svc = planner.new({ catalog = catalog, registry = fake_registry({}) }) :: any
+
+                local plan, plan_err = svc:plan_install({ component = "acme/ghost", version = "=1.0.0" })
+
+                test.is_nil(plan)
+                test.eq(err_code(plan_err), "CONFLICT")
             end)
 
             it("fails the plan when a resolved version conflicts with an installed root constraint", function()

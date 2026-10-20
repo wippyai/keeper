@@ -149,9 +149,16 @@ const filteredDeps = computed(() => {
   return deps.value.filter(d =>
     (d.component || '').toLowerCase().includes(q) ||
     d.id.toLowerCase().includes(q) ||
-    (d.version || '').toLowerCase().includes(q),
+    (d.version || '').toLowerCase().includes(q) ||
+    (d.installed_version || '').toLowerCase().includes(q),
   )
 })
+
+// The declared range, when it says more than the installed release.
+function declaredRange(d: DependencyRoot): string | undefined {
+  if (!d.installed_version || !d.version) return undefined
+  return d.version.replace(/^=\s*/, '') === d.installed_version ? undefined : d.version
+}
 
 // Names that are installed as roots, to exclude them from the transitive list.
 const rootNames = computed(() => new Set(deps.value.map(d => d.component || d.name || '').filter(Boolean)))
@@ -591,7 +598,8 @@ onMounted(() => {
                   <div class="flex items-center gap-2 flex-wrap">
                     <span class="inst-name">{{ d.component }}</span>
                     <span class="role-pill root">ROOT</span>
-                    <span v-if="d.version" class="mod-version">{{ d.version }}</span>
+                    <span v-if="d.installed_version || d.version" class="mod-version">{{ d.installed_version || d.version }}</span>
+                    <span v-if="declaredRange(d)" class="mod-org mono" :title="`Declared range ${d.version}`">{{ d.version }}</span>
                     <span v-if="d.source" class="src-pill" :class="d.source === 'local' ? 'local' : 'hub'">{{ d.source }}</span>
                     <span v-if="(d.used_by_count || d.used_by?.length)" class="usedby-pill" :title="(d.used_by || []).join(', ')">
                       <Icon icon="tabler:share-2" class="w-2.5 h-2.5" />
