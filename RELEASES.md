@@ -1,5 +1,19 @@
 # Release Notes
 
+## keeper/keeper 0.5.109
+
+The Hub Installed list and install dialog show the active installed release
+alongside its declared range. Installed releases follow updates, downgrades,
+undo and redo. Unavailable Hub lookups return HTTP 503 while other resolution
+conflicts retain their existing status. The test runner no longer reports a
+passing suite as failed after a SIGPIPE.
+
+The Hub suite passes 239 tests, frontend tests pass 88 cases, the frontend type
+check passes, and lint reports no issues across 402 entries. The changed
+frontend bundles were rebuilt and verified against the source. Transport
+cancellation classification additionally requires Runtime #995; the installed
+version display and existing UNAVAILABLE/TIMEOUT handling work independently.
+
 ## keeper/keeper 0.5.108
 
 Hub plans and installs preserve explicit empty-string requirement bindings
