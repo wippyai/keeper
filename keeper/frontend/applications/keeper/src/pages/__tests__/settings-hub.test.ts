@@ -70,3 +70,24 @@ describe('installed hub dependencies', () => {
     expect(wrapper.find('.inst-card .mod-version').text()).toBe('>=0.6.0')
   })
 })
+
+describe('install warnings', () => {
+  it('shows registry observer warnings after an applied install', async () => {
+    const wrapper = await mountInstalled({ id: 'app.deps:facade', component: 'wippy/facade', version: '0.6.0' })
+    wrapper.findComponent({ name: 'HubInstallDialog' }).vm.$emit('installed', 'wippy/facade',
+      [{ observer: 'acme.security:observer', message: 'scope projection did not finish' }])
+    await flushPromises()
+    const banner = wrapper.find('.install-warnings')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).toContain('wippy/facade')
+    expect(banner.text()).toContain('acme.security:observer')
+    expect(banner.text()).toContain('scope projection did not finish')
+  })
+
+  it('shows no warning banner after a clean install', async () => {
+    const wrapper = await mountInstalled({ id: 'app.deps:facade', component: 'wippy/facade', version: '0.6.0' })
+    wrapper.findComponent({ name: 'HubInstallDialog' }).vm.$emit('installed', 'wippy/facade', [])
+    await flushPromises()
+    expect(wrapper.find('.install-warnings').exists()).toBe(false)
+  })
+})

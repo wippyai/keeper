@@ -6227,6 +6227,26 @@ local function define_tests()
                 test.eq(#state.last_changeset, 2)
             end)
 
+            it("returns registry observer failures as install warnings", function()
+                local svc = setup(nil, { publish_result = {
+                    version = 62,
+                    message = "published",
+                    warnings = { { observer = "acme.security:observer", message = "scope projection did not finish" } },
+                } })
+                local result, install_err = svc:install({ component = "acme/engine", migration_policy = "none" })
+                test.is_nil(install_err)
+                test.eq(#result.warnings, 1)
+                test.eq(result.warnings[1].observer, "acme.security:observer")
+                test.eq(result.warnings[1].message, "scope projection did not finish")
+            end)
+
+            it("returns no install warnings when every observer succeeds", function()
+                local svc = setup()
+                local result, install_err = svc:install({ component = "acme/engine", migration_policy = "none" })
+                test.is_nil(install_err)
+                test.eq(#result.warnings, 0)
+            end)
+
             it("preserves an installed child's explicit bindings on parent updates", function()
                 local child = root_dep("app.deps:knowledge", "acme/knowledge")
                 child.data.parameters = { { name = "api_router", value = "app:private_api" } }

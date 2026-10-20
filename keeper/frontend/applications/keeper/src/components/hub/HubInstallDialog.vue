@@ -4,10 +4,10 @@ import Dialog from 'primevue/dialog'
 import { Icon } from '@iconify/vue'
 import { useApi } from '../../composables/useWippy'
 import {
-  planHubInstall, fillHubRequirementGaps, installHubDependency, listHubDependencies, scanHubInstall,
+  planHubInstall, fillHubRequirementGaps, installHubDependency, listHubDependencies, scanHubInstall, applyWarnings,
   type HubInstallPlanResponse, type HubPlanRequirement, type InstallPlanNode,
   type HubScanFinding, type HubScanModuleResult, type HubScanResponse, type HubScanStatus,
-  type InstallPayload, type RequirementValue, type HubRequestError as RequestFailure, hubRequestError,
+  type InstallPayload, type RequirementValue, type HubApplyWarning, type HubRequestError as RequestFailure, hubRequestError,
 } from '../../api/hub'
 import RequirementValueInput from './RequirementValueInput.vue'
 import RequirementResolution from './RequirementResolution.vue'
@@ -22,7 +22,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [boolean]
-  installed: [component: string]
+  installed: [component: string, warnings: HubApplyWarning[]]
 }>()
 
 const api = useApi()
@@ -481,9 +481,9 @@ async function submit() {
   busy.value = true
   error.value = null
   try {
-    await installHubDependency(api, installPayload())
+    const result = await installHubDependency(api, installPayload())
     busy.value = false
-    emit('installed', props.component.trim())
+    emit('installed', props.component.trim(), applyWarnings(result))
     close()
   } catch (e: any) {
     const data = e.response?.data

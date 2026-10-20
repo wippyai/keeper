@@ -394,6 +394,7 @@ local handlers = {
                     timestamp = now and now:unix() or 0,
                     changeset = result and result.changeset,
                     details = result and result.details,
+                    warnings = result and result.warnings,
                 }
 
                 if result and result.success then
@@ -422,6 +423,7 @@ local handlers = {
                 timestamp = now and now:unix() or 0,
                 changeset = result and result.changeset,
                 details = result and result.details,
+                warnings = result and result.warnings,
             }
 
             if result and result.success then

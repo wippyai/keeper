@@ -10,7 +10,7 @@ import {
   listHubMigrations, runHubMigrations,
   browseHubModules, listHubVersions, getHubReadme,
   type HubMigration, type HubModule, type HubVersion,
-  type DependencyRoot, type ModuleInventoryEntry,
+  type DependencyRoot, type ModuleInventoryEntry, type HubApplyWarning,
 } from '../api/hub'
 import PageHeader from '../components/shared/PageHeader.vue'
 import HubInstallDialog from '../components/hub/HubInstallDialog.vue'
@@ -36,6 +36,7 @@ const expandedDep = ref<string | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 const successMsg = ref<string | null>(null)
+const installWarnings = ref<{ component: string, warnings: HubApplyWarning[] } | null>(null)
 const deps = ref<DependencyRoot[]>([])
 const moduleInventory = ref<ModuleInventoryEntry[]>([])
 const migrations = ref<HubMigration[]>([])
@@ -359,8 +360,9 @@ function openUninstall(d: DependencyRoot) {
   uninstallOpen.value = true
 }
 
-async function onInstalled(component: string) {
+async function onInstalled(component: string, warnings: HubApplyWarning[] = []) {
   flash(`Installed ${component}`)
+  installWarnings.value = warnings.length ? { component, warnings } : null
   detail.value = null
   await loadInstalled()
 }
@@ -438,6 +440,16 @@ onMounted(() => {
       <Icon icon="tabler:alert-circle" class="w-3.5 h-3.5 shrink-0" />
       <span class="flex-1">{{ error }}</span>
       <button @click="error = null" style="color: var(--p-text-muted-color)"><Icon icon="tabler:x" class="w-3 h-3" /></button>
+    </div>
+    <div v-if="installWarnings" class="install-warnings mx-4 mt-2 px-3 py-2 rounded text-[11px] flex items-start gap-2 bg-warn-500/15 text-warn-500">
+      <Icon icon="tabler:alert-triangle" class="w-3.5 h-3.5 shrink-0 mt-px" />
+      <div class="flex-1">
+        <div>Installed {{ installWarnings.component }}, but a post-install step failed. Permissions or other derived state may be out of date.</div>
+        <ul class="mt-1 list-disc pl-4">
+          <li v-for="(w, i) in installWarnings.warnings" :key="i"><span v-if="w.observer" class="font-mono">{{ w.observer }}: </span>{{ w.message }}</li>
+        </ul>
+      </div>
+      <button @click="installWarnings = null" style="color: var(--p-text-muted-color)"><Icon icon="tabler:x" class="w-3 h-3" /></button>
     </div>
 
     <!-- DISCOVER -->
