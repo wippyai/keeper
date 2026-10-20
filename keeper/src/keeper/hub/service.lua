@@ -619,6 +619,7 @@ function Service:list_dependencies(args)
                 if not module_entries then return nil, module_err end
                 local owner_version, version_err = self:ownership_index():version_of(summary.component)
                 if not owner_version then return nil, err("INTERNAL", tostring(version_err)) end
+                if owner_version ~= "" then summary.installed_version = owner_version end
                 for _, entry in ipairs(module_entries) do
                     table.insert(entries, entry_summary(entry, summary.component, owner_version))
                     if entry.meta and entry.meta.type == "migration" then

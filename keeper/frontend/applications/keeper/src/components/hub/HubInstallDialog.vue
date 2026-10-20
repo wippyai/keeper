@@ -337,7 +337,8 @@ async function loadInstalledVersions() {
     }
     for (const d of res.dependencies || []) {
       const name = d.component || d.name
-      if (name && d.version && !map[name]) map[name] = d.version
+      const installed = d.installed_version || d.version
+      if (name && installed && !map[name]) map[name] = installed
     }
     installedVersions.value = map
   } catch (e: any) {

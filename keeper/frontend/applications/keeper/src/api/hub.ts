@@ -41,6 +41,8 @@ export interface HubDependency {
   name?: string
   component?: string
   version?: string
+  // The release the registry runs. `version` is the declared range.
+  installed_version?: string
   source?: string
   installed?: boolean
   installed_entries_count?: number
