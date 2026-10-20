@@ -134,6 +134,7 @@ local ERROR_KIND_BY_CODE = {
     DEPENDENCY_GRAPH_FAILED = errors.CONFLICT,
     DEPENDENCY_REQUIRED = errors.CONFLICT,
     MIGRATION_SELECTION_STALE = errors.CONFLICT,
+    UNAVAILABLE = errors.UNAVAILABLE,
 }
 
 local function err(code, message, details)

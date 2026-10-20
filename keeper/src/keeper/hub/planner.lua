@@ -119,6 +119,7 @@ local ERROR_KIND_BY_CODE = {
     NOT_FOUND = errors.NOT_FOUND,
     CONFLICT = errors.CONFLICT,
     PARAMETER_TARGET_TRANSITIVE = errors.INVALID,
+    UNAVAILABLE = errors.UNAVAILABLE,
 }
 
 -- Error details survive a string-keyed conversion only: array parts are
@@ -157,6 +158,31 @@ local function err_message(e, fallback)
     end
     if type(e) == "table" then return e.message or e.error or fallback end
     return tostring(e)
+end
+
+-- A Hub call that failed because the Hub could not be reached keeps that
+-- cause: the caller can retry, and the request itself is not in conflict.
+local function resolution_unavailable(e): boolean?
+    local ok, kind = pcall(function() return (e :: any):kind() end)
+    if ok and (kind == errors.UNAVAILABLE or kind == errors.TIMEOUT) then return true end
+    return nil
+end
+
+local function hub_lookup_code(e): string
+    return resolution_unavailable(e) and "UNAVAILABLE" or "INTERNAL"
+end
+
+-- A resolution that failed because the Hub could not be reached is reported
+-- as unavailable, not as a conflict in the requested graph.
+local function resolution_failure(rows)
+    local summaries = {}
+    local code = "CONFLICT"
+    for _, row in ipairs(rows) do
+        table.insert(summaries, tostring(row.module) .. " (" .. tostring(row.constraint) .. "): " .. tostring(row.message))
+        if row.unavailable then code = "UNAVAILABLE" end
+    end
+    return err(code, "dependency resolution failed: " .. table.concat(summaries, "; "),
+        { errors = M.position_keyed(rows) })
 end
 
 local function err_details(e)
@@ -1098,7 +1124,7 @@ function Planner:list_all_versions(component)
     while true do
         local result, call_err = self.catalog.versions.list(component, { page = page, page_size = 100 })
         if not result then
-            return nil, err("INTERNAL", "hub versions lookup failed for " .. component .. ": " .. tostring(call_err))
+            return nil, err(hub_lookup_code(call_err), "hub versions lookup failed for " .. component .. ": " .. tostring(call_err))
         end
         for _, item in ipairs(result.items or {}) do table.insert(out, item) end
         local total = tonumber(result.total or 0) or 0
@@ -1289,7 +1315,7 @@ function Planner:dependency_details(component, selected)
 
     local result, dependency_err = self.catalog.dependencies.get(component, version_ref)
     if not result then
-        return nil, err("INTERNAL", "hub dependency lookup failed for " .. component .. ": " .. tostring(dependency_err))
+        return nil, err(hub_lookup_code(dependency_err), "hub dependency lookup failed for " .. component .. ": " .. tostring(dependency_err))
     end
 
     local merged = shallow_copy(selected_item)
@@ -1484,6 +1510,7 @@ function Planner:walk_graph(roots, expand, opts)
                 constraint = constraint,
                 message = err_message(expand_err, "dependency resolution failed"),
                 details = err_details(expand_err),
+                unavailable = resolution_unavailable(expand_err),
             })
             return
         end
@@ -1502,12 +1529,7 @@ function Planner:walk_graph(roots, expand, opts)
     end
 
     if #resolution_errors > 0 then
-        local summaries = {}
-        for _, row in ipairs(resolution_errors) do
-            table.insert(summaries, tostring(row.module) .. " (" .. tostring(row.constraint) .. "): " .. tostring(row.message))
-        end
-        return nil, err("CONFLICT", "dependency resolution failed: " .. table.concat(summaries, "; "),
-            { errors = M.position_keyed(resolution_errors) })
+        return nil, resolution_failure(resolution_errors)
     end
     return nodes, nil
 end
@@ -1585,6 +1607,7 @@ function Planner:resolve_install_graph(component, constraint, opts)
                                 constraint = work.constraint,
                                 message = err_message(select_err, "dependency resolution failed"),
                                 details = err_details(select_err),
+                                unavailable = resolution_unavailable(select_err),
                             })
                         else
                             local selected_item = selected :: VersionItem
@@ -1683,13 +1706,7 @@ function Planner:resolve_install_graph(component, constraint, opts)
         if changed then
             preferred = next_preferred
         elseif #resolution_errors > 0 then
-            local summaries = {}
-            for _, row in ipairs(resolution_errors) do
-                table.insert(summaries, tostring(row.module) .. " (" .. tostring(row.constraint) .. "): "
-                    .. tostring(row.message))
-            end
-            return nil, err("CONFLICT", "dependency resolution failed: " .. table.concat(summaries, "; "),
-                { errors = M.position_keyed(resolution_errors) })
+            return nil, resolution_failure(resolution_errors)
         elseif #conflicts > 0 then
             return nil, conflicts[1]
         else
