@@ -14,6 +14,7 @@ import {
 } from '../api/hub'
 import PageHeader from '../components/shared/PageHeader.vue'
 import HubInstallDialog from '../components/hub/HubInstallDialog.vue'
+import HubInstallWarnings from '../components/hub/HubInstallWarnings.vue'
 import HubUninstallDialog from '../components/hub/HubUninstallDialog.vue'
 
 const api = useApi()
@@ -441,16 +442,12 @@ onMounted(() => {
       <span class="flex-1">{{ error }}</span>
       <button @click="error = null" style="color: var(--p-text-muted-color)"><Icon icon="tabler:x" class="w-3 h-3" /></button>
     </div>
-    <div v-if="installWarnings" class="install-warnings mx-4 mt-2 px-3 py-2 rounded text-[11px] flex items-start gap-2 bg-warn-500/15 text-warn-500">
-      <Icon icon="tabler:alert-triangle" class="w-3.5 h-3.5 shrink-0 mt-px" />
-      <div class="flex-1">
-        <div>Installed {{ installWarnings.component }}, but a post-install step failed. Permissions or other derived state may be out of date.</div>
-        <ul class="mt-1 list-disc pl-4">
-          <li v-for="(w, i) in installWarnings.warnings" :key="i"><span v-if="w.observer" class="font-mono">{{ w.observer }}: </span>{{ w.message }}</li>
-        </ul>
-      </div>
-      <button @click="installWarnings = null" style="color: var(--p-text-muted-color)"><Icon icon="tabler:x" class="w-3 h-3" /></button>
-    </div>
+    <HubInstallWarnings
+      v-if="installWarnings"
+      :component="installWarnings.component"
+      :warnings="installWarnings.warnings"
+      @dismiss="installWarnings = null"
+    />
 
     <!-- DISCOVER -->
     <div v-if="tab === 'discover'" class="flex-1 overflow-y-auto">
