@@ -1982,7 +1982,7 @@ local function define_tests()
                     end,
                 }
                 local function response()
-                    local res = { headers = {}, status = 200 }
+                    local res = { headers = {}, status = 200, body = {} :: { [string]: any } }
                     function res:set_status(status) self.status = status end
                     function res:write_json(body) self.body = body end
                     function res:set_header(name, value)
