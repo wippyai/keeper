@@ -1,0 +1,24 @@
+version: "1.0"
+namespace: keeper.timestamps
+
+entries:
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      suite: timestamps
+      comment: Stored timestamps represent UTC instants in any host timezone
+    source: file://test.lua
+    modules: [sql, time, uuid, json]
+    imports:
+      test: wippy.test:test
+      changelog: keeper.knowledge.changelog:changelog
+      kb_repo: keeper.knowledge:repo
+      cs_repo: keeper.changeset.persist:repo
+      cs_consts: keeper.changeset:consts
+      task_writer: keeper.task.persist:writer
+      task_consts: keeper.task:consts
+      rebuild: keeper.git.flows:rebuild
+    method: define_tests
+    pool:
+      size: 1

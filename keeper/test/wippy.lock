@@ -7,25 +7,25 @@ modules:
     - name: keeper/empty-fixture
       version: 1.0.0
     - name: keeper/keeper
-      version: 0.5.108
+      version: 0.5.109
     - name: userspace/contract
       version: 0.4.1
       hash: c154e2cc11ca94ddd368307aced96cfbbd411a58e74e46339d50b4a9befc1d65
     - name: userspace/uploads
-      version: 0.5.28
-      hash: dd48fbdea8e56a574b6edbfb3add13fa74d68d55f26a45cf7287eb8a14e143c8
+      version: 0.5.29
+      hash: 63f9c08500ff5a56530761da9677969b56e1b02bfbf8ff88de99ab122acf3860
     - name: wippy/agent
-      version: 0.5.4
-      hash: f023d98e27b8c62bf8e1317aa56a066c7378ef1d59ccacdcdee039f3da9f3347
+      version: 0.5.5
+      hash: afd0e1315e2e0785661f266885054b96b4e2037763f92c50cc78540714415282
     - name: wippy/bootloader
       version: 0.3.18
       hash: c7e71b358539b450b49b55e725f60f2dac8218e1c596cf3a473ce71e36b10a9b
     - name: wippy/dataflow
-      version: 0.7.25
-      hash: 848bfc1756e16557cbccf1c856c3a1f8b6e35f4323a4ddc2253716ee3a652bcc
+      version: 0.7.26
+      hash: cc5703eaf52390f08b893526e960b9a46ea07044dfde2b8668f293bded85edb9
     - name: wippy/llm
-      version: 0.5.7
-      hash: 99d6a6c706ba71b625e118ce736bd262c9aac695aa09008109d7d25851c09583
+      version: 0.5.8
+      hash: 5c6b10c51a5657c25d989286eda12ce68684d11575c46940160c5c726c5260f7
     - name: wippy/migration
       version: 0.3.23
       hash: 1666a62a870fa2692e560eda7cb7438fba027931d1fb88a2c5c713d660a10412
@@ -33,14 +33,14 @@ modules:
       version: 0.4.3
       hash: f636859979e88b23647a78fb9aa8a553799de18750b0fb5fb085cbe21542c86c
     - name: wippy/session
-      version: 0.6.8
-      hash: 714e8d40824c051c764e6c3db973f0e19cf0faa4de8653601937106724cc7538
+      version: 0.6.9
+      hash: f5908c03513db6c2be0b9299c144c4112ee50a9235f39f6de84d435bfce6186e
     - name: wippy/terminal
       version: 0.4.6
       hash: aa0c92b85c0dc2c96f00119a7eaa1ced569a2ac8899514d432aef0c910e73e63
     - name: wippy/test
-      version: 0.4.22
-      hash: 5b20c990c7e48234aca72cf538dcb9dbd48d1ff79132382e93d7844696a6baa1
+      version: 0.4.23
+      hash: 94878c4eeabac3337b795087d37ef6fe894458e26a5c7a1dd61012b43fcae366
     - name: wippy/views
       version: 0.5.12
       hash: a90c888b6150f1b5fc89f35191a39dce5f644cbdbf069224b22ad524860ce9a0
