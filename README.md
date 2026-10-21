@@ -100,6 +100,13 @@ capabilities are available. Existing single-component requests keep their shape.
 
 ## Verify
 
+Run the stored timestamp regressions in timezones on both sides of UTC:
+
+```sh
+TZ=Etc/GMT-4 make test SUITES=keeper.timestamps:test
+TZ=Etc/GMT+7 make test SUITES=keeper.timestamps:test
+```
+
 ```sh
 make lint
 make publish-dry-run
