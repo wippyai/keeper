@@ -20,7 +20,7 @@ local function get_db()
 end
 
 local function now_iso()
-    return time.now():format("2006-01-02T15:04:05Z")
+    return time.now():utc():format("2006-01-02T15:04:05Z")
 end
 
 local function publish(event, data)
