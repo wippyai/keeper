@@ -185,3 +185,29 @@ entries:
     method: DELETE
     func: handler_delete
     path: /
+
+  - name: context_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: mcp
+    source: file://context_test.lua
+    modules: [sql, uuid, hash]
+    imports:
+      test: wippy.test:test
+      mcp_dispatch: keeper.mcp.transport:dispatch
+      mcp_tokens: keeper.mcp.auth:tokens
+      mcp_auth: keeper.mcp.auth:auth
+      mcp_consts: keeper.mcp:consts
+    method: run
+
+  - name: context_migration_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: mcp
+    source: file://context_migration_test.lua
+    modules: [sql, funcs, uuid, hash]
+    imports:
+      test: wippy.test:test
+    method: run

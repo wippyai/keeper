@@ -11,14 +11,9 @@ local function sha256_hex(raw)
     return digest
 end
 
-local function is_postgres(db)
-    local ok, t = pcall(function() return db:type() end)
-    return ok and t == "postgres"
-end
-
-local function rekey(db, table_name, digest, raw)
+local function rekey(db, table_name, digest, raw, postgres)
     local stmt = "UPDATE " .. table_name .. " SET token = ? WHERE token = ?"
-    if is_postgres(db) then
+    if postgres then
         stmt = "UPDATE " .. table_name .. " SET token = $1 WHERE token = $2"
     end
     return db:execute(stmt, { digest, raw })
@@ -37,10 +32,10 @@ return require("migration").define(function()
                     local raw = row.token
                     local digest = sha256_hex(raw)
                     if digest ~= raw then
-                        local _, s_err = rekey(db, "keeper_mcp_session_state", digest, raw)
+                        local _, s_err = rekey(db, "keeper_mcp_session_state", digest, raw, false)
                         if s_err then error("rekey session_state: " .. s_err) end
 
-                        local _, t_err = rekey(db, "keeper_mcp_tokens", digest, raw)
+                        local _, t_err = rekey(db, "keeper_mcp_tokens", digest, raw, false)
                         if t_err then error("rehash token: " .. t_err) end
                     end
                 end
@@ -64,10 +59,10 @@ return require("migration").define(function()
                     local raw = row.token
                     local digest = sha256_hex(raw)
                     if digest ~= raw then
-                        local _, s_err = rekey(db, "keeper_mcp_session_state", digest, raw)
+                        local _, s_err = rekey(db, "keeper_mcp_session_state", digest, raw, true)
                         if s_err then error("rekey session_state: " .. s_err) end
 
-                        local _, t_err = rekey(db, "keeper_mcp_tokens", digest, raw)
+                        local _, t_err = rekey(db, "keeper_mcp_tokens", digest, raw, true)
                         if t_err then error("rehash token: " .. t_err) end
                     end
                 end

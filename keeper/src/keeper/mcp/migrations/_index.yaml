@@ -73,3 +73,14 @@ entries:
       migration: wippy.migration:migration
     method: define
 
+
+  - name: migration_07
+    kind: function.lua
+    meta:
+      type: migration
+      comment: Credential and transport session context binding
+      target_db: app:db
+    source: file://migration_07.lua
+    imports:
+      migration: wippy.migration:migration
+    method: define
