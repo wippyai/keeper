@@ -241,9 +241,8 @@ function tokens.revoke(token_hash, revoked_by)
     return true, nil
 end
 
--- Session state (runtime active_traits per token). Token key matches either a
--- real DB token value or the env-token string; the separate session_state
--- table lets the env-token (no tokens row) still persist its active set.
+-- Trait activation remains credential-scoped, in the unassigned session row.
+-- Transport context uses a separate row for each validated session ID.
 
 -- Returns (active_traits, err). A `nil` active_traits value (with no err)
 -- signals "no persisted state for this token" so callers can fall back to
@@ -257,7 +256,7 @@ function tokens.get_active_traits(raw_token)
 
     local rows, query_err = sql.builder.select("active_traits")
         :from("keeper_mcp_session_state")
-        :where("token = ?", key)
+        :where("token = ? AND session_id = ?", key, "")
         :run_with(db)
         :query()
     db:release()
@@ -282,8 +281,8 @@ function tokens.set_active_traits(raw_token, trait_ids)
     local now = time.now():unix()
 
     local _, exec_err = sql.builder.insert("keeper_mcp_session_state")
-        :set_map({ token = key, active_traits = payload, updated_at = now })
-        :suffix("ON CONFLICT(token) DO UPDATE SET active_traits = excluded.active_traits, updated_at = excluded.updated_at")
+        :set_map({ token = key, session_id = "", active_traits = payload, updated_at = now })
+        :suffix("ON CONFLICT(token, session_id) DO UPDATE SET active_traits = excluded.active_traits, updated_at = excluded.updated_at")
         :run_with(db)
         :exec()
     db:release()
@@ -296,114 +295,98 @@ function tokens.clear_active_traits(token)
     return tokens.set_active_traits(token, {})
 end
 
--- Session-scoped overlay_branch. Tools that edit via branches (edit, manage,
--- lint, push) read `ctx.get("overlay_branch")`; the branch tool emits
--- `_control.context.session.set.overlay_branch` and the MCP handler persists
--- it here so subsequent calls on the same bearer see it.
-
-function tokens.get_overlay_branch(raw_token)
+-- Read and mutate the branch/changeset binding in one SQL statement per operation.
+local function read_context(raw_token, session_id)
     local key, herr = digest(raw_token)
     if herr then return nil, herr end
-
     local db, db_err = sql.get(consts.db_id())
     if db_err then return nil, "Database error: " .. tostring(db_err) end
-
-    local rows, query_err = sql.builder.select("overlay_branch")
+    local rows, query_err = sql.builder.select("overlay_branch", "changeset_id")
         :from("keeper_mcp_session_state")
-        :where("token = ?", key)
-        :run_with(db)
-        :query()
+        :where("token = ? AND session_id = ?", key, session_id)
+        :run_with(db):query()
     db:release()
-
     if query_err then return nil, "Query failed: " .. tostring(query_err) end
-    if not rows or #rows == 0 then return nil, nil end
+    local row = rows and rows[1] or {}
+    return {
+        overlay_branch = row.overlay_branch ~= "" and row.overlay_branch or nil,
+        changeset_id = row.changeset_id ~= "" and row.changeset_id or nil,
+    }, nil
+end
 
-    local v = rows[1].overlay_branch
-    if v == nil or v == "" then return nil, nil end
-    return v, nil
+local function update_context(raw_token, session_id, set, delete)
+    local key, herr = digest(raw_token)
+    if herr then return false, herr end
+    local values = { token = key, session_id = session_id, updated_at = time.now():unix() }
+    local updates = {}
+    for _, field in ipairs({ "overlay_branch", "changeset_id" }) do
+        local value = type(set) == "table" and set[field] or nil
+        local remove = false
+        for _, name in ipairs(type(delete) == "table" and delete or {}) do
+            if name == field then remove = true end
+        end
+        if remove or value ~= nil then
+            values[field] = not remove and value or sql.NULL
+            table.insert(updates, field .. " = excluded." .. field)
+        end
+    end
+    if #updates == 0 then return true, nil end
+    table.insert(updates, "updated_at = excluded.updated_at")
+    local db, db_err = sql.get(consts.db_id())
+    if db_err then return false, "Database error: " .. tostring(db_err) end
+    local _, exec_err = sql.builder.insert("keeper_mcp_session_state")
+        :set_map(values)
+        :suffix("ON CONFLICT(token, session_id) DO UPDATE SET " .. table.concat(updates, ", "))
+        :run_with(db):exec()
+    db:release()
+    if exec_err then return false, "Upsert failed: " .. tostring(exec_err) end
+    return true, nil
+end
+
+local function valid_session_id(id)
+    return type(id) == "string" and #id == 64 and not id:find("[^0-9a-f]")
+end
+
+function tokens.get_session_context(raw_token, session_id)
+    if not valid_session_id(session_id) then return nil, "MCP session ID required" end
+    return read_context(raw_token, session_id)
+end
+
+function tokens.update_session_context(raw_token, session_id, set, delete)
+    if not valid_session_id(session_id) then return false, "MCP session ID required" end
+    return update_context(raw_token, session_id, set, delete)
+end
+
+-- Existing credential-level accessors retain their unassigned state. Dispatch
+-- uses only the transport binding and never inherits these legacy values.
+function tokens.get_overlay_branch(raw_token)
+    local binding, err = read_context(raw_token, "")
+    if err then return nil, err end
+    return binding.overlay_branch, nil
 end
 
 function tokens.set_overlay_branch(raw_token, branch)
-    local key, herr = digest(raw_token)
-    if herr then return false, herr end
-
-    local db, db_err = sql.get(consts.db_id())
-    if db_err then return false, "Database error: " .. tostring(db_err) end
-
-    local now = time.now():unix()
-    local _, exec_err = sql.builder.insert("keeper_mcp_session_state")
-        :set_map({
-            token = key,
-            active_traits = "[]",
-            overlay_branch = branch or sql.NULL,
-            updated_at = now,
-        })
-        :suffix("ON CONFLICT(token) DO UPDATE SET overlay_branch = excluded.overlay_branch, updated_at = excluded.updated_at")
-        :run_with(db)
-        :exec()
-    db:release()
-
-    if exec_err then return false, "Upsert failed: " .. tostring(exec_err) end
-    return true, nil
+    if branch == nil then return update_context(raw_token, "", nil, { "overlay_branch" }) end
+    return update_context(raw_token, "", { overlay_branch = branch })
 end
 
-function tokens.clear_overlay_branch(token)
-    return tokens.set_overlay_branch(token, nil)
+function tokens.clear_overlay_branch(raw_token)
+    return tokens.set_overlay_branch(raw_token, nil)
 end
-
--- Session-scoped changeset_id. Paired with overlay_branch so the edit/manage/
--- fs tools can read a live changeset off ctx without re-resolving it
--- from the branch on every call. Persisted here so subsequent MCP requests on
--- the same bearer pick up the same workspace.
 
 function tokens.get_changeset_id(raw_token)
-    local key, herr = digest(raw_token)
-    if herr then return nil, herr end
-
-    local db, db_err = sql.get(consts.db_id())
-    if db_err then return nil, "Database error: " .. tostring(db_err) end
-
-    local rows, query_err = sql.builder.select("changeset_id")
-        :from("keeper_mcp_session_state")
-        :where("token = ?", key)
-        :run_with(db)
-        :query()
-    db:release()
-
-    if query_err then return nil, "Query failed: " .. tostring(query_err) end
-    if not rows or #rows == 0 then return nil, nil end
-
-    local v = rows[1].changeset_id
-    if v == nil or v == "" then return nil, nil end
-    return v, nil
+    local binding, err = read_context(raw_token, "")
+    if err then return nil, err end
+    return binding.changeset_id, nil
 end
 
 function tokens.set_changeset_id(raw_token, changeset_id)
-    local key, herr = digest(raw_token)
-    if herr then return false, herr end
-
-    local db, db_err = sql.get(consts.db_id())
-    if db_err then return false, "Database error: " .. tostring(db_err) end
-
-    local now = time.now():unix()
-    local _, exec_err = sql.builder.insert("keeper_mcp_session_state")
-        :set_map({
-            token = key,
-            active_traits = "[]",
-            changeset_id = changeset_id or sql.NULL,
-            updated_at = now,
-        })
-        :suffix("ON CONFLICT(token) DO UPDATE SET changeset_id = excluded.changeset_id, updated_at = excluded.updated_at")
-        :run_with(db)
-        :exec()
-    db:release()
-
-    if exec_err then return false, "Upsert failed: " .. tostring(exec_err) end
-    return true, nil
+    if changeset_id == nil then return update_context(raw_token, "", nil, { "changeset_id" }) end
+    return update_context(raw_token, "", { changeset_id = changeset_id })
 end
 
-function tokens.clear_changeset_id(token)
-    return tokens.set_changeset_id(token, nil)
+function tokens.clear_changeset_id(raw_token)
+    return tokens.set_changeset_id(raw_token, nil)
 end
 
 return tokens

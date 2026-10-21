@@ -2535,6 +2535,74 @@ local function define_tests()
                 test.eq(second_deleted.status_code, 204)
             end)
 
+            it("keeps same-token HTTP sessions isolated through dynamic and call_tool dispatch", function()
+                env.set(ENABLED_ENV, "true")
+                local tok = create_token({ identity = ADMIN_USER, scopes = { "mcp.root" },
+                    access_mode = "tools_only", tool_filter = { include_ids = { "app:mcp_context_tool" } } })
+                local endpoint = api_test.endpoint("/keeper-mcp/")
+                local ids = {}
+                local function headers(id)
+                    return { Authorization = "Bearer " .. tok.token, ["Content-Type"] = "application/json",
+                        Accept = "application/json, text/event-stream", ["Mcp-Session-Id"] = id }
+                end
+                local function request(id, method, params)
+                    local response, err = http_client.post(endpoint, {
+                        headers = headers(id),
+                        body = json.encode({ jsonrpc = "2.0", id = 1, method = method, params = params }),
+                    })
+                    test.is_nil(err)
+                    test.eq(response.status_code, 200)
+                    local body = json.decode(response.body)
+                    test.is_nil(body.error, json.encode(body.error))
+                    return response, body.result
+                end
+                local function initialize()
+                    local response = request(nil, "initialize", { protocolVersion = mcp_consts.PROTOCOL_VERSION,
+                        capabilities = {}, clientInfo = { name = "context-test", version = "1" } })
+                    for key, value in pairs(response.headers) do
+                        if tostring(key):lower() == "mcp-session-id" then
+                            local id = type(value) == "table" and value[1] or value
+                            table.insert(ids, id)
+                            return id
+                        end
+                    end
+                    error("initialize returns no session ID")
+                end
+                local function call(id, meta, arguments)
+                    local params = { name = "mcp_context_tool", arguments = arguments or {} }
+                    if meta then
+                        params = { name = "call_tool", arguments = { id = "app:mcp_context_tool",
+                            arguments = arguments or {}, context = { overlay_branch = "untrusted", changeset_id = "untrusted" } } }
+                    end
+                    local _, result = request(id, "tools/call", params)
+                    test.is_true(result.isError ~= true, json.encode(result))
+                    return json.decode(result.content[1].text)
+                end
+                local ok, err = pcall(function()
+                    local a, b = initialize(), initialize()
+                    test.is_true(a ~= b)
+                    call(a, false, { set = { overlay_branch = "feature-a", changeset_id = "changeset-a" } })
+                    call(b, true, { set = { overlay_branch = "feature-b", changeset_id = "changeset-b" } })
+                    local read_a, read_b = call(a, true), call(b, false)
+                    test.eq(read_a.overlay_branch, "feature-a")
+                    test.eq(read_a.changeset_id, "changeset-a")
+                    test.eq(read_b.overlay_branch, "feature-b")
+                    test.eq(read_b.changeset_id, "changeset-b")
+                    call(a, true, { delete = { "overlay_branch", "changeset_id" } })
+                    local cleared, retained = call(a, false), call(b, true)
+                    test.is_nil(cleared.overlay_branch)
+                    test.is_nil(cleared.changeset_id)
+                    test.eq(retained.overlay_branch, "feature-b")
+                    test.eq(retained.changeset_id, "changeset-b")
+                end)
+                for _, id in ipairs(ids) do
+                    local response, delete_err = http_client.delete(endpoint, { headers = headers(id) })
+                    test.is_nil(delete_err)
+                    test.eq(response.status_code, 204)
+                end
+                if not ok then error(err) end
+            end)
+
             it("session_from_request extracts bearer and validates token-store subject", function()
                 local tok = create_token({
                     label = "auth-session-" .. uuid.v4(),
@@ -2771,7 +2839,9 @@ local function define_tests()
                 if tok and tok.token then
                     table.insert(created_tokens, tok.token)
                 end
-                return mcp_tokens.get(tok.token)
+                local session = mcp_tokens.get(tok.token)
+                session.mcp_session_id = string.rep("a", 64)
+                return session
             end
 
             local function tool_names(session)

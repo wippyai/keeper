@@ -176,3 +176,18 @@ entries:
       comment: Host-owned tool without MCP required_scopes, used by MCP authorization tests
     source: file://unscoped_tool.lua
     method: handler
+
+  - name: mcp_migration_db
+    kind: db.sql.sqlite
+    file: ":memory:"
+
+  - name: mcp_context_tool
+    kind: function.lua
+    meta:
+      type: tool
+      title: MCP context test tool
+      mcp:
+        required_scopes: [state.read]
+    source: file://mcp_context_tool.lua
+    modules: [ctx]
+    method: handler
