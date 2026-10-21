@@ -207,7 +207,7 @@ entries:
       type: test
       suite: mcp
     source: file://context_migration_test.lua
-    modules: [sql, funcs, uuid]
+    modules: [sql, funcs, uuid, hash]
     imports:
       test: wippy.test:test
     method: run

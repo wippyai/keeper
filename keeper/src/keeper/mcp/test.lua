@@ -1982,7 +1982,7 @@ local function define_tests()
                     end,
                 }
                 local function response()
-                    local res = {}
+                    local res = { headers = {} }
                     function res:set_status(status) self.status = status end
                     function res:write_json(body) self.body = body end
                     function res:set_header(name, value)
@@ -2552,6 +2552,9 @@ local function define_tests()
                     })
                     test.is_nil(err)
                     test.eq(response.status_code, 200)
+                    if not response.body then
+                        error("MCP response has no body")
+                    end
                     local body = json.decode(response.body)
                     test.is_nil(body.error, json.encode(body.error))
                     return response, body.result
