@@ -366,7 +366,7 @@ local function run_post_processing(changeset, result, request_id, user_id)
             request_id = request_id,
             user_id = user_id
         })
-        return
+        return nil
     end
 
     log:info("Running post-processing", {
@@ -375,7 +375,7 @@ local function run_post_processing(changeset, result, request_id, user_id)
         has_changeset = changeset ~= nil
     })
 
-    observers.run_observers(changeset or {}, result, request_id, user_id)
+    return observers.run_observers(changeset or {}, result, request_id, user_id)
 end
 
 local function run(args)
@@ -522,7 +522,8 @@ local function run(args)
     result.details = validation_details
     result.changeset = changeset
 
-    run_post_processing(changeset, result, request_id, user_id)
+    local warnings = run_post_processing(changeset, result, request_id, user_id)
+    if warnings and #warnings > 0 then result.warnings = warnings end
 
     log:info("Completed changeset process", {
         success = result.success,

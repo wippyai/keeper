@@ -7,10 +7,11 @@ import { useApi } from '../composables/useWippy'
 import {
   browseHubModules, listHubVersions, getHubReadme,
   listHubDependencies,
-  type HubDependency, type HubModule, type HubVersion,
+  type HubDependency, type HubModule, type HubVersion, type HubApplyWarning,
 } from '../api/hub'
 import PageHeader from '../components/shared/PageHeader.vue'
 import HubInstallDialog from '../components/hub/HubInstallDialog.vue'
+import HubInstallWarnings from '../components/hub/HubInstallWarnings.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -40,6 +41,7 @@ const expandedVersion = ref<string | null>(null)
 const installOpen = ref(false)
 const installVersion = ref('')
 const successMsg = ref<string | null>(null)
+const installWarnings = ref<{ component: string, warnings: HubApplyWarning[] } | null>(null)
 
 const latestVersion = computed<HubVersion | null>(() => {
   if (!versions.value.length) return null
@@ -342,8 +344,9 @@ function openInstallDialog(version?: string) {
   installOpen.value = true
 }
 
-function onInstalled(component: string) {
+function onInstalled(component: string, warnings: HubApplyWarning[] = []) {
   flash(`Installed ${component}`)
+  installWarnings.value = warnings.length ? { component, warnings } : null
   installed.value = true
 }
 
@@ -386,6 +389,12 @@ onMounted(load)
       <Icon icon="tabler:alert-circle" class="w-3.5 h-3.5 shrink-0" />
       <span class="flex-1">{{ error }}</span>
     </div>
+    <HubInstallWarnings
+      v-if="installWarnings"
+      :component="installWarnings.component"
+      :warnings="installWarnings.warnings"
+      @dismiss="installWarnings = null"
+    />
 
     <div v-if="loading && !module_" class="flex-1 flex items-center justify-center">
       <Icon icon="tabler:loader-2" class="w-6 h-6 animate-spin keeper-accent" />

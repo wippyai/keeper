@@ -14,6 +14,7 @@ observers.OBSERVER_TYPE = "registry.observer"
 -- Dependency Injection Support
 ---------------------------
 observers._registry = nil
+observers._funcs = nil
 
 -- Internal: Get registry instance
 local function get_registry()
@@ -207,34 +208,46 @@ function observers.get_stats()
     return observers.aggregate_stats(observers.list_all())
 end
 
--- Run all observers with changeset and result data
+-- Describe an observer failure. An observer reports a failure as a call
+-- error, or as a result table with success = false.
+function observers.failure_message(call_result, call_err)
+    if call_err ~= nil then return tostring(call_err) end
+    if type(call_result) == "table" and call_result.success == false then
+        return tostring(call_result.message or call_result.error or "observer reported a failure")
+    end
+    return nil
+end
+
+-- Run all observers with changeset and result data. Returns one warning per
+-- failed observer; the changeset is already applied, so a failure does not
+-- change the result.
 function observers.run_observers(changeset, result, request_id, user_id)
+    local warnings = {}
     log:debug("Running observers for changeset", {
         changeset_count = #changeset,
         request_id = request_id,
         user_id = user_id
     })
 
-    -- Get all observers
     local observer_list = observers.list_all({ raw_entries = true })
     if not observer_list or #observer_list == 0 then
         log:debug("No observers found, skipping notification", {
             request_id = request_id,
             user_id = user_id
         })
-        return
+        return warnings
     end
 
-    local executor = funcs.new()
+    local executor = (observers._funcs or funcs).new()
     if not executor then
         log:error("Failed to create function executor", {
             request_id = request_id,
             user_id = user_id
         })
-        return
+        table.insert(warnings, { message = "registry observers did not run: no function executor" })
+        return warnings
     end
 
-    -- Run each observer with entire batch
     for _, observer in ipairs(observer_list) do
         log:debug("Running observer", {
             observer = observer.id,
@@ -243,23 +256,25 @@ function observers.run_observers(changeset, result, request_id, user_id)
             user_id = user_id
         })
 
-        -- Call the observer without waiting for response
-        local _, err = executor:call(tostring(observer.id), {
+        local call_result, err = executor:call(tostring(observer.id), {
             changeset = changeset,
             result = result,
             request_id = request_id,
             user_id = user_id
         })
 
-        if err ~= nil then
+        local message = observers.failure_message(call_result, err)
+        if message then
             log:error("Observer error", {
                 observer = observer.id,
-                error = err,
+                error = message,
                 request_id = request_id,
                 user_id = user_id
             })
+            table.insert(warnings, { observer = tostring(observer.id), message = message })
         end
     end
+    return warnings
 end
 
 return observers

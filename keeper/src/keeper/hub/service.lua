@@ -845,6 +845,7 @@ function Service:publish_dependency_changeset(args)
         version = result and result.version or nil,
         message = result and result.message or nil,
         result = result,
+        warnings = result and result.warnings or {},
         entry_ids = entry_ids,
         changeset_count = #changeset,
     }, nil
@@ -1127,6 +1128,7 @@ function Service:install_batch(args, opts)
         elseif row.op == "migrations_up" then migration_result = row.result end
     end
     payload.apply = apply_result
+    payload.warnings = apply_result and apply_result.warnings or {}
     payload.migrations = migration_result
     payload.bootloaders = self:ledger_result(ledger, "bootloaders_run")
     payload.execution = self:project_ledger(ledger, nil)
@@ -1748,6 +1750,7 @@ function Service:install(args, opts)
         elseif row.op == "migrations_up" then migration_result = row.result end
     end
     payload.apply = apply_result
+    payload.warnings = apply_result and apply_result.warnings or {}
     payload.migrations = migration_result
     payload.bootloaders = self:ledger_result(ledger, "bootloaders_run")
     payload.execution = self:project_ledger(ledger, nil)
@@ -2165,6 +2168,7 @@ function Service:uninstall(args, opts)
         elseif row.op == "migrations_down" then migration_result = row.result end
     end
     payload.apply = apply_result
+    payload.warnings = apply_result and apply_result.warnings or {}
     payload.migrations = migration_result
     payload.execution = self:project_ledger(ledger, nil)
 

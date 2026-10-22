@@ -247,6 +247,18 @@ export async function listHubDependencies(api: Api, opts: { component?: string; 
   return data
 }
 
+// A registry observer that failed after the changeset was applied. The
+// install stays applied; the warning says which derived state may be stale.
+export interface HubApplyWarning {
+  observer?: string
+  message: string
+}
+
+export function applyWarnings(result: any): HubApplyWarning[] {
+  const list = result?.warnings
+  return Array.isArray(list) ? list.filter((w: any) => w && typeof w.message === 'string') : []
+}
+
 export async function installHubDependency(api: Api, payload: InstallPayload): Promise<any> {
   const { data } = await api.post('/api/v1/keeper/hub/dependencies/install', payload)
   return data

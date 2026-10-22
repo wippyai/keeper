@@ -10,10 +10,11 @@ import {
   listHubMigrations, runHubMigrations,
   browseHubModules, listHubVersions, getHubReadme,
   type HubMigration, type HubModule, type HubVersion,
-  type DependencyRoot, type ModuleInventoryEntry,
+  type DependencyRoot, type ModuleInventoryEntry, type HubApplyWarning,
 } from '../api/hub'
 import PageHeader from '../components/shared/PageHeader.vue'
 import HubInstallDialog from '../components/hub/HubInstallDialog.vue'
+import HubInstallWarnings from '../components/hub/HubInstallWarnings.vue'
 import HubUninstallDialog from '../components/hub/HubUninstallDialog.vue'
 
 const api = useApi()
@@ -36,6 +37,7 @@ const expandedDep = ref<string | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 const successMsg = ref<string | null>(null)
+const installWarnings = ref<{ component: string, warnings: HubApplyWarning[] } | null>(null)
 const deps = ref<DependencyRoot[]>([])
 const moduleInventory = ref<ModuleInventoryEntry[]>([])
 const migrations = ref<HubMigration[]>([])
@@ -359,8 +361,9 @@ function openUninstall(d: DependencyRoot) {
   uninstallOpen.value = true
 }
 
-async function onInstalled(component: string) {
+async function onInstalled(component: string, warnings: HubApplyWarning[] = []) {
   flash(`Installed ${component}`)
+  installWarnings.value = warnings.length ? { component, warnings } : null
   detail.value = null
   await loadInstalled()
 }
@@ -439,6 +442,12 @@ onMounted(() => {
       <span class="flex-1">{{ error }}</span>
       <button @click="error = null" style="color: var(--p-text-muted-color)"><Icon icon="tabler:x" class="w-3 h-3" /></button>
     </div>
+    <HubInstallWarnings
+      v-if="installWarnings"
+      :component="installWarnings.component"
+      :warnings="installWarnings.warnings"
+      @dismiss="installWarnings = null"
+    />
 
     <!-- DISCOVER -->
     <div v-if="tab === 'discover'" class="flex-1 overflow-y-auto">

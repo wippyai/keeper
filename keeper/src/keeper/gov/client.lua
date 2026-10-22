@@ -68,6 +68,7 @@ local function handle_response(response, operation_name)
             changeset = response.changeset,
             stats     = response.stats,
             file_ops  = response.file_ops,
+            warnings  = response.warnings,
         }, nil
     end
 

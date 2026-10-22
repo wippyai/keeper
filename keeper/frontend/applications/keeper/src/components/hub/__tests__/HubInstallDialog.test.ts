@@ -58,7 +58,19 @@ describe('Hub install Fill gaps review', () => {
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     completeInstall({data: {success: true}})
     await flushPromises()
-    expect(wrapper.emitted('installed')).toEqual([['acme/example']])
+    expect(wrapper.emitted('installed')).toEqual([['acme/example', []]])
+    expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
+    wrapper.unmount()
+  })
+  it('passes observer warnings from an applied install to the page', async () => {
+    const warning = {observer: 'acme.security:observer', message: 'scope projection did not finish'}
+    api.post.mockReset().mockImplementation(async (url: string) =>
+      url.endsWith('/install') ? {data: {success: true, warnings: [warning]}} : {data: plan('host:primary')})
+    const wrapper = await open()
+    await wrapper.findAll('button').find(b => b.text() === 'Skip')!.trigger('click')
+    await wrapper.findAll('button').find(b => b.text() === 'Install')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('installed')).toEqual([['acme/example', [warning]]])
     expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
     wrapper.unmount()
   })
