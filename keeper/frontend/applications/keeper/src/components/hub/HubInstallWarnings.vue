@@ -7,7 +7,7 @@ const emit = defineEmits<{ dismiss: [] }>()
 </script>
 
 <template>
-  <div class="install-warnings mx-4 mt-2 px-3 py-2 rounded text-[11px] flex items-start gap-2 bg-warn-500/15 text-warn-500">
+  <div class="install-warnings mx-4 mt-2 px-3 py-2 rounded text-[11px] flex items-start gap-2 bg-warn-500/15" role="alert" style="color: var(--p-text-color)">
     <Icon icon="tabler:alert-triangle" class="w-3.5 h-3.5 shrink-0 mt-px" />
     <div class="flex-1">
       <div>Installed {{ component }}, but a post-install step failed. Permissions or other derived state may be out of date.</div>
