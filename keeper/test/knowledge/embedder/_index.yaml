@@ -1,0 +1,48 @@
+version: "1.0"
+namespace: app.knowledge_embedder
+
+entries:
+  - name: fixture
+    kind: library.lua
+    source: file://fixture.lua
+  - name: sql
+    kind: library.lua
+    source: file://adapter.lua
+    imports: { fixture: app.knowledge_embedder:fixture }
+  - name: llm
+    kind: library.lua
+    source: file://adapter.lua
+    imports: { fixture: app.knowledge_embedder:fixture }
+  - name: repo
+    kind: library.lua
+    source: file://adapter.lua
+    imports: { fixture: app.knowledge_embedder:fixture }
+  - name: consts
+    kind: library.lua
+    source: file://adapter.lua
+    imports: { fixture: app.knowledge_embedder:fixture }
+  - name: notify
+    kind: library.lua
+    source: file://adapter.lua
+    imports: { fixture: app.knowledge_embedder:fixture }
+  - name: subject
+    kind: library.lua
+    source: file://subject.lua
+    modules: [json]
+    imports:
+      sql: app.knowledge_embedder:sql
+      llm: app.knowledge_embedder:llm
+      kb_repo: app.knowledge_embedder:repo
+      kb_consts: app.knowledge_embedder:consts
+      notify: app.knowledge_embedder:notify
+  - name: test
+    kind: function.lua
+    source: file://test.lua
+    method: run
+    meta:
+      type: test
+      suite: knowledge-embedding-native
+    imports:
+      test: wippy.test:test
+      fixture: app.knowledge_embedder:fixture
+      subject: app.knowledge_embedder:subject
