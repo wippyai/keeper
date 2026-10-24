@@ -36,7 +36,7 @@ local function embed_text(text: string, requested_model: string?): (table?, stri
         if type(result) == "table" then
             return result, nil, model
         end
-        last_err = err or "no result"
+        last_err = tostring(err or "no result")
     end
     return nil, last_err or "no result", nil
 end
