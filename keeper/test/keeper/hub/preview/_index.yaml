@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MPL-2.0
+version: "1.0"
+namespace: app.hub_preview
+entries:
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub_preview
+      comment: Native stale-preview recovery, bounded contention, and error preservation.
+    source: file://test.lua
+    method: define_tests
+    modules: [registry]
+    imports:
+      test: wippy.test:test
+      planner: keeper.hub:planner
+      native_preview: keeper.hub:native_preview
+    pool:
+      size: 1

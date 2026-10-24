@@ -11,6 +11,13 @@ entries:
     modules:
       - registry
 
+  - name: native_preview
+    kind: library.lua
+    meta:
+      private: true
+      comment: Read-only dependency preview with one bounded recomputation after native stale-base refusal.
+    source: file://native_preview.lua
+
   # keeper.hub:planner
   - name: planner
     kind: library.lua
@@ -24,6 +31,7 @@ entries:
     imports:
       gov_consts: keeper.gov:consts
       ownership: keeper.hub:ownership
+      native_preview: keeper.hub:native_preview
 
   # keeper.hub:service
   - name: service
