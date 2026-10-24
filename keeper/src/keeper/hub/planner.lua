@@ -3,6 +3,7 @@ local json = require("json")
 local hub_sdk = require("hub")
 local gov_consts = require("gov_consts")
 local ownership = require("ownership")
+local native_preview = require("native_preview")
 
 type ServiceError = unknown
 type Parameter = { name: string, value: any }
@@ -91,6 +92,7 @@ type PlannerInstance = {
     gov: unknown,
     ownership: unknown,
     version_cache: {[string]: {VersionItem}},
+    native_preview_refusal?: {error: ServiceError},
     plan_install: (PlannerInstance, unknown) -> (unknown, unknown?),
 }
 
@@ -2382,6 +2384,7 @@ function Planner:plan_binding_dependencies(requirements, root_entry)
 end
 
 function Planner:preview_dependencies(dependencies)
+    self.native_preview_refusal = nil
     local snapshot, snapshot_err = self.registry.snapshot()
     if snapshot_err then return nil, snapshot_err end
     local state, state_err = snapshot:state()
@@ -2396,7 +2399,10 @@ function Planner:preview_dependencies(dependencies)
         if stage_err then return nil, stage_err end
     end
     local plan, plan_err = changes:plan()
-    if plan_err then return nil, plan_err end
+    if plan_err then
+        self.native_preview_refusal = native_preview.refusal(plan_err, snapshot)
+        return nil, plan_err
+    end
     self.native_modules = {}
     self.native_resources = {}
     for _, change in ipairs(plan.changes) do
@@ -2653,7 +2659,11 @@ function Planner:plan_install(args)
 end
 
 function M.plan_install(args)
-    return M.new():plan_install(args)
+    return native_preview.run(function()
+        local instance = M.new()
+        local result, plan_err = instance:plan_install(args)
+        return result, plan_err, instance.native_preview_refusal
+    end)
 end
 
 return M
