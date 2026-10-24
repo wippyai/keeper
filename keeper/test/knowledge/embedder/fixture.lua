@@ -11,6 +11,8 @@ function M.reset()
     M.calls = {}
     M.writes = {}
     M.insert_error = nil
+    M.inserted = nil
+    M.node_embedded = nil
     M.notifications = 0
 end
 
@@ -32,13 +34,16 @@ end
 
 local function statement(operation: string): table
     local query = {}
+    local values: table = {}
     function query:where(...) return self end
     function query:run_with(...) return self end
-    function query:set_map(...) return self end
-    function query:set(...) return self end
+    function query:set_map(row: table) values = row; return self end
+    function query:set(key: string, value: any) values[key] = value; return self end
     function query:exec(): (table?, Failure?)
         M.writes[#M.writes + 1] = operation
         if operation == "insert" and M.insert_error then return nil, M.insert_error end
+        if operation == "insert" then M.inserted = values end
+        if operation == "update" then M.node_embedded = values.embedded end
         return { rows_affected = 1 }, nil
     end
     return query
