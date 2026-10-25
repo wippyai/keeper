@@ -42,6 +42,7 @@ local function init_state()
         registry_changes_pending = false,
         filesystem_changes_pending = false,
         pending_operations = {},
+        draining = false,
         last_operation_type = nil,
         last_download_version = nil
     }
@@ -492,13 +493,28 @@ local function run()
         elseif result.channel == events then
             local event = result.value
             if event.kind == process.event.CANCEL then
-                log:info("Received cancellation request, shutting down...")
-                log:info("Registry governance shutting down", {
-                    last_version = state.current_version
-                })
-                break
+                if not state.draining then
+                    state.draining = true
+                    if next(state.pending_operations) then
+                        log:info("Cancellation requested; draining active governance operation", {
+                            pending_operations = 1,
+                        })
+                    end
+                end
             end
             handlers.__on_event(state, event)
+        end
+
+        -- A dependency update can replace this coordinator while one of its
+        -- monitored workers is still applying the same registry transition.
+        -- Keep the response owner alive until that worker exits so its caller
+        -- receives the single normal completion response.
+        if state.draining and not next(state.pending_operations) then
+            log:info("Received cancellation request, shutting down...")
+            log:info("Registry governance shutting down", {
+                last_version = state.current_version
+            })
+            break
         end
     end
 
