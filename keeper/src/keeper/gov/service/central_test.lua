@@ -47,7 +47,9 @@ local function run_steps(steps)
     }
     local registry = {
         current_version = function()
-            return { id = function() return "version-before" end }
+            -- Match the successful worker result so this focused coordinator
+            -- test does not publish a real version-change notification.
+            return { id = function() return "version-after" end }
         end,
     }
     local result = central._run_with({ process = process, channel = channel, time = { now = now }, registry = registry })
@@ -57,9 +59,12 @@ end
 local function apply(id, respond_to)
     return {
         id = id,
-        operation = consts.OPERATIONS.APPLY_VERSION,
+        operation = consts.OPERATIONS.APPLY_CHANGES,
         respond_to = respond_to,
-        version_id = "version-after",
+        changeset = {
+            { kind = consts.REGISTRY_OPERATIONS.UPDATE, entry = { id = "app:test" } },
+        },
+        options = {},
     }
 end
 
@@ -73,6 +78,8 @@ local function define_tests()
             })
             test.eq(result.status, "completed")
             test.eq(#spawned, 1)
+            test.eq(spawned[1].worker, "keeper.gov.service:changeset")
+            test.eq(spawned[1].payload.changeset[1].entry.id, "app:test")
             test.eq(#sent, 1)
             test.eq(sent[1].to, "caller.original")
             test.eq(sent[1].topic, "reply.original")
@@ -92,6 +99,11 @@ local function define_tests()
             test.eq(sent[1].body.request_id, "original")
             test.is_false(sent[1].body.success)
             test.eq(sent[1].body.message, "Operation failed")
+            test.eq(sent[1].body.timestamp, 100)
+            test.is_nil(sent[1].body.error)
+            test.is_nil(sent[1].body.changeset)
+            test.is_nil(sent[1].body.details)
+            test.is_nil(sent[1].body.warnings)
         end)
 
         test.it("returns promptly when cancellation has no pending worker", function()
