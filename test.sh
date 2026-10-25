@@ -11,7 +11,9 @@
 # keeper/wippy.yaml.orig heals runs interrupted after the in-place write.
 # git is never touched.
 #
-# Usage: ./test.sh [suite_id ...]   (default: keeper.hub:test)
+# Usage: ./test.sh [suite_id ...]
+# Without suite IDs, run the Hub suite plus the governance coordinator's
+# cancellation-drain regression suite. Explicit suite IDs replace this list.
 set -euo pipefail
 
 WIPPY="${WIPPY:-wippy}"
@@ -23,7 +25,7 @@ make -C "$REPO_ROOT" prepare-test
 
 SUITES=("$@")
 if [ ${#SUITES[@]} -eq 0 ]; then
-    SUITES=("keeper.hub:test")
+    SUITES=("keeper.hub:test" "keeper.gov.service:central_test")
 fi
 
 # The pristine copy lives next to the tracked file so a crashed run leaves a

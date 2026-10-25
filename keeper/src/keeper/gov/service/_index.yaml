@@ -38,6 +38,22 @@ entries:
           - keeper.gov.service.security:governance
     process: central
 
+  # keeper.gov.service:central_test
+  - name: central_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: Coordinator drain tests for cancellation during a monitored governance operation.
+      suite: governance
+    source: file://central_test.lua
+    imports:
+      central: keeper.gov.service:central
+      gov_consts: keeper.gov:consts
+      test: wippy.test:test
+    method: define_tests
+    pool:
+      size: 1
+
   # keeper.gov.service:changeset
   - name: changeset
     kind: process.lua
