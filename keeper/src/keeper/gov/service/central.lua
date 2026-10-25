@@ -5,6 +5,7 @@ local logger = require("logger")
 local consts = require("consts")
 local notify = require("notify")
 local events_consts = require("events_consts")
+local process = process
 
 local log = logger:named("gov.service.central")
 
@@ -455,7 +456,7 @@ local handlers = {
 
 }
 
-local function run()
+local function run_loop()
     log:info("Starting Registry Governance Service")
     process.registry.register(PROCESS_NAME)
 
@@ -524,4 +525,30 @@ local function run()
     }
 end
 
-return { run = run }
+local function run_with(overrides)
+    if not overrides then return run_loop() end
+
+    local saved = {
+        registry = registry,
+        time = time,
+        channel = channel,
+        process = process,
+    }
+    registry = overrides.registry or registry
+    time = overrides.time or time
+    channel = overrides.channel or channel
+    process = overrides.process or process
+
+    local ok, result = pcall(run_loop)
+    registry = saved.registry
+    time = saved.time
+    channel = saved.channel
+    process = saved.process
+    if not ok then error(result) end
+    return result
+end
+
+return {
+    run = function() return run_loop() end,
+    _run_with = run_with,
+}
