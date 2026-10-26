@@ -561,9 +561,17 @@ end
 
 local function version_parts(version): VersionPart?
     version = tostring(trim(version)):gsub("^v", "")
-    local maj, min, patch, pre = string.match(version, "^(%d+)%.(%d+)%.(%d+)%-(.+)$")
+    local core, build = string.match(version, "^([^+]*)%+([%w%-%.]+)$")
+    if not core then
+        if string.find(version, "+", 1, true) then return nil end
+        core = version
+    end
+    if build and (string.find(build, "..", 1, true) or build:sub(1, 1) == "." or build:sub(-1) == ".") then
+        return nil
+    end
+    local maj, min, patch, pre = string.match(core, "^(%d+)%.(%d+)%.(%d+)%-(.+)$")
     if not maj then
-        maj, min, patch = string.match(version, "^(%d+)%.(%d+)%.(%d+)$")
+        maj, min, patch = string.match(core, "^(%d+)%.(%d+)%.(%d+)$")
     end
     if not maj then return nil end
     return {
@@ -573,6 +581,27 @@ local function version_parts(version): VersionPart?
         prerelease = pre or "",
         raw = version,
     }
+end
+
+-- SemVer 2.0 section 11: identifiers compare left to right, numeric ones as
+-- numbers and below alphanumeric ones; a shorter equal prefix is lower.
+local function compare_prereleases(a: string, b: string): number
+    local left, right = {}, {}
+    for id in string.gmatch(a, "[^.]+") do table.insert(left, id) end
+    for id in string.gmatch(b, "[^.]+") do table.insert(right, id) end
+    for i = 1, math.min(#left, #right) do
+        local l, r = left[i], right[i]
+        if l ~= r then
+            local ln = string.match(l, "^%d+$") and tonumber(l)
+            local rn = string.match(r, "^%d+$") and tonumber(r)
+            if ln and rn then return ln < rn and -1 or 1 end
+            if ln then return -1 end
+            if rn then return 1 end
+            return l < r and -1 or 1
+        end
+    end
+    if #left == #right then return 0 end
+    return #left < #right and -1 or 1
 end
 
 local function compare_versions(a: unknown, b: unknown): number
@@ -587,7 +616,7 @@ local function compare_versions(a: unknown, b: unknown): number
     if left.prerelease == right.prerelease then return 0 end
     if left.prerelease == "" then return 1 end
     if right.prerelease == "" then return -1 end
-    return left.prerelease < right.prerelease and -1 or 1
+    return compare_prereleases(left.prerelease, right.prerelease)
 end
 
 local function best_version(items)

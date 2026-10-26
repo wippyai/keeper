@@ -5643,6 +5643,52 @@ local function define_tests()
                 test.eq(nodes["acme/shared"].version, "v1.5.0")
             end)
 
+            it("orders candidate versions by SemVer precedence", function()
+                local svc = planner.new({
+                    catalog = fake_catalog({
+                        ["acme/app"] = {
+                            {
+                                version = "1.0.0",
+                                dependencies = {
+                                    { org = "acme", name = "uploads", version_constraint = "*" },
+                                    { org = "acme", name = "dispatch", version_constraint = "*" },
+                                    { org = "acme", name = "rc", version_constraint = "*" },
+                                    { org = "acme", name = "pinned", version_constraint = "=0.3.0" },
+                                },
+                            },
+                        },
+                        ["acme/uploads"] = {
+                            { version = "0.1.77" },
+                            { version = "0.1.78-stage.2" },
+                            { version = "0.1.78+stage.1" },
+                        },
+                        ["acme/dispatch"] = {
+                            { version = "0.1.0" },
+                            { version = "0.1.1+stage.1" },
+                        },
+                        ["acme/rc"] = {
+                            { version = "2.0.0-rc.10" },
+                            { version = "2.0.0-rc.9" },
+                        },
+                        ["acme/pinned"] = {
+                            { version = "0.3.0+build.7" },
+                            { version = "0.3.1" },
+                        },
+                    }),
+                    registry = fake_registry({}),
+                }) :: any
+
+                local plan, plan_err = svc:plan_install({ component = "acme/app", version = "1.0.0" })
+
+                test.is_nil(plan_err)
+                local nodes = {}
+                for _, node in ipairs(plan.graph) do nodes[node.module] = node end
+                test.eq(nodes["acme/uploads"].version, "0.1.78+stage.1")
+                test.eq(nodes["acme/dispatch"].version, "0.1.1+stage.1")
+                test.eq(nodes["acme/rc"].version, "2.0.0-rc.10")
+                test.eq(nodes["acme/pinned"].version, "0.3.0+build.7")
+            end)
+
             it("ignores constraints owned only by an unreachable orphan module", function()
                 local orphan = installed_module("acme/orphan", { "acme/shared" })
                 orphan[2].data.version = "v1.0.0"
