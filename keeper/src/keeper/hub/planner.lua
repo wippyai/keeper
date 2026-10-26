@@ -2338,8 +2338,10 @@ function Planner:plan_requirements(graph, supplied_parameters)
         return tostring(a.name) < tostring(b.name)
     end)
 
-    local parameters, install_parameters, order_lookup = {}, {}, {}
-    local function remember_order(name, parameter)
+    local parameters: {Parameter} = {}
+    local install_parameters: {Parameter} = {}
+    local order_lookup: {[string]: {Parameter}} = {}
+    local function remember_order(name: string, parameter: Parameter)
         order_lookup[name] = order_lookup[name] or {}
         table.insert(order_lookup[name], parameter)
     end
@@ -2359,8 +2361,9 @@ function Planner:plan_requirements(graph, supplied_parameters)
     -- Preserve authored order while retaining the final resolved values. Rows
     -- above stay sorted for presentation; newly inferred bindings append in
     -- that deterministic order after the caller's recorded/provided bindings.
-    local ordered, included = {}, {}
-    local function append(parameter)
+    local ordered: {Parameter} = {}
+    local included: {[string]: boolean} = {}
+    local function append(parameter: Parameter)
         if not included[parameter.name] then
             ordered[#ordered + 1] = parameter
             included[parameter.name] = true
