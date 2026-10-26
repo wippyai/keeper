@@ -9,7 +9,7 @@ USAGE_VERSION ?= $(shell awk '/^version:/ { print $$2; exit }' usage/wippy.yaml)
 lint: lint-keeper lint-usage
 
 # Run the keeper Lua test suites via the keeper-test harness. Defaults to the
-# Hub and governance coordinator suites; pass SUITES to target others, e.g.
+# Hub, Hub security, and governance coordinator suites; pass SUITES to target others, e.g.
 #   make test SUITES="keeper.develop.integrate.pipeline:step_runner_test"
 test:
 	WIPPY=$(WIPPY) ./test.sh $(SUITES)

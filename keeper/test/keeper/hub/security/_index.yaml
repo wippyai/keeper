@@ -5,12 +5,12 @@ entries:
   - name: security_test_entry
     kind: security.policy
     meta:
-      comment: Test-host entry point for ordinary-user capability discovery checks.
+      comment: Test-host entry point for ordinary-user capability discovery probes.
     groups:
       - app.security:user
     policy:
       resources:
-        - keeper.hub.security:security_test
+        - keeper.hub.security:security_probe
       actions:
         - funcs.call
       effect: allow
@@ -28,6 +28,19 @@ entries:
       actions:
         - registry.get
         - funcs.call
+      effect: allow
+
+  - name: security_test_permissive_context
+    kind: security.policy
+    meta:
+      comment: Test-host function context plumbing that the agent tool caller needs, so the probe reaches the Hub tool access check.
+    groups:
+      - keeper.hub.security:test_permissive
+    policy:
+      resources:
+        - context
+      actions:
+        - funcs.context
       effect: allow
 
   - name: security_test
@@ -48,6 +61,25 @@ entries:
       test: wippy.test:test
       tool_caller: wippy.agent.tools:caller
     method: define_tests
+    pool:
+      size: 1
+
+  - name: security_probe
+    kind: function.lua
+    meta:
+      comment: Probe that the Hub security cases call under a chosen actor and scope.
+    source: file://security_test.lua
+    modules:
+      - security
+      - registry
+      - funcs
+    imports:
+      catalog: keeper.hub.tools:catalog
+      dependencies: keeper.hub.tools:dependencies
+      migrations: keeper.hub.tools:migrations
+      test: wippy.test:test
+      tool_caller: wippy.agent.tools:caller
+    method: probe
     pool:
       size: 1
 

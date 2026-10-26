@@ -10,7 +10,7 @@ local tool_caller = require("tool_caller")
 local DISCOVERY_POLICY = "keeper.hub.security:admin_discovery"
 local CALL_POLICY = "keeper.hub.security:admin_call"
 local CATALOG_POLICY = "keeper.hub.security:admin_catalog"
-local PROBE = "keeper.hub.security:security_test"
+local PROBE = "keeper.hub.security:security_probe"
 local ADMIN_GROUP = "app.security:admin"
 local USER_GROUP = "app.security:user"
 local PERMISSIVE_GROUP = "keeper.hub.security:test_permissive"
@@ -106,14 +106,7 @@ local function run_discovery_probe()
     }
 end
 
-local function define_tests(input)
-    if type(input) == "table" and input.agent_probe then
-        return run_agent_probe(input)
-    end
-    if type(input) == "table" and input.discovery_probe then
-        return run_discovery_probe()
-    end
-
+local function define_cases()
     test.describe("Hub Administrator native capability", function()
         test.it("bundles the public catalog, dependency, and migration tools", function()
             local trait, trait_err = registry.get(TRAIT_ID)
@@ -297,4 +290,14 @@ local function define_tests(input)
     end)
 end
 
-return { define_tests = define_tests }
+local function probe(input)
+    if type(input) == "table" and input.agent_probe then
+        return run_agent_probe(input)
+    end
+    if type(input) == "table" and input.discovery_probe then
+        return run_discovery_probe()
+    end
+    return nil, "unknown probe"
+end
+
+return { define_tests = test.run_cases(define_cases), probe = probe }
