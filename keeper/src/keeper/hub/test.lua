@@ -3197,6 +3197,52 @@ local function define_tests()
                 test.eq(plan.install_payload.namespace, "app.plugins")
             end)
 
+            it("preserves the parameter order during an unchanged reinstall", function()
+                local original = {
+                    {name = "acme.widget:zeta", value = "z-value"},
+                    {name = "acme.widget:alpha", value = "a-value"},
+                }
+                local svc = planner.new({
+                    catalog = fake_catalog({["acme/widget"] = {{version = "1.0.0", requirements = {
+                        {name = "zeta", namespace = "acme.widget", targets = {{entry = "acme.widget:settings", path = ".zeta"}}},
+                        {name = "alpha", namespace = "acme.widget", targets = {{entry = "acme.widget:settings", path = ".alpha"}}},
+                        {name = "beta", namespace = "acme.widget", default = "default-beta", targets = {{entry = "acme.widget:settings", path = ".beta"}}},
+                    }}}}),
+                    registry = fake_registry({{
+                        id = "app.deps:widget", kind = "ns.dependency", provenance = {root = true}, meta = {},
+                        data = {component = "acme/widget", version = "1.0.0", parameters = original},
+                    }}),
+                }) :: any
+                for _, input in ipairs({
+                    {parameters = original, expected = {"acme.widget:zeta", "acme.widget:alpha"}},
+                    {expected = {"acme.widget:zeta", "acme.widget:alpha"}},
+                    {parameters = {}, expected = {"acme.widget:zeta", "acme.widget:alpha"}},
+                    {parameters = {original[2], original[1]}, expected = {"acme.widget:alpha", "acme.widget:zeta"}},
+                    {parameters = {{name = "zeta", value = "z-value"}, {name = "alpha", value = "a-value"}},
+                        expected = {"acme.widget:zeta", "acme.widget:alpha"}},
+                    {parameters = {{name = "acme.widget:zeta", value = "updated-zeta"}, original[2]},
+                        zeta = "updated-zeta", expected = {"acme.widget:zeta", "acme.widget:alpha"}},
+                    {parameters = original, requirement_bindings = {{name = "acme.widget:beta", value = "reviewed-beta"}},
+                        expected = {"acme.widget:zeta", "acme.widget:alpha", "acme.widget:beta"}},
+                }) do
+                    local plan, plan_err = svc:plan_install({
+                        id = "app.deps:widget", component = "acme/widget", version = "1.0.0",
+                        parameters = input.parameters, requirement_bindings = input.requirement_bindings,
+                    })
+                    test.is_nil(plan_err)
+                    test.is_true(plan.applicable)
+                    test.eq(#plan.install_payload.parameters, #input.expected)
+                    local values = {}
+                    for _, parameter in ipairs(plan.install_payload.parameters) do values[parameter.name] = parameter.value end
+                    test.eq(values["acme.widget:zeta"], input.zeta or "z-value")
+                    test.eq(values["acme.widget:alpha"], "a-value")
+                    for i, name in ipairs(input.expected) do test.eq(plan.install_payload.parameters[i].name, name) end
+                    if input.requirement_bindings then test.eq(values["acme.widget:beta"], "reviewed-beta") end
+                    test.eq(original[1].name, "acme.widget:zeta")
+                    test.eq(original[2].name, "acme.widget:alpha")
+                end
+            end)
+
             it("preserves inspected requirement metadata for declared security scope suggestions", function()
                 local svc = planner.new({
                     catalog = fake_catalog({
