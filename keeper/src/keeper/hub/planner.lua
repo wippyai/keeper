@@ -592,9 +592,14 @@ local function compare_prereleases(a: string, b: string): number
     for i = 1, math.min(#left, #right) do
         local l, r = left[i], right[i]
         if l ~= r then
-            local ln = string.match(l, "^%d+$") and tonumber(l)
-            local rn = string.match(r, "^%d+$") and tonumber(r)
-            if ln and rn then return ln < rn and -1 or 1 end
+            local ln = string.match(l, "^%d+$")
+            local rn = string.match(r, "^%d+$")
+            if ln and rn then
+                -- Valid numeric identifiers have no leading zeroes. Comparing
+                -- their digits avoids losing precision for large identifiers.
+                if #l ~= #r then return #l < #r and -1 or 1 end
+                return l < r and -1 or 1
+            end
             if ln then return -1 end
             if rn then return 1 end
             return l < r and -1 or 1

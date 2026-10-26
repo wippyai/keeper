@@ -5689,6 +5689,54 @@ local function define_tests()
                 test.eq(nodes["acme/pinned"].version, "0.3.0+build.7")
             end)
 
+            it("orders large numeric prereleases independently of catalog order", function()
+                for _, versions in ipairs({
+                    { "2.0.0-rc.9007199254740993", "2.0.0-rc.9007199254740992", "2.0.0-rc.9007199254740993" },
+                    { "2.0.0-rc.9007199254740992", "2.0.0-rc.9007199254740993", "2.0.0-rc.9007199254740993" },
+                    { "2.0.0-rc.18446744073709551617", "2.0.0-rc.18446744073709551616", "2.0.0-rc.18446744073709551617" },
+                    { "2.0.0-rc.18446744073709551616", "2.0.0-rc.18446744073709551617", "2.0.0-rc.18446744073709551617" },
+                }) do
+                    local svc = planner.new({
+                        catalog = fake_catalog({
+                            ["acme/rc"] = {
+                                { version = versions[1] },
+                                { version = versions[2] },
+                            },
+                        }),
+                        registry = fake_registry({}),
+                    }) :: any
+                    local plan, plan_err = svc:plan_install({ component = "acme/rc", version = "*" })
+                    test.is_nil(plan_err)
+                    test.eq(plan.graph[1].version, versions[3])
+                end
+            end)
+
+            it("follows the SemVer prerelease precedence examples in either catalog order", function()
+                local ordered = {
+                    "1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta",
+                    "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0",
+                }
+                for i = 1, #ordered - 1 do
+                    for _, versions in ipairs({
+                        { ordered[i], ordered[i + 1] },
+                        { ordered[i + 1], ordered[i] },
+                    }) do
+                        local svc = planner.new({
+                            catalog = fake_catalog({
+                                ["acme/rc"] = {
+                                    { version = versions[1] },
+                                    { version = versions[2] },
+                                },
+                            }),
+                            registry = fake_registry({}),
+                        }) :: any
+                        local plan, plan_err = svc:plan_install({ component = "acme/rc", version = "*" })
+                        test.is_nil(plan_err)
+                        test.eq(plan.graph[1].version, ordered[i + 1])
+                    end
+                end
+            end)
+
             it("ignores constraints owned only by an unreachable orphan module", function()
                 local orphan = installed_module("acme/orphan", { "acme/shared" })
                 orphan[2].data.version = "v1.0.0"
