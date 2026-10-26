@@ -42,6 +42,31 @@ entries:
     func: browse_modules
     path: /keeper/hub/browse
     
+  # keeper.hub.api:get_registry
+  - name: get_registry
+    kind: function.lua
+    meta:
+      comment: Return the Hub registry URL that the runtime uses (from hub.auth.status, without credentials)
+      router: app:api
+    source: file://get_registry.lua
+    modules:
+      - http
+      - hub
+    imports:
+      api_http: keeper.hub.api:http
+    method: handler
+    pool:
+      size: 1
+
+  # keeper.hub.api:get_registry.endpoint
+  - name: get_registry.endpoint
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: GET
+    func: get_registry
+    path: /keeper/hub/registry
+
   # keeper.hub.api:get_readme
   - name: get_readme
     kind: function.lua

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   listHubDependencies: vi.fn(),
   listHubMigrations: vi.fn(),
   browseHubModules: vi.fn(),
+  getHubRegistry: vi.fn(),
 }))
 
 vi.mock('@iconify/vue', () => ({ Icon: { name: 'Icon', template: '<i />' } }))
@@ -22,12 +23,15 @@ vi.mock('../../api/hub', () => ({
   browseHubModules: mocks.browseHubModules,
   listHubVersions: vi.fn(),
   getHubReadme: vi.fn(),
+  getHubRegistry: mocks.getHubRegistry,
+  hubSiteLabel: (url: string) => new URL(url).host,
 }))
 
 async function mountInstalled(dependency: Record<string, unknown>) {
   mocks.listHubDependencies.mockResolvedValue({ success: true, dependencies: [dependency], modules: [] })
   mocks.listHubMigrations.mockResolvedValue({ success: true, migrations: [] })
   mocks.browseHubModules.mockResolvedValue({ success: true, modules: [] })
+  mocks.getHubRegistry.mockResolvedValue('https://hub.wippy.ai/')
   const wrapper = mount(SettingsHub, {
     global: { stubs: { PageHeader: true, HubInstallDialog: true, HubUninstallDialog: true } },
   })
@@ -89,5 +93,26 @@ describe('install warnings', () => {
     wrapper.findComponent({ name: 'HubInstallDialog' }).vm.$emit('installed', 'wippy/facade', [])
     await flushPromises()
     expect(wrapper.find('.install-warnings').exists()).toBe(false)
+  })
+})
+
+describe('hub link', () => {
+  it('names and opens the registry that the runtime uses', async () => {
+    mocks.listHubDependencies.mockResolvedValue({ success: true, dependencies: [], modules: [] })
+    mocks.listHubMigrations.mockResolvedValue({ success: true, migrations: [] })
+    mocks.browseHubModules.mockResolvedValue({ success: true, modules: [] })
+    mocks.getHubRegistry.mockResolvedValue('https://hub.stage.wippy.ai/')
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    const wrapper = mount(SettingsHub, {
+      global: { stubs: { PageHeader: { template: '<div><slot /></div>' }, HubInstallDialog: true, HubUninstallDialog: true } },
+    })
+    await flushPromises()
+    const link = wrapper.find('button.hub-link-btn')
+    expect(link.text()).toBe('hub.stage.wippy.ai')
+    expect(link.attributes('title')).toBe('Open hub.stage.wippy.ai')
+    expect(wrapper.text()).not.toContain('hub.wippy.ai')
+    await link.trigger('click')
+    expect(open).toHaveBeenCalledWith('https://hub.stage.wippy.ai/', '_blank', 'noopener')
+    open.mockRestore()
   })
 })

@@ -344,6 +344,27 @@ export interface BrowseResponse {
   query: string
 }
 
+export const DEFAULT_HUB_URL = 'https://hub.wippy.ai/'
+
+export function hubSiteUrl(registry?: string | null): string {
+  const value = (registry || '').trim()
+  if (!/^https?:\/\/[^/]/i.test(value)) return DEFAULT_HUB_URL
+  return value.endsWith('/') ? value : `${value}/`
+}
+
+export function hubSiteLabel(url: string): string {
+  try { return new URL(url).host } catch { return url }
+}
+
+export async function getHubRegistry(api: Api): Promise<string> {
+  try {
+    const { data } = await api.get<{ success: boolean; registry?: string }>('/api/v1/keeper/hub/registry')
+    return hubSiteUrl(data?.success ? data.registry : '')
+  } catch {
+    return DEFAULT_HUB_URL
+  }
+}
+
 export async function browseHubModules(api: Api, opts: { query?: string; page?: number; page_size?: number; visibility?: string; type?: string; sort?: string } = {}): Promise<BrowseResponse> {
   const params: any = {}
   if (opts.query) params.q = opts.query

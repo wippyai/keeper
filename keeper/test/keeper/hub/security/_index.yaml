@@ -55,7 +55,7 @@ entries:
     kind: function.lua
     meta:
       type: test
-      comment: Hub ownership and planner resolution read permission regression.
+      comment: Hub ownership, planner resolution, and configured registry read permission regression.
       suite: hub_security
     source: file://resolution_test.lua
     modules:

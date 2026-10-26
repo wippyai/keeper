@@ -9,6 +9,7 @@ import {
   listHubDependencies,
   listHubMigrations, runHubMigrations,
   browseHubModules, listHubVersions, getHubReadme,
+  getHubRegistry, hubSiteLabel,
   type HubMigration, type HubModule, type HubVersion,
   type DependencyRoot, type ModuleInventoryEntry, type HubApplyWarning,
 } from '../api/hub'
@@ -20,7 +21,8 @@ import HubUninstallDialog from '../components/hub/HubUninstallDialog.vue'
 const api = useApi()
 const router = useRouter()
 
-const HUB_URL = 'https://hub.wippy.ai/'
+const hubUrl = ref('')
+const hubLabel = computed(() => hubSiteLabel(hubUrl.value))
 
 function navigateToModule(m: HubModule) {
   const ref = m.full_name || `${m.org}/${m.name}`
@@ -385,7 +387,7 @@ async function applyAllPending() {
 }
 
 function openHub() {
-  try { window.parent.open(HUB_URL, '_blank', 'noopener') } catch { window.open(HUB_URL, '_blank', 'noopener') }
+  openLink(hubUrl.value)
 }
 function openLink(url?: string) {
   if (!url) return
@@ -396,6 +398,7 @@ function toggleDep(id: string) { expandedDep.value = expandedDep.value === id ? 
 onMounted(() => {
   loadInstalled()
   browse(true)
+  getHubRegistry(api).then((url) => { hubUrl.value = url })
 })
 </script>
 
@@ -407,9 +410,9 @@ onMounted(() => {
       :loading="(tab === 'installed' && loading) || (tab === 'discover' && browseLoading)"
       @refresh="tab === 'installed' ? loadInstalled() : browse(true)"
     >
-      <button class="hub-link-btn" @click="openHub" title="Open hub.wippy.ai">
+      <button v-if="hubUrl" class="hub-link-btn" @click="openHub" :title="`Open ${hubLabel}`">
         <Icon icon="tabler:external-link" class="w-3.5 h-3.5" />
-        hub.wippy.ai
+        {{ hubLabel }}
       </button>
     </PageHeader>
 
