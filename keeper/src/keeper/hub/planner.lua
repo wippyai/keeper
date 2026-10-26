@@ -2338,15 +2338,39 @@ function Planner:plan_requirements(graph, supplied_parameters)
         return tostring(a.name) < tostring(b.name)
     end)
 
-    local parameters, install_parameters = {}, {}
+    local parameters, install_parameters, order_lookup = {}, {}, {}
+    local function remember_order(name, parameter)
+        order_lookup[name] = order_lookup[name] or {}
+        table.insert(order_lookup[name], parameter)
+    end
     for _, row in ipairs(out) do
         if row.missing then table.insert(missing, row.parameter_name) end
         if row.transitive ~= true and requirement_has_binding(row) and row.invalid ~= true then
             local parameter = { name = row.parameter_name, value = row.value }
             table.insert(parameters, parameter)
-            if row.value_source ~= "default" then table.insert(install_parameters, parameter) end
+            if row.value_source ~= "default" then
+                table.insert(install_parameters, parameter)
+                remember_order(parameter.name, parameter)
+                if row.value_source == "provided_bare" then remember_order(row.name, parameter) end
+            end
         end
     end
+
+    -- Preserve authored order while retaining the final resolved values. Rows
+    -- above stay sorted for presentation; newly inferred bindings append in
+    -- that deterministic order after the caller's recorded/provided bindings.
+    local ordered, included = {}, {}
+    local function append(parameter)
+        if not included[parameter.name] then
+            ordered[#ordered + 1] = parameter
+            included[parameter.name] = true
+        end
+    end
+    for _, supplied in ipairs(supplied_parameters) do
+        for _, parameter in ipairs(order_lookup[trim(supplied.name)] or {}) do append(parameter) end
+    end
+    for _, parameter in ipairs(install_parameters) do append(parameter) end
+    install_parameters = ordered
 
     return {
         requirements = out,
