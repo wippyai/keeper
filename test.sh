@@ -12,8 +12,8 @@
 # git is never touched.
 #
 # Usage: ./test.sh [suite_id ...]
-# Without suite IDs, run the Hub suite plus the governance coordinator's
-# cancellation-drain regression suite. Explicit suite IDs replace this list.
+# Without suite IDs, run the Hub and Hub security suites plus the governance
+# coordinator's cancellation-drain regression suite. Explicit suite IDs replace this list.
 set -euo pipefail
 
 WIPPY="${WIPPY:-wippy}"
@@ -25,7 +25,7 @@ make -C "$REPO_ROOT" prepare-test
 
 SUITES=("$@")
 if [ ${#SUITES[@]} -eq 0 ]; then
-    SUITES=("keeper.hub:test" "keeper.gov.service:central_test")
+    SUITES=("keeper.hub:test" "keeper.hub.security:security_test" "keeper.hub.security:resolution_test" "keeper.gov.service:central_test")
 fi
 
 # The pristine copy lives next to the tracked file so a crashed run leaves a
