@@ -9,6 +9,12 @@ local observers = {}
 
 -- Constants
 observers.OBSERVER_TYPE = "registry.observer"
+observers.PHASE_BEFORE_APPLY = "before_apply"
+observers.OPERATIONS = {
+    ["entry.create"] = true,
+    ["entry.update"] = true,
+    ["entry.delete"] = true,
+}
 
 ---------------------------
 -- Dependency Injection Support
@@ -33,6 +39,12 @@ function observers.is_valid_observer(entry)
     return true
 end
 local is_valid_observer = observers.is_valid_observer
+
+function observers.is_before_apply(entry)
+    return type(entry) == "table" and type(entry.meta) == "table"
+        and entry.meta.phase == observers.PHASE_BEFORE_APPLY
+end
+local is_before_apply = observers.is_before_apply
 
 function observers.entry_to_observer_info(entry)
     return {
@@ -229,8 +241,11 @@ function observers.run_observers(changeset, result, request_id, user_id)
         user_id = user_id
     })
 
-    local observer_list = observers.list_all({ raw_entries = true })
-    if not observer_list or #observer_list == 0 then
+    local observer_list = {}
+    for _, observer in ipairs(observers.list_all({ raw_entries = true }) or {}) do
+        if not is_before_apply(observer) then table.insert(observer_list, observer) end
+    end
+    if #observer_list == 0 then
         log:debug("No observers found, skipping notification", {
             request_id = request_id,
             user_id = user_id
@@ -275,6 +290,115 @@ function observers.run_observers(changeset, result, request_id, user_id)
         end
     end
     return warnings
+end
+
+function observers.list_before_apply()
+    local result = {}
+    for _, observer in ipairs(observers.list_all({ raw_entries = true }) or {}) do
+        if is_before_apply(observer) then table.insert(result, observer) end
+    end
+    return result
+end
+
+local function planned_entry_id(entry)
+    if type(entry) ~= "table" then return nil end
+    if type(entry.id) == "string" and entry.id ~= "" then return entry.id end
+    if type(entry.namespace) == "string" and type(entry.name) == "string" then
+        return entry.namespace .. ":" .. entry.name
+    end
+    return nil
+end
+observers.planned_entry_id = planned_entry_id
+
+local function wanted_kinds(observer)
+    local kinds = observer.meta.kinds
+    if type(kinds) ~= "table" or #kinds == 0 then return nil end
+    local set = {}
+    for _, kind in ipairs(kinds) do set[tostring(kind)] = true end
+    return set
+end
+
+-- Select the planned operations an observer reads. A delete carries only the
+-- entry identity; create and update carry the entry when its kind matches.
+function observers.select_planned(planned, kinds)
+    local selected = {}
+    for _, op in ipairs(planned or {}) do
+        local entry = type(op) == "table" and op.entry or nil
+        local id = planned_entry_id(entry)
+        if id and (kinds == nil or kinds[tostring(entry.kind)]) then
+            if op.op == "delete" then
+                table.insert(selected, { op = "delete", entry = { id = id, kind = entry.kind } })
+            else
+                table.insert(selected, { op = op.op, entry = entry })
+            end
+        end
+    end
+    return selected
+end
+
+local function valid_operation(op)
+    if type(op) ~= "table" or not observers.OPERATIONS[op.kind] then return false end
+    if not planned_entry_id(op.entry) then return false end
+    if op.kind ~= "entry.delete" and (type(op.entry.kind) ~= "string" or op.entry.kind == "") then return false end
+    return true
+end
+
+-- Run the before_apply observers against the planned changeset. Each one
+-- returns { ops = {...} } with extra registry operations that land in the same
+-- registry version. Operations on entries that the changeset already touches
+-- are refused. Returns the accepted operations and one warning per failure.
+function observers.run_before_apply(changeset, planned, request_id, user_id)
+    local ops, warnings = {}, {}
+    local observer_list = observers.list_before_apply()
+    if #observer_list == 0 then return ops, warnings end
+
+    local executor = (observers._funcs or funcs).new()
+    if not executor then
+        table.insert(warnings, { message = "before_apply observers did not run: no function executor" })
+        return ops, warnings
+    end
+
+    local touched = {}
+    for _, op in ipairs(planned or {}) do
+        local id = planned_entry_id(type(op) == "table" and op.entry or nil)
+        if id then touched[id] = true end
+    end
+
+    for _, observer in ipairs(observer_list) do
+        local call_result, err = executor:call(tostring(observer.id), {
+            phase = observers.PHASE_BEFORE_APPLY,
+            changeset = changeset,
+            planned = observers.select_planned(planned, wanted_kinds(observer)),
+            request_id = request_id,
+            user_id = user_id,
+        })
+        local message = observers.failure_message(call_result, err)
+        if not message and type(call_result) == "table" and call_result.ops ~= nil
+            and type(call_result.ops) ~= "table" then
+            message = "before_apply observer returned ops that are not a list"
+        end
+        if message then
+            log:error("before_apply observer error", {
+                observer = observer.id, error = message, request_id = request_id, user_id = user_id,
+            })
+            table.insert(warnings, { observer = tostring(observer.id), message = message })
+        else
+            for _, op in ipairs(type(call_result) == "table" and call_result.ops or {}) do
+                local id = valid_operation(op) and planned_entry_id(op.entry) or nil
+                if not id then
+                    table.insert(warnings, { observer = tostring(observer.id),
+                        message = "before_apply observer returned an invalid operation" })
+                elseif touched[id] then
+                    table.insert(warnings, { observer = tostring(observer.id),
+                        message = "before_apply observer operation on " .. id .. " conflicts with the changeset" })
+                else
+                    touched[id] = true
+                    table.insert(ops, op)
+                end
+            end
+        end
+    end
+    return ops, warnings
 end
 
 return observers

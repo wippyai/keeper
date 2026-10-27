@@ -249,6 +249,49 @@ local function define_tests()
             end)
         end)
 
+        describe("before_apply observers", function()
+            it("applies the observer operations in the same registry version as the changeset", function()
+                with_managed_namespaces({ "beforeprobe" }, function()
+                    local observer = {
+                        id = "beforeprobe:observer", kind = "function.lua",
+                        meta = { type = "registry.observer", priority = 1, phase = "before_apply",
+                            kinds = { "registry.entry" } },
+                        data = { method = "run", source = [[
+local function run(args)
+    for _, op in ipairs(args.planned or {}) do
+        if op.entry.id == "beforeprobe:entry" and op.op == "create" then
+            return { ops = { { kind = "entry.create", entry = { id = "beforeprobe:companion",
+                kind = "registry.entry", meta = {}, data = { from = op.entry.id } } } } }
+        end
+    end
+    return { ops = {} }
+end
+return { run = run }
+]] },
+                    }
+                    local _, observer_err = gov_client.request_changes({ { kind = "entry.create", entry = observer } })
+                    test.is_nil(observer_err)
+
+                    local before = registry.current_version():id()
+                    local entry = { id = "beforeprobe:entry", kind = "registry.entry", meta = {}, data = { value = 1 } }
+                    local _, create_err = gov_client.request_changes({ { kind = "entry.create", entry = entry } })
+                    test.is_nil(create_err)
+                    local after = registry.current_version():id()
+                    local companion = registry.get("beforeprobe:companion")
+
+                    gov_client.request_changes({
+                        { kind = "entry.delete", entry = { id = "beforeprobe:companion" } },
+                        { kind = "entry.delete", entry = { id = "beforeprobe:entry" } },
+                        { kind = "entry.delete", entry = { id = "beforeprobe:observer" } },
+                    })
+
+                    test.not_nil(companion)
+                    test.eq(companion.data.from, "beforeprobe:entry")
+                    test.eq(after, before + 1)
+                end)
+            end)
+        end)
+
         describe("observer discovery", function()
             it("list_all returns a table", function()
                 local results = registry.find({ ["meta.type"] = "registry.observer" })
