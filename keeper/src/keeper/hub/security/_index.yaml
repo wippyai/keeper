@@ -36,7 +36,7 @@ entries:
   - name: admin_catalog
     kind: security.policy
     meta:
-      comment: Allow Hub administrator tools to read the Hub catalog and registry resolution for ownership and planning.
+      comment: Allow Hub administrator tools to read the Hub catalog, the configured registry, and registry resolution for ownership and planning.
     groups: []
     policy:
       resources: '*'
@@ -46,4 +46,5 @@ entries:
         - hub.modules.readme
         - hub.versions.list
         - registry.resolution.get
+        - hub.auth.status
       effect: allow
