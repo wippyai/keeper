@@ -112,9 +112,18 @@ entries:
       type: test
       suite: state.service
     source: file://orchestrator_test.lua
+    modules: [registry, uuid]
     imports:
       orchestrator: keeper.state.service:orchestrator
       consts: keeper.state:consts
+      reconcile: keeper.state.service:reconcile
+      state_ops: keeper.state.persist:ops
+      state_reader: keeper.state.persist:reader
+      materialize: keeper.state.persist:materialize
+      engine: keeper.state.patch:engine
+      cs_client: keeper.changeset:client
+      cs_consts: keeper.changeset:consts
+      cs_repo: keeper.changeset.persist:repo
       test: wippy.test:test
     method: define_tests
     pool:
