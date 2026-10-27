@@ -180,6 +180,23 @@ local function validate_version_id(version_id)
     return version_id, nil, issues
 end
 
+-- Plan the staged changes and let before_apply observers add operations that
+-- must land in the same registry version, for example the security scope
+-- updates for the policies that a module install brings. Without such
+-- observers nothing is planned. A failed plan adds nothing: the apply then
+-- reports the same error.
+function M.prepare_before_apply(changes, changeset, request_id, user_id)
+    if #observers.list_before_apply() == 0 then return {}, {} end
+    local plan, plan_err = changes:plan()
+    if not plan then
+        log:warn("Changeset plan failed; before_apply observers skipped", {
+            error = tostring(plan_err), request_id = request_id, user_id = user_id,
+        })
+        return {}, {}
+    end
+    return observers.run_before_apply(changeset, plan.changes or {}, request_id, user_id)
+end
+
 local function execute_changeset(changeset, options, request_id, user_id)
     log:info("Executing changeset", {
         changeset_count = #changeset,
@@ -219,7 +236,7 @@ local function execute_changeset(changeset, options, request_id, user_id)
         }
     end
 
-    for _, op in ipairs(changeset) do
+    local function stage(op)
         local kind = op.kind
         local entry = op.entry
 
@@ -248,6 +265,11 @@ local function execute_changeset(changeset, options, request_id, user_id)
         end
     end
 
+    for _, op in ipairs(changeset) do stage(op) end
+
+    local extra_ops, extra_warnings = M.prepare_before_apply(changes, changeset, request_id, user_id)
+    for _, op in ipairs(extra_ops) do stage(op) end
+
     local version, err = changes:apply()
     if not version then
         if err and tostring(err):find("no changes to apply") then
@@ -259,7 +281,8 @@ local function execute_changeset(changeset, options, request_id, user_id)
                 success = true,
                 message = "No changes needed to be applied",
                 request_id = request_id,
-                user_id = user_id
+                user_id = user_id,
+                before_apply_warnings = extra_warnings,
             }
         else
             log:error("Failed to apply changes", {
@@ -272,7 +295,8 @@ local function execute_changeset(changeset, options, request_id, user_id)
                 message = "Failed to apply changes to registry",
                 error = err or "Unknown error",
                 request_id = request_id,
-                user_id = user_id
+                user_id = user_id,
+                before_apply_warnings = extra_warnings,
             }
         end
     end
@@ -288,7 +312,9 @@ local function execute_changeset(changeset, options, request_id, user_id)
         message = "Successfully applied changes to registry",
         version = version:id(),
         request_id = request_id,
-        user_id = user_id
+        user_id = user_id,
+        before_apply_ops = extra_ops,
+        before_apply_warnings = extra_warnings,
     }
 end
 
@@ -453,6 +479,12 @@ local function run(args)
 
         result = execute_changeset(validated_changeset, args.options or {}, request_id, user_id)
         changeset = validated_changeset
+        if result.before_apply_ops and #result.before_apply_ops > 0 then
+            changeset = {}
+            for _, op in ipairs(validated_changeset) do table.insert(changeset, op) end
+            for _, op in ipairs(result.before_apply_ops) do table.insert(changeset, op) end
+        end
+        result.before_apply_ops = nil
 
     elseif args.version_id then
         local validated_version, err, issues = validate_version_id(tostring(args.version_id))
@@ -522,8 +554,10 @@ local function run(args)
     result.details = validation_details
     result.changeset = changeset
 
-    local warnings = run_post_processing(changeset, result, request_id, user_id)
-    if warnings and #warnings > 0 then result.warnings = warnings end
+    local warnings = run_post_processing(changeset, result, request_id, user_id) or {}
+    for _, warning in ipairs(result.before_apply_warnings or {}) do table.insert(warnings, warning) end
+    result.before_apply_warnings = nil
+    if #warnings > 0 then result.warnings = warnings end
 
     log:info("Completed changeset process", {
         success = result.success,

@@ -181,6 +181,118 @@ local function define_tests()
                 test.is_nil(stats.priority_range.max)
             end)
         end)
+
+        describe("before_apply observers", function()
+            local saved_funcs
+            before_each(function() saved_funcs = observers._funcs end)
+            after_each(function() observers._funcs = saved_funcs end)
+
+            local function phased()
+                return {
+                    ["ns.a:after"] = {
+                        id = "ns.a:after", namespace = "ns.a", kind = "function.lua",
+                        meta = { type = "registry.observer", priority = 10 },
+                    },
+                    ["ns.s:scopes"] = {
+                        id = "ns.s:scopes", namespace = "ns.s", kind = "function.lua",
+                        meta = { type = "registry.observer", priority = 10, phase = "before_apply",
+                            kinds = { "security.policy" } },
+                    },
+                }
+            end
+
+            local function fake_funcs(handlers, calls)
+                return {
+                    new = function()
+                        return {
+                            call = function(_, id, args)
+                                calls[#calls + 1] = { id = id, args = args }
+                                local handler = handlers[id]
+                                if not handler then return { success = true }, nil end
+                                return handler(args)
+                            end,
+                        }
+                    end,
+                }
+            end
+
+            local planned = {
+                { op = "create", entry = { id = "mod.api:list.endpoint", kind = "http.endpoint", meta = {}, data = {} } },
+                { op = "create", entry = { id = "mod.security:access", kind = "security.policy",
+                    meta = { intent = "module_access" }, data = { groups = {} } } },
+                { op = "delete", entry = { id = "mod.security:old", kind = "security.policy",
+                    meta = {}, data = { policy = { resources = "x" } } } },
+            }
+
+            it("lists only before_apply observers for the plan phase", function()
+                observers._registry = make_fake_registry(phased())
+                local list = observers.list_before_apply()
+                test.eq(#list, 1)
+                test.eq(list[1].id, "ns.s:scopes")
+            end)
+
+            it("keeps before_apply observers out of the post-apply run", function()
+                observers._registry = make_fake_registry(phased())
+                local calls = {}
+                observers._funcs = fake_funcs({}, calls)
+                local warnings = observers.run_observers({}, { success = true }, "r1", "u1")
+                test.eq(#warnings, 0)
+                test.eq(#calls, 1)
+                test.eq(calls[1].id, "ns.a:after")
+            end)
+
+            it("passes the planned operations of the declared kinds and returns the observer ops", function()
+                observers._registry = make_fake_registry(phased())
+                local calls = {}
+                observers._funcs = fake_funcs({
+                    ["ns.s:scopes"] = function()
+                        return { ops = { { kind = "entry.update", entry = {
+                            id = "sec.groups:members", kind = "security.scope", data = { policies = { "mod.security:access" } },
+                        } } } }, nil
+                    end,
+                }, calls)
+                local ops, warnings = observers.run_before_apply({}, planned, "r1", "u1")
+                test.eq(#warnings, 0)
+                test.eq(#calls, 1)
+                test.eq(calls[1].args.phase, "before_apply")
+                test.eq(#calls[1].args.planned, 2)
+                test.eq(calls[1].args.planned[1].entry.id, "mod.security:access")
+                test.eq(calls[1].args.planned[2].op, "delete")
+                test.eq(calls[1].args.planned[2].entry.id, "mod.security:old")
+                test.is_nil(calls[1].args.planned[2].entry.data)
+                test.eq(#ops, 1)
+                test.eq(ops[1].entry.id, "sec.groups:members")
+            end)
+
+            it("refuses ops on entries the changeset already touches and invalid ops", function()
+                observers._registry = make_fake_registry(phased())
+                observers._funcs = fake_funcs({
+                    ["ns.s:scopes"] = function()
+                        return { ops = {
+                            { kind = "entry.update", entry = { id = "mod.security:access", kind = "security.policy" } },
+                            { kind = "entry.rename", entry = { id = "x:y", kind = "security.scope" } },
+                            { kind = "entry.create", entry = { id = "x:z" } },
+                        } }, nil
+                    end,
+                }, {})
+                local ops, warnings = observers.run_before_apply({}, planned, "r1", "u1")
+                test.eq(#ops, 0)
+                test.eq(#warnings, 3)
+                test.is_true(warnings[1].message:find("conflicts with the changeset", 1, true) ~= nil)
+            end)
+
+            it("turns an observer failure into a warning and adds no ops", function()
+                observers._registry = make_fake_registry(phased())
+                observers._funcs = fake_funcs({
+                    ["ns.s:scopes"] = function() return nil, "projection unavailable" end,
+                }, {})
+                local ops, warnings = observers.run_before_apply({}, planned, "r1", "u1")
+                test.eq(#ops, 0)
+                test.eq(#warnings, 1)
+                test.eq(warnings[1].observer, "ns.s:scopes")
+                test.eq(warnings[1].message, "projection unavailable")
+            end)
+        end)
     end)
 end
 
