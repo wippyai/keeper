@@ -21,29 +21,42 @@ local function check_database_empty(db)
     return (result[1] and result[1].count or 0) == 0
 end
 
+local function respond_to_changes(responses, result)
+    for topic, from in pairs(responses) do
+        process.send(from, topic, {
+            success = result.success == true,
+            error = result.error,
+            message = result.success and "Registry changes synchronized" or "State synchronization failed",
+            changes_made = result.changes_made,
+            version = result.version
+        })
+    end
+end
+
 local function spawn_reconciliation(state)
-    if state.reconcile_worker_pid then
-        log:warn("Reconciliation already in progress", { pid = state.reconcile_worker_pid })
+    if state.reconcile_worker_pid or state.sync_worker_pid then
         return
     end
 
-    log:info("Spawning reconciliation worker")
+    state.database_ready = false
+    log:info("Spawning reconciliation worker", { version = state.pending_version })
     local pid, err = process.spawn_monitored("keeper.state.service:reconcile", consts.PROCESS_HOST)
     if not pid then
         log:error("Failed to spawn reconciliation worker", { error = err })
+        respond_to_changes(state.pending_responses, { success = false, error = err })
+        state.pending_responses = {}
+        state.pending_version = nil
         return
     end
 
     state.reconcile_worker_pid = pid
+    state.worker_responses = state.pending_responses
+    state.pending_responses = {}
+    state.pending_version = nil
     log:info("Reconciliation worker spawned", { pid = pid })
 end
 
 local function spawn_sync_worker(state, changeset: {RegistryChange}, version, is_version_operation)
-    if state.sync_worker_pid then
-        log:warn("Sync worker already in progress", { pid = state.sync_worker_pid })
-        return false
-    end
-
     log:info("Spawning sync worker", {
         changeset_count = #changeset,
         version = version,
@@ -62,61 +75,57 @@ local function spawn_sync_worker(state, changeset: {RegistryChange}, version, is
     end
 
     state.sync_worker_pid = pid
+    state.worker_responses = state.pending_responses
+    state.pending_responses = {}
+    state.pending_version = nil
     log:info("Sync worker spawned", { pid = pid })
     return true
 end
 
 local function handle_worker_exit(state, event)
-    local from_pid = event.from
-    local result = event.result and event.result.value or nil
+    local is_reconciliation = event.from == state.reconcile_worker_pid
+    if not is_reconciliation and event.from ~= state.sync_worker_pid then
+        return
+    end
+    local result = event.result and event.result.value
+        or { success = false, error = event.result and event.result.error or "Unknown error" }
 
-    if from_pid == state.reconcile_worker_pid then
-        log:info("Reconciliation worker completed", {
-            pid = from_pid,
-            success = result and result.success or false
-        })
-
+    if is_reconciliation then
         state.reconcile_worker_pid = nil
+    else
+        state.sync_worker_pid = nil
+    end
 
-        if result and result.success then
-            state.database_ready = true
-            if result.changes_made then
-                log:info("State reconciliation successful", {
-                    stats = result.stats,
-                    commands_sent = result.commands_sent
-                })
-            else
-                log:info("State already synchronized", { stats = result.stats })
-            end
+    respond_to_changes(state.worker_responses, result)
+    state.worker_responses = {}
+
+    if result.success then
+        state.database_ready = true
+        state.last_sync_version = result.version
+        state.last_sync_time = time.now():format("RFC3339Nano")
+        log:info("Registry state synchronized", {
+            version = result.version,
+            changes_made = result.changes_made
+        })
+        if state.pending_version ~= nil and state.pending_version ~= result.version then
+            spawn_reconciliation(state)
         else
-            local error_msg = result and result.error or "Unknown error"
-            log:error("State reconciliation failed", { error = error_msg })
-
-            if error_msg and error_msg:find("no such table") then
-                log:error("Tables not materialized, exiting for restart")
+            respond_to_changes(state.pending_responses, result)
+            state.pending_responses = {}
+            state.pending_version = nil
+        end
+    else
+        local error_msg = result.error or "Unknown error"
+        state.database_ready = false
+        log:error("State synchronization failed", { error = error_msg })
+        if is_reconciliation then
+            respond_to_changes(state.pending_responses, result)
+            state.pending_responses = {}
+            state.pending_version = nil
+            if error_msg:find("no such table") then
                 error("Tables not ready: " .. error_msg)
             end
-
-            state.database_ready = false
-        end
-    elseif from_pid == state.sync_worker_pid then
-        log:info("Sync worker completed", {
-            pid = from_pid,
-            success = result and result.success or false
-        })
-
-        state.sync_worker_pid = nil
-
-        if result and result.success then
-            log:info("Registry changes synced", {
-                changes_made = result.changes_made,
-                command_count = result.command_count,
-                version = result.version
-            })
         else
-            log:error("Sync worker failed", {
-                error = result and result.error or "Unknown error"
-            })
             log:info("Sync failure - triggering reconciliation")
             spawn_reconciliation(state)
         end
@@ -211,10 +220,9 @@ local function handle_sync_branch(state, from, payload)
 end
 
 local function handle_registry_change(state, from, payload)
-    local is_version_operation = payload.is_version_operation or false
     local version = payload.version
     local changeset: table = payload.changeset or {}
-    local respond_to = payload.respond_to
+    local is_version_operation = payload.is_version_operation or false
 
     log:info("Registry change notification", {
         version = version,
@@ -222,70 +230,25 @@ local function handle_registry_change(state, from, payload)
         is_version_operation = is_version_operation
     })
 
-    if not state.database_ready then
-        log:warn("Database not ready - triggering reconciliation")
-        spawn_reconciliation(state)
-        if respond_to then
-            process.send(from, respond_to, {
-                success = true,
-                message = "Reconciliation triggered",
-                version = version
-            })
-        end
+    state.pending_version = version
+    if payload.respond_to then
+        state.pending_responses[payload.respond_to] = from
+    end
+
+    if state.reconcile_worker_pid or state.sync_worker_pid then
         return
     end
 
-    if is_version_operation then
-        log:info("Version operation - triggering reconciliation", { version = version })
+    if not state.database_ready or is_version_operation then
         spawn_reconciliation(state)
+    elseif #changeset == 0 then
         state.last_sync_version = version
         state.last_sync_time = time.now():format("RFC3339Nano")
-        if respond_to then
-            process.send(from, respond_to, {
-                success = true,
-                message = "Reconciliation triggered for version operation",
-                version = version
-            })
-        end
-        return
-    end
-
-    if #changeset == 0 then
-        log:info("No changes to sync")
-        state.last_sync_version = version
-        state.last_sync_time = time.now():format("RFC3339Nano")
-        if respond_to then
-            process.send(from, respond_to, {
-                success = true,
-                changes_made = false,
-                version = version
-            })
-        end
-        return
-    end
-
-    local spawned = spawn_sync_worker(state, changeset :: {RegistryChange}, version, is_version_operation)
-    if spawned then
-        state.last_sync_version = version
-        state.last_sync_time = time.now():format("RFC3339Nano")
-        if respond_to then
-            process.send(from, respond_to, {
-                success = true,
-                message = "Sync worker spawned",
-                changes_made = true,
-                version = version
-            })
-        end
-    else
-        log:warn("Failed to spawn sync worker - triggering reconciliation")
+        respond_to_changes(state.pending_responses, { success = true, changes_made = false, version = version })
+        state.pending_responses = {}
+        state.pending_version = nil
+    elseif not spawn_sync_worker(state, changeset :: {RegistryChange}, version, is_version_operation) then
         spawn_reconciliation(state)
-        if respond_to then
-            process.send(from, respond_to, {
-                success = true,
-                message = "Sync worker failed, reconciliation triggered",
-                version = version
-            })
-        end
     end
 end
 
@@ -303,7 +266,10 @@ local function run()
         reconcile_worker_pid = nil,
         sync_worker_pid = nil,
         last_sync_version = nil,
-        last_sync_time = nil
+        last_sync_time = nil,
+        pending_version = nil,
+        pending_responses = {},
+        worker_responses = {}
     }
 
     local db, err = sql.get(consts.DATABASE.RESOURCE_ID)
@@ -326,13 +292,12 @@ local function run()
         return nil, "Failed to get current registry version"
     end
 
-    state.last_sync_version = current_version:id()
-    state.last_sync_time = time.now():format("RFC3339Nano")
+    state.pending_version = current_version:id()
 
     spawn_reconciliation(state)
 
     log:info("Orchestrator initialized", {
-        registry_version = state.last_sync_version,
+        registry_version = current_version:id(),
         database_ready = state.database_ready
     })
 

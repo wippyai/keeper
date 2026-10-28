@@ -256,6 +256,7 @@ local function reconcile()
         return {
             success = true,
             changes_made = false,
+            version = snapshot:version():id(),
             stats = stats
         }
     end
@@ -321,6 +322,7 @@ local function reconcile()
     return {
         success = true,
         changes_made = true,
+        version = snapshot:version():id(),
         stats = stats,
         commands_sent = #commands
     }

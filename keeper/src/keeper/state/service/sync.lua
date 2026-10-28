@@ -123,7 +123,7 @@ local function run(args: SyncArgs, deps)
                 version = args.version,
             }
         end
-        result.version = args.version
+        result.version = result.version or args.version
         result.dependency_reconcile = true
         return result
     end

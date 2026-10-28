@@ -204,6 +204,24 @@ local function define_tests()
                 test.eq(calls.apply, 0)
             end)
 
+            it("reports the snapshot version reflected by dependency reconciliation", function()
+                local out = sync.run({
+                    version = 9,
+                    changeset = {
+                        { kind = "entry.update", entry = { id = "app.deps:foo", kind = "ns.dependency" } },
+                    },
+                }, {
+                    reconcile = {
+                        run = function()
+                            return { success = true, changes_made = true, version = 10 }
+                        end,
+                    },
+                })
+
+                test.is_true(out.success)
+                test.eq(out.version, 10)
+            end)
+
             it("reconciles dependency directive create, update, and delete operations", function()
                 for _, kind in ipairs({ "entry.create", "entry.update", "entry.delete" }) do
                     local calls = { reconcile = 0, apply = 0 }
