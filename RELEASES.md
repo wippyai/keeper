@@ -1,5 +1,19 @@
 # Release Notes
 
+## keeper/keeper 0.5.111
+
+Hub plans reject fully qualified Lua imports that do not resolve in the complete
+resulting registry, including unchanged consumers of libraries removed by an
+updated provider. The error identifies consuming entries and missing references
+so the consumer and provider can be updated together. Native module aliases and
+WASM imports retain their existing handling.
+
+All 1,970 native Keeper tests pass, with the existing placeholder skip, and lint
+is clean across 411 entries. A native packed candidate on a fresh published app
+rejects the ten obsolete KB10 imports before changing installed dependencies on
+SQLite and PostgreSQL. Current published KB10 installs and executes its native
+MCP tools on both. No retired result-window wrapper is restored.
+
 ## keeper/keeper 0.5.109
 
 The Hub Installed list and install dialog show the active installed release
