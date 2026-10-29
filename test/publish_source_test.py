@@ -54,6 +54,15 @@ class PublishSourceTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("source is behind", result.stdout + result.stderr)
 
+    def test_remote_default_branch_change_cannot_use_old_source(self):
+        self.git(self.source, "checkout", "-b", "new-default")
+        self.commit(self.source, "return 'fixed default'\n")
+        self.git(self.source, "push", "origin", "new-default")
+        self.git(self.origin, "symbolic-ref", "HEAD", "refs/heads/new-default")
+        result = self.check_source()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("source is behind", result.stdout + result.stderr)
+
     def test_dirty_tracked_source_cannot_publish(self):
         (self.working / "source.lua").write_text("return 'uncommitted'\n")
         result = self.check_source()
