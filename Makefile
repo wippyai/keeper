@@ -80,17 +80,21 @@ test-publish-source:
 publish-dry-run: publish-keeper-dry-run publish-usage-dry-run
 
 publish-keeper-dry-run: publish-source-check build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend
+	@sh "$(PUBLISH_SOURCE_CHECK)"
 	cd keeper && $(WIPPY) publish --dry-run --version $(KEEPER_VERSION)
 
 publish-usage-dry-run: publish-source-check build-usage-frontend
+	@sh "$(PUBLISH_SOURCE_CHECK)"
 	cd usage && $(WIPPY) publish --dry-run --version $(USAGE_VERSION)
 
 publish: publish-keeper publish-usage
 
 publish-keeper: publish-source-check build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend
+	@sh "$(PUBLISH_SOURCE_CHECK)"
 	cd keeper && $(WIPPY) publish --version $(KEEPER_VERSION)
 
 publish-usage: publish-source-check build-usage-frontend
+	@sh "$(PUBLISH_SOURCE_CHECK)"
 	cd usage && $(WIPPY) publish --version $(USAGE_VERSION)
 
 prepare-test:

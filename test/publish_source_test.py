@@ -1,4 +1,5 @@
 import os
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -69,6 +70,16 @@ class PublishSourceTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("tracked files", result.stdout + result.stderr)
 
+    def test_source_changes_during_fetch_stop_publication(self):
+        upload = self.root / "upload-pack"
+        upload.write_text("#!/bin/sh\nprintf changed >> " + shlex.quote(str(self.working / "source.lua")) +
+                          "\nexec git upload-pack \"$@\"\n")
+        upload.chmod(0o700)
+        self.git(self.working, "config", "remote.origin.uploadpack", str(upload))
+        result = self.check_source()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("tracked files", result.stdout + result.stderr)
+
     def test_staged_source_cannot_publish(self):
         (self.working / "source.lua").write_text("return 'staged'\n")
         self.git(self.working, "add", "source.lua")
@@ -112,6 +123,28 @@ class PublishSourceTest(unittest.TestCase):
                                         capture_output=True, text=True)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("source is behind", result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+
+    def test_build_source_changes_stop_every_publish_target(self):
+        (self.working / "usage").mkdir()
+        marker = self.root / "published"
+        publisher = self.root / "publisher"
+        publisher.write_text("#!/bin/sh\nprintf published > \"$PUBLISH_TEST_MARKER\"\n")
+        publisher.chmod(0o700)
+        override = self.root / "publish.mk"
+        override.write_text("include " + str(MAKEFILE) + "\n" + "\n".join(
+            name + ":\n\t@printf changed >> source.lua" for name in ["build-keeper-frontend", "build-keeper-git-frontend",
+                                                                     "build-wippy-monaco-frontend", "build-usage-frontend"]))
+        for target in ["publish-keeper", "publish-usage", "publish-keeper-dry-run", "publish-usage-dry-run"]:
+            with self.subTest(target=target):
+                self.git(self.working, "restore", "source.lua")
+                marker.unlink(missing_ok=True)
+                result = subprocess.run(["make", "-f", str(override), target,
+                                         "WIPPY=" + str(publisher), "KEEPER_VERSION=1.0.0", "USAGE_VERSION=1.0.0"],
+                                        cwd=self.working, env=dict(self.env, PUBLISH_TEST_MARKER=str(marker)),
+                                        capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("tracked files", result.stdout + result.stderr)
                 self.assertFalse(marker.exists())
 
 
