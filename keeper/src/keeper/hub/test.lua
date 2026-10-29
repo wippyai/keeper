@@ -7889,6 +7889,70 @@ local function define_tests()
 
         end)
 
+        describe("projected Lua imports", function()
+            local function preview(entries, changes)
+                local state = {plan = function()
+                    return {changes = changes, resolution = {modules = {}}, digest = "imports"}, nil
+                end}
+                local instance = planner.new({registry = fake_registry(entries, nil, state)}) :: any
+                return instance:preview_dependencies({})
+            end
+
+            it("refuses a consumer whose imported library is absent", function()
+                local result, issue = preview({}, {{op = "create", entry = {
+                    id = "acme.consumer:tool", kind = "function.lua",
+                    data = {imports = {results = "acme.provider:retired"}},
+                }}})
+                test.is_nil(result)
+                test.not_nil(issue)
+                local details = err_details(issue)
+                test.eq(details.code, "CONFLICT")
+                test.eq(details.issue_count, 1)
+                test.eq(details.issues["1"].entry_id, "acme.consumer:tool")
+                test.eq(details.issues["1"].reference, "acme.provider:retired")
+            end)
+
+            it("checks unchanged consumers when a provider removes their library", function()
+                local result, issue = preview({
+                    {id = "acme.provider:retired", kind = "library.lua", data = {}},
+                    {id = "acme.consumer:tool", kind = "function.lua",
+                        data = {imports = {results = "acme.provider:retired"}}},
+                }, {{op = "delete", entry = {id = "acme.provider:retired", kind = "library.lua"}}})
+                test.is_nil(result)
+                test.not_nil(issue)
+                test.eq(err_details(issue).issues["1"].entry_id, "acme.consumer:tool")
+            end)
+
+            it("accepts a coordinated consumer migration in either delta order", function()
+                local base = {
+                    {id = "acme.provider:retired", kind = "library.lua", data = {}},
+                    {id = "acme.consumer:tool", kind = "function.lua",
+                        data = {imports = {results = "acme.provider:retired"}}},
+                }
+                local deletion = {op = "delete", entry = base[1]}
+                local consumer = {op = "update", entry = {
+                    id = "acme.consumer:tool", kind = "function.lua", data = {},
+                }}
+                for _, changes in ipairs({{deletion, consumer}, {consumer, deletion}}) do
+                    local result, issue = preview(base, changes)
+                    test.is_nil(issue)
+                    test.eq(result.digest, "imports")
+                end
+            end)
+
+            it("checks registry references while leaving native module and WASM imports to their owners", function()
+                local result, issue = preview({}, {
+                    {op = "create", entry = {id = "acme.consumer:helper", kind = "library.lua", data = {}}},
+                    {op = "create", entry = {id = "acme.consumer:worker", kind = "process.lua",
+                        data = {imports = {helper = "acme.consumer:helper", registry = ":registry", contract = "contract"}}}},
+                    {op = "create", entry = {id = "acme.consumer:convert", kind = "function.wasm",
+                        data = {imports = {"wasi:cli"}}}},
+                })
+                test.is_nil(issue)
+                test.eq(result.digest, "imports")
+            end)
+        end)
+
         describe("security scan API", function()
             it("requires an authenticated admin actor", function()
                 local res, err = http_client.post(api_test.endpoint("/api/keeper/hub/scan"), {
