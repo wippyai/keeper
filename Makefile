@@ -1,6 +1,7 @@
-.PHONY: lint lint-keeper lint-usage test build build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend build-usage-frontend clean-static dev dev-keeper dev-keeper-git dev-wippy-monaco dev-usage smoke publish-dry-run publish-keeper-dry-run publish-usage-dry-run publish publish-keeper publish-usage
+.PHONY: publish-source-check test-publish-source lint lint-keeper lint-usage test build build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend build-usage-frontend clean-static dev dev-keeper dev-keeper-git dev-wippy-monaco dev-usage smoke publish-dry-run publish-keeper-dry-run publish-usage-dry-run publish publish-keeper publish-usage
 
 WIPPY ?= wippy
+PUBLISH_SOURCE_CHECK := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))scripts/check-publish-source.sh
 
 # Published versions come from each module's wippy.yaml.
 KEEPER_VERSION ?= $(shell awk '/^version:/ { print $$2; exit }' keeper/wippy.yaml)
@@ -70,20 +71,26 @@ dev-usage:
 smoke:
 	cd test/smoke && npm install --no-audit --no-fund --prefer-offline && npm run smoke
 
+publish-source-check:
+	@sh "$(PUBLISH_SOURCE_CHECK)"
+
+test-publish-source:
+	python3 test/publish_source_test.py
+
 publish-dry-run: publish-keeper-dry-run publish-usage-dry-run
 
-publish-keeper-dry-run: build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend
+publish-keeper-dry-run: publish-source-check build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend
 	cd keeper && $(WIPPY) publish --dry-run --version $(KEEPER_VERSION)
 
-publish-usage-dry-run: build-usage-frontend
+publish-usage-dry-run: publish-source-check build-usage-frontend
 	cd usage && $(WIPPY) publish --dry-run --version $(USAGE_VERSION)
 
 publish: publish-keeper publish-usage
 
-publish-keeper: build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend
+publish-keeper: publish-source-check build-keeper-frontend build-keeper-git-frontend build-wippy-monaco-frontend
 	cd keeper && $(WIPPY) publish --version $(KEEPER_VERSION)
 
-publish-usage: build-usage-frontend
+publish-usage: publish-source-check build-usage-frontend
 	cd usage && $(WIPPY) publish --version $(USAGE_VERSION)
 
 prepare-test:
