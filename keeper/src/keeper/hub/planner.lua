@@ -2479,6 +2479,31 @@ function Planner:preview_dependencies(dependencies)
     end
     local entries = {}
     for _, row in pairs(desired) do entries[#entries + 1] = row end
+    -- Check registry imports against the complete native result, including
+    -- resident consumers of removed libraries. Native module aliases ("json"
+    -- or ":registry") have no registry namespace and remain runtime-owned.
+    local issues = {}
+    for _, entry in ipairs(entries) do
+        if entry.kind == "function.lua" or entry.kind == "library.lua" or entry.kind == "process.lua" then
+            for alias, reference in pairs((entry.data or {}).imports or {}) do
+                if type(reference) == "string" and entry_namespace(reference) then
+                    if not desired[reference] then
+                        issues[#issues + 1] = {entry_id = entry.id, field = "imports." .. tostring(alias),
+                            reference = reference, module = entry.registry and entry.registry.owner}
+                    end
+                end
+            end
+        end
+    end
+    if #issues > 0 then
+        table.sort(issues, function(a, b)
+            if a.entry_id == b.entry_id then return a.field < b.field end
+            return a.entry_id < b.entry_id
+        end)
+        return nil, err("CONFLICT", "Planned Lua imports do not resolve; update their consumers in the same batch", {
+            issue_count = #issues, issues = M.position_keyed(issues),
+        })
+    end
     self.native_entries = entries
     local projected = {entries = entries, resolution = plan.resolution}
     self.native_ownership = self.ownership.new({snapshot = function()
