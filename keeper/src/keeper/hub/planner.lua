@@ -2543,6 +2543,19 @@ function Planner:preview_install(entry, requirement_plan)
     return self:preview_dependencies(dependencies)
 end
 
+local function plan_batch_inputs(instance, inputs, args)
+    local plans, payload, applicable = {}, {}, true
+    for _, input in ipairs(inputs) do
+        local plan, plan_err = instance:plan_install(input)
+        if not plan then return nil, plan_err end
+        plans[#plans + 1], payload[#payload + 1] = plan, plan.install_payload
+        if not plan.applicable then applicable = false end
+    end
+    return {plans = plans, applicable = applicable,
+        install_payload = {dependencies = payload, run_migrations = args.run_migrations,
+            migration_policy = args.migration_policy}}, nil
+end
+
 function Planner:plan_batch(args)
     if not is_array(args.dependencies) or #args.dependencies == 0 then
         return nil, err("BAD_REQUEST", "dependencies must be a non-empty array")
@@ -2563,24 +2576,44 @@ function Planner:plan_batch(args)
         ids[entry.id], components[entry.data.component] = true, true
         entries[#entries + 1], inputs[#inputs + 1] = entry, destination
     end
-    self.batch_entries = entries
+    self.batch_entries, self.batch_native = entries, nil
     local native, native_err = self:preview_dependencies(entries)
-    if not native then self.batch_entries = nil; return nil, native_err end
-    self.batch_native = native
-    local plans, payload, applicable = {}, {}, true
-    for _, input in ipairs(inputs) do
-        local plan, plan_err = self:plan_install(input)
-        if not plan then self.batch_entries, self.batch_native = nil, nil; return nil, plan_err end
-        plans[#plans + 1], payload[#payload + 1] = plan, plan.install_payload
-        if not plan.applicable then applicable = false end
+    if not native then
+        local details = errors.is(native_err, errors.INVALID) and native_err:details() or nil
+        if type(details) ~= "table" or type(details.count) ~= "number" or details.count < 1
+            or type(details.errors) ~= "table" or #details.errors == 0 or type(details.requirements) ~= "table"
+            or #details.requirements == 0 then
+            self.batch_entries = nil
+            return nil, native_err
+        end
+        for _, diagnostic in ipairs(details.requirements) do
+            local declaration = type(diagnostic) == "table" and diagnostic.declaration
+            if type(declaration) ~= "table" or declaration.kind ~= "ns.requirement"
+                or declaration.id ~= diagnostic.requirement then
+                self.batch_entries = nil
+                return nil, native_err
+            end
+        end
+        -- A raw batch has not yet incorporated reviewed/inferred bindings.
+        -- Reuse normal requirement planning without fabricating a native plan;
+        -- unresolved inputs return a blocked batch. Complete inputs still need
+        -- the combined native preview before any applicable result is returned.
+        local draft, draft_err = plan_batch_inputs(self, inputs, args)
+        if not draft or not draft.applicable then
+            self.batch_entries, self.batch_native = nil, nil
+            return draft, draft_err
+        end
+        native, native_err = self:preview_dependencies(self.batch_entries)
+        if not native then self.batch_entries = nil; return nil, native_err end
     end
+    self.batch_native = native
+    local result, plan_err = plan_batch_inputs(self, inputs, args)
+    if not result then self.batch_entries, self.batch_native = nil, nil; return nil, plan_err end
     native, native_err = self:preview_dependencies(self.batch_entries)
     self.batch_entries, self.batch_native = nil, nil
     if not native then return nil, native_err end
-    return {plans = plans, applicable = applicable,
-        native_plan = {digest = native.digest, resolution = native.resolution},
-        install_payload = {dependencies = payload, run_migrations = args.run_migrations,
-            migration_policy = args.migration_policy}}, nil
+    result.native_plan = {digest = native.digest, resolution = native.resolution}
+    return result, nil
 end
 
 local function merge_native_requirements(graph, diagnostics)
