@@ -10,7 +10,9 @@ entries:
       comment: Context tree trait tests
       suite: context
     source: file://test.lua
+    modules: [registry, time, uuid]
     imports:
+      state_consts: keeper.state:consts
       endpoints: keeper.agents.traits.context.endpoints:get_endpoint_tree
       frontend: keeper.agents.traits.context.frontend:get_frontend_tree
       migrations: keeper.agents.traits.context.migrations:get_migration_tree
@@ -18,4 +20,4 @@ entries:
     method: define_tests
     pool:
       size: 1
-    
+
