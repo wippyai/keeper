@@ -1,5 +1,21 @@
 # Release Notes
 
+## keeper/keeper 0.5.112
+
+Hub batch plans resolve reviewed and inferred requirement bindings before rejecting
+an initial native unresolved-requirement diagnostic. Missing values return a
+blocked plan; resolved values still require combined native validation. Complete
+batches keep their existing two native previews, and recovery is bounded at three.
+No application-specific defaults, migrations or authority changes are introduced.
+
+The full native gate passes 2,006 cases on SQLite and PostgreSQL locally and on
+Towers, with the existing PM authentication placeholder skip. Context tests now
+wait for the state projection acknowledgement. One concurrent Towers PostgreSQL
+run missed an existing two-second phase-test cutoff; the unchanged complete gate
+passes in isolation. Production lint is clean across 411 entries. The release pack
+changes only the reviewed Hub planner entry, and its three embedded frontend trees
+match the verified published 0.5.111 artifact.
+
 ## keeper/keeper 0.5.111
 
 Hub plans reject fully qualified Lua imports that do not resolve in the complete

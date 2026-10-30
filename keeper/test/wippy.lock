@@ -7,7 +7,7 @@ modules:
     - name: keeper/empty-fixture
       version: 1.0.0
     - name: keeper/keeper
-      version: 0.5.111
+      version: 0.5.112
     - name: userspace/contract
       version: 0.4.1
       hash: c154e2cc11ca94ddd368307aced96cfbbd411a58e74e46339d50b4a9befc1d65
