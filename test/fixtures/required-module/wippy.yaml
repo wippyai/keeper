@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
+organization: keeper
+module: required-fixture
+version: 1.0.0

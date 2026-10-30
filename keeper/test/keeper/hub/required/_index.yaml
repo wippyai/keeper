@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: MPL-2.0
+version: "1.0"
+namespace: app.required
+entries:
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub_required_bindings
+    source: file://test.lua
+    method: define_tests
+    modules: [registry]
+    imports:
+      test: wippy.test:test
+      planner: keeper.hub:planner
+    pool:
+      size: 1

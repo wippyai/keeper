@@ -158,6 +158,21 @@ local function define_tests()
             test.eq(attempts, 1)
         end)
 
+        it("preserves unrelated structured Invalid diagnostics without repeating a batch", function()
+            local failure = errors.new({kind = errors.INVALID, message = "unrelated native refusal",
+                details = {count = 1, errors = {"fixture refusal"}, requirements = {{
+                    requirement = "defaults.fixture:user_security_scope",
+                    declaration = {id = "defaults.fixture:user_security_scope", kind = "registry.entry"},
+                }}}})
+            local run, counts = moved_snapshot(function() return failure end)
+            local result, err = run(parameters(), true)
+            test.is_nil(result)
+            test.eq(err, failure)
+            local attempts, plans = counts()
+            test.eq(attempts, 1)
+            test.eq(plans, 1)
+        end)
+
         it("re-reads concurrent host bindings instead of replaying earlier requirement decisions", function()
             local run, counts = moved_snapshot(function(attempt)
                 if attempt ~= 1 then return end

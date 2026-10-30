@@ -4,3 +4,4 @@ workspace:
     keeper/keeper: ..
     keeper/defaults-fixture: ../../test/fixtures/defaults-module
     keeper/empty-fixture: ../../test/fixtures/empty-module
+    keeper/required-fixture: ../../test/fixtures/required-module

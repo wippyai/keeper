@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MPL-2.0
+version: "1.0"
+namespace: required.fixture
+entries:
+  - name: definition
+    kind: ns.definition
+  - name: tenant
+    kind: ns.requirement
+    meta:
+      value_type: string
+    targets:
+      - entry: required.fixture:resolved
+        path: .value
+  - name: resolved
+    kind: registry.entry
+    value: unresolved
