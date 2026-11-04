@@ -15,17 +15,17 @@ modules:
       version: 0.5.29
       hash: 63f9c08500ff5a56530761da9677969b56e1b02bfbf8ff88de99ab122acf3860
     - name: wippy/agent
-      version: 0.5.9
-      hash: c0eff8b8cebd49bec8a2704ead671e0ea79434b54b9ebb5c36873b823c08ab4c
+      version: 0.5.10
+      hash: b87462b5eecb89f017b986e863c2e7055b8df216486531b39c5dda97b7dbff43
     - name: wippy/bootloader
       version: 0.3.18
       hash: c7e71b358539b450b49b55e725f60f2dac8218e1c596cf3a473ce71e36b10a9b
     - name: wippy/dataflow
-      version: 0.7.33
-      hash: 94af0f43e560d0daaa2a47c40f07de2ea20c392d519237ae71c4b8c0ea828094
+      version: 0.7.35
+      hash: 5fcb01e1f5a8b379e167fbf2349bd237fa749c917c24fd54c35f01060b4953ae
     - name: wippy/llm
-      version: 0.5.12
-      hash: 4a6aa0e035b639b83add7120b331032b56312f794978988d92ec52a640e565e8
+      version: 0.5.13
+      hash: c903017786d6859b854970bfb65914db39db5544b6df65899ca914c8a9372238
     - name: wippy/migration
       version: 0.3.26
       hash: cf4848ad3f8ba8d31d944b2f3a7274bc2b7cf2888dd80f0db63b2c71a85f89c1
@@ -33,8 +33,8 @@ modules:
       version: 0.4.3
       hash: f636859979e88b23647a78fb9aa8a553799de18750b0fb5fb085cbe21542c86c
     - name: wippy/session
-      version: 0.6.16
-      hash: 8517dafe2b86d24e7ac286d7141967ad9d422f88aa0aeccaba2c8ae63e4b938a
+      version: 0.6.18
+      hash: 5db5ac808663db1aef2fb9aff247b10a191f174b998c9919583fb067adcb3e1a
     - name: wippy/terminal
       version: 0.4.6
       hash: aa0c92b85c0dc2c96f00119a7eaa1ced569a2ac8899514d432aef0c910e73e63
