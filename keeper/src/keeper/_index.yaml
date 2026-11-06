@@ -416,6 +416,12 @@ entries:
         path: ".groups +="
       - entry: keeper.hub.security:admin_catalog
         path: ".groups +="
+      - entry: keeper.hub.security:admin_install_process
+        path: ".groups +="
+      - entry: keeper.hub.security:admin_install_lock
+        path: ".groups +="
+      - entry: keeper.hub.security:admin_install_host
+        path: ".groups +="
 
   - name: mcp_group_resolver
     kind: ns.requirement
@@ -509,6 +515,8 @@ entries:
       - entry: keeper.config:process_host
         path: .default
       - entry: keeper.mcp.security:sse_broker_host
+        path: .policy.resources
+      - entry: keeper.hub.security:admin_install_host
         path: .policy.resources
 
   # keeper:dep.wippy.agent

@@ -1,6 +1,6 @@
 local http = require("http")
-local hub_service = require("hub_service")
 local api_http = require("api_http")
+local install_request = require("install_request")
 
 local function handler()
     local res = http.response()
@@ -10,18 +10,7 @@ local function handler()
     local actor = api_http.require_admin_actor(res)
     if not actor then return end
 
-    local body, body_err = api_http.json_body(req)
-    if not body then
-        api_http.write_error(res, "BAD_REQUEST", body_err)
-        return
-    end
-
-    local result, service_err = hub_service.install(body, { actor_id = actor:id() })
-    if not result then
-        api_http.write_service_error(res, service_err)
-        return
-    end
-    api_http.write_ok(res, result)
+    install_request.respond(res, req:body(), { actor_id = actor:id() })
 end
 
 return { handler = handler }

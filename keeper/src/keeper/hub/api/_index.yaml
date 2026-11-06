@@ -105,6 +105,30 @@ entries:
     imports:
       mcp_auth: keeper.mcp.auth:auth
     
+  # keeper.hub.api:install_request
+  - name: install_request
+    kind: library.lua
+    meta:
+      comment: Runs a Hub install in its own process so it finishes whether or not the HTTP client stays connected
+    source: file://install_request.lua
+    modules:
+      - logger
+      - process
+    imports:
+      api_http: keeper.hub.api:http
+      keeper_config: keeper:config
+
+  # keeper.hub.api:install_worker
+  - name: install_worker
+    kind: process.lua
+    meta:
+      comment: One Hub install, from re-plan through bootloaders, under the identity of the request that started it
+    source: file://install_worker.lua
+    imports:
+      hub_service: keeper.hub:service
+      install_request: keeper.hub.api:install_request
+    method: run
+
   # keeper.hub.api:install_dependency
   - name: install_dependency
     kind: function.lua
@@ -116,7 +140,7 @@ entries:
       - http
     imports:
       api_http: keeper.hub.api:http
-      hub_service: keeper.hub:service
+      install_request: keeper.hub.api:install_request
     method: handler
     pool:
       size: 2
