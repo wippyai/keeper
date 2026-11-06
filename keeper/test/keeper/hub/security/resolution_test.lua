@@ -14,6 +14,25 @@ local function define_tests()
             test.eq(user:evaluate(actor, "registry.resolution.get", "", {}), "undefined")
         end)
 
+        test.it("grants Hub administrators exactly the install worker, its host and its lock", function()
+            local actor = security.new_actor("hub-install-test")
+            local admin = security.named_scope("app.security:admin")
+            local user = security.named_scope("app.security:user")
+            local allowed = {
+                { "process.spawn", "keeper.hub.api:install_worker" },
+                { "process.spawn.monitored", "keeper.hub.api:install_worker" },
+                { "process.host", "app:processes" },
+                { "process.registry.register", "keeper.hub.install" },
+            }
+            for _, grant in ipairs(allowed) do
+                test.eq(admin:evaluate(actor, grant[1], grant[2], {}), "allow")
+                test.eq(user:evaluate(actor, grant[1], grant[2], {}), "undefined")
+            end
+            local policy = security.policy("keeper.hub.security:admin_install_process")
+            test.eq(policy:evaluate(actor, "process.spawn", "keeper.other:worker", {}), "undefined")
+            test.eq(policy:evaluate(actor, "process.registry.register", "keeper.other", {}), "undefined")
+        end)
+
         test.it("lets Hub administrators read the configured registry without sign-in rights", function()
             local actor = security.new_actor("hub-registry-test")
             local registry = "https://hub.stage.wippy.ai"

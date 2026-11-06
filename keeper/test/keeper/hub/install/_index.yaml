@@ -1,0 +1,117 @@
+# SPDX-License-Identifier: MPL-2.0
+version: "1.0"
+namespace: app.hub_install
+entries:
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub_install
+      comment: Hub install request lifetime against a real HTTP client that disconnects mid-install.
+    source: file://test.lua
+    method: define_tests
+    modules: [http_client, json, process, channel, time]
+    imports:
+      test: wippy.test:test
+      api_test: keeper.tests:api_test
+    pool:
+      size: 1
+
+  - name: stub_service
+    kind: library.lua
+    meta:
+      comment: Hub service stand-in that reports each install step to the observer named in the request.
+    source: file://stub_service.lua
+    modules: [process, security, time]
+
+  - name: stub_worker
+    kind: process.lua
+    meta:
+      comment: The install worker wired to the stub service.
+    source: file://stub_worker.lua
+    imports:
+      install_request: keeper.hub.api:install_request
+      stub_service: app.hub_install:stub_service
+    method: run
+
+  - name: stub_endpoint_identity
+    kind: security.policy
+    meta:
+      comment: The fixture handler holds what the Hub administrator scope grants the real handler, for the stub worker.
+    policy:
+      resources:
+        - app.hub_install:stub_worker
+      actions:
+        - process.spawn
+        - process.spawn.monitored
+      effect: allow
+
+  - name: stub_endpoint_host
+    kind: security.policy
+    meta:
+      comment: The fixture handler may place the stub worker on the Keeper process host.
+    policy:
+      resources: app:processes
+      actions:
+        - process.host
+      effect: allow
+
+  - name: stub_endpoint_config
+    kind: security.policy
+    meta:
+      comment: The fixture handler reads the configured process host, as the real handler does under the Hub administrator scope.
+    policy:
+      resources: keeper.config:process_host
+      actions:
+        - registry.get
+      effect: allow
+
+  - name: stub_endpoint_lock
+    kind: security.policy
+    meta:
+      comment: The stub worker takes the install lock under the identity it inherits.
+    policy:
+      resources: keeper.hub.install
+      actions:
+        - process.registry.register
+      effect: allow
+
+  - name: stub_endpoint_report
+    kind: security.policy
+    meta:
+      comment: The stub service reports steps to the test process.
+    policy:
+      resources: '*'
+      actions:
+        - process.send
+      effect: allow
+
+  - name: stub_endpoint
+    kind: function.lua
+    meta:
+      comment: Install endpoint that differs from the real one only in the worker it starts and its fixture actor.
+      router: app:api
+    source: file://stub_endpoint.lua
+    modules: [http]
+    imports:
+      install_request: keeper.hub.api:install_request
+    method: handler
+    pool:
+      size: 4
+    security:
+      actor:
+        id: hub-install-fixture
+      policies:
+        - app.hub_install:stub_endpoint_identity
+        - app.hub_install:stub_endpoint_host
+        - app.hub_install:stub_endpoint_config
+        - app.hub_install:stub_endpoint_lock
+        - app.hub_install:stub_endpoint_report
+
+  - name: stub_endpoint.route
+    kind: http.endpoint
+    meta:
+      router: app:api
+    method: POST
+    func: stub_endpoint
+    path: /keeper-test/hub/install

@@ -78,7 +78,7 @@ local function copy_without_code(details)
     return out
 end
 
-function M.write_service_error(res, service_err)
+local function service_error_response(service_err)
     local details = call_method(service_err, "details")
     if details == nil and type(service_err) == "table" then details = service_err.details end
     local code = nil
@@ -89,14 +89,42 @@ function M.write_service_error(res, service_err)
         or (type(service_err) == "table" and (service_err.message or service_err.error))
         or tostring(service_err or "unknown error")
     local status = (code and STATUS_BY_CODE[code]) or STATUS_BY_KIND[kind] or http.STATUS.INTERNAL_ERROR
-    res:set_status(status)
-    res:set_content_type(http.CONTENT.JSON)
-    res:write_json({
+    return status, {
         success = false,
         code = code or tostring(kind or "INTERNAL"),
         error = message,
         details = copy_without_code(details),
-    })
+    }
+end
+
+function M.write_service_error(res, service_err)
+    local status, body = service_error_response(service_err)
+    res:set_status(status)
+    res:set_content_type(http.CONTENT.JSON)
+    res:write_json(body)
+end
+
+-- A finished response as plain data, for work that runs outside the process
+-- that owns the HTTP response.
+function M.encoded_response(result, service_err)
+    local status, body = http.STATUS.OK, nil
+    if result then
+        body = merge_success(result)
+    else
+        status, body = service_error_response(service_err)
+    end
+    local encoded, encode_err = json.encode(body)
+    if not encoded then
+        status, body = service_error_response({ code = "INTERNAL", message = tostring(encode_err) })
+        encoded = json.encode(body)
+    end
+    return { status = status, body = encoded }
+end
+
+function M.write_encoded_response(res, response)
+    res:set_status(response.status)
+    res:set_content_type(http.CONTENT.JSON)
+    res:write(response.body)
 end
 
 function M.require_actor(res)
@@ -123,8 +151,7 @@ function M.require_admin_actor(res)
     return actor
 end
 
-function M.json_body(req)
-    local body = req:body()
+function M.decode_json_body(body)
     if not body or body == "" then return {}, nil end
     body = tostring(body)
     local decoded, decode_err = json.decode(body)
@@ -132,6 +159,10 @@ function M.json_body(req)
         return nil, "Invalid JSON body"
     end
     return decoded, nil
+end
+
+function M.json_body(req)
+    return M.decode_json_body(req:body())
 end
 
 function M.query_bool(req, name, default)

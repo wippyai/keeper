@@ -28,7 +28,7 @@ SUITES=("$@")
 if [ ${#SUITES[@]} -eq 0 ]; then
     SUITES=(
         "keeper.hub:test" "keeper.hub.security:security_test" "keeper.hub.security:resolution_test"
-        "keeper.gov.service:central_test" "app.required:test" "app.hub_preview:test"
+        "keeper.gov.service:central_test" "app.required:test" "app.hub_preview:test" "app.hub_install:test"
     )
 fi
 
