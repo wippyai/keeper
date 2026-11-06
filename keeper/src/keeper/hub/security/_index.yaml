@@ -36,15 +36,25 @@ entries:
   - name: admin_install_process
     kind: security.policy
     meta:
-      comment: Allow Keeper administrators to start the Hub install worker, and the worker to hold the install lock under the identity it inherits.
+      comment: Allow Keeper administrators to start the Hub install worker.
     groups: []
     policy:
       resources:
         - keeper.hub.api:install_worker
-        - keeper.hub.install
       actions:
         - process.spawn
         - process.spawn.monitored
+      effect: allow
+
+  - name: admin_install_lock
+    kind: security.policy
+    meta:
+      comment: Allow the Hub install worker to hold the install lock name.
+    groups: []
+    policy:
+      resources:
+        - keeper.hub.install
+      actions:
         - process.registry.register
       effect: allow
 

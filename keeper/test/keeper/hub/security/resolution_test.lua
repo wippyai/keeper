@@ -30,7 +30,10 @@ local function define_tests()
             end
             local policy = security.policy("keeper.hub.security:admin_install_process")
             test.eq(policy:evaluate(actor, "process.spawn", "keeper.other:worker", {}), "undefined")
-            test.eq(policy:evaluate(actor, "process.registry.register", "keeper.other", {}), "undefined")
+            test.eq(policy:evaluate(actor, "process.registry.register", "keeper.hub.api:install_worker", {}), "undefined")
+            local lock = security.policy("keeper.hub.security:admin_install_lock")
+            test.eq(lock:evaluate(actor, "process.registry.register", "keeper.other", {}), "undefined")
+            test.eq(lock:evaluate(actor, "process.spawn", "keeper.hub.install", {}), "undefined")
         end)
 
         test.it("lets Hub administrators read the configured registry without sign-in rights", function()

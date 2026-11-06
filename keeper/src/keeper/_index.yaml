@@ -418,6 +418,8 @@ entries:
         path: ".groups +="
       - entry: keeper.hub.security:admin_install_process
         path: ".groups +="
+      - entry: keeper.hub.security:admin_install_lock
+        path: ".groups +="
       - entry: keeper.hub.security:admin_install_host
         path: ".groups +="
 
