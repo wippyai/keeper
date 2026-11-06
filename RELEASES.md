@@ -1,5 +1,10 @@
 # Release Notes
 
+## keeper/keeper 0.5.113
+
+- A Hub install finishes after the HTTP client disconnects. It runs in its own process, so migrations and bootloaders still run when a tab closes or a gateway drops after apply begins. A connected client gets the same response.
+- A second install sent while one is running is rejected with 409 CONFLICT.
+
 ## keeper/keeper 0.5.112
 
 Hub batch plans resolve reviewed and inferred requirement bindings before rejecting
