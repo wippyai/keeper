@@ -1,5 +1,10 @@
 # Release Notes
 
+## keeper/keeper 0.5.114
+
+- A requirement that names a resource kind accepts every concrete kind beneath it, not only database and environment-storage kinds: an `exec.native` executor now satisfies an `exec` requirement in install plans, candidate discovery and supplied values. Exact kinds match as before.
+- Requirement planning reads the registry once per planning pass.
+
 ## keeper/keeper 0.5.113
 
 - A Hub install finishes after the HTTP client disconnects. It runs in its own process, so migrations and bootloaders still run when a tab closes or a gateway drops after apply begins. A connected client gets the same response.
