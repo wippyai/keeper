@@ -823,21 +823,12 @@ local function requirement_id(node, req): string
     return namespace .. ":" .. trim(req.name)
 end
 
--- Kind families: a requirement names the family it accepts, while the resource
--- that satisfies it carries a concrete kind underneath it (db.sql.sqlite,
--- env.storage.file). Both sides of the search know that: the registry query
--- widens to every entry, and kind_matches accepts the family's members.
-local KIND_PREFIX_SEARCH = {
-    ["db.sql"] = true,
-    ["env.storage"] = true,
-}
-
 local function kind_matches(expected: string, actual: unknown): boolean
     expected = trim(expected)
     local kind = trim(actual)
     if expected == "" or kind == "" then return false end
     if kind == expected then return true end
-    return KIND_PREFIX_SEARCH[expected] == true and kind:sub(1, #expected + 1) == expected .. "."
+    return kind:sub(1, #expected + 1) == expected .. "."
 end
 
 function M.new(deps: PlannerDeps?)
@@ -2100,8 +2091,7 @@ function Planner:plan_requirements(graph, supplied_parameters)
             return effective_candidates(kind, out), nil
         end
 
-        local criteria = KIND_PREFIX_SEARCH[kind] == true and {} or { [".kind"] = kind }
-        local rows, rows_err = self:find_entries(criteria)
+        local rows, rows_err = self:find_entries({})
         if not rows then return nil, rows_err end
         table.sort(rows, function(a, b) return tostring(a.id) < tostring(b.id) end)
 

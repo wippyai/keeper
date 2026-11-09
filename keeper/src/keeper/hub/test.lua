@@ -3310,6 +3310,34 @@ local function define_tests()
                 test.eq(req.suggestions[1].kind, "security.scope")
             end)
 
+            it("matches declared kind families without a family allowlist", function()
+                for _, family in ipairs({"exec", "store", "custom.resource"}) do
+                    local svc = planner.new({
+                        catalog = fake_catalog({["acme/worker"] = {{version = "1.0.0", requirements = {
+                            {name = "resource", meta = {value_kind = family}, targets = {}},
+                        }}}}),
+                        registry = fake_registry({
+                            {id = "app:concrete", kind = family .. ".native", meta = {}, data = {}},
+                            {id = "app:exact", kind = family, meta = {}, data = {}},
+                            {id = "app:unrelated", kind = family .. "_other.native", meta = {}, data = {}},
+                        }),
+                    }) :: any
+                    local plan, err = svc:plan_install({component = "acme/worker", parameters = {
+                        {name = "acme.worker:resource", value = "app:concrete"},
+                    }})
+                    test.is_nil(err)
+                    local requirement = find_requirement(plan, "acme.worker:resource")
+                    test.eq(#requirement.suggestions, 2, family)
+                    test.eq(requirement.suggestions[1].value, "app:concrete", family)
+                    test.eq(requirement.suggestions[1].kind, family .. ".native", family)
+                    test.eq(requirement.suggestions[2].value, "app:exact", family)
+                    test.eq(requirement.value, "app:concrete", family)
+                    test.is_false(requirement.missing, family)
+                    test.is_false(requirement.invalid, family)
+                    test.not_nil(find_parameter(plan.install_payload.parameters, "acme.worker:resource"), family)
+                end
+            end)
+
             it("matches a declared db.sql requirement against the concrete database kinds", function()
                 local function db_plan(supplied: string?)
                     local args: { [string]: any } = { component = "acme/store", version = "v1.0.0" }
