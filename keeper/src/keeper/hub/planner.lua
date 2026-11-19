@@ -2686,6 +2686,23 @@ function Planner:prepare_deployment_upgrade(inputs, entries, requested)
     local newer = owned_declarations(self.native_entries, root)
     local aliases = requirement_aliases(old_entries)
     local new_aliases = requirement_aliases(self.native_entries)
+    local root_input = inputs[app_index]
+    local reviewed_by_owner, owners = {}, {}
+    if root_input.requirement_bindings then
+        for _, declaration in ipairs(self.native_entries) do
+            if declaration.kind == "ns.requirement" and declaration.registry then
+                owners[declaration.id] = declaration.registry.owner
+            end
+        end
+        for _, binding in ipairs(root_input.requirement_bindings) do
+            local owner = type(binding) == "table" and owners[binding.name]
+            if owner then
+                reviewed_by_owner[owner] = reviewed_by_owner[owner] or {}
+                table.insert(reviewed_by_owner[owner], binding)
+            end
+        end
+    end
+    local forwarded = {}
     local explicitly_requested = {}
     for index, entry in ipairs(entries) do explicitly_requested[entry.id] = index end
     local ids = {}
@@ -2699,13 +2716,17 @@ function Planner:prepare_deployment_upgrade(inputs, entries, requested)
             local changed_version = trim(active.version) ~= trim(old.version)
             local index = explicitly_requested[id]
             if released and released.component == active.component then
-                local args = index and inputs[index] or {id = id, component = active.component}
+                local args = index and inputs[index] or {
+                    id = id, component = active.component, migration_policy = root_input.migration_policy,
+                    run_migrations = root_input.run_migrations, requirement_bindings = reviewed_by_owner[active.component],
+                }
+                if not index and args.requirement_bindings then forwarded[active.component] = true end
                 local supplied, supplied_err = M.normalize_parameters(index and requested[index].parameters)
                 if not supplied then return nil, supplied_err end
                 local parameters = upgrade_parameter_rows(supplied, args.requirement_bindings, drift,
                     released.parameters, new_aliases[active.component] or {})
                 self.upgrade_parameters[id] = parameters
-                if index or changed_version or #drift > 0 then
+                if index or changed_version or #drift > 0 or args.requirement_bindings then
                     args.version = index and args.version or (changed_version and active.version or released.version)
                     args.parameters = parameters
                     local revised, revision_err = M.build_dependency_entry(args)
@@ -2718,6 +2739,15 @@ function Planner:prepare_deployment_upgrade(inputs, entries, requested)
                     {dependency_id = id, component = active.component})
             end
         end
+    end
+    if next(forwarded) then
+        local root_bindings = {}
+        for _, binding in ipairs(root_input.requirement_bindings) do
+            if type(binding) ~= "table" or not forwarded[owners[binding.name]] then
+                table.insert(root_bindings, binding)
+            end
+        end
+        root_input.requirement_bindings = root_bindings
     end
     self.upgrade_selection = {module = root, version = selected.version, digest = selected.digest}
     return true
@@ -2839,6 +2869,38 @@ local function merge_native_requirements(graph, diagnostics)
     return true
 end
 
+-- The HTTP plan stays rooted at the requested app. The installer also needs
+-- the reviewed child plans to commit retained declarations atomically.
+function Planner:plan_single_deployment(args)
+    local batch, batch_err = self:plan_batch({
+        dependencies = {args}, migration_policy = args.migration_policy, run_migrations = args.run_migrations,
+    })
+    if not batch then return nil, batch_err end
+    local plan = shallow_copy(batch.plans[1])
+    plan.native_plan = batch.native_plan
+    plan.applicable = batch.applicable
+    plan.install_payload = shallow_copy(plan.install_payload)
+    plan.install_payload.requirement_bindings = args.requirement_bindings or {}
+    plan.retained_dependencies = {}
+    local by_name, missing = {}, {}
+    for i, row in ipairs(plan.requirements) do by_name[row.parameter_name] = i end
+    for _, id in ipairs(plan.missing_requirements) do missing[id] = true end
+    for i = 2, #batch.plans do
+        local child = batch.plans[i]
+        table.insert(plan.retained_dependencies, child.install_payload)
+        for _, row in ipairs(child.requirements) do
+            if row.missing and not missing[row.parameter_name] then
+                local id = row.parameter_name
+                missing[id] = true
+                plan.requirements[by_name[id] or (#plan.requirements + 1)] = row
+                table.insert(plan.missing_requirements, id)
+            end
+        end
+    end
+    plan.requirement_count = #plan.requirements
+    return plan, nil, batch
+end
+
 function Planner:plan_install(args)
     args = args or {}
     if not self.batch_entries then
@@ -2852,6 +2914,15 @@ function Planner:plan_install(args)
     local entry, entry_err = M.build_dependency_entry(planned_args)
     if not entry then return nil, entry_err end
     local data = entry.data :: DependencyEntryData
+
+    if not self.batch_entries then
+        local state, read_err = self:ownership_index():capture()
+        if not state then return nil, err("INTERNAL", tostring(read_err)) end
+        local lock = state.resolution and state.resolution.lock
+        if lock and lock.root_module == data.component then
+            return self:plan_single_deployment(args)
+        end
+    end
 
     local graph, graph_err = self:resolve_install_graph(data.component, data.version, {
         max_depth = planned_args.max_depth,
