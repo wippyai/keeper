@@ -1204,16 +1204,21 @@ function Planner:load_version_details(component, selected)
         return self:artifact_requirement_details(component, with_deps)
     end
 
-    local ref
-    if trim(selected.id) ~= "" then
-        ref = { id = selected.id }
-    elseif trim(selected.version) ~= "" then
-        ref = { version = selected.version }
-    else
+    local version, id = trim(selected.version), trim(selected.id)
+    if version == "" and id == "" then
         return selected, nil
     end
 
-    local detailed, detail_err = self.catalog.versions.get(component, ref)
+    -- Public Hub GetVersion addresses releases by exact version, even when
+    -- the version list also supplies an ID. Keep ID support for other catalogs.
+    local get = self.catalog.versions.get
+    local detailed
+    if version ~= "" then
+        detailed = get(component, { version = version })
+    end
+    if not detailed and id ~= "" then
+        detailed = get(component, { id = id })
+    end
     if detailed then
         local with_deps, dep_err = self:dependency_details(component, detailed)
         if not with_deps then return nil, dep_err end
