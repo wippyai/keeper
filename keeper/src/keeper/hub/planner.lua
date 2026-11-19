@@ -1082,7 +1082,10 @@ function Planner:resolve_dependency_destination_args(args): (unknown?, unknown?)
     -- ones: absence means unchanged, never re-planned. Re-planning let another
     -- root's same-named parameter replace an operator's recorded value.
     local parameters_empty = type(out.parameters) == "table" and next(out.parameters) == nil
-    if out.parameters == nil or parameters_empty then
+    local upgrade_parameters = self.upgrade_parameters and self.upgrade_parameters[destination_id]
+    if upgrade_parameters then
+        out.parameters = upgrade_parameters
+    elseif out.parameters == nil or parameters_empty then
         local recorded_params = type(recorded_data.parameters) == "table" and recorded_data.parameters or {}
         if #recorded_params > 0 then
             local copied = {}
@@ -1958,7 +1961,8 @@ function Planner:existing_parameter_values()
     local out = {}
     for _, dep in ipairs(deps) do
         local data = dep.data or {}
-        for _, param in ipairs(data.parameters or {}) do
+        local upgrade_parameters = self.upgrade_parameters and self.upgrade_parameters[dep.id]
+        for _, param in ipairs(upgrade_parameters or data.parameters or {}) do
             local name = trim(param.name)
             if name ~= "" then
                 table.insert(out, {
@@ -2445,7 +2449,8 @@ end
 
 function Planner:preview_dependencies(dependencies)
     self.native_preview_refusal = nil
-    local snapshot, snapshot_err = self.registry.snapshot()
+    local snapshot, snapshot_err = self.upgrade_snapshot, nil
+    if not snapshot then snapshot, snapshot_err = self.registry.snapshot() end
     if snapshot_err then return nil, snapshot_err end
     local state, state_err = snapshot:state()
     if state_err then return nil, state_err end
@@ -2555,6 +2560,166 @@ local function plan_batch_inputs(instance, inputs, args)
             migration_policy = args.migration_policy}}, nil
 end
 
+local function selected_module(resolution, component)
+    for _, row in ipairs(resolution and resolution.modules or {}) do
+        if row.name == component then return row end
+    end
+end
+
+local function owned_declarations(entries, component)
+    local by_id = {}
+    for _, row in ipairs(entries) do
+        if row.kind == "ns.dependency" and row.registry and row.registry.root and row.registry.owner == component then
+            by_id[row.id] = row.data
+        end
+    end
+    return by_id
+end
+
+local function requirement_aliases(entries)
+    local by_module = {}
+    for _, row in ipairs(entries) do
+        if row.kind == "ns.requirement" and row.registry then
+            local owner, name = row.registry.owner, row.id:match(":(.+)$")
+            if owner ~= "" and name then
+                local by_name = by_module[owner] or {}
+                local ids = by_name[name] or {}
+                table.insert(ids, row.id)
+                by_name[name], by_module[owner] = ids, by_name
+            end
+        end
+    end
+    for _, by_name in pairs(by_module) do
+        for _, ids in pairs(by_name) do table.sort(ids) end
+    end
+    return by_module
+end
+
+local function parameter_addresses(parameters, aliases)
+    local rows, by_name = {}, {}
+    for _, parameter in ipairs(parameters or {}) do
+        for _, id in ipairs(aliases[parameter.name] or {parameter.name}) do
+            if by_name[id] == nil then
+                local row = {name = id, value = parameter.value}
+                rows[#rows + 1], by_name[id] = row, row
+            end
+        end
+    end
+    return rows, by_name
+end
+
+local function parameter_drift(active, previous, aliases)
+    local _, baseline = parameter_addresses(previous, aliases)
+    local active_rows = parameter_addresses(active, aliases)
+    local drift = {}
+    for _, row in ipairs(active_rows) do
+        local shipped = baseline[row.name]
+        if not shipped or not M.parameter_values_equal(shipped.value, row.value) then
+            drift[#drift + 1] = row
+        end
+    end
+    return drift
+end
+
+local function upgrade_parameter_rows(explicit, reviewed, drift, shipped, aliases)
+    local rows, provided = parameter_addresses(explicit, aliases)
+    local _, reviewed_by_name = parameter_addresses(reviewed, {})
+    for _, parameters in ipairs({drift, shipped or {}}) do
+        local resolved = parameter_addresses(parameters, aliases)
+        for _, row in ipairs(resolved) do
+            if not provided[row.name] and not reviewed_by_name[row.name] then
+                rows[#rows + 1], provided[row.name] = row, row
+            end
+        end
+    end
+    return rows
+end
+
+-- A root application replaces its packaged declarations in the native
+-- registry. Compare materialized releases so profile and asset values have
+-- already gone through the normal loader. Only host edits carry forward.
+function Planner:prepare_deployment_upgrade(inputs, entries, requested)
+    local snapshot, snapshot_err = self.registry.snapshot()
+    if not snapshot then return nil, snapshot_err end
+    local state, state_err = snapshot:state()
+    if not state then return nil, state_err end
+    local resolution = state.resolution
+    local root = resolution and resolution.lock and resolution.lock.root_module
+    if not root or root == "" then return true end
+    local current = selected_module(resolution, root)
+    local app_index
+    for index, entry in ipairs(entries) do
+        if entry.data.component == root then app_index = index; break end
+    end
+    if not app_index or not current or current.source == "replacement-tree-v1" then return true end
+    local target = entries[app_index]
+    if not starts_with(target.data.version, "@") and constraint_allows(current.version, target.data.version) then return true end
+
+    self.upgrade_snapshot = snapshot
+    local previous = shallow_copy(target)
+    previous.data = shallow_copy(target.data)
+    previous.data.version = "=" .. current.version
+    previous.data.parameters = nil
+    for _, entry in ipairs(state.entries) do
+        if entry.id == target.id and entry.kind == "ns.dependency" then
+            previous.data.parameters = entry.data.parameters
+            break
+        end
+    end
+    local old_plan, old_err = self:preview_dependencies({previous})
+    if not old_plan then return nil, old_err end
+    local old_entries = self.native_entries
+    local live = owned_declarations(state.entries, root)
+    local upgrade = {}
+    for _, entry in ipairs(entries) do
+        if not live[entry.id] then upgrade[#upgrade + 1] = entry end
+    end
+    local new_plan, new_err = self:preview_dependencies(upgrade)
+    if not new_plan then return nil, new_err end
+    local selected = selected_module(new_plan.resolution, root)
+    if not selected or selected.version == current.version then return true end
+
+    local older = owned_declarations(old_entries, root)
+    local newer = owned_declarations(self.native_entries, root)
+    local aliases = requirement_aliases(old_entries)
+    local new_aliases = requirement_aliases(self.native_entries)
+    local explicitly_requested = {}
+    for index, entry in ipairs(entries) do explicitly_requested[entry.id] = index end
+    local ids = {}
+    for id in pairs(live) do table.insert(ids, id) end
+    table.sort(ids)
+    self.upgrade_parameters = {}
+    for _, id in ipairs(ids) do
+        local active, old, released = live[id], older[id], newer[id]
+        if old and old.component == active.component then
+            local drift = parameter_drift(active.parameters, old.parameters, aliases[active.component] or {})
+            local changed_version = trim(active.version) ~= trim(old.version)
+            local index = explicitly_requested[id]
+            if released and released.component == active.component then
+                local args = index and inputs[index] or {id = id, component = active.component}
+                local supplied, supplied_err = M.normalize_parameters(index and requested[index].parameters)
+                if not supplied then return nil, supplied_err end
+                local parameters = upgrade_parameter_rows(supplied, args.requirement_bindings, drift,
+                    released.parameters, new_aliases[active.component] or {})
+                self.upgrade_parameters[id] = parameters
+                if index or changed_version or #drift > 0 then
+                    args.version = index and args.version or (changed_version and active.version or released.version)
+                    args.parameters = parameters
+                    local revised, revision_err = M.build_dependency_entry(args)
+                    if not revised then return nil, revision_err end
+                    index = index or (#entries + 1)
+                    entries[index], inputs[index] = revised, args
+                end
+            elseif changed_version or #drift > 0 then
+                return nil, err("CONFLICT", "The application release removes or replaces configured dependency " .. id,
+                    {dependency_id = id, component = active.component})
+            end
+        end
+    end
+    self.upgrade_selection = {module = root, version = selected.version, digest = selected.digest}
+    return true
+end
+
 function Planner:plan_batch(args)
     if not is_array(args.dependencies) or #args.dependencies == 0 then
         return nil, err("BAD_REQUEST", "dependencies must be a non-empty array")
@@ -2575,6 +2740,8 @@ function Planner:plan_batch(args)
         ids[entry.id], components[entry.data.component] = true, true
         entries[#entries + 1], inputs[#inputs + 1] = entry, destination
     end
+    local ready, prepare_err = self:prepare_deployment_upgrade(inputs, entries, args.dependencies)
+    if not ready then return nil, prepare_err end
     self.batch_entries, self.batch_native = entries, nil
     local native, native_err = self:preview_dependencies(entries)
     if not native then
@@ -2611,6 +2778,13 @@ function Planner:plan_batch(args)
     native, native_err = self:preview_dependencies(self.batch_entries)
     self.batch_entries, self.batch_native = nil, nil
     if not native then return nil, native_err end
+    if self.upgrade_selection then
+        local expected = self.upgrade_selection
+        local selected = selected_module(native.resolution, expected.module)
+        if not selected or selected.version ~= expected.version or selected.digest ~= expected.digest then
+            return nil, err("CONFLICT", "Retained dependency configuration changes the application package selection. Plan an exact application version.")
+        end
+    end
     result.native_plan = {digest = native.digest, resolution = native.resolution}
     return result, nil
 end
@@ -2664,10 +2838,11 @@ end
 
 function Planner:plan_install(args)
     args = args or {}
-    if args.dependencies ~= nil then return self:plan_batch(args) end
     if not self.batch_entries then
         self.native_ownership, self.native_modules, self.native_resources, self.native_entries = nil, nil, nil, nil
+        self.upgrade_snapshot, self.upgrade_parameters, self.upgrade_selection = nil, nil, nil
     end
+    if args.dependencies ~= nil then return self:plan_batch(args) end
     local planned_args, dest_err = self:resolve_dependency_destination_args(args)
     if not planned_args then return nil, dest_err end
 

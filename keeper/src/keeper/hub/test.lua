@@ -6574,6 +6574,87 @@ local function define_tests()
         end)
 
         describe("batch install planning", function()
+            it("keeps configured deployment dependencies and uses new release defaults", function()
+                local app, tools, view = "acme/app", "acme/tools", "acme/view"
+                local function dep(id, component, version, params)
+                    return {
+                        id = "app.deps:" .. id, kind = "ns.dependency", registry = {owner = app, root = true},
+                        provenance = {module = app, root = true},
+                        data = {component = component, version = version, parameters = params},
+                    }
+                end
+                local active = {
+                    dep("tools", tools, ">=1.2.0"),
+                    dep("view", view, ">=1.0.0", {{name = "acme.view:title", value = "Configured"},
+                        {name = "layout", value = "Previous layout"}}),
+                    {id = "acme.view:title", kind = "ns.requirement", provenance = {module = view}},
+                    {id = "acme.view:layout", kind = "ns.requirement", provenance = {module = view}},
+                }
+                local state = {
+                    version = 19, lock = {root_module = app},
+                    modules = {{name = app, version = "1.0.0"}, {name = tools, version = "1.2.0"},
+                        {name = view, version = "1.0.0"}},
+                    plan = function(staged)
+                        local installed = staged[1].entry.data.version == "=1.0.0"
+                        local changes = {
+                            {op = "update", entry = dep("tools", tools, ">=1.0.0")},
+                            {op = "update", entry = dep("view", view, ">=1.0.0", {
+                                {name = "title", value = "Release title"},
+                                {name = "layout", value = installed and "Previous layout" or "New layout"},
+                            })},
+                        }
+                        for _, operation in ipairs(staged) do
+                            local entry = operation.entry
+                            if entry.data.component ~= app then
+                                entry.registry = {owner = app, root = true}
+                            else
+                                entry.registry = {owner = "", root = true}
+                            end
+                            changes[#changes + 1] = operation
+                        end
+                        local version = installed and "1.0.0" or "2.0.0"
+                        return {changes = changes, digest = version, resolution = {modules = {
+                            {name = app, version = version, digest = version},
+                            {name = tools, version = "1.2.0"}, {name = view, version = "1.1.0"},
+                        }}}, nil
+                    end,
+                }
+                local catalog = fake_catalog({[app] = {{version = "2.0.0"}}, [tools] = {{version = "1.2.0"}},
+                    [view] = {{version = "1.1.0", requirements = {
+                        {name = "title", namespace = "acme.view", meta = {value_type = "string"}},
+                        {name = "layout", namespace = "acme.view", meta = {value_type = "string"}},
+                    }}}})
+                local pl = planner.new({registry = fake_registry(active, nil, state), catalog = catalog}) :: any
+                local function plan(dependencies)
+                    local result, plan_err = pl:plan_install({dependencies = dependencies})
+                    test.is_nil(plan_err)
+                    test.is_true(result.applicable)
+                    return result.install_payload.dependencies
+                end
+
+                local payload = plan({{component = app, version = ">=2.0.0"}, {component = view, version = ">=1.1.0"}})
+                test.eq(#payload, 3)
+                test.eq(payload[3].component, tools)
+                test.eq(payload[3].version, ">=1.2.0")
+                test.eq(find_parameter(payload[2].parameters, "acme.view:title").value, "Configured")
+                test.eq(find_parameter(payload[2].parameters, "acme.view:layout").value, "New layout")
+                local replay = plan(payload)
+                test.is_true(planner.parameter_values_equal(replay, payload))
+
+                local explicit = plan({{component = app, version = ">=2.0.0"}, {component = view, version = ">=1.1.0",
+                    parameters = {{name = "title", value = "Reviewed title"}}}})
+                test.eq(find_parameter(explicit[2].parameters, "acme.view:title").value, "Reviewed title")
+                test.eq(find_parameter(explicit[2].parameters, "acme.view:layout").value, "New layout")
+
+                local reviewed = plan({{component = app, version = ">=2.0.0"}, {component = view, version = ">=1.1.0",
+                    requirement_bindings = {{name = "acme.view:layout", value = "Reviewed layout"}}}})
+                test.eq(find_parameter(reviewed[2].parameters, "acme.view:title").value, "Configured")
+                test.eq(find_parameter(reviewed[2].parameters, "acme.view:layout").value, "Reviewed layout")
+
+                local single, single_err = pl:plan_install({component = view, version = ">=1.1.0"})
+                test.is_nil(single_err)
+                test.eq(find_parameter(single.install_payload.parameters, "acme.view:layout").value, "Previous layout")
+            end)
             it("reads each selected version and its artifact once across shared batch graphs", function()
                 local catalog_rows = {
                     ["acme/shared"] = {{id = "shared-v1", version = "1.0.0", entry_kinds = {"ns.requirement"},
