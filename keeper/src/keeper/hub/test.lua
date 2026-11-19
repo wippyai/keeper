@@ -6574,8 +6574,11 @@ local function define_tests()
         end)
 
         describe("batch install planning", function()
-            it("keeps configured deployment dependencies and uses new release defaults", function()
-                local app, tools, view = "acme/app", "acme/tools", "acme/view"
+            local app, tools, view = "acme/app", "acme/tools", "acme/view"
+
+            local function deployment_upgrade_fixture(require_root_value)
+                local requirement = {id = "acme.app:tenant", kind = "ns.requirement",
+                    registry = {owner = app}, meta = {value_type = "string"}, data = {}}
                 local function dep(id, component, version, params)
                     return {
                         id = "app.deps:" .. id, kind = "ns.dependency", registry = {owner = app, root = true},
@@ -6596,6 +6599,13 @@ local function define_tests()
                         {name = view, version = "1.0.0"}},
                     plan = function(staged)
                         local installed = staged[1].entry.data.version == "=1.0.0"
+                        if not installed and require_root_value
+                            and not find_parameter(staged[1].entry.data.parameters or {}, requirement.id) then
+                            return nil, errors.new({kind = errors.INVALID, message = "unresolved requirements", details = {
+                                count = 1, errors = {"tenant is required"},
+                                requirements = {{requirement = requirement.id, declaration = requirement}},
+                            }})
+                        end
                         local changes = {
                             {op = "update", entry = dep("tools", tools, ">=1.0.0")},
                             {op = "update", entry = dep("view", view, ">=1.0.0", {
@@ -6603,6 +6613,9 @@ local function define_tests()
                                 {name = "layout", value = installed and "Previous layout" or "New layout"},
                             })},
                         }
+                        if require_root_value and not installed then
+                            changes[#changes + 1] = {op = "create", entry = requirement}
+                        end
                         for _, operation in ipairs(staged) do
                             local entry = operation.entry
                             if entry.data.component ~= app then
@@ -6619,12 +6632,54 @@ local function define_tests()
                         }}}, nil
                     end,
                 }
-                local catalog = fake_catalog({[app] = {{version = "2.0.0"}}, [tools] = {{version = "1.2.0"}},
+                local app_requirements = require_root_value and {
+                    {name = "tenant", namespace = "acme.app", meta = {value_type = "string"}},
+                } or nil
+                local catalog = fake_catalog({[app] = {{version = "2.0.0", requirements = app_requirements}},
+                    [tools] = {{version = "1.2.0"}},
                     [view] = {{version = "1.1.0", requirements = {
                         {name = "title", namespace = "acme.view", meta = {value_type = "string"}},
                         {name = "layout", namespace = "acme.view", meta = {value_type = "string"}},
                     }}}})
-                local pl = planner.new({registry = fake_registry(active, nil, state), catalog = catalog}) :: any
+                local registry = fake_registry(active, nil, state)
+                local pl = planner.new({registry = registry, catalog = catalog}) :: any
+                local gov_state = {current_version = state.version} :: any
+                local svc = hub.new({
+                    registry = registry,
+                    planner = {plan_install = function(input) return pl:plan_install(input) end},
+                    governance = fake_governance(gov_state),
+                    uuid = fake_uuid(),
+                }) :: any
+                return pl, svc, gov_state
+            end
+
+            it("repairs a newly required deployment root input and replays the flat plan", function()
+                local pl, svc, gov = deployment_upgrade_fixture(true)
+                local args = {component = app, version = ">=2.0.0", migration_policy = "none"}
+                local missing, missing_err = pl:plan_install(args)
+                test.is_nil(missing_err)
+                test.is_false(missing.applicable)
+                test.is_nil(missing.native_plan)
+                test.eq(missing.missing_requirements[1], "acme.app:tenant")
+                test.is_true(find_requirement(missing, "acme.app:tenant").missing)
+
+                args.requirement_bindings = {{name = "acme.app:tenant", value = "Reviewed tenant"}}
+                local configured, configured_err = pl:plan_install(args)
+                test.is_nil(configured_err)
+                test.is_true(configured.applicable)
+                test.not_nil(configured.native_plan)
+                test.eq(#configured.retained_dependencies, 2)
+                local replay, replay_err = svc:install(configured.install_payload)
+                test.is_nil(replay_err)
+                test.eq(replay.dependency.component, app)
+                test.eq(#replay.patches, 3)
+                test.eq(gov.publish_calls, 1)
+                local applied = gov.last_changeset[1].entry.data.parameters
+                test.eq(find_parameter(applied, "acme.app:tenant").value, "Reviewed tenant")
+            end)
+
+            it("keeps configured deployment dependencies and uses new release defaults", function()
+                local pl = deployment_upgrade_fixture()
                 local function plan(dependencies)
                     local result, plan_err = pl:plan_install({dependencies = dependencies})
                     test.is_nil(plan_err)
@@ -6655,6 +6710,126 @@ local function define_tests()
                 test.is_nil(single_err)
                 test.eq(find_parameter(single.install_payload.parameters, "acme.view:layout").value, "Previous layout")
             end)
+
+            it("previews a single application upgrade with retained dependencies and a flat root", function()
+                local pl = deployment_upgrade_fixture()
+                local plan, plan_err = pl:plan_install({component = app, version = ">=2.0.0", migration_policy = "none"})
+                test.is_nil(plan_err)
+                test.is_true(plan.applicable)
+                test.eq(plan.dependency.component, app)
+                test.eq(plan.graph[1].version, "2.0.0")
+                test.eq(plan.install_payload.component, app)
+                test.eq(plan.install_payload.version, ">=2.0.0")
+                test.eq(plan.install_payload.migration_policy, "none")
+                test.is_nil(plan.install_payload.dependencies)
+                test.is_nil(plan.plans)
+
+                local retained = {}
+                for _, item in ipairs(plan.retained_dependencies or {}) do retained[item.component] = item end
+                test.eq(#(plan.retained_dependencies or {}), 2)
+                test.eq(retained[tools].id, "app.deps:tools")
+                test.eq(retained[tools].version, ">=1.2.0")
+                test.eq(retained[tools].migration_policy, "none")
+                test.eq(retained[view].id, "app.deps:view")
+                test.eq(retained[view].migration_policy, "none")
+                test.eq(find_parameter(retained[view].parameters, "acme.view:title").value, "Configured")
+                test.eq(find_parameter(retained[view].parameters, "acme.view:layout").value, "New layout")
+            end)
+
+            it("dry-runs a single application upgrade with every retained patch and no publish", function()
+                local _, svc, gov = deployment_upgrade_fixture()
+                local result, install_err = svc:install({
+                    component = app, version = ">=2.0.0", run_migrations = false, dry_run = true,
+                })
+                test.is_nil(install_err)
+                test.eq(result.dependency.component, app)
+                test.is_true(result.dry_run)
+                test.is_nil(result.dependencies)
+                test.is_nil(result.plans)
+                test.eq(result.migration_policy, "none")
+                test.eq(#result.patches, 3)
+                test.eq(result.patches[1].id, result.dependency.id)
+                local patch_ids = {}
+                for _, patch in ipairs(result.patches) do
+                    test.eq(patch.op, "set")
+                    patch_ids[patch.id] = true
+                end
+                test.is_true(patch_ids["app.deps:tools"])
+                test.is_true(patch_ids["app.deps:view"])
+                for _, step in ipairs(result.execution) do
+                    test.is_true(step.step ~= "migrations", "migration opt-out must apply to retained children")
+                end
+                test.eq(gov.current_calls or 0, 0)
+                test.eq(gov.publish_calls or 0, 0)
+            end)
+
+            it("applies a single application upgrade and retained children in one changeset", function()
+                local _, svc, gov = deployment_upgrade_fixture()
+                local result, install_err = svc:install({component = app, version = ">=2.0.0", migration_policy = "none"})
+                test.is_nil(install_err)
+                test.eq(result.dependency.component, app)
+                test.is_nil(result.dependencies)
+                test.is_nil(result.plans)
+                test.eq(result.migration_policy, "none")
+                test.eq(#result.patches, 3)
+                test.eq(gov.publish_calls, 1)
+                test.eq(#gov.last_changeset, 3)
+
+                local changes = {}
+                for _, op in ipairs(gov.last_changeset) do changes[op.entry.data.component] = op end
+                test.eq(changes[app].entry.data.version, ">=2.0.0")
+                test.eq(changes[tools].kind, "entry.update")
+                test.eq(changes[tools].entry.data.version, ">=1.2.0")
+                test.eq(changes[view].kind, "entry.update")
+                local parameters = changes[view].entry.data.parameters
+                test.eq(find_parameter(parameters, "acme.view:title").value, "Configured")
+                test.eq(find_parameter(parameters, "acme.view:layout").value, "New layout")
+            end)
+
+            it("replays a reviewed child binding through the flat application install payload", function()
+                local pl, svc, gov = deployment_upgrade_fixture()
+                local plan, plan_err = pl:plan_install({
+                    component = app, version = ">=2.0.0", migration_policy = "none",
+                    requirement_bindings = {{name = "acme.view:title", value = "Reviewed title"}},
+                })
+                test.is_nil(plan_err)
+                test.is_true(plan.applicable)
+                test.is_nil(plan.install_payload.dependencies)
+                local binding = find_parameter(plan.install_payload.requirement_bindings, "acme.view:title")
+                test.eq(binding.value, "Reviewed title")
+
+                local replay, replay_err = pl:plan_install(deep_copy(plan.install_payload))
+                test.is_nil(replay_err)
+                test.is_true(planner.parameter_values_equal(replay.retained_dependencies, plan.retained_dependencies))
+
+                local result, install_err = svc:install(deep_copy(plan.install_payload))
+                test.is_nil(install_err)
+                test.eq(result.dependency.component, app)
+                test.eq(#result.patches, 3)
+                test.eq(gov.publish_calls, 1)
+                local child
+                for _, op in ipairs(gov.last_changeset) do
+                    if op.entry.id == "app.deps:view" then child = op.entry end
+                end
+                test.not_nil(child)
+                test.eq(find_parameter(child.data.parameters, "acme.view:title").value, "Reviewed title")
+                test.eq(find_parameter(child.data.parameters, "acme.view:layout").value, "New layout")
+            end)
+
+            it("keeps an ordinary single child install independent of an application upgrade", function()
+                local _, svc, gov = deployment_upgrade_fixture()
+                local result, install_err = svc:install({component = view, version = ">=1.1.0", migration_policy = "none"})
+                test.is_nil(install_err)
+                test.eq(result.dependency.component, view)
+                test.is_nil(result.dependencies)
+                test.eq(#result.patches, 1)
+                test.eq(gov.publish_calls, 1)
+                test.eq(#gov.last_changeset, 1)
+                local entry = gov.last_changeset[1].entry
+                test.eq(entry.id, "app.deps:view")
+                test.eq(find_parameter(entry.data.parameters, "acme.view:layout").value, "Previous layout")
+            end)
+
             it("reads each selected version and its artifact once across shared batch graphs", function()
                 local catalog_rows = {
                     ["acme/shared"] = {{id = "shared-v1", version = "1.0.0", entry_kinds = {"ns.requirement"},

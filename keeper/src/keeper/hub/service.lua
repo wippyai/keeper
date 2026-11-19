@@ -960,9 +960,13 @@ function Service:install_batch(args, opts)
 
     local batch, batch_err = self:plan_install(args)
     if not batch then return nil, batch_err end
+    return self:apply_install_batch(args, opts, batch)
+end
+
+function Service:apply_install_batch(args, opts, batch, single_plan)
     -- A deployment-root update can carry forward configured child roots.
     -- Apply the complete plan, including those roots, in the same transaction.
-    dependencies = batch.install_payload and batch.install_payload.dependencies or dependencies
+    local dependencies = batch.install_payload and batch.install_payload.dependencies or args.dependencies
     local prepared = {}
     local seen_components = {}
     local seen_ids = {}
@@ -1070,6 +1074,12 @@ function Service:install_batch(args, opts)
         end
     end
 
+    if single_plan then
+        payload.dependency, payload.plan = payload.dependencies[1], single_plan
+        payload.migration_policy = payload.migration_policy[1]
+        payload.dependencies, payload.plans = nil, nil
+    end
+
     local function install_steps(baseline_version, bootloader_data)
         local steps = {
             {
@@ -1112,6 +1122,7 @@ function Service:install_batch(args, opts)
     local operation_id = self:new_operation_id()
     payload.operation_id = operation_id
     self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_STARTED, operation_id, {
+        dependency = payload.dependency,
         dependencies = payload.dependencies,
         migration_policy = payload.migration_policy,
     })
@@ -1136,6 +1147,7 @@ function Service:install_batch(args, opts)
     payload.bootloaders = self:ledger_result(ledger, "bootloaders_run")
     payload.execution = self:project_ledger(ledger, nil)
     self:emit_operation(opts.actor_id, M.EVENTS.INSTALL_FINISHED, operation_id, {
+        dependency = payload.dependency,
         dependencies = payload.dependencies,
         apply = apply_result,
         migrations = migration_result,
@@ -1658,9 +1670,11 @@ function Service:install(args, opts)
         return self:install_batch(args, opts)
     end
 
-    local prepared, prepare_err = self:prepare_install(args)
+    local plan, plan_err, deployment = self:plan_install(args)
+    if not plan then return nil, plan_err end
+    if deployment then return self:apply_install_batch(args, opts, deployment, plan) end
+    local prepared, prepare_err = self:prepare_install(args, plan)
     if not prepared then return nil, prepare_err end
-    local plan = prepared.plan
     local planned = prepared.args
     local entry = prepared.entry
 
