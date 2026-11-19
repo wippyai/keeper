@@ -960,6 +960,9 @@ function Service:install_batch(args, opts)
 
     local batch, batch_err = self:plan_install(args)
     if not batch then return nil, batch_err end
+    -- A deployment-root update can carry forward configured child roots.
+    -- Apply the complete plan, including those roots, in the same transaction.
+    dependencies = batch.install_payload and batch.install_payload.dependencies or dependencies
     local prepared = {}
     local seen_components = {}
     local seen_ids = {}
