@@ -1,5 +1,11 @@
 # Release Notes
 
+## keeper/keeper 0.5.117
+
+Keeper fetches Hub metadata by exact release version and uses dependency
+records returned by that lookup. Catalogs supporting version IDs can still
+resolve by ID when the exact-version lookup is unavailable.
+
 ## keeper/keeper 0.5.116
 
 Single-application Hub upgrades preserve configured dependency constraints and
