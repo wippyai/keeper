@@ -2639,19 +2639,22 @@ end
 -- registry. Compare materialized releases so profile and asset values have
 -- already gone through the normal loader. Only host edits carry forward.
 function Planner:prepare_deployment_upgrade(inputs, entries, requested)
-    local snapshot, snapshot_err = self.registry.snapshot()
-    if not snapshot then return nil, snapshot_err end
-    local state, state_err = snapshot:state()
-    if not state then return nil, state_err end
-    local resolution = state.resolution
+    local installed, installed_err = self:ownership_index():capture()
+    if not installed then return nil, err("INTERNAL", tostring(installed_err)) end
+    local resolution = installed.resolution
     local root = resolution and resolution.lock and resolution.lock.root_module
     if not root or root == "" then return true end
-    local current = selected_module(resolution, root)
     local app_index
     for index, entry in ipairs(entries) do
         if entry.data.component == root then app_index = index; break end
     end
-    if not app_index or not current or current.source == "replacement-tree-v1" then return true end
+    if not app_index then return true end
+    local snapshot, snapshot_err = self.registry.snapshot()
+    if not snapshot then return nil, snapshot_err end
+    local state, state_err = snapshot:state()
+    if not state then return nil, state_err end
+    local current = selected_module(state.resolution, root)
+    if not current or current.source == "replacement-tree-v1" then return true end
     local target = entries[app_index]
     if not starts_with(target.data.version, "@") and constraint_allows(current.version, target.data.version) then return true end
 

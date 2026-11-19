@@ -6807,7 +6807,13 @@ local function define_tests()
                         calls[#calls + 1] = staged
                         return {changes = {}, digest = "whole-batch", resolution = {modules = {}}}, nil
                     end}
-                    local pl = planner.new({registry = fake_registry({}, nil, state),
+                    local reg = fake_registry({}, nil, state)
+                    local snapshot, snapshots = reg.snapshot, 0
+                    reg.snapshot = function()
+                        snapshots = snapshots + 1
+                        return snapshot()
+                    end
+                    local pl = planner.new({registry = reg,
                         catalog = fake_catalog({["acme/consumer"] = {{version = "2.0.0"}},
                             ["acme/provider"] = {{version = "2.0.0"}}})}) :: any
                     local consumer = {component = "acme/consumer", version = ">=2.0.0"}
@@ -6819,6 +6825,7 @@ local function define_tests()
                     test.eq(#result.plans, 2)
                     test.eq(result.native_plan.digest, "whole-batch")
                     test.eq(#calls, 2, "native previews do not grow with the number of batch items")
+                    test.eq(snapshots, 3, "non-application batches reuse the existing ownership snapshot")
                 end
             end)
         end)
