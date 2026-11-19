@@ -1,5 +1,12 @@
 # Release Notes
 
+## keeper/keeper 0.5.115
+
+Application upgrades retain configured dependency constraints and parameter
+values detected against the previous release. Unmodified fields adopt the
+selected release defaults, and values supplied for the current update take
+precedence. The retained dependencies apply in the same Hub transaction.
+
 ## keeper/keeper 0.5.114
 
 - A requirement that names a resource kind accepts every concrete kind beneath it, not only database and environment-storage kinds: an `exec.native` executor now satisfies an `exec` requirement in install plans, candidate discovery and supplied values. Exact kinds match as before.
