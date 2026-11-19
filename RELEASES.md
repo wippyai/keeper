@@ -1,5 +1,19 @@
 # Release Notes
 
+## keeper/keeper 0.5.116
+
+Single-application Hub upgrades preserve configured dependency constraints and
+host values in one registry transaction. Plans and responses keep the flat
+single-component shape, including when the update applies retained child
+dependencies. Reviewed child bindings survive plan replay, and retained children
+honor the root's migration policy.
+
+On populated installations running 0.5.114 or 0.5.115, update Keeper by itself
+and confirm the active version before updating the application. A combined
+application and Keeper update uses the previously active planner. Version
+0.5.114 can replace host settings during that batch, and the individual App
+Update action in 0.5.115 can also replace them.
+
 ## keeper/keeper 0.5.115
 
 Application upgrades retain configured dependency constraints and parameter
