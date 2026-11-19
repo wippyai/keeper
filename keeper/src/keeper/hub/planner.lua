@@ -2560,6 +2560,23 @@ local function plan_batch_inputs(instance, inputs, args)
             migration_policy = args.migration_policy}}, nil
 end
 
+local function native_requirement_diagnostics(native_err)
+    local details = errors.is(native_err, errors.INVALID) and native_err:details() or nil
+    if type(details) ~= "table" or type(details.count) ~= "number" or details.count < 1
+        or type(details.errors) ~= "table" or #details.errors == 0 or type(details.requirements) ~= "table"
+        or #details.requirements == 0 then
+        return nil
+    end
+    for _, diagnostic in ipairs(details.requirements) do
+        local declaration = type(diagnostic) == "table" and diagnostic.declaration
+        if type(declaration) ~= "table" or declaration.kind ~= "ns.requirement"
+            or declaration.id ~= diagnostic.requirement then
+            return nil
+        end
+    end
+    return details.requirements
+end
+
 local function selected_module(resolution, component)
     for _, row in ipairs(resolution and resolution.modules or {}) do
         if row.name == component then return row end
@@ -2638,7 +2655,7 @@ end
 -- A root application replaces its packaged declarations in the native
 -- registry. Compare materialized releases so profile and asset values have
 -- already gone through the normal loader. Only host edits carry forward.
-function Planner:prepare_deployment_upgrade(inputs, entries, requested)
+function Planner:prepare_deployment_upgrade(inputs, entries, batch_args)
     local installed, installed_err = self:ownership_index():capture()
     if not installed then return nil, err("INTERNAL", tostring(installed_err)) end
     local resolution = installed.resolution
@@ -2678,6 +2695,25 @@ function Planner:prepare_deployment_upgrade(inputs, entries, requested)
         if not live[entry.id] then upgrade[#upgrade + 1] = entry end
     end
     local new_plan, new_err = self:preview_dependencies(upgrade)
+    local diagnostics = not new_plan and native_requirement_diagnostics(new_err)
+    if diagnostics then
+        -- The predecessor preview may still describe the old module. Resolve
+        -- a draft from the requested versions and normalize reviewed inputs
+        -- before linking the new release for the comparison.
+        self.native_ownership, self.native_modules, self.native_resources, self.native_entries = nil, nil, nil, nil
+        self.batch_entries = upgrade
+        self.upgrade_diagnostics = {component = root, requirements = diagnostics, error = new_err}
+        local draft, draft_err = plan_batch_inputs(self, inputs, batch_args)
+        local configured = self.batch_entries
+        self.batch_entries, self.upgrade_diagnostics = nil, nil
+        if not draft or not draft.applicable then return nil, draft_err, draft end
+        local linked = {}
+        for _, dependency in ipairs(configured) do
+            if not live[dependency.id] then linked[#linked + 1] = dependency end
+            if dependency.id == target.id then entries[app_index] = dependency end
+        end
+        new_plan, new_err = self:preview_dependencies(linked)
+    end
     if not new_plan then return nil, new_err end
     local selected = selected_module(new_plan.resolution, root)
     if not selected or selected.version == current.version then return true end
@@ -2721,7 +2757,7 @@ function Planner:prepare_deployment_upgrade(inputs, entries, requested)
                     run_migrations = root_input.run_migrations, requirement_bindings = reviewed_by_owner[active.component],
                 }
                 if not index and args.requirement_bindings then forwarded[active.component] = true end
-                local supplied, supplied_err = M.normalize_parameters(index and requested[index].parameters)
+                local supplied, supplied_err = M.normalize_parameters(index and batch_args.dependencies[index].parameters)
                 if not supplied then return nil, supplied_err end
                 local parameters = upgrade_parameter_rows(supplied, args.requirement_bindings, drift,
                     released.parameters, new_aliases[active.component] or {})
@@ -2773,25 +2809,14 @@ function Planner:plan_batch(args)
         ids[entry.id], components[entry.data.component] = true, true
         entries[#entries + 1], inputs[#inputs + 1] = entry, destination
     end
-    local ready, prepare_err = self:prepare_deployment_upgrade(inputs, entries, args.dependencies)
-    if not ready then return nil, prepare_err end
+    local ready, prepare_err, draft = self:prepare_deployment_upgrade(inputs, entries, args)
+    if not ready then return draft, prepare_err end
     self.batch_entries, self.batch_native = entries, nil
     local native, native_err = self:preview_dependencies(entries)
     if not native then
-        local details = errors.is(native_err, errors.INVALID) and native_err:details() or nil
-        if type(details) ~= "table" or type(details.count) ~= "number" or details.count < 1
-            or type(details.errors) ~= "table" or #details.errors == 0 or type(details.requirements) ~= "table"
-            or #details.requirements == 0 then
+        if not native_requirement_diagnostics(native_err) then
             self.batch_entries = nil
             return nil, native_err
-        end
-        for _, diagnostic in ipairs(details.requirements) do
-            local declaration = type(diagnostic) == "table" and diagnostic.declaration
-            if type(declaration) ~= "table" or declaration.kind ~= "ns.requirement"
-                or declaration.id ~= diagnostic.requirement then
-                self.batch_entries = nil
-                return nil, native_err
-            end
         end
         -- A raw batch has not yet incorporated reviewed/inferred bindings.
         -- Reuse normal requirement planning without fabricating a native plan;
@@ -2930,6 +2955,11 @@ function Planner:plan_install(args)
         dependency_id = entry.id,
     })
     if not graph then return nil, graph_err end
+    local diagnostics = self.upgrade_diagnostics
+    if diagnostics and diagnostics.component == data.component
+        and not merge_native_requirements(graph, diagnostics.requirements) then
+        return nil, diagnostics.error
+    end
 
     local target_err = validate_parameter_targets(graph, data.parameters or {})
     if target_err then return nil, target_err end

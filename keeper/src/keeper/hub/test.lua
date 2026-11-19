@@ -6576,7 +6576,9 @@ local function define_tests()
         describe("batch install planning", function()
             local app, tools, view = "acme/app", "acme/tools", "acme/view"
 
-            local function deployment_upgrade_fixture()
+            local function deployment_upgrade_fixture(require_root_value)
+                local requirement = {id = "acme.app:tenant", kind = "ns.requirement",
+                    registry = {owner = app}, meta = {value_type = "string"}, data = {}}
                 local function dep(id, component, version, params)
                     return {
                         id = "app.deps:" .. id, kind = "ns.dependency", registry = {owner = app, root = true},
@@ -6597,6 +6599,13 @@ local function define_tests()
                         {name = view, version = "1.0.0"}},
                     plan = function(staged)
                         local installed = staged[1].entry.data.version == "=1.0.0"
+                        if not installed and require_root_value
+                            and not find_parameter(staged[1].entry.data.parameters or {}, requirement.id) then
+                            return nil, errors.new({kind = errors.INVALID, message = "unresolved requirements", details = {
+                                count = 1, errors = {"tenant is required"},
+                                requirements = {{requirement = requirement.id, declaration = requirement}},
+                            }})
+                        end
                         local changes = {
                             {op = "update", entry = dep("tools", tools, ">=1.0.0")},
                             {op = "update", entry = dep("view", view, ">=1.0.0", {
@@ -6604,6 +6613,9 @@ local function define_tests()
                                 {name = "layout", value = installed and "Previous layout" or "New layout"},
                             })},
                         }
+                        if require_root_value and not installed then
+                            changes[#changes + 1] = {op = "create", entry = requirement}
+                        end
                         for _, operation in ipairs(staged) do
                             local entry = operation.entry
                             if entry.data.component ~= app then
@@ -6620,7 +6632,11 @@ local function define_tests()
                         }}}, nil
                     end,
                 }
-                local catalog = fake_catalog({[app] = {{version = "2.0.0"}}, [tools] = {{version = "1.2.0"}},
+                local app_requirements = require_root_value and {
+                    {name = "tenant", namespace = "acme.app", meta = {value_type = "string"}},
+                } or nil
+                local catalog = fake_catalog({[app] = {{version = "2.0.0", requirements = app_requirements}},
+                    [tools] = {{version = "1.2.0"}},
                     [view] = {{version = "1.1.0", requirements = {
                         {name = "title", namespace = "acme.view", meta = {value_type = "string"}},
                         {name = "layout", namespace = "acme.view", meta = {value_type = "string"}},
@@ -6636,6 +6652,31 @@ local function define_tests()
                 }) :: any
                 return pl, svc, gov_state
             end
+
+            it("repairs a newly required deployment root input and replays the flat plan", function()
+                local pl, svc, gov = deployment_upgrade_fixture(true)
+                local args = {component = app, version = ">=2.0.0", migration_policy = "none"}
+                local missing, missing_err = pl:plan_install(args)
+                test.is_nil(missing_err)
+                test.is_false(missing.applicable)
+                test.is_nil(missing.native_plan)
+                test.eq(missing.missing_requirements[1], "acme.app:tenant")
+                test.is_true(find_requirement(missing, "acme.app:tenant").missing)
+
+                args.requirement_bindings = {{name = "acme.app:tenant", value = "Reviewed tenant"}}
+                local configured, configured_err = pl:plan_install(args)
+                test.is_nil(configured_err)
+                test.is_true(configured.applicable)
+                test.not_nil(configured.native_plan)
+                test.eq(#configured.retained_dependencies, 2)
+                local replay, replay_err = svc:install(configured.install_payload)
+                test.is_nil(replay_err)
+                test.eq(replay.dependency.component, app)
+                test.eq(#replay.patches, 3)
+                test.eq(gov.publish_calls, 1)
+                local applied = gov.last_changeset[1].entry.data.parameters
+                test.eq(find_parameter(applied, "acme.app:tenant").value, "Reviewed tenant")
+            end)
 
             it("keeps configured deployment dependencies and uses new release defaults", function()
                 local pl = deployment_upgrade_fixture()
