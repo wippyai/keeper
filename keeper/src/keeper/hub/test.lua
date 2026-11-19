@@ -6874,6 +6874,37 @@ local function define_tests()
                 test.eq(inspections["acme/shared"], 1, "shared artifact metadata has one inspection per request")
                 for _, dependency in ipairs(dependencies) do test.eq(reads[dependency.component], 1) end
             end)
+            it("loads published metadata by exact version before falling back to its ID", function()
+                local component = "acme/shared"
+                local selected = {id = "shared-v1", version = "1.0.0"}
+                local published = {id = selected.id, version = selected.version,
+                    dependencies = {{org = "acme", name = "child", version = ">=2.0.0"}}}
+                local catalog = fake_catalog({})
+                local calls = {}
+                catalog.versions.get = function(name, ref)
+                    test.eq(name, component)
+                    table.insert(calls, ref)
+                    if ref.version == "1.0.0" then return published, nil end
+                    return nil, "version lookup by ID not supported"
+                end
+                local svc = planner.new({registry = fake_registry({}), catalog = catalog}) :: any
+                local detailed, detail_err = svc:version_details(component, selected)
+                test.is_nil(detail_err)
+                test.eq(detailed.dependencies[1].name, "child")
+                test.eq(#calls, 1)
+                test.eq(calls[1].version, selected.version)
+
+                local legacy_catalog = fake_catalog({})
+                legacy_catalog.versions.get = function(_, ref)
+                    if ref.id == selected.id then return published, nil end
+                    return nil, "version lookup by name not supported"
+                end
+                local legacy = planner.new({registry = fake_registry({}), catalog = legacy_catalog}) :: any
+                local fallback, fallback_err = legacy:version_details(component, selected)
+                test.is_nil(fallback_err)
+                test.eq(fallback.dependencies[1].name, "child")
+            end)
+
             it("isolates inspected versions and retries failed metadata reads", function()
                 local catalog = fake_catalog({["acme/shared"] = {
                     {id = "one", version = "1.0.0", inspect = {entries = {{id = "acme.shared:first"}}}},
