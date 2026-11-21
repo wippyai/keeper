@@ -1,4 +1,5 @@
 import type { ProxyApiInstance } from '../types'
+import { listEntries } from './registry'
 
 export interface TokenTotals {
   total_tokens: number
@@ -71,7 +72,9 @@ function periodParams(period: string, startTime?: number, endTime?: number) {
   return params
 }
 
-export async function getUsageSummary(api: Api, period = 'today', startTime?: number, endTime?: number): Promise<SummaryResponse> {
+export async function getUsageSummary(api: Api, period = 'today', startTime?: number, endTime?: number): Promise<SummaryResponse | null> {
+  const { entries } = await listEntries(api, { namespace: 'keeper.usage.api', kind: 'http.endpoint' })
+  if (!entries.some(entry => entry.id === 'keeper.usage.api:get_summary.endpoint')) return null
   const { data } = await api.get<SummaryResponse>('/api/v1/keeper/usage/summary', { params: periodParams(period, startTime, endTime) })
   return data
 }
