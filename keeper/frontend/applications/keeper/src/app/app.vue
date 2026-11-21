@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import Button from 'primevue/button'
-import { useApi, useHost, useWippy } from '../composables/useWippy'
+import { useApi, useConfig, useHost, useWippy } from '../composables/useWippy'
 import { useEvents } from '../composables/useEvents'
 import { kindColor, kindIcon } from '../api/registry'
 import { timeAgo } from '../api/sessions'
@@ -15,6 +15,7 @@ import AppGlobalSearch, { type SearchResult, type SearchHint } from './AppGlobal
 const router = useRouter()
 const route = useRoute()
 const api = useApi()
+const config = useConfig()
 const host = useHost()
 const instance = useWippy()
 const events = useEvents()
@@ -83,7 +84,11 @@ const pluginItems = ref<Array<NavItem & { group: string }>>([])
 
 async function discoverPlugins() {
   try {
-    const { data } = await api.get<{ success: boolean; pages: PageInfo[] }>('/api/public/pages/list')
+    const pages = config.apiRoutes?.pages
+    const prefix = pages?.['@prefix'] ?? '/api/public/pages'
+    const route = pages?.list ?? '@/list'
+    const endpoint = route.startsWith('@/') ? prefix.replace(/\/$/, '') + route.slice(1) : route
+    const { data } = await api.get<{ success: boolean; pages: PageInfo[] }>(endpoint)
     if (!data?.success || !Array.isArray(data.pages)) return
     pluginItems.value = data.pages
       .filter(p => p.announced && p.id.startsWith('keeper.') && p.id !== 'keeper:main')
