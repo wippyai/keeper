@@ -158,7 +158,7 @@ entries:
         {
           "type": "object",
           "properties": {
-            "component_id": {"type": "string", "description": "FE component id to capture"},
+            "component_id": {"type": "string", "description": "FE component id to capture: a source package name, or the registry id or tag name of a view.component entry"},
             "route": {"type": "string", "description": "In-app route appended to the component URL"},
             "wait_for": {"type": "string", "description": "Optional selector to await before the shot. Timing hint only — if it never resolves the tool still captures the screenshot and reports {observed:false, error:...} under wait_for in the response."},
             "wait_timeout_ms": {"type": "integer", "description": "Wait timeout ms (default 10000)"},
@@ -233,7 +233,7 @@ entries:
               "enum": ["open", "goto_url", "snapshot", "click", "fill", "type_text", "press", "hover", "select_option", "wait_for", "wait", "eval", "screenshot", "assert_visible", "assert_text", "expect_url", "close", "ping"],
               "description": "Operation to run against the persistent browser page"
             },
-            "component_id": {"type": "string", "description": "Keeper component id for open"},
+            "component_id": {"type": "string", "description": "Component id for open: a source package name, or the registry id or tag name of a view.component entry"},
             "route": {"type": "string", "description": "In-app route appended to the component URL (open)"},
             "url": {"type": "string", "description": "URL for goto_url / expect_url"},
             "wait_until": {"type": "string", "description": "Page load wait state (goto_url)"},
@@ -254,7 +254,7 @@ entries:
           "required": ["action"]
         }
       llm_alias: ui
-      llm_description: Drive the long-lived Playwright page. Typically start with open (for a component) or goto_url (for any URL), then click/fill/snapshot/assert, finally close when done.
+      llm_description: Drive the long-lived Playwright page. Typically start with open (for a component) or goto_url (for any URL), then click/fill/snapshot/assert, finally close when done. open and goto_url both sign the page in with the caller's session.
       mcp:
         required_scopes:
           - components.capture
@@ -274,3 +274,23 @@ entries:
     pool:
       size: 4
     
+
+  # keeper.components.tools:ui_test
+  - name: ui_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: ui tool — open and goto_url carry the caller's auth token to the page
+      suite: components.tools
+    source: file://ui_test.lua
+    modules:
+      - fs
+      - base64
+      - process
+      - channel
+      - security
+    imports:
+      audit: keeper.task:audit
+      test: wippy.test:test
+      ui_tool: keeper.components.tools:ui
+    method: define_tests

@@ -31,6 +31,7 @@ local log = require("logger"):named("keeper.components.ui.supervisor")
 local consts = require("consts")
 local filenames = require("filenames")
 local scanner = require("scanner")
+local replay = require("replay")
 
 local SERVICE_NAME = "keeper.components.ui.supervisor"
 local COMMAND_TOPIC = "ui.command"
@@ -89,6 +90,8 @@ let browser = null;
 let context = null;
 let page = null;
 let origin = null;
+// Origin whose session storage state the current context was created with.
+let authOrigin = null;
 // Remember the last explicit context options so ensurePage() can
 // recreate a matching context if an op is called without an open first.
 let lastContextOpts = { viewport: { width: 1280, height: 800 }, colorScheme: 'dark' };
@@ -146,6 +149,30 @@ async function ensurePage() {
   }
 }
 
+// Navigation carries the session the open op establishes: a context that holds
+// no session for args.origin is replaced by one created with args.storage_state,
+// in the browser, viewport and color scheme already in use.
+async function ensureAuthenticated(args) {
+  if (!args.storage_state || (context && authOrigin === args.origin)) {
+    await ensurePage();
+    return;
+  }
+  if (!browser) browser = await chromium.launch({ headless: true });
+  if (context) {
+    try { await context.close(); } catch (_) {}
+  }
+  context = await browser.newContext({
+    viewport: lastContextOpts.viewport || { width: 1280, height: 800 },
+    colorScheme: lastContextOpts.colorScheme || 'dark',
+    ignoreHTTPSErrors: true,
+    storageState: args.storage_state,
+  });
+  page = await context.newPage();
+  attachPageListeners(page);
+  origin = args.origin;
+  authOrigin = args.origin;
+}
+
 async function openSession(args) {
   if (browser) {
     try { await browser.close(); } catch (_) {}
@@ -164,6 +191,7 @@ async function openSession(args) {
   context = await browser.newContext(ctxOpts);
   page = await context.newPage();
   origin = args.origin || null;
+  authOrigin = args.storage_state ? origin : null;
   attachPageListeners(page);
   if (args.start_url) {
     await page.goto(args.start_url, {
@@ -201,7 +229,7 @@ async function handle(req) {
         await ensurePage();
         return { id, ok: true, ...(await currentState()) };
       case 'goto':
-        await ensurePage();
+        await ensureAuthenticated(req);
         await page.goto(req.url, { waitUntil: req.wait_until || 'networkidle', timeout: req.timeout || 30000 });
         return { id, ok: true, ...(await currentState()) };
       case 'click':
@@ -286,7 +314,7 @@ async function handle(req) {
         if (page && !page.isClosed()) { try { await page.close(); } catch (_) {} }
         if (context) { try { await context.close(); } catch (_) {} }
         if (browser) { try { await browser.close(); } catch (_) {} }
-        page = null; context = null; browser = null;
+        page = null; context = null; browser = null; authOrigin = null;
         return { id, ok: true };
       case 'ping':
         return { id, ok: true, pong: Date.now() };
@@ -796,26 +824,16 @@ local function send_one(state, op, args: RunnerArgs?, timeout_s)
     end
 end
 
-local function call_container(state, op, args: RunnerArgs?, timeout_s)
-    local fresh = false
-    if not state.proc then
-        local ok, err = spawn_container(state)
-        if not ok then return nil, err end
-        fresh = true
-    end
-    -- If we just spawned a fresh container AND we have a saved session from
-    -- a prior open() call, replay it so auth + current page survive idle kills.
-    if fresh and state.last_open and op ~= "open" then
-        log:info("replaying last open on fresh container")
-        state.last_open = refresh_replay_token(state.last_open)
-        local replay, rerr = send_one(state, "open", state.last_open, 60)
-        if rerr or (replay and not replay.ok) then
-            log:warn("open replay failed", { error = rerr or (replay and replay.error) })
-            state.last_open = nil
-        end
-    end
-    return send_one(state, op, args, timeout_s)
-end
+local container = replay.new({
+    spawn = spawn_container,
+    send = send_one,
+    mint = mint_admin_token,
+    base_url = host_base_url,
+    storage_state = build_storage_state,
+    now = os.time,
+    refresh_after_s = TOKEN_REFRESH_S,
+    log = log,
+})
 
 local function compute_start_url(component_id, route)
     local cid = component_id or "@wippy/app-keeper"
@@ -850,24 +868,35 @@ local function compute_start_url(component_id, route)
     return base .. r, nil, base
 end
 
--- Inject auth + start_url for open op; route screenshots into per-request dir.
+-- Replace the caller's auth_token with the session storage state for origin:
+-- the caller's token, or a minted admin token when the caller sends none.
+local function attach_auth(payload, origin)
+    local token = payload.auth_token
+    local token_source
+    if token and token ~= "" then
+        token_source = "caller"
+    else
+        token = mint_admin_token()
+        token_source = token and "minted" or nil
+    end
+    payload.origin = origin
+    payload.storage_state = build_storage_state(origin, token)
+    payload.token_source = token_source
+    payload.auth_token = nil
+end
+
+-- Inject auth + start_url for open, auth for goto; route screenshots into
+-- per-request dir.
 local function preprocess(op, payload, root)
     if op == "open" then
         local start_url, err, origin = compute_start_url(payload.component_id, payload.route)
         if not start_url then return nil, err end
         payload.start_url = start_url
-        payload.origin = origin
-        local token = payload.auth_token
-        local token_source
-        if token and token ~= "" then
-            token_source = "caller"
-        else
-            token = mint_admin_token()
-            token_source = token and "minted" or nil
-        end
-        payload.storage_state = build_storage_state(payload.origin, token)
-        payload.token_source = token_source
-        payload.auth_token = nil
+        attach_auth(payload, origin)
+    elseif op == "goto" then
+        local origin, base_err = host_base_url()
+        if not origin then return nil, base_err end
+        attach_auth(payload, origin)
     elseif op == "screenshot" then
         -- raw_root = true tells the runner to write directly to /out/<name>.png
         -- (i.e. previews/<name>.png on the host). Used by the legacy
@@ -883,33 +912,6 @@ local function preprocess(op, payload, root)
         payload.request_id = nil
     end
     return payload
-end
-
--- Rebuild storage_state with a freshly minted admin token. Only used on
--- replay after idle-kill when the original token source was "minted".
--- Caller-provided tokens are never auto-refreshed; the caller owns them.
-local function refresh_replay_token(last_open)
-    if not last_open or last_open.token_source ~= "minted" then return last_open end
-    local age = os.time() - (last_open.minted_at or 0)
-    if age < TOKEN_REFRESH_S then return last_open end
-    local token, err = mint_admin_token()
-    if not token then
-        log:warn("token refresh skipped, mint failed", { error = err })
-        return last_open
-    end
-    local origin = last_open.origin
-    if not origin or origin == "" then
-        local base, base_err = host_base_url()
-        if not base then
-            log:warn("token refresh skipped, host URL unavailable", { error = base_err })
-            return last_open
-        end
-        origin = base
-    end
-    last_open.storage_state = build_storage_state(origin, token)
-    last_open.minted_at = os.time()
-    log:info("refreshed minted token on replay", { age_s = age })
-    return last_open
 end
 
 local function postprocess(op, response, request_id, state, client_last_seen_seq)
@@ -983,7 +985,7 @@ local function handle_command(state, msg)
     local baseline_seq = (state.events and state.events.seq) or 0
     local last_seen = tonumber(args.events_seq) or baseline_seq
 
-    local response, err = call_container(state, tostring(op), processed :: RunnerArgs, tonumber(timeout_s))
+    local response, err = container.call(state, tostring(op), processed :: RunnerArgs, tonumber(timeout_s))
     if err then
         reply({ success = false, error = err })
         return
