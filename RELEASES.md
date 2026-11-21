@@ -1,5 +1,11 @@
 # Release Notes
 
+## keeper/keeper 0.5.118
+
+Keeper discovers announced plugins through the pages route configured by the
+Web Host. The dashboard requests usage summaries when the optional Usage
+endpoint is installed.
+
 ## keeper/keeper 0.5.117
 
 Keeper fetches Hub metadata by exact release version and uses dependency
