@@ -31,6 +31,7 @@ local log = require("logger"):named("keeper.components.ui.supervisor")
 local consts = require("consts")
 local filenames = require("filenames")
 local scanner = require("scanner")
+local replay = require("replay")
 
 local SERVICE_NAME = "keeper.components.ui.supervisor"
 local COMMAND_TOPIC = "ui.command"
@@ -823,26 +824,16 @@ local function send_one(state, op, args: RunnerArgs?, timeout_s)
     end
 end
 
-local function call_container(state, op, args: RunnerArgs?, timeout_s)
-    local fresh = false
-    if not state.proc then
-        local ok, err = spawn_container(state)
-        if not ok then return nil, err end
-        fresh = true
-    end
-    -- If we just spawned a fresh container AND we have a saved session from
-    -- a prior open() call, replay it so auth + current page survive idle kills.
-    if fresh and state.last_open and op ~= "open" then
-        log:info("replaying last open on fresh container")
-        state.last_open = refresh_replay_token(state.last_open)
-        local replay, rerr = send_one(state, "open", state.last_open, 60)
-        if rerr or (replay and not replay.ok) then
-            log:warn("open replay failed", { error = rerr or (replay and replay.error) })
-            state.last_open = nil
-        end
-    end
-    return send_one(state, op, args, timeout_s)
-end
+local container = replay.new({
+    spawn = spawn_container,
+    send = send_one,
+    mint = mint_admin_token,
+    base_url = host_base_url,
+    storage_state = build_storage_state,
+    now = os.time,
+    refresh_after_s = TOKEN_REFRESH_S,
+    log = log,
+})
 
 local function compute_start_url(component_id, route)
     local cid = component_id or "@wippy/app-keeper"
@@ -923,33 +914,6 @@ local function preprocess(op, payload, root)
     return payload
 end
 
--- Rebuild storage_state with a freshly minted admin token. Only used on
--- replay after idle-kill when the original token source was "minted".
--- Caller-provided tokens are never auto-refreshed; the caller owns them.
-local function refresh_replay_token(last_open)
-    if not last_open or last_open.token_source ~= "minted" then return last_open end
-    local age = os.time() - (last_open.minted_at or 0)
-    if age < TOKEN_REFRESH_S then return last_open end
-    local token, err = mint_admin_token()
-    if not token then
-        log:warn("token refresh skipped, mint failed", { error = err })
-        return last_open
-    end
-    local origin = last_open.origin
-    if not origin or origin == "" then
-        local base, base_err = host_base_url()
-        if not base then
-            log:warn("token refresh skipped, host URL unavailable", { error = base_err })
-            return last_open
-        end
-        origin = base
-    end
-    last_open.storage_state = build_storage_state(origin, token)
-    last_open.minted_at = os.time()
-    log:info("refreshed minted token on replay", { age_s = age })
-    return last_open
-end
-
 local function postprocess(op, response, request_id, state, client_last_seen_seq)
     if response and op == "screenshot" and response.ok and response.path then
         local p = tostring(response.path)  -- /out/ui/<req>/<name>.png
@@ -1021,7 +985,7 @@ local function handle_command(state, msg)
     local baseline_seq = (state.events and state.events.seq) or 0
     local last_seen = tonumber(args.events_seq) or baseline_seq
 
-    local response, err = call_container(state, tostring(op), processed :: RunnerArgs, tonumber(timeout_s))
+    local response, err = container.call(state, tostring(op), processed :: RunnerArgs, tonumber(timeout_s))
     if err then
         reply({ success = false, error = err })
         return
