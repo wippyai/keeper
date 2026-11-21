@@ -3,7 +3,9 @@
 -- Walks the project filesystem looking for FE components (package.json with
 -- `specification: wippy-component-1.0`) and returns structured descriptors.
 -- Also surfaces shared frontend/docs/*.md as kit documentation and
--- static/app/* + static/wc/* as vendored read-only components.
+-- static/app/* + static/wc/* as vendored read-only components. M.get also
+-- resolves view.component registry entries that mounted modules serve from
+-- their own bundles, after the filesystem sources.
 
 local fs = require("fs")
 local json = require("json")
@@ -484,7 +486,66 @@ function M.scan()
     return result
 end
 
--- Find a single component descriptor by its package name or slug.
+-- Describe a view.component registry entry. Its bundle is served by the module
+-- that declares it, so it carries no project source and is never editable.
+local function describe_registered(entry)
+    local meta = entry.meta or {}
+    local id = tostring(entry.id)
+    return {
+        id = id,
+        kind = "widget",
+        path = nil,
+        title = meta.title or meta.name or id,
+        description = meta.description or "",
+        tag_name = meta.tag_name,
+        base_path = meta.base_path,
+        entry_point = meta.entry_point,
+        url = meta.url,
+        toolchain = "",
+        scripts = {},
+        peer_deps = {},
+        dependencies = {},
+        editable = false,
+        link_kind = "registry",
+        is_main_app = false,
+        built = true,
+        docs = {},
+        origin = nil,
+    }
+end
+
+-- Select the view.component entry a component id names: its registry id, or
+-- the tag name exactly one entry declares.
+local function select_registered(entries, component_id)
+    local tagged = {}
+    for _, entry in ipairs(entries or {}) do
+        if tostring(entry.id) == component_id then return entry end
+        if type(entry.meta) == "table" and entry.meta.tag_name == component_id then
+            table.insert(tagged, entry)
+        end
+    end
+    if #tagged == 1 then return tagged[1] end
+    if #tagged > 1 then
+        local ids = {}
+        for _, entry in ipairs(tagged) do table.insert(ids, tostring(entry.id)) end
+        table.sort(ids)
+        return nil, "component tag " .. component_id .. " is declared by several view.component entries: "
+            .. table.concat(ids, ", ") .. "; pass one entry id"
+    end
+    return nil
+end
+
+local function get_registered(component_id)
+    local entries, err = registry.find({ [".kind"] = "registry.entry", ["meta.type"] = "view.component" })
+    if err then return nil, "view.component lookup failed: " .. tostring(err) end
+    local entry, select_err = select_registered(entries, component_id)
+    if not entry then return nil, select_err end
+    return describe_registered(entry)
+end
+
+-- Find a single component descriptor by its package name or slug, or by the
+-- registry id or tag name of a view.component entry. Filesystem components
+-- take precedence.
 function M.get(component_id)
     local result, err = M.scan()
     if not result then return nil, err end
@@ -493,6 +554,11 @@ function M.get(component_id)
     end
     for _, c in ipairs(result.widgets) do
         if c.id == component_id then return c end
+    end
+    if type(component_id) == "string" and component_id ~= "" then
+        local registered, registered_err = get_registered(component_id)
+        if registered then return registered end
+        if registered_err then return nil, registered_err end
     end
     return nil, "component not found: " .. tostring(component_id)
 end

@@ -70,6 +70,18 @@ end
 
 local function define_tests()
     test.describe("keeper.components.tools:screenshot_ui — refactored contract", function()
+        test.it("opens a registry view.component a mounted module serves", function()
+            local deps, calls, last = fakes()
+            deps.scanner = nil
+            local res, err = screenshot_ui.run(deps, { component_id = "app.components:mounted_view" })
+            test.is_nil(err)
+            test.not_nil(res)
+            test.eq(calls.open, 1)
+            test.eq(last.open.component_id, "app.components:mounted_view")
+            test.eq(last.open.auth_token, "test-token")
+            test.eq(calls.screenshot, 1)
+        end)
+
         test.it("rejects missing component_id with a tool error", function()
             local deps = fakes()
             local res, err = screenshot_ui.run(deps, {})
