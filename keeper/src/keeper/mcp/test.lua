@@ -2159,6 +2159,80 @@ local function define_tests()
                 test.eq(next(names), nil, "exit after readiness must release both names")
             end)
 
+            it("a broker answers an idle probe with its pid, slot, session name and last activity", function()
+                local clock = 100
+                local channels = {}
+                local function channel_for(topic)
+                    channels[topic] = channels[topic] or { topic = topic, case_receive = function(self) return self end }
+                    return channels[topic]
+                end
+                local sent = {}
+                local registered = {}
+                local fake_process = {
+                    event = { CANCEL = "cancel", EXIT = "exit" },
+                    pid = function() return "broker-pid" end,
+                    registry = {
+                        register = function(name) registered[name] = true; return true end,
+                        lookup = function(name) return registered[name] and "broker-pid" or nil end,
+                        unregister = function(name) registered[name] = nil; return true end,
+                    },
+                    listen = function(topic) return channel_for(topic) end,
+                    events = function() return channel_for("process.events") end,
+                    send = function(to, topic, payload)
+                        sent[#sent + 1] = { to = to, topic = topic, payload = payload }
+                        return true
+                    end,
+                }
+                local fake_time = {
+                    now = function() return { unix_nano = function() return clock end } end,
+                    timer = function()
+                        return {
+                            channel = function(self) return self end,
+                            case_receive = function(self) return self end,
+                            reset = function() return true end,
+                            stop = function() return true end,
+                        }
+                    end,
+                }
+                local script = {
+                    { topic = "mcp.activity", value = {}, at = 250 },
+                    { topic = "mcp.idle_probe", at = 300, value = { payload = function()
+                        return { data = function() return { reply_to = "handler-pid", reply_topic = "mcp.idle_probe.reply.x" } end }
+                    end } },
+                    { topic = "process.events", value = { kind = "exit" }, at = 400 },
+                }
+                local fake_channel = {
+                    select = function()
+                        local event = table.remove(script, 1)
+                        clock = event.at
+                        return { channel = channel_for(event.topic), value = event.value }
+                    end,
+                }
+                mcp_broker._run_with(fake_channel, fake_time, mcp_stream_targets, {
+                    SSE_IDLE_TIMEOUT = "test",
+                    MCP_ACTIVITY_TOPIC = "mcp.activity",
+                    MCP_NOTIFY_TOPIC = "mcp.notify",
+                    MCP_IDLE_PROBE_TOPIC = "mcp.idle_probe",
+                    SSE_MESSAGE_TOPIC = "message",
+                }, fake_process, {
+                    session_name = "mcp.session.token.id",
+                    slot_prefix = "mcp.session.token.slot.",
+                    slot_count = 2,
+                    ready_to = "handler-pid",
+                    ready_topic = "mcp.ready.id",
+                })
+                local answer
+                for _, message in ipairs(sent) do
+                    if message.topic == "mcp.idle_probe.reply.x" then answer = message end
+                end
+                test.not_nil(answer, "the broker replies on the probe's reply topic")
+                test.eq(answer.to, "handler-pid")
+                test.eq(answer.payload.pid, "broker-pid")
+                test.eq(answer.payload.slot_name, "mcp.session.token.slot.1")
+                test.eq(answer.payload.session_name, "mcp.session.token.id")
+                test.eq(answer.payload.last_activity, 250, "the last activity is the latest POST touch")
+            end)
+
             local function cap_fixture()
                 local cap = keeper_config.mcp_max_sessions_per_token()
                 test.is_true(cap >= 1)
