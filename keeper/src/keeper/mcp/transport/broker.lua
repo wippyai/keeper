@@ -4,6 +4,7 @@ local channel = require("channel")
 local time = require("time")
 
 local consts = require("mcp_consts")
+local config = require("keeper_config")
 local stream_targets = require("mcp_stream_targets")
 
 type BrokerArgs = {
@@ -74,6 +75,7 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
         idle_channel = nil,
         idle_active = false,
         activity_count = 0,
+        last_activity = time_api.now():unix_nano(),
     }
     local idle_channel
 
@@ -81,6 +83,7 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
     local leaves = process_api.listen("sse.leave", { message = true })
     local notifies = process_api.listen(transport_consts.MCP_NOTIFY_TOPIC, { message = true })
     local activity = process_api.listen(transport_consts.MCP_ACTIVITY_TOPIC, { message = true })
+    local probes = process_api.listen(transport_consts.MCP_IDLE_PROBE_TOPIC, { message = true })
     local events = process_api.events()
 
     local function reset_idle_timer()
@@ -133,6 +136,7 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
             leaves:case_receive(),
             notifies:case_receive(),
             activity:case_receive(),
+            probes:case_receive(),
             events:case_receive(),
         }
         if streams:current() then
@@ -159,7 +163,19 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
             end
         elseif result.channel == activity then
             state.activity_count = state.activity_count + 1
+            state.last_activity = time_api.now():unix_nano()
             if not streams:current() then reset_idle_timer() end
+        elseif result.channel == probes then
+            local msg = result.value
+            local ask = msg and msg:payload():data()
+            if type(ask) == "table" and type(ask.reply_to) == "string" and type(ask.reply_topic) == "string" then
+                process_api.send(ask.reply_to, ask.reply_topic, {
+                    pid = process_api.pid(),
+                    slot_name = state.slot_name,
+                    session_name = state.session_name,
+                    last_activity = state.last_activity,
+                })
+            end
         elseif result.channel == events then
             local ev = result.value
             if ev and (ev.kind == process_api.event.CANCEL or ev.kind == process_api.event.EXIT) then
@@ -176,7 +192,8 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
 end
 
 local function run(args)
-    run_with(channel, time, stream_targets, consts, process, args)
+    local window = { SSE_IDLE_TIMEOUT = tostring(config.mcp_session_idle_seconds()) .. "s" }
+    run_with(channel, time, stream_targets, setmetatable(window, { __index = consts }), process, args)
 end
 
 return {

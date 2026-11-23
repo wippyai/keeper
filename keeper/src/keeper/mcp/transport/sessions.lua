@@ -42,8 +42,7 @@ function M.lookup(session, id, runtime)
     return (runtime or process).registry.lookup(name)
 end
 
-function M.create(session, runtime, identity, host, channel_api, time_api)
-    runtime = runtime or process
+local function attempt(session, runtime, identity, host, channel_api, time_api)
     identity = identity or auth.admin_identity
     host = host or config.process_host()
     channel_api = channel_api or channel
@@ -102,6 +101,54 @@ function M.create(session, runtime, identity, host, channel_api, time_api)
     end
 
     return id, broker_pid
+end
+
+-- evict_idlest cancels the broker of the token's session that has had no activity the longest and
+-- frees its names; false when no broker of the token answers the probe.
+local function evict_idlest(session, runtime, channel_api, time_api)
+    local prefix = slot_prefix(session)
+    local id = new_id()
+    if not prefix or not id then return false end
+    local reply_topic = consts.MCP_IDLE_PROBE_REPLY_TOPIC_PREFIX .. id
+    local replies = runtime.listen(reply_topic)
+    local asked = 0
+    for index = 1, config.mcp_max_sessions_per_token() do
+        local pid = runtime.registry.lookup(prefix .. tostring(index))
+        if pid and runtime.send(pid, consts.MCP_IDLE_PROBE_TOPIC, { reply_to = runtime.pid(), reply_topic = reply_topic }) then
+            asked = asked + 1
+        end
+    end
+    local timeout = time_api.timer(consts.SSE_BROKER_READY_TIMEOUT)
+    local timeout_channel = timeout:channel()
+    local idlest
+    for _ = 1, asked do
+        local result = channel_api.select({ replies:case_receive(), timeout_channel:case_receive() })
+        if result.channel == timeout_channel then break end
+        local answer = result.value
+        if type(answer) == "table" and type(answer.pid) == "string"
+            and (not idlest or answer.last_activity < idlest.last_activity) then
+            idlest = answer
+        end
+    end
+    timeout:stop()
+    if not idlest then return false end
+    if idlest.session_name then runtime.registry.unregister(idlest.session_name) end
+    if idlest.slot_name then runtime.registry.unregister(idlest.slot_name) end
+    runtime.cancel(idlest.pid, 0)
+    return true
+end
+
+-- create starts the broker of a new session of the token. At the per-token cap the session idle the
+-- longest is evicted and its slot taken, so sessions of clients that died without closing never
+-- lock the token out.
+function M.create(session, runtime, identity, host, channel_api, time_api)
+    runtime = runtime or process
+    channel_api = channel_api or channel
+    time_api = time_api or time
+    local id, broker_pid_or_err, err = attempt(session, runtime, identity, host, channel_api, time_api)
+    if id or (err or broker_pid_or_err) ~= "MCP_SESSION_LIMIT" then return id, broker_pid_or_err, err end
+    if not evict_idlest(session, runtime, channel_api, time_api) then return nil, "MCP_SESSION_LIMIT" end
+    return attempt(session, runtime, identity, host, channel_api, time_api)
 end
 
 function M.touch(broker_pid, runtime)

@@ -39,6 +39,7 @@ entries:
     imports:
       mcp_consts: keeper.mcp:consts
       mcp_stream_targets: keeper.mcp.transport:stream_targets
+      keeper_config: keeper:config
     method: run
     
   # keeper.mcp.transport:dispatch

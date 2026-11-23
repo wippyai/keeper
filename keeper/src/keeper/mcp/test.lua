@@ -1644,6 +1644,7 @@ local function define_tests()
                         send = function() return true end,
                     }
                     local fake_time = {
+                        now = function() return { unix_nano = function() return 0 end } end,
                         timer = function()
                             timer_count = timer_count + 1
                             timer_subscriptions = timer_subscriptions + 1
@@ -2109,6 +2110,7 @@ local function define_tests()
                         end,
                     }
                     local fake_time = {
+                        now = function() return { unix_nano = function() return 0 end } end,
                         timer = function()
                             local timer_channel = { case_receive = function(self) return self end }
                             return {
@@ -2157,7 +2159,7 @@ local function define_tests()
                 test.eq(next(names), nil, "exit after readiness must release both names")
             end)
 
-            it("session creation accepts the per-token cap and rejects the next session without eviction", function()
+            local function cap_fixture()
                 local cap = keeper_config.mcp_max_sessions_per_token()
                 test.is_true(cap >= 1)
                 local token_session = { token_hash = "cap-test-token", label = "cap-test", identity = ADMIN_USER }
@@ -2167,11 +2169,15 @@ local function define_tests()
                 local cancelled = {}
                 local ready_messages = {}
                 local ready_channels = {}
+                local probe_activity = {}
+                local probe_replies = {}
                 local runtime
                 local fake_channel = {
                     select = function(cases)
                         local ready = ready_messages[cases[1].topic]
                         if ready then return { channel = cases[1], value = ready } end
+                        local queued = probe_replies[cases[1].topic]
+                        if queued and #queued > 0 then return { channel = cases[1], value = table.remove(queued, 1) } end
                         return { channel = cases[2], value = true }
                     end,
                 }
@@ -2215,6 +2221,13 @@ local function define_tests()
                     end,
                     send = function(pid, topic, payload)
                         if pid == "handler-pid" then ready_messages[topic] = payload end
+                        if topic == "mcp.idle_probe" and probe_activity[pid] then
+                            probe_replies[payload.reply_topic] = probe_replies[payload.reply_topic] or {}
+                            table.insert(probe_replies[payload.reply_topic], {
+                                pid = pid, last_activity = probe_activity[pid],
+                                slot_name = probe_activity[pid .. ":slot"], session_name = probe_activity[pid .. ":session"],
+                            })
+                        end
                         return true
                     end,
                     with_context = function()
@@ -2231,6 +2244,8 @@ local function define_tests()
                                     local registered = runtime.registry.register(candidate, pid)
                                     if registered then slot_name = candidate; break end
                                 end
+                                probe_activity[pid .. ":slot"] = slot_name
+                                probe_activity[pid .. ":session"] = args.session_name
                                 if slot_name then
                                     local registered = runtime.registry.register(args.session_name, pid)
                                     if registered then
@@ -2258,6 +2273,16 @@ local function define_tests()
                 runtime.channel_api = fake_channel
                 runtime.time_api = fake_time
                 local identity = function() return "actor", "scope" end
+                return {
+                    cap = cap, runtime = runtime, token_session = token_session, identity = identity, cancelled = cancelled,
+                    channel = fake_channel, time = fake_time, probe_activity = probe_activity, live = live,
+                }
+            end
+
+            it("session creation accepts the per-token cap and rejects the next session when no session answers the idle probe", function()
+                local f = cap_fixture()
+                local cap, cancelled, runtime, token_session, identity = f.cap, f.cancelled, f.runtime, f.token_session, f.identity
+                local fake_channel, fake_time = f.channel, f.time
                 local ids = {}
                 for _ = 1, cap do
                     local id, err = mcp_sessions.create(token_session, runtime, identity,
@@ -2288,6 +2313,31 @@ local function define_tests()
                     test.not_nil(mcp_sessions.lookup(token_session, id, runtime),
                         "reaching the cap must leave every existing session registered")
                 end
+            end)
+
+            it("session creation at the cap evicts the session idle the longest and takes its slot", function()
+                local f = cap_fixture()
+                local runtime, token_session, identity = f.runtime, f.token_session, f.identity
+                local ids = {}
+                for index = 1, f.cap do
+                    local id, err = mcp_sessions.create(token_session, runtime, identity,
+                        keeper_config.process_host(), f.channel, f.time)
+                    test.not_nil(id, tostring(err))
+                    ids[index] = id
+                    f.probe_activity["cap-broker-" .. index] = 1000 + index
+                end
+                f.probe_activity["cap-broker-3"] = 10
+                local created, err = mcp_sessions.create(token_session, runtime, identity,
+                    keeper_config.process_host(), f.channel, f.time)
+                test.not_nil(created, tostring(err))
+                test.eq(f.cancelled[1], "cap-broker-3", "the session idle the longest is cancelled")
+                test.is_nil(mcp_sessions.lookup(token_session, ids[3], runtime), "the evicted session is gone")
+                for index, id in ipairs(ids) do
+                    if index ~= 3 then
+                        test.not_nil(mcp_sessions.lookup(token_session, id, runtime), "every other session stays registered")
+                    end
+                end
+                test.not_nil(mcp_sessions.lookup(token_session, created, runtime), "the new session is registered")
             end)
 
             it("DELETE terminates one session and later GET and POST return HTTP 404", function()
