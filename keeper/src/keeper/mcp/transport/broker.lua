@@ -127,8 +127,9 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
         report_ready(args, process_api, false, startup_err)
         return state
     end
+    local session_name = assert(args and args.session_name)
     state.slot_name = slot_name
-    state.session_name = args.session_name
+    state.session_name = session_name
 
     local acknowledged = report_ready(args, process_api, true)
     if not acknowledged then
@@ -199,8 +200,8 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
                 -- Conditional eviction uses the normal process.cancel permission.
                 -- The probe may be stale by the time its cancellation arrives.
                 if not streams:current() and state.activity_revision == tonumber(expected) then
-                    process_api.registry.unregister(state.session_name)
-                    local released = process_api.registry.unregister(state.slot_name)
+                    process_api.registry.unregister(session_name)
+                    local released = process_api.registry.unregister(slot_name)
                     stop_idle_timer()
                     process_api.send(ev.from, topic, { evicted = released == true })
                     state.exit_kind = "idle"
