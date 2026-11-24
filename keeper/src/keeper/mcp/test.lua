@@ -2298,7 +2298,7 @@ local function define_tests()
                         if topic == "mcp.idle_probe" and probe_activity[pid] then
                             probe_replies[payload.reply_topic] = probe_replies[payload.reply_topic] or {}
                             table.insert(probe_replies[payload.reply_topic], {
-                                pid = pid, last_activity = probe_activity[pid],
+                                pid = pid, last_activity = probe_activity[pid], streamed = probe_activity[pid .. ":streamed"] == true,
                                 slot_name = probe_activity[pid .. ":slot"], session_name = probe_activity[pid .. ":session"],
                             })
                         end
@@ -2411,6 +2411,72 @@ local function define_tests()
                         test.not_nil(mcp_sessions.lookup(token_session, id, runtime), "every other session stays registered")
                     end
                 end
+                test.not_nil(mcp_sessions.lookup(token_session, created, runtime), "the new session is registered")
+            end)
+
+            it("session creation at the cap evicts the idlest session without an attached stream before any session a client streams from", function()
+                local f = cap_fixture()
+                local runtime, token_session, identity = f.runtime, f.token_session, f.identity
+                local ids = {}
+                for index = 1, f.cap do
+                    local id, err = mcp_sessions.create(token_session, runtime, identity,
+                        keeper_config.process_host(), f.channel, f.time)
+                    test.not_nil(id, tostring(err))
+                    ids[index] = id
+                    f.probe_activity["cap-broker-" .. index] = 1000 + index
+                    f.probe_activity["cap-broker-" .. index .. ":streamed"] = true
+                end
+                f.probe_activity["cap-broker-2"] = 10
+                f.probe_activity["cap-broker-7"] = 500
+                f.probe_activity["cap-broker-7:streamed"] = false
+                f.probe_activity["cap-broker-9"] = 600
+                f.probe_activity["cap-broker-9:streamed"] = false
+                local created, err = mcp_sessions.create(token_session, runtime, identity,
+                    keeper_config.process_host(), f.channel, f.time)
+                test.not_nil(created, tostring(err))
+                test.eq(f.cancelled[1], "cap-broker-7", "the idlest session no client streams from is evicted")
+                test.not_nil(mcp_sessions.lookup(token_session, ids[2], runtime), "a streamed session idle longer stays")
+                local again, aerr = mcp_sessions.create(token_session, runtime, identity,
+                    keeper_config.process_host(), f.channel, f.time)
+                test.not_nil(again, tostring(aerr))
+                test.eq(f.cancelled[2], "cap-broker-9")
+                for index = 1, f.cap do
+                    f.probe_activity["cap-broker-" .. index .. ":streamed"] = true
+                end
+                f.probe_activity["cap-broker-17:streamed"] = true
+                f.probe_activity["cap-broker-18:streamed"] = true
+                local streamed_only, serr = mcp_sessions.create(token_session, runtime, identity,
+                    keeper_config.process_host(), f.channel, f.time)
+                test.not_nil(streamed_only, tostring(serr))
+                test.eq(f.cancelled[3], "cap-broker-2", "with every session streamed the idlest is evicted")
+            end)
+
+            it("a creator that finds the slot an eviction freed taken by a competing creator evicts again instead of being refused", function()
+                local f = cap_fixture()
+                local runtime, token_session, identity = f.runtime, f.token_session, f.identity
+                for index = 1, f.cap do
+                    local id, err = mcp_sessions.create(token_session, runtime, identity,
+                        keeper_config.process_host(), f.channel, f.time)
+                    test.not_nil(id, tostring(err))
+                    f.probe_activity["cap-broker-" .. index] = 1000 + index
+                end
+                f.probe_activity["cap-broker-3"] = 10
+                f.probe_activity["cap-broker-5"] = 20
+                local stolen = false
+                local racing = function()
+                    if #f.cancelled == 1 and not stolen then
+                        stolen = true
+                        local taken, terr = mcp_sessions.create(token_session, runtime, identity,
+                            keeper_config.process_host(), f.channel, f.time)
+                        test.not_nil(taken, tostring(terr))
+                    end
+                    return identity()
+                end
+                local created, err = mcp_sessions.create(token_session, runtime, racing,
+                    keeper_config.process_host(), f.channel, f.time)
+                test.not_nil(created, tostring(err))
+                test.eq(f.cancelled[1], "cap-broker-3")
+                test.eq(f.cancelled[2], "cap-broker-5", "the second eviction takes the next idlest session")
                 test.not_nil(mcp_sessions.lookup(token_session, created, runtime), "the new session is registered")
             end)
 

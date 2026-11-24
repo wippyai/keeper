@@ -103,7 +103,15 @@ local function attempt(session, runtime, identity, host, channel_api, time_api)
     return id, broker_pid
 end
 
--- evict_idlest cancels the broker of the token's session that has had no activity the longest and
+-- before answers whether probe answer a ranks for eviction before b: a session no client holds a
+-- stream of (a client that exited closed its stream; a live streamable HTTP client keeps one) before
+-- one a client streams from, then the one with no activity the longest.
+local function before(a, b)
+    if (a.streamed == true) ~= (b.streamed == true) then return b.streamed == true end
+    return a.last_activity < b.last_activity
+end
+
+-- evict_idlest cancels the broker of the token's session that ranks first for eviction (before) and
 -- frees its names; false when no broker of the token answers the probe.
 local function evict_idlest(session, runtime, channel_api, time_api)
     local prefix = slot_prefix(session)
@@ -126,7 +134,7 @@ local function evict_idlest(session, runtime, channel_api, time_api)
         if result.channel == timeout_channel then break end
         local answer = result.value
         if type(answer) == "table" and type(answer.pid) == "string"
-            and (not idlest or answer.last_activity < idlest.last_activity) then
+            and (not idlest or before(answer, idlest)) then
             idlest = answer
         end
     end
@@ -138,17 +146,22 @@ local function evict_idlest(session, runtime, channel_api, time_api)
     return true
 end
 
--- create starts the broker of a new session of the token. At the per-token cap the session idle the
--- longest is evicted and its slot taken, so sessions of clients that died without closing never
--- lock the token out.
+-- create starts the broker of a new session of the token. At the per-token cap the session ranked
+-- first for eviction (the idlest without an attached stream, else the idlest) is evicted and its slot taken, so sessions of clients that died without closing never
+-- lock the token out. Creators at the cap race for the slot an eviction frees: one that finds it
+-- taken evicts again, at most once per slot of the token, so the creator that finds no session
+-- to evict is the only one refused.
 function M.create(session, runtime, identity, host, channel_api, time_api)
     runtime = runtime or process
     channel_api = channel_api or channel
     time_api = time_api or time
     local id, broker_pid_or_err, err = attempt(session, runtime, identity, host, channel_api, time_api)
-    if id or (err or broker_pid_or_err) ~= "MCP_SESSION_LIMIT" then return id, broker_pid_or_err, err end
-    if not evict_idlest(session, runtime, channel_api, time_api) then return nil, "MCP_SESSION_LIMIT" end
-    return attempt(session, runtime, identity, host, channel_api, time_api)
+    for _ = 1, config.mcp_max_sessions_per_token() do
+        if id or (err or broker_pid_or_err) ~= "MCP_SESSION_LIMIT" then return id, broker_pid_or_err, err end
+        if not evict_idlest(session, runtime, channel_api, time_api) then return nil, "MCP_SESSION_LIMIT" end
+        id, broker_pid_or_err, err = attempt(session, runtime, identity, host, channel_api, time_api)
+    end
+    return id, broker_pid_or_err, err
 end
 
 function M.touch(broker_pid, runtime)

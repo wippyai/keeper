@@ -174,6 +174,7 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
                     slot_name = state.slot_name,
                     session_name = state.session_name,
                     last_activity = state.last_activity,
+                    streamed = streams:current() ~= nil,
                 })
             end
         elseif result.channel == events then
