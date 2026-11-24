@@ -103,54 +103,72 @@ local function attempt(session, runtime, identity, host, channel_api, time_api)
     return id, broker_pid
 end
 
--- before answers whether probe answer a ranks for eviction before b: a session no client holds a
--- stream of (a client that exited closed its stream; a live streamable HTTP client keeps one) before
--- one a client streams from, then the one with no activity the longest.
-local function before(a, b)
-    if (a.streamed == true) ~= (b.streamed == true) then return b.streamed == true end
-    return a.last_activity < b.last_activity
-end
-
--- evict_idlest cancels the broker of the token's session that ranks first for eviction (before) and
--- frees its names; false when no broker of the token answers the probe.
 local function evict_idlest(session, runtime, channel_api, time_api)
     local prefix = slot_prefix(session)
     local id = new_id()
     if not prefix or not id then return false end
-    local reply_topic = consts.MCP_IDLE_PROBE_REPLY_TOPIC_PREFIX .. id
-    local replies = runtime.listen(reply_topic)
+
+    local topic = consts.MCP_IDLE_PROBE_REPLY_TOPIC_PREFIX .. id
+    local replies = runtime.listen(topic, { message = true })
+    local pending = {}
     local asked = 0
     for index = 1, config.mcp_max_sessions_per_token() do
         local pid = runtime.registry.lookup(prefix .. tostring(index))
-        if pid and runtime.send(pid, consts.MCP_IDLE_PROBE_TOPIC, { reply_to = runtime.pid(), reply_topic = reply_topic }) then
+        if pid and not pending[pid] and runtime.send(pid, consts.MCP_IDLE_PROBE_TOPIC, { reply_topic = topic }) then
+            pending[pid] = true
             asked = asked + 1
         end
     end
+
     local timeout = time_api.timer(consts.SSE_BROKER_READY_TIMEOUT)
     local timeout_channel = timeout:channel()
-    local idlest
-    for _ = 1, asked do
+    local idlest_pid, last_activity, activity_revision
+    while asked > 0 do
         local result = channel_api.select({ replies:case_receive(), timeout_channel:case_receive() })
         if result.channel == timeout_channel then break end
-        local answer = result.value
-        if type(answer) == "table" and type(answer.pid) == "string"
-            and (not idlest or before(answer, idlest)) then
-            idlest = answer
+        local msg = result.value
+        local sender = msg and msg:from()
+        if sender and pending[sender] then
+            pending[sender] = nil
+            asked = asked - 1
+            local answer = msg:payload():data()
+            if type(answer) == "table" and answer.evictable == true and type(answer.last_activity) == "number" then
+                local revision = math.tointeger(answer.activity_revision)
+                if revision and (not last_activity or answer.last_activity < last_activity) then
+                    idlest_pid, last_activity, activity_revision = sender, answer.last_activity, revision
+                end
+            end
         end
     end
     timeout:stop()
-    if not idlest then return false end
-    if idlest.session_name then runtime.registry.unregister(idlest.session_name) end
-    if idlest.slot_name then runtime.registry.unregister(idlest.slot_name) end
-    runtime.cancel(idlest.pid, 0)
-    return true
+    runtime.unlisten(replies)
+    if not idlest_pid then return false end
+
+    -- The chosen broker rechecks its own state and releases its own names.
+    -- A reply can become stale while the HTTP handler is selecting a candidate.
+    local evict_topic = topic .. ".evict"
+    local confirmation = runtime.listen(evict_topic, { message = true })
+    local evicted = false
+    if runtime.cancel(idlest_pid, evict_topic .. ":" .. tostring(activity_revision)) then
+        local wait = time_api.timer(consts.SSE_BROKER_READY_TIMEOUT)
+        local deadline = wait:channel()
+        while true do
+            local result = channel_api.select({ confirmation:case_receive(), deadline:case_receive() })
+            if result.channel == deadline then break end
+            local msg = result.value
+            if msg and msg:from() == idlest_pid then
+                local answer = msg:payload():data()
+                evicted = type(answer) == "table" and answer.evicted == true
+                break
+            end
+        end
+        wait:stop()
+    end
+    runtime.unlisten(confirmation)
+    return evicted
 end
 
--- create starts the broker of a new session of the token. At the per-token cap the session ranked
--- first for eviction (the idlest without an attached stream, else the idlest) is evicted and its slot taken, so sessions of clients that died without closing never
--- lock the token out. Creators at the cap race for the slot an eviction frees: one that finds it
--- taken evicts again, at most once per slot of the token, so the creator that finds no session
--- to evict is the only one refused.
+-- Retry at the cap only after an unstreamed broker confirms it released a slot.
 function M.create(session, runtime, identity, host, channel_api, time_api)
     runtime = runtime or process
     channel_api = channel_api or channel

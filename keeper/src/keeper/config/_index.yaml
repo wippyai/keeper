@@ -47,7 +47,7 @@ entries:
     kind: registry.entry
     meta:
       comment: Seconds an MCP session without a stream or request lives before it expires
-    default: 900
+    default: 1800
 
   # keeper.config:hub_security_scan_model
   - name: hub_security_scan_model
