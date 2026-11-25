@@ -1,5 +1,12 @@
 # Release Notes
 
+## keeper/keeper 0.5.119
+
+Keeper can open and screenshot registry-backed UI components by entry ID or unique
+tag. Filesystem components retain priority. At the per-token MCP session cap,
+Keeper checks which sessions are eligible for eviction and rechecks the idlest
+candidate before releasing its slot.
+
 ## keeper/keeper 0.5.118
 
 Keeper discovers announced plugins through the pages route configured by the
