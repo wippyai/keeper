@@ -1,0 +1,35 @@
+version: "1.0"
+namespace: app.components
+
+# Web components served from a mounted module: registered as view.component
+# registry entries with no source under the project filesystem.
+entries:
+  - name: mounted_view
+    kind: registry.entry
+    meta:
+      type: view.component
+      name: mounted_view
+      title: Mounted View
+      description: Fixture component a mounted module serves from its own static bundle.
+      tag_name: fixture-mounted-view
+      base_path: fixture-mounted
+      entry_point: index.js
+      announced: true
+
+  - name: shared_tag_a
+    kind: registry.entry
+    meta:
+      type: view.component
+      title: Shared Tag A
+      tag_name: fixture-shared-tag
+      base_path: fixture-shared-a
+      entry_point: index.js
+
+  - name: shared_tag_b
+    kind: registry.entry
+    meta:
+      type: view.component
+      title: Shared Tag B
+      tag_name: fixture-shared-tag
+      base_path: fixture-shared-b
+      entry_point: index.js
