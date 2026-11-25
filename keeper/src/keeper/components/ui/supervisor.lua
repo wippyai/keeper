@@ -90,8 +90,7 @@ let browser = null;
 let context = null;
 let page = null;
 let origin = null;
-// Origin whose session storage state the current context was created with.
-let authOrigin = null;
+
 // Remember the last explicit context options so ensurePage() can
 // recreate a matching context if an op is called without an open first.
 let lastContextOpts = { viewport: { width: 1280, height: 800 }, colorScheme: 'dark' };
@@ -153,7 +152,21 @@ async function ensurePage() {
 // no session for args.origin is replaced by one created with args.storage_state,
 // in the browser, viewport and color scheme already in use.
 async function ensureAuthenticated(args) {
-  if (!args.storage_state || (context && authOrigin === args.origin)) {
+  if (!args.storage_state) {
+    await ensurePage();
+    return;
+  }
+  // A host can serve several callers. Reuse only a context that still
+  // carries the requested bearer, including after a logout or a rotation.
+  const findToken = state => {
+    const host = state.origins.find(entry => entry.origin === args.origin);
+    const item = host?.localStorage.find(entry => entry.name === '@wippy_token_info');
+    if (!item) return null;
+    try { return JSON.parse(item.value).token; } catch (_) { return null; }
+  };
+  const requested = findToken(args.storage_state);
+  if (!requested) throw new Error('Missing browser session token');
+  if (context && findToken(await context.storageState()) === requested) {
     await ensurePage();
     return;
   }
@@ -170,7 +183,6 @@ async function ensureAuthenticated(args) {
   page = await context.newPage();
   attachPageListeners(page);
   origin = args.origin;
-  authOrigin = args.origin;
 }
 
 async function openSession(args) {
@@ -191,7 +203,6 @@ async function openSession(args) {
   context = await browser.newContext(ctxOpts);
   page = await context.newPage();
   origin = args.origin || null;
-  authOrigin = args.storage_state ? origin : null;
   attachPageListeners(page);
   if (args.start_url) {
     await page.goto(args.start_url, {
@@ -314,7 +325,7 @@ async function handle(req) {
         if (page && !page.isClosed()) { try { await page.close(); } catch (_) {} }
         if (context) { try { await context.close(); } catch (_) {} }
         if (browser) { try { await browser.close(); } catch (_) {} }
-        page = null; context = null; browser = null; authOrigin = null;
+        page = null; context = null; browser = null;
         return { id, ok: true };
       case 'ping':
         return { id, ok: true, pong: Date.now() };
@@ -893,7 +904,7 @@ local function preprocess(op, payload, root)
         if not start_url then return nil, err end
         payload.start_url = start_url
         attach_auth(payload, origin)
-    elseif op == "goto" then
+    elseif op == "goto" and payload.auth_token and payload.auth_token ~= "" then
         local origin, base_err = host_base_url()
         if not origin then return nil, base_err end
         attach_auth(payload, origin)

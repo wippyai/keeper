@@ -90,7 +90,7 @@ function M.snapshot()
 end
 
 -- opts.auth_token authenticates the page the way open does; without it the
--- supervisor uses its own admin session.
+-- runner navigates its current page as before.
 function M.goto_url(url, wait_until, opts)
     opts = opts or {}
     return send_and_wait("goto", { url = url, wait_until = wait_until, auth_token = opts.auth_token },
