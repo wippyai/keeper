@@ -1644,6 +1644,7 @@ local function define_tests()
                         send = function() return true end,
                     }
                     local fake_time = {
+                        now = function() return { unix_nano = function() return 0 end } end,
                         timer = function()
                             timer_count = timer_count + 1
                             timer_subscriptions = timer_subscriptions + 1
@@ -2109,6 +2110,7 @@ local function define_tests()
                         end,
                     }
                     local fake_time = {
+                        now = function() return { unix_nano = function() return 0 end } end,
                         timer = function()
                             local timer_channel = { case_receive = function(self) return self end }
                             return {
@@ -2157,7 +2159,97 @@ local function define_tests()
                 test.eq(next(names), nil, "exit after readiness must release both names")
             end)
 
-            it("session creation accepts the per-token cap and rejects the next session without eviction", function()
+            it("a broker rechecks activity and stream state before releasing its names", function()
+                local clock = 100
+                local channels = {}
+                local function channel_for(topic)
+                    channels[topic] = channels[topic] or { topic = topic, case_receive = function(self) return self end }
+                    return channels[topic]
+                end
+                local sent = {}
+                local registered = {}
+                local fake_process = {
+                    event = { CANCEL = "cancel", EXIT = "exit" },
+                    pid = function() return "broker-pid" end,
+                    registry = {
+                        register = function(name) registered[name] = true; return true end,
+                        lookup = function(name) return registered[name] and "broker-pid" or nil end,
+                        unregister = function(name) registered[name] = nil; return true end,
+                    },
+                    listen = function(topic) return channel_for(topic) end,
+                    events = function() return channel_for("process.events") end,
+                    send = function(to, topic, payload)
+                        sent[#sent + 1] = { to = to, topic = topic, payload = payload }
+                        return true
+                    end,
+                }
+                local fake_time = {
+                    now = function() return { unix_nano = function() return clock end } end,
+                    timer = function()
+                        return {
+                            channel = function(self) return self end,
+                            case_receive = function(self) return self end,
+                            reset = function() return true end,
+                            stop = function() return true end,
+                        }
+                    end,
+                }
+                local function request_cancel(id, activity_revision, at)
+                    return { topic = "process.events", at = at, value = {
+                        kind = "cancel", from = "handler-pid", reason = "mcp.idle_probe.reply." .. id .. ".evict:" .. tostring(activity_revision),
+                    } }
+                end
+                local function stream_message()
+                    return { from = function() return "stream-pid" end }
+                end
+                local script = {
+                    { topic = "mcp.activity", value = {}, at = 250 },
+                    { topic = "mcp.idle_probe", at = 300, value = {
+                        from = function() return "handler-pid" end,
+                        payload = function()
+                            return { data = function() return { reply_topic = "mcp.idle_probe.reply.a" } end }
+                        end,
+                    } },
+                    { topic = "mcp.activity", value = {}, at = 310 },
+                    request_cancel("b", 1, 320),
+                    { topic = "sse.join", value = stream_message(), at = 330 },
+                    request_cancel("c", 3, 340),
+                    { topic = "sse.leave", value = stream_message(), at = 350 },
+                    request_cancel("d", 4, 360),
+                }
+                local fake_channel = {
+                    select = function()
+                        local event = table.remove(script, 1)
+                        clock = event.at
+                        return { channel = channel_for(event.topic), value = event.value }
+                    end,
+                }
+                local result = mcp_broker._run_with(fake_channel, fake_time, mcp_stream_targets, {
+                    SSE_IDLE_TIMEOUT = "test",
+                    MCP_ACTIVITY_TOPIC = "mcp.activity",
+                    MCP_NOTIFY_TOPIC = "mcp.notify",
+                    MCP_IDLE_PROBE_TOPIC = "mcp.idle_probe",
+                    SSE_MESSAGE_TOPIC = "message",
+                }, fake_process, {
+                    session_name = "mcp.session.token.id",
+                    slot_prefix = "mcp.session.token.slot.",
+                    slot_count = 2,
+                    ready_to = "handler-pid",
+                    ready_topic = "mcp.ready.id",
+                })
+                test.eq(sent[2].to, "handler-pid")
+                test.eq(sent[2].topic, "mcp.idle_probe.reply.a")
+                test.eq(sent[2].payload.last_activity, 250)
+                test.eq(sent[2].payload.activity_revision, 1)
+                test.eq(sent[2].payload.evictable, true)
+                test.eq(sent[3].payload.evicted, false, "a POST after the probe invalidates eviction")
+                test.eq(sent[4].payload.evicted, false, "a streamed session cannot be evicted")
+                test.eq(sent[5].payload.evicted, true, "the broker confirms after releasing both names")
+                test.eq(next(registered), nil)
+                test.eq(result.exit_kind, "idle")
+            end)
+
+            local function cap_fixture()
                 local cap = keeper_config.mcp_max_sessions_per_token()
                 test.is_true(cap >= 1)
                 local token_session = { token_hash = "cap-test-token", label = "cap-test", identity = ADMIN_USER }
@@ -2167,11 +2259,22 @@ local function define_tests()
                 local cancelled = {}
                 local ready_messages = {}
                 local ready_channels = {}
+                local probe_activity = {}
+                local probe_replies = {}
                 local runtime
+                local function reply(pid, topic, payload)
+                    probe_replies[topic] = probe_replies[topic] or {}
+                    table.insert(probe_replies[topic], {
+                        from = function() return pid end,
+                        payload = function() return { data = function() return payload end } end,
+                    })
+                end
                 local fake_channel = {
                     select = function(cases)
                         local ready = ready_messages[cases[1].topic]
                         if ready then return { channel = cases[1], value = ready } end
+                        local queued = probe_replies[cases[1].topic]
+                        if queued and #queued > 0 then return { channel = cases[1], value = table.remove(queued, 1) } end
                         return { channel = cases[2], value = true }
                     end,
                 }
@@ -2203,10 +2306,18 @@ local function define_tests()
                         end
                         return ready_channels[topic]
                     end,
+                    unlisten = function() return true end,
                     pid = function() return "handler-pid" end,
-                    cancel = function(pid)
-                        cancelled[#cancelled + 1] = pid
+                    cancel = function(pid, reason)
                         if not live[pid] then return nil, "process not found" end
+                        local topic, activity = string.match(tostring(reason), "^([^:]+):(%d+)$")
+                        if topic then
+                            local evicted = probe_activity[pid .. ":streamed"] ~= true
+                                and probe_activity[pid] == tonumber(activity)
+                            reply(pid, topic, { evicted = evicted })
+                            if not evicted then return true end
+                        end
+                        cancelled[#cancelled + 1] = pid
                         live[pid] = nil
                         for name, registered_pid in pairs(names) do
                             if registered_pid == pid then names[name] = nil end
@@ -2215,6 +2326,13 @@ local function define_tests()
                     end,
                     send = function(pid, topic, payload)
                         if pid == "handler-pid" then ready_messages[topic] = payload end
+                        if topic == "mcp.idle_probe" and probe_activity[pid] then
+                            reply(pid, payload.reply_topic, {
+                                last_activity = probe_activity[pid],
+                                activity_revision = probe_activity[pid],
+                                evictable = probe_activity[pid .. ":streamed"] ~= true,
+                            })
+                        end
                         return true
                     end,
                     with_context = function()
@@ -2258,6 +2376,16 @@ local function define_tests()
                 runtime.channel_api = fake_channel
                 runtime.time_api = fake_time
                 local identity = function() return "actor", "scope" end
+                return {
+                    cap = cap, runtime = runtime, token_session = token_session, identity = identity, cancelled = cancelled,
+                    channel = fake_channel, time = fake_time, probe_activity = probe_activity, live = live,
+                }
+            end
+
+            it("session creation accepts the per-token cap and rejects the next session when no session answers the idle probe", function()
+                local f = cap_fixture()
+                local cap, cancelled, runtime, token_session, identity = f.cap, f.cancelled, f.runtime, f.token_session, f.identity
+                local fake_channel, fake_time = f.channel, f.time
                 local ids = {}
                 for _ = 1, cap do
                     local id, err = mcp_sessions.create(token_session, runtime, identity,
@@ -2288,6 +2416,97 @@ local function define_tests()
                     test.not_nil(mcp_sessions.lookup(token_session, id, runtime),
                         "reaching the cap must leave every existing session registered")
                 end
+            end)
+
+            it("session creation at the cap evicts the session idle the longest and takes its slot", function()
+                local f = cap_fixture()
+                local runtime, token_session, identity = f.runtime, f.token_session, f.identity
+                local ids = {}
+                for index = 1, f.cap do
+                    local id, err = mcp_sessions.create(token_session, runtime, identity,
+                        keeper_config.process_host(), f.channel, f.time)
+                    test.not_nil(id, tostring(err))
+                    ids[index] = id
+                    f.probe_activity["cap-broker-" .. index] = 1000 + index
+                end
+                f.probe_activity["cap-broker-3"] = 10
+                local created, err = mcp_sessions.create(token_session, runtime, identity,
+                    keeper_config.process_host(), f.channel, f.time)
+                test.not_nil(created, tostring(err))
+                test.eq(f.cancelled[1], "cap-broker-3", "the session idle the longest is cancelled")
+                test.is_nil(mcp_sessions.lookup(token_session, ids[3], runtime), "the evicted session is gone")
+                for index, id in ipairs(ids) do
+                    if index ~= 3 then
+                        test.not_nil(mcp_sessions.lookup(token_session, id, runtime), "every other session stays registered")
+                    end
+                end
+                test.not_nil(mcp_sessions.lookup(token_session, created, runtime), "the new session is registered")
+            end)
+
+            it("session creation at the cap reclaims unstreamed sessions and preserves every attached stream", function()
+                local f = cap_fixture()
+                local runtime, token_session, identity = f.runtime, f.token_session, f.identity
+                local ids = {}
+                for index = 1, f.cap do
+                    local id, err = mcp_sessions.create(token_session, runtime, identity,
+                        keeper_config.process_host(), f.channel, f.time)
+                    test.not_nil(id, tostring(err))
+                    ids[index] = id
+                    f.probe_activity["cap-broker-" .. index] = 1000 + index
+                    f.probe_activity["cap-broker-" .. index .. ":streamed"] = true
+                end
+                f.probe_activity["cap-broker-2"] = 10
+                f.probe_activity["cap-broker-7"] = 500
+                f.probe_activity["cap-broker-7:streamed"] = false
+                f.probe_activity["cap-broker-9"] = 600
+                f.probe_activity["cap-broker-9:streamed"] = false
+                local created, err = mcp_sessions.create(token_session, runtime, identity,
+                    keeper_config.process_host(), f.channel, f.time)
+                test.not_nil(created, tostring(err))
+                test.eq(f.cancelled[1], "cap-broker-7", "the idlest session no client streams from is evicted")
+                test.not_nil(mcp_sessions.lookup(token_session, ids[2], runtime), "a streamed session idle longer stays")
+                local again, aerr = mcp_sessions.create(token_session, runtime, identity,
+                    keeper_config.process_host(), f.channel, f.time)
+                test.not_nil(again, tostring(aerr))
+                test.eq(f.cancelled[2], "cap-broker-9")
+                for pid in pairs(f.live) do
+                    f.probe_activity[pid] = f.probe_activity[pid] or 2000
+                    f.probe_activity[pid .. ":streamed"] = true
+                end
+                local streamed_only, serr = mcp_sessions.create(token_session, runtime, identity,
+                    keeper_config.process_host(), f.channel, f.time)
+                test.is_nil(streamed_only)
+                test.eq(serr, "MCP_SESSION_LIMIT")
+                test.eq(#f.cancelled, 2, "no live stream is cancelled at the cap")
+            end)
+
+            it("a creator that finds the slot an eviction freed taken by a competing creator evicts again instead of being refused", function()
+                local f = cap_fixture()
+                local runtime, token_session, identity = f.runtime, f.token_session, f.identity
+                for index = 1, f.cap do
+                    local id, err = mcp_sessions.create(token_session, runtime, identity,
+                        keeper_config.process_host(), f.channel, f.time)
+                    test.not_nil(id, tostring(err))
+                    f.probe_activity["cap-broker-" .. index] = 1000 + index
+                end
+                f.probe_activity["cap-broker-3"] = 10
+                f.probe_activity["cap-broker-5"] = 20
+                local stolen = false
+                local racing = function()
+                    if #f.cancelled == 1 and not stolen then
+                        stolen = true
+                        local taken, terr = mcp_sessions.create(token_session, runtime, identity,
+                            keeper_config.process_host(), f.channel, f.time)
+                        test.not_nil(taken, tostring(terr))
+                    end
+                    return identity()
+                end
+                local created, err = mcp_sessions.create(token_session, runtime, racing,
+                    keeper_config.process_host(), f.channel, f.time)
+                test.not_nil(created, tostring(err))
+                test.eq(f.cancelled[1], "cap-broker-3")
+                test.eq(f.cancelled[2], "cap-broker-5", "the second eviction takes the next idlest session")
+                test.not_nil(mcp_sessions.lookup(token_session, created, runtime), "the new session is registered")
             end)
 
             it("DELETE terminates one session and later GET and POST return HTTP 404", function()
@@ -2449,7 +2668,7 @@ local function define_tests()
                 test.is_true(mcp_handler_core._requires_session("tools/list"))
             end)
 
-            it("HTTP initialize, POST, GET rejection and DELETE follow session lifecycle", function()
+            it("HTTP sessions support initialize, POST, DELETE and idle eviction at the cap", function()
                 env.set(ENABLED_ENV, "true")
                 local tok = create_token({
                     label = "http-session-" .. uuid.v4(),
@@ -2533,6 +2752,34 @@ local function define_tests()
                 })
                 test.is_nil(second_delete_err)
                 test.eq(second_deleted.status_code, 204)
+
+                local capped_ids = {}
+                local cap = keeper_config.mcp_max_sessions_per_token()
+                for index = 1, cap do
+                    local response, err = initialize(index + 10)
+                    test.is_nil(err)
+                    test.eq(response.status_code, 200, "fill the token's session slots")
+                    local id = response_header(response, "Mcp-Session-Id")
+                    test.not_nil(id)
+                    capped_ids[index] = id
+                end
+                local replacement, replacement_err = initialize(cap + 11)
+                test.is_nil(replacement_err)
+                test.eq(replacement.status_code, 200, "an idle broker releases its slot")
+                local replacement_id = response_header(replacement, "Mcp-Session-Id")
+                test.not_nil(replacement_id)
+                local retired, retired_err = http_client.post(endpoint, {
+                    headers = headers(capped_ids[1]),
+                    body = json.encode({ jsonrpc = "2.0", id = 6, method = "ping" }),
+                })
+                test.is_nil(retired_err)
+                test.eq(retired.status_code, 404, "the oldest session was retired")
+                capped_ids[1] = replacement_id
+                for _, id in ipairs(capped_ids) do
+                    local cleaned, err = http_client.delete(endpoint, { headers = headers(id) })
+                    test.is_nil(err)
+                    test.eq(cleaned.status_code, 204, "remaining sessions keep their registrations")
+                end
             end)
 
             it("keeps same-token HTTP sessions isolated through dynamic and call_tool dispatch", function()

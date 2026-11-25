@@ -214,7 +214,7 @@ async function load() {
   if (r(17)) recentLogs.value = ((r(17).logs || []) as any[])
     .slice(0, 25)
     .map(l => ({ message: l.message, timestamp: l.timestamp, logger_name: l.logger_name, level: l.level }))
-  if (r(18)) usageToday.value = r(18).summary || null
+  if (results[18].status === 'fulfilled') usageToday.value = r(18)?.summary ?? null
   if (r(19)) kbs.value = r(19).kbs || r(19).items || []
   if (r(20)) {
     registryVersion.value = r(20).registry?.current_version ?? null

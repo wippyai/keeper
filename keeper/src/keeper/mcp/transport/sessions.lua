@@ -42,8 +42,7 @@ function M.lookup(session, id, runtime)
     return (runtime or process).registry.lookup(name)
 end
 
-function M.create(session, runtime, identity, host, channel_api, time_api)
-    runtime = runtime or process
+local function attempt(session, runtime, identity, host, channel_api, time_api)
     identity = identity or auth.admin_identity
     host = host or config.process_host()
     channel_api = channel_api or channel
@@ -102,6 +101,85 @@ function M.create(session, runtime, identity, host, channel_api, time_api)
     end
 
     return id, broker_pid
+end
+
+local function evict_idlest(session, runtime, channel_api, time_api)
+    local prefix = slot_prefix(session)
+    local id = new_id()
+    if not prefix or not id then return false end
+
+    local topic = consts.MCP_IDLE_PROBE_REPLY_TOPIC_PREFIX .. id
+    local replies = runtime.listen(topic, { message = true })
+    local pending = {}
+    local asked = 0
+    for index = 1, config.mcp_max_sessions_per_token() do
+        local pid = runtime.registry.lookup(prefix .. tostring(index))
+        if pid and not pending[pid] and runtime.send(pid, consts.MCP_IDLE_PROBE_TOPIC, { reply_topic = topic }) then
+            pending[pid] = true
+            asked = asked + 1
+        end
+    end
+
+    local timeout = time_api.timer(consts.SSE_BROKER_READY_TIMEOUT)
+    local timeout_channel = timeout:channel()
+    local idlest_pid, last_activity, activity_revision
+    while asked > 0 do
+        local result = channel_api.select({ replies:case_receive(), timeout_channel:case_receive() })
+        if result.channel == timeout_channel then break end
+        local msg = result.value
+        local sender = msg and msg:from()
+        if sender and pending[sender] then
+            pending[sender] = nil
+            asked = asked - 1
+            local answer = msg:payload():data()
+            if type(answer) == "table" and answer.evictable == true and type(answer.last_activity) == "number" then
+                local revision = math.tointeger(answer.activity_revision)
+                if revision and (not last_activity or answer.last_activity < last_activity) then
+                    idlest_pid, last_activity, activity_revision = sender, answer.last_activity, revision
+                end
+            end
+        end
+    end
+    timeout:stop()
+    runtime.unlisten(replies)
+    if not idlest_pid then return false end
+
+    -- The chosen broker rechecks its own state and releases its own names.
+    -- A reply can become stale while the HTTP handler is selecting a candidate.
+    local evict_topic = topic .. ".evict"
+    local confirmation = runtime.listen(evict_topic, { message = true })
+    local evicted = false
+    if runtime.cancel(idlest_pid, evict_topic .. ":" .. tostring(activity_revision)) then
+        local wait = time_api.timer(consts.SSE_BROKER_READY_TIMEOUT)
+        local deadline = wait:channel()
+        while true do
+            local result = channel_api.select({ confirmation:case_receive(), deadline:case_receive() })
+            if result.channel == deadline then break end
+            local msg = result.value
+            if msg and msg:from() == idlest_pid then
+                local answer = msg:payload():data()
+                evicted = type(answer) == "table" and answer.evicted == true
+                break
+            end
+        end
+        wait:stop()
+    end
+    runtime.unlisten(confirmation)
+    return evicted
+end
+
+-- Retry at the cap only after an unstreamed broker confirms it released a slot.
+function M.create(session, runtime, identity, host, channel_api, time_api)
+    runtime = runtime or process
+    channel_api = channel_api or channel
+    time_api = time_api or time
+    local id, broker_pid_or_err, err = attempt(session, runtime, identity, host, channel_api, time_api)
+    for _ = 1, config.mcp_max_sessions_per_token() do
+        if id or (err or broker_pid_or_err) ~= "MCP_SESSION_LIMIT" then return id, broker_pid_or_err, err end
+        if not evict_idlest(session, runtime, channel_api, time_api) then return nil, "MCP_SESSION_LIMIT" end
+        id, broker_pid_or_err, err = attempt(session, runtime, identity, host, channel_api, time_api)
+    end
+    return id, broker_pid_or_err, err
 end
 
 function M.touch(broker_pid, runtime)

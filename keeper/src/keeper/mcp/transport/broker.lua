@@ -4,6 +4,7 @@ local channel = require("channel")
 local time = require("time")
 
 local consts = require("mcp_consts")
+local config = require("keeper_config")
 local stream_targets = require("mcp_stream_targets")
 
 type BrokerArgs = {
@@ -74,6 +75,8 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
         idle_channel = nil,
         idle_active = false,
         activity_count = 0,
+        activity_revision = 0,
+        last_activity = time_api.now():unix_nano(),
     }
     local idle_channel
 
@@ -81,7 +84,13 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
     local leaves = process_api.listen("sse.leave", { message = true })
     local notifies = process_api.listen(transport_consts.MCP_NOTIFY_TOPIC, { message = true })
     local activity = process_api.listen(transport_consts.MCP_ACTIVITY_TOPIC, { message = true })
+    local probes = process_api.listen(transport_consts.MCP_IDLE_PROBE_TOPIC, { message = true })
     local events = process_api.events()
+
+    local function record_activity()
+        state.last_activity = time_api.now():unix_nano()
+        state.activity_revision = state.activity_revision + 1
+    end
 
     local function reset_idle_timer()
         if state.idle_timer then
@@ -118,8 +127,9 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
         report_ready(args, process_api, false, startup_err)
         return state
     end
+    local session_name = assert(args and args.session_name)
     state.slot_name = slot_name
-    state.session_name = args.session_name
+    state.session_name = session_name
 
     local acknowledged = report_ready(args, process_api, true)
     if not acknowledged then
@@ -133,6 +143,7 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
             leaves:case_receive(),
             notifies:case_receive(),
             activity:case_receive(),
+            probes:case_receive(),
             events:case_receive(),
         }
         if streams:current() then
@@ -145,11 +156,17 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
 
         if result.channel == joins then
             local msg = result.value
-            if msg then streams:join(msg:from()) end
+            if msg then
+                streams:join(msg:from())
+                record_activity()
+            end
             if streams:current() then stop_idle_timer() end
         elseif result.channel == leaves then
             local msg = result.value
-            if msg then streams:leave(msg:from()) end
+            if msg then
+                streams:leave(msg:from())
+                record_activity()
+            end
             if not streams:current() then reset_idle_timer() end
         elseif result.channel == notifies then
             local msg = result.value
@@ -159,10 +176,39 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
             end
         elseif result.channel == activity then
             state.activity_count = state.activity_count + 1
+            record_activity()
             if not streams:current() then reset_idle_timer() end
+        elseif result.channel == probes then
+            local msg = result.value
+            local ask = msg and msg:payload():data()
+            if type(ask) == "table" and type(ask.reply_topic) == "string" then
+                process_api.send(msg:from(), ask.reply_topic, {
+                    last_activity = state.last_activity,
+                    activity_revision = state.activity_revision,
+                    evictable = not streams:current(),
+                })
+            end
         elseif result.channel == events then
             local ev = result.value
-            if ev and (ev.kind == process_api.event.CANCEL or ev.kind == process_api.event.EXIT) then
+            if ev and ev.kind == process_api.event.CANCEL then
+                local topic, expected = string.match(ev.reason or "", "^(mcp%.idle_probe%.reply%.[0-9a-f]+%.evict):(%d+)$")
+                if not topic then
+                    stop_idle_timer()
+                    state.exit_kind = ev.kind
+                    return state
+                end
+                -- Conditional eviction uses the normal process.cancel permission.
+                -- The probe may be stale by the time its cancellation arrives.
+                if not streams:current() and state.activity_revision == tonumber(expected) then
+                    process_api.registry.unregister(session_name)
+                    local released = process_api.registry.unregister(slot_name)
+                    stop_idle_timer()
+                    process_api.send(ev.from, topic, { evicted = released == true })
+                    state.exit_kind = "idle"
+                    return state
+                end
+                process_api.send(ev.from, topic, { evicted = false })
+            elseif ev and ev.kind == process_api.event.EXIT then
                 stop_idle_timer()
                 state.exit_kind = ev.kind
                 return state
@@ -176,7 +222,8 @@ local function run_with(channel_api, time_api, stream_targets_api, transport_con
 end
 
 local function run(args)
-    run_with(channel, time, stream_targets, consts, process, args)
+    local window = { SSE_IDLE_TIMEOUT = tostring(config.mcp_session_idle_seconds()) .. "s" }
+    run_with(channel, time, stream_targets, setmetatable(window, { __index = consts }), process, args)
 end
 
 return {

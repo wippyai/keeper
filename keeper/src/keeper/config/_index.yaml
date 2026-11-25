@@ -42,6 +42,13 @@ entries:
     meta:
       comment: Maximum live MCP sessions allowed for one bearer token
 
+  # keeper.config:mcp_session_idle_seconds
+  - name: mcp_session_idle_seconds
+    kind: registry.entry
+    meta:
+      comment: Seconds an MCP session without a stream or request lives before it expires
+    default: 1800
+
   # keeper.config:hub_security_scan_model
   - name: hub_security_scan_model
     kind: registry.entry

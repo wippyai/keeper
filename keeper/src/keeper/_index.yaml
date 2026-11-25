@@ -491,6 +491,16 @@ entries:
       - entry: keeper.config:mcp_max_sessions_per_token
         path: .default
 
+  # keeper:mcp_session_idle_seconds
+  - name: mcp_session_idle_seconds
+    kind: ns.requirement
+    meta:
+      description: Seconds an MCP session without a stream or request lives before it expires
+    default: 900
+    targets:
+      - entry: keeper.config:mcp_session_idle_seconds
+        path: .default
+
   # keeper:ui_server
   - name: ui_server
     kind: ns.requirement

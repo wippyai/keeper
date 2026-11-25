@@ -41,7 +41,12 @@ M.SSE_BROKER_READY_TOPIC_PREFIX = "mcp.broker.ready."
 M.SSE_BROKER_READY_TIMEOUT = "5s"
 M.SSE_MESSAGE_TOPIC = "message"
 M.MCP_ACTIVITY_TOPIC = "mcp.activity"
-M.SSE_IDLE_TIMEOUT = "30m"
+-- A broker answers an idle probe with its slot, session name, last activity and
+-- whether a client holds its stream; session creation at the per-token cap
+-- probes the token's brokers and evicts the idlest without a stream, else the
+-- idlest.
+M.MCP_IDLE_PROBE_TOPIC = "mcp.idle_probe"
+M.MCP_IDLE_PROBE_REPLY_TOPIC_PREFIX = "mcp.idle_probe.reply."
 
 -- Topic POST handlers publish on to reach the per-session broker; the
 -- broker re-emits the payload to the SSE stream PID on SSE_MESSAGE_TOPIC.
