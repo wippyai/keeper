@@ -48,6 +48,8 @@ entries:
     meta:
       comment: Shared tool dispatch — session context injection, admin_call, and _control session mutation handling (used by handler + call_tool meta)
     source: file://dispatch.lua
+    modules:
+      - json
     imports:
       mcp_auth: keeper.mcp.auth:auth
       mcp_tokens: keeper.mcp.auth:tokens
@@ -193,7 +195,7 @@ entries:
       type: test
       suite: mcp
     source: file://context_test.lua
-    modules: [sql, uuid, hash]
+    modules: [sql, uuid, hash, json]
     imports:
       test: wippy.test:test
       mcp_dispatch: keeper.mcp.transport:dispatch
