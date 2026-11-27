@@ -1,6 +1,7 @@
 -- Shared context binding and tool dispatch for both MCP tool entry paths.
 local auth = require("mcp_auth")
 local token_store = require("mcp_tokens")
+local json = require("json")
 
 local M = {}
 
@@ -38,11 +39,34 @@ function M.call(session, registry_id, arguments, base_context, via)
         return nil, "dispatch crashed: " .. tostring(result_or_err)
     end
     if err then
-        return nil, tostring(err)
+        return nil, err
     end
     local applied, control_err = M.apply_control(session, result_or_err)
     if not applied then return nil, control_err end
     return result_or_err, nil
+end
+
+-- tool_error answers the MCP tool result of a failed call. A native error keeps its kind, code,
+-- message, retryable flag and details, as structured content and as the JSON text a client
+-- without structured content reads; any other value is its text.
+function M.tool_error(err)
+    if type(err) ~= "userdata" then
+        return { content = { { type = "text", text = tostring(err) } }, isError = true }
+    end
+    local details = err:details()
+    local code = type(details) == "table" and type(details.code) == "string" and details.code or nil
+    local shaped = {
+        kind = tostring(err:kind()),
+        code = code,
+        message = err:message(),
+        retryable = err:retryable() == true,
+        details = type(details) == "table" and details or nil,
+    }
+    return {
+        content = { { type = "text", text = json.encode({ error = shaped }) } },
+        structuredContent = { error = shaped },
+        isError = true,
+    }
 end
 
 return M

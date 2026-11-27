@@ -66,11 +66,8 @@ local function transport_enabled(res)
     return true
 end
 
-local function tool_error(msg_id, text)
-    return jsonrpc_response(msg_id, {
-        content = { { type = "text", text = text } },
-        isError = true,
-    })
+local function tool_error(msg_id, err)
+    return jsonrpc_response(msg_id, dispatch.tool_error(err))
 end
 
 -- MCP method handlers
@@ -121,7 +118,7 @@ local function handle_tools_call(msg, session)
             return tool_error(msg.id, "meta-tool error: " .. tostring(result_or_err))
         end
         if err then
-            return tool_error(msg.id, tostring(err))
+            return tool_error(msg.id, err)
         end
         if NOTIFY_TOOLS_CHANGED[tool_name] then
             publish_notification(session, consts.NOTIFICATIONS.TOOLS_LIST_CHANGED)

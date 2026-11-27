@@ -299,7 +299,7 @@ function M.admin_call(session, via, fn_id, args, context)
     end
 
     local result, call_err = bound:call(fn_id, args or {})
-    if call_err then return nil, tostring(call_err) end
+    if call_err then return nil, call_err end
     return result, nil
 end
 
