@@ -2831,6 +2831,19 @@ local function define_tests()
                 local ok, err = pcall(function()
                     local a, b = initialize(), initialize()
                     test.is_true(a ~= b)
+                    for _, params in ipairs({
+                        { name = "mcp_context_tool", arguments = { native_error = true } },
+                        { name = "call_tool", arguments = { id = "app:mcp_context_tool", arguments = { native_error = true } } },
+                    }) do
+                        local _, reply = request(a, "tools/call", params)
+                        test.is_true(reply.isError)
+                        local shaped = reply.structuredContent.error
+                        test.eq(shaped.kind, errors.INVALID)
+                        test.eq(shaped.code, "invalid_limit")
+                        test.eq(shaped.details.field, "limit")
+                        test.is_false(shaped.retryable)
+                        test.eq(json.decode(reply.content[1].text).error.code, shaped.code)
+                    end
                     call(a, false, { set = { overlay_branch = "feature-a", changeset_id = "changeset-a" } })
                     call(b, true, { set = { overlay_branch = "feature-b", changeset_id = "changeset-b" } })
                     local read_a, read_b = call(a, true), call(b, false)
