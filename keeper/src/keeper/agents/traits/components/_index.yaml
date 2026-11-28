@@ -98,6 +98,10 @@ entries:
       {"action": "goto", "url": "<PUBLIC_API_URL>/c/keeper:main", "wait_until": "networkidle"}
       ```
 
+      Consecutive navigations in the same authenticated MCP session retain browser state
+      while its short-lived token is reusable. Changing sessions or renewing the token
+      starts a fresh browser context.
+
       ## Inspect
 
       Get a compact accessibility tree. The current runner returns ARIA snapshot text in the snapshot field. Older Playwright images return a structured tree:

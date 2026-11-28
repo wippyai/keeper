@@ -102,6 +102,23 @@ local function define_tests()
             test.eq(sent[1].args.start_url, "http://host/x")
         end)
 
+        test.it("restores the latest authenticated navigation after idle", function()
+            local container, sent, calls = harness()
+            local state = { last_open = { token_source = "minted", start_url = "http://host/old" } }
+            local storage = { token = "caller-token" }
+            container.call(state, "goto", { storage_state = storage, url = "http://host/new",
+                origin = "http://host" }, 30)
+            test.eq(#sent, 1)
+            test.eq(sent[1].op, "goto")
+            container.call(state, "goto", { url = "http://host/next" }, 30)
+            state.proc = nil
+            container.call(state, "snapshot", {}, 30)
+            test.eq(sent[3].op, "open")
+            test.eq(sent[3].args.start_url, "http://host/next")
+            test.eq(sent[3].args.storage_state.token, "caller-token")
+            test.eq(calls.mint, 0)
+        end)
+
         test.it("closes an idle session without replaying or refreshing it", function()
             local container, sent, calls = harness()
             local state = { next_id = 4, last_open = { token_source = "minted", minted_at = 0 } }
@@ -112,6 +129,38 @@ local function define_tests()
             test.eq(calls.spawn, 0)
             test.eq(calls.mint, 0)
             test.is_nil(state.last_open)
+        end)
+
+        test.it("reuses only the current unexpired caller session at the same origin", function()
+            local runner, sent = harness()
+            local state = {}
+            local function navigate(binding, origin, storage_state, issued_at)
+                return runner.call(state, "goto", {
+                    url = origin .. "/next", binding = binding, origin = origin,
+                    storage_state = storage_state, issued_at = issued_at,
+                }, 30)
+            end
+            local origin = "http://host"
+            test.is_true(navigate("a", origin).needs_caller_token)
+            test.eq(#sent, 0)
+            navigate("a", origin, { token = "first" }, 99990)
+            for i = 1, 30 do
+                test.is_true(navigate("a", origin).ok)
+                test.eq(sent[#sent].args.storage_state.token, "first")
+                test.is_nil(sent[#sent].args.binding)
+            end
+            state.proc = nil
+            test.is_true(navigate("a", origin).ok)
+            test.eq(sent[#sent].op, "goto")
+            test.eq(state.caller_issued_at, 99990)
+            test.is_true(navigate("b", origin).needs_caller_token)
+            test.is_true(navigate("a", "http://new").needs_caller_token)
+            state.caller_issued_at = 99730
+            test.is_true(navigate("a", origin).needs_caller_token)
+            navigate("b", origin, { token = "second" }, 100000)
+            test.is_true(navigate("a", origin).needs_caller_token)
+            test.is_true(navigate("b", origin).ok)
+            test.eq(sent[#sent].args.storage_state.token, "second")
         end)
 
         test.it("reports a failed respawn", function()

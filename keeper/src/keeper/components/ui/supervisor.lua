@@ -90,6 +90,7 @@ let browser = null;
 let context = null;
 let page = null;
 let origin = null;
+
 // Remember the last explicit context options so ensurePage() can
 // recreate a matching context if an op is called without an open first.
 let lastContextOpts = { viewport: { width: 1280, height: 800 }, colorScheme: 'dark' };
@@ -136,8 +137,8 @@ async function ensurePage() {
     // known context options (default dark + 1280x800) so rendering
     // stays consistent with the keeper UI.
     context = await browser.newContext({
-      viewport: lastContextOpts.viewport || { width: 1280, height: 800 },
-      colorScheme: lastContextOpts.colorScheme || 'dark',
+      viewport: lastContextOpts.viewport,
+      colorScheme: lastContextOpts.colorScheme,
       ignoreHTTPSErrors: true,
     });
   }
@@ -145,6 +146,46 @@ async function ensurePage() {
     page = await context.newPage();
     attachPageListeners(page);
   }
+}
+
+// Navigation carries the session the open op establishes: a context that holds
+// no session for args.origin is replaced by one created with args.storage_state,
+// in the browser, viewport and color scheme already in use.
+async function ensureAuthenticated(args) {
+  if (!args.storage_state) {
+    await ensurePage();
+    return;
+  }
+  // A host can serve several callers. Reuse only a context that still
+  // carries the requested bearer, including after a logout or a rotation.
+  const findToken = state => {
+    const host = state.origins.find(entry => entry.origin === args.origin);
+    const item = host?.localStorage.find(entry => entry.name === '@wippy_token_info');
+    if (!item) return null;
+    try { return JSON.parse(item.value).token; } catch (_) { return null; }
+  };
+  const requested = findToken(args.storage_state);
+  if (!requested) throw new Error('Missing browser session token');
+  if (context && findToken(await context.storageState()) === requested) {
+    await ensurePage();
+    return;
+  }
+  if (!browser) browser = await chromium.launch({ headless: true });
+  if (context) {
+    try { await context.close(); } catch (_) {}
+  }
+  lastContextOpts = {
+    viewport: args.viewport || lastContextOpts.viewport,
+    colorScheme: args.color_scheme || lastContextOpts.colorScheme,
+  };
+  context = await browser.newContext({
+    ...lastContextOpts,
+    ignoreHTTPSErrors: true,
+    storageState: args.storage_state,
+  });
+  page = await context.newPage();
+  attachPageListeners(page);
+  origin = args.origin;
 }
 
 async function openSession(args) {
@@ -207,7 +248,7 @@ async function handle(req) {
         await ensurePage();
         return { id, ok: true, ...(await currentState(true)) };
       case 'goto':
-        await ensurePage();
+        await ensureAuthenticated(req);
         await page.goto(req.url, { waitUntil: req.wait_until || 'networkidle', timeout: req.timeout || 30000 });
         return { id, ok: true, ...(await currentState()) };
       case 'click':
@@ -846,24 +887,36 @@ local function compute_start_url(component_id, route)
     return base .. r, nil, base
 end
 
--- Inject auth + start_url for open op; route screenshots into per-request dir.
+-- Replace the caller's auth_token with the session storage state for origin:
+-- the caller's token, or a minted admin token when the caller sends none.
+local function attach_auth(payload, origin)
+    local token = payload.auth_token
+    local token_source
+    if token and token ~= "" then
+        token_source = "caller"
+    else
+        token = mint_admin_token()
+        token_source = token and "minted" or nil
+    end
+    payload.origin = origin
+    payload.storage_state = build_storage_state(origin, token)
+    payload.token_source = token_source
+    payload.auth_token = nil
+end
+
+-- Inject auth + start_url for open, auth for goto; route screenshots into
+-- per-request dir.
 local function preprocess(op, payload, root)
     if op == "open" then
         local start_url, err, origin = compute_start_url(payload.component_id, payload.route)
         if not start_url then return nil, err end
         payload.start_url = start_url
+        attach_auth(payload, origin)
+    elseif op == "goto" and (payload.binding or (payload.auth_token and payload.auth_token ~= "")) then
+        local origin, base_err = host_base_url()
+        if not origin then return nil, base_err end
         payload.origin = origin
-        local token = payload.auth_token
-        local token_source
-        if token and token ~= "" then
-            token_source = "caller"
-        else
-            token = mint_admin_token()
-            token_source = token and "minted" or nil
-        end
-        payload.storage_state = build_storage_state(payload.origin, token)
-        payload.token_source = token_source
-        payload.auth_token = nil
+        if payload.auth_token and payload.auth_token ~= "" then attach_auth(payload, origin) end
     elseif op == "screenshot" then
         -- raw_root = true tells the runner to write directly to /out/<name>.png
         -- (i.e. previews/<name>.png on the host). Used by the legacy

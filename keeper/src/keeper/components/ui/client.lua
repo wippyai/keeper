@@ -89,8 +89,13 @@ function M.snapshot()
     return send_and_wait("snapshot", {})
 end
 
-function M.goto_url(url, wait_until)
-    return send_and_wait("goto", { url = url, wait_until = wait_until }, { wait = GOTO_TIMEOUT, timeout_s = 45 })
+-- opts.auth_token authenticates the page the way open does; without it the
+-- runner navigates its current page as before.
+function M.goto_url(url, wait_until, opts)
+    opts = opts or {}
+    return send_and_wait("goto", { url = url, wait_until = wait_until, auth_token = opts.auth_token,
+        binding = opts.binding, issued_at = opts.issued_at },
+        { wait = GOTO_TIMEOUT, timeout_s = 45 })
 end
 
 function M.click(selector, opts)
