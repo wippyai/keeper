@@ -100,7 +100,7 @@ entries:
 
       ## Inspect
 
-      Get a compact DOM snapshot (accessibility tree):
+      Get a compact accessibility tree. The current runner returns ARIA snapshot text in the snapshot field. Older Playwright images return a structured tree:
       ```json
       {"action": "snapshot"}
       ```
