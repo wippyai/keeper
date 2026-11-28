@@ -15,6 +15,26 @@ entries:
       - uuid
       - json
     
+  # keeper.components.ui:replay
+  - name: replay
+    kind: library.lua
+    meta:
+      comment: Runner container calls that replay the last open session on a container respawned after an idle kill
+    source: file://replay.lua
+
+  # keeper.components.ui:replay_test
+  - name: replay_test
+    kind: function.lua
+    meta:
+      type: test
+      comment: replay — a respawned container replays the last open session, refreshing a minted token, before the requested op
+      suite: components
+    source: file://replay_test.lua
+    imports:
+      replay: keeper.components.ui:replay
+      test: wippy.test:test
+    method: define_tests
+
   # keeper.components.ui:supervisor
   - name: supervisor
     kind: process.lua
@@ -36,6 +56,7 @@ entries:
     imports:
       consts: keeper.components:consts
       filenames: keeper.components:filenames
+      replay: keeper.components.ui:replay
       scanner: keeper.components.build:scanner
     method: run
     
