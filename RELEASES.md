@@ -1,5 +1,12 @@
 # Release Notes
 
+## keeper/keeper 0.5.121
+
+The UI supervisor restores the saved browser session after an idle shutdown.
+If restoration fails, the waiting caller receives an error. Closing an idle
+session releases its saved state without launching a container or refreshing
+a token.
+
 ## keeper/keeper 0.5.120
 
 MCP clients receive the kind, message, retryability and details of native tool
