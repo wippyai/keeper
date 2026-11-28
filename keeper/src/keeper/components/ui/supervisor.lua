@@ -912,10 +912,11 @@ local function preprocess(op, payload, root)
         if not start_url then return nil, err end
         payload.start_url = start_url
         attach_auth(payload, origin)
-    elseif op == "goto" and payload.auth_token and payload.auth_token ~= "" then
+    elseif op == "goto" and (payload.binding or (payload.auth_token and payload.auth_token ~= "")) then
         local origin, base_err = host_base_url()
         if not origin then return nil, base_err end
-        attach_auth(payload, origin)
+        payload.origin = origin
+        if payload.auth_token and payload.auth_token ~= "" then attach_auth(payload, origin) end
     elseif op == "screenshot" then
         -- raw_root = true tells the runner to write directly to /out/<name>.png
         -- (i.e. previews/<name>.png on the host). Used by the legacy

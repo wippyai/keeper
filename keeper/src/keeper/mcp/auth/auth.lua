@@ -10,6 +10,8 @@
 local security = require("security")
 local funcs = require("funcs")
 local sql = require("sql")
+local hash = require("hash")
+local json = require("json")
 local env = require("env")
 local consts = require("mcp_consts")
 local token_store = require("mcp_tokens")
@@ -293,6 +295,25 @@ function M.admin_call(session, via, fn_id, args, context)
     local executor, err = funcs.new()
     if err then return nil, "funcs.new failed: " .. tostring(err) end
 
+    -- Only the UI tool receives this opaque binding. Include the live host
+    -- groups and effective MCP authority so changes invalidate browser reuse.
+    if fn_id == "keeper.components.tools:ui" and type(args) == "table" and
+        (args.action == "goto" or args.action == "goto_url" or args.action == "open") then
+        context = context or {}
+        context.keeper_ui_binding = nil
+        if session.mcp_session_id and session.token then
+            local meta = actor:meta()
+            local material, encode_err = json.encode({
+                "keeper.ui.v1", session.token, session.mcp_session_id, actor:id(),
+                meta.via, meta.token_label, meta.security_groups or {}, session.scopes or {},
+                authorizer.is_root(session), config.auth_token_store(),
+            })
+            if not material then return nil, encode_err end
+            local binding, hash_err = hash.sha256(material)
+            if not binding then return nil, hash_err end
+            context.keeper_ui_binding = binding
+        end
+    end
     local bound = executor:with_actor(actor):with_scope(scope)
     if context and next(context) then
         bound = bound:with_context(context)

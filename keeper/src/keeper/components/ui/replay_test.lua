@@ -131,6 +131,38 @@ local function define_tests()
             test.is_nil(state.last_open)
         end)
 
+        test.it("reuses only the current unexpired caller session at the same origin", function()
+            local runner, sent = harness()
+            local state = {}
+            local function navigate(binding, origin, storage_state, issued_at)
+                return runner.call(state, "goto", {
+                    url = origin .. "/next", binding = binding, origin = origin,
+                    storage_state = storage_state, issued_at = issued_at,
+                }, 30)
+            end
+            local origin = "http://host"
+            test.is_true(navigate("a", origin).needs_caller_token)
+            test.eq(#sent, 0)
+            navigate("a", origin, { token = "first" }, 99990)
+            for i = 1, 30 do
+                test.is_true(navigate("a", origin).ok)
+                test.eq(sent[#sent].args.storage_state.token, "first")
+                test.is_nil(sent[#sent].args.binding)
+            end
+            state.proc = nil
+            test.is_true(navigate("a", origin).ok)
+            test.eq(sent[#sent].op, "goto")
+            test.eq(state.caller_issued_at, 99990)
+            test.is_true(navigate("b", origin).needs_caller_token)
+            test.is_true(navigate("a", "http://new").needs_caller_token)
+            state.caller_issued_at = 99730
+            test.is_true(navigate("a", origin).needs_caller_token)
+            navigate("b", origin, { token = "second" }, 100000)
+            test.is_true(navigate("a", origin).needs_caller_token)
+            test.is_true(navigate("b", origin).ok)
+            test.eq(sent[#sent].args.storage_state.token, "second")
+        end)
+
         test.it("reports a failed respawn", function()
             local container, sent = harness({ spawn_fail = true })
             local res, err = container.call({ last_open = { token_source = "caller" } }, "snapshot", {}, 30)

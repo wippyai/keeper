@@ -11,6 +11,8 @@ entries:
     modules:
       - security
       - funcs
+      - json
+      - hash
       - sql
       - env
     imports:

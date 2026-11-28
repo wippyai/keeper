@@ -230,7 +230,7 @@ entries:
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["open", "goto_url", "snapshot", "click", "fill", "type_text", "press", "hover", "select_option", "wait_for", "wait", "eval", "screenshot", "assert_visible", "assert_text", "expect_url", "close", "ping"],
+              "enum": ["open", "goto_url", "goto", "snapshot", "click", "fill", "type_text", "press", "hover", "select_option", "wait_for", "wait", "eval", "screenshot", "assert_visible", "assert_text", "expect_url", "close", "ping"],
               "description": "Operation to run against the persistent browser page"
             },
             "component_id": {"type": "string", "description": "Component id for open: a source package name, or the registry id or tag name of a view.component entry"},
@@ -260,6 +260,7 @@ entries:
           - components.capture
     source: file://ui.lua
     modules:
+      - ctx
       - fs
       - base64
       - process

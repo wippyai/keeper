@@ -6,6 +6,7 @@
 -- begins with `open` (for a keeper component) or `goto` (for any URL) and
 -- ends with `close` when done.
 
+local ctx = require("ctx")
 local fs = require("fs")
 local base64 = require("base64")
 local security = require("security")
@@ -53,12 +54,15 @@ function ACTIONS.open(params, deps)
     if type(params.component_id) ~= "string" or params.component_id == "" then
         return nil, "component_id is required for open"
     end
+    local issued_at = os.time()
     local token, terr = deps.mint_token()
     if terr then return nil, terr end
     return wrap(deps.ui.open({
         component_id = params.component_id,
         route = params.route,
         auth_token = token,
+        binding = deps.binding,
+        issued_at = issued_at,
     }), "open")
 end
 
@@ -66,9 +70,16 @@ function ACTIONS.goto_url(params, deps)
     if type(params.url) ~= "string" or params.url == "" then
         return nil, "url is required for goto"
     end
-    local token, terr = deps.mint_token()
-    if terr then return nil, terr end
-    return wrap(deps.ui.goto_url(params.url, params.wait_until, { auth_token = token }), "goto")
+    local opts = { binding = deps.binding }
+    if opts.binding then
+        local response = deps.ui.goto_url(params.url, params.wait_until, opts)
+        if not (response and response.needs_caller_token) then return wrap(response, "goto") end
+    end
+    opts.issued_at = os.time()
+    local token, err = deps.mint_token()
+    if not token then return nil, err end
+    opts.auth_token = token
+    return wrap(deps.ui.goto_url(params.url, params.wait_until, opts), "goto")
 end
 
 function ACTIONS.snapshot(_, deps)
@@ -229,6 +240,7 @@ local M = {}
 function M.run(deps, params)
     deps = deps or {}
     local resolved_deps = {
+        binding = deps.binding,
         ui = deps.ui or ui_default,
         mint_token = deps.mint_token or mint_caller_token,
     }
@@ -257,7 +269,9 @@ local function handler(params)
             return "ui." .. action
         end,
     }, function()
-        return M.run(nil, params)
+        local binding = ctx.get("keeper_ui_binding")
+        if type(binding) ~= "string" or binding == "" then binding = nil end
+        return M.run({ binding = binding }, params)
     end)
 end
 

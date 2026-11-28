@@ -11,7 +11,7 @@ function M.build_context(session, base_context)
     if err then return nil, err end
     local ctx = {}
     for k, v in pairs(base_context or {}) do
-        if k ~= "overlay_branch" and k ~= "changeset_id" then
+        if k ~= "overlay_branch" and k ~= "changeset_id" and k ~= "keeper_ui_binding" then
             ctx[k] = v
         end
     end

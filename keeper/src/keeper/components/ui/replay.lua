@@ -17,6 +17,9 @@
 
 local M = {}
 
+-- The tool mints five-minute tokens. Leave time for the navigation to finish.
+local CALLER_REUSE_S = 270
+
 function M.new(deps)
     local self = {}
 
@@ -47,12 +50,29 @@ function M.new(deps)
     end
 
     function self.call(state, op, args, timeout_s)
-        local authenticated_goto = op == "goto" and args and args.storage_state
         local previous = state.last_open
+        local binding = args and args.binding
+        local issued_at = args and args.issued_at
+        if args then args.binding, args.issued_at = nil, nil end
+        if op == "goto" and binding and not args.storage_state then
+            -- This request is serialized with the navigation itself. A miss
+            -- asks the tool to mint under its own actor and scope.
+            local now = deps.now()
+            if not previous or previous.token_source ~= "caller" or not previous.storage_state
+                or state.caller_binding ~= binding or previous.origin ~= args.origin
+                or type(state.caller_issued_at) ~= "number" or now < state.caller_issued_at
+                or now - state.caller_issued_at >= CALLER_REUSE_S then
+                return { ok = false, needs_caller_token = true }
+            end
+            issued_at = state.caller_issued_at
+            args.storage_state = previous.storage_state
+        end
+        local authenticated_goto = op == "goto" and args and args.storage_state
         -- These operations replace or discard the saved session, even when
         -- navigation fails after the browser has already switched contexts.
         if authenticated_goto or op == "open" or op == "close" then
             state.last_open = nil
+            state.caller_binding, state.caller_issued_at = nil, nil
         end
         if op == "close" and not state.proc then
             state.next_id = state.next_id + 1
@@ -80,6 +100,9 @@ function M.new(deps)
         end
         local response, err = deps.send(state, op, args, timeout_s)
         if response and response.ok then
+            if op == "open" or authenticated_goto then
+                state.caller_binding, state.caller_issued_at = binding, issued_at
+            end
             if op == "open" then
                 args.minted_at = deps.now()
                 state.last_open = args
