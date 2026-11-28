@@ -70,6 +70,10 @@ function M.new(deps)
                 return nil, rerr or (replayed and replayed.error) or "open replay failed"
             end
         end
+        if fresh and authenticated_goto and previous then
+            args.viewport = previous.viewport
+            args.color_scheme = previous.color_scheme
+        end
         local response, err = deps.send(state, op, args, timeout_s)
         if response and response.ok then
             if op == "open" then

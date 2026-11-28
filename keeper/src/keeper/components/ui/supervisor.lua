@@ -137,8 +137,8 @@ async function ensurePage() {
     // known context options (default dark + 1280x800) so rendering
     // stays consistent with the keeper UI.
     context = await browser.newContext({
-      viewport: lastContextOpts.viewport || { width: 1280, height: 800 },
-      colorScheme: lastContextOpts.colorScheme || 'dark',
+      viewport: lastContextOpts.viewport,
+      colorScheme: lastContextOpts.colorScheme,
       ignoreHTTPSErrors: true,
     });
   }
@@ -174,9 +174,12 @@ async function ensureAuthenticated(args) {
   if (context) {
     try { await context.close(); } catch (_) {}
   }
+  lastContextOpts = {
+    viewport: args.viewport || lastContextOpts.viewport,
+    colorScheme: args.color_scheme || lastContextOpts.colorScheme,
+  };
   context = await browser.newContext({
-    viewport: lastContextOpts.viewport || { width: 1280, height: 800 },
-    colorScheme: lastContextOpts.colorScheme || 'dark',
+    ...lastContextOpts,
     ignoreHTTPSErrors: true,
     storageState: args.storage_state,
   });
