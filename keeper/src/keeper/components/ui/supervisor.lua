@@ -1002,15 +1002,6 @@ local function handle_command(state, msg)
         return
     end
 
-    -- Remember the last successful open so we can replay it when the
-    -- container is respawned after an idle kill.
-    if op == "open" and response and response.ok then
-        processed.minted_at = os.time()
-        state.last_open = processed
-    elseif op == "close" then
-        state.last_open = nil
-    end
-
     response = postprocess(op, response, args.request_id or "current", state, last_seen)
     if response.ok then
         response.success = true

@@ -47,22 +47,49 @@ function M.new(deps)
     end
 
     function self.call(state, op, args, timeout_s)
+        local authenticated_goto = op == "goto" and args and args.storage_state
+        local previous = state.last_open
+        -- These operations replace or discard the saved session, even when
+        -- navigation fails after the browser has already switched contexts.
+        if authenticated_goto or op == "open" or op == "close" then
+            state.last_open = nil
+        end
         local fresh = false
         if not state.proc then
             local ok, err = deps.spawn(state)
             if not ok then return nil, err end
             fresh = true
         end
-        if fresh and state.last_open and op ~= "open" then
+        if fresh and state.last_open then
             deps.log:info("replaying last open on fresh container")
             state.last_open = self.refresh(state.last_open)
             local replayed, rerr = deps.send(state, "open", state.last_open, 60)
-            if rerr or (replayed and not replayed.ok) then
+            if not replayed or not replayed.ok then
                 deps.log:warn("open replay failed", { error = rerr or (replayed and replayed.error) })
                 state.last_open = nil
+                return nil, rerr or (replayed and replayed.error) or "open replay failed"
             end
         end
-        return deps.send(state, op, args, timeout_s)
+        local response, err = deps.send(state, op, args, timeout_s)
+        if response and response.ok then
+            if op == "open" then
+                args.minted_at = deps.now()
+                state.last_open = args
+            elseif authenticated_goto then
+                state.last_open = {
+                    start_url = args.url, origin = args.origin,
+                    storage_state = args.storage_state, token_source = "caller",
+                    wait_until = args.wait_until, goto_timeout = args.timeout,
+                    viewport = previous and previous.viewport,
+                    color_scheme = previous and previous.color_scheme,
+                }
+            elseif op == "goto" and state.last_open then
+                state.last_open.start_url = args.url
+                state.last_open.wait_until = args.wait_until
+                state.last_open.goto_timeout = args.timeout
+            end
+        end
+        return response, err
     end
 
     return self

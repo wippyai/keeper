@@ -75,14 +75,14 @@ local function define_tests()
             test.eq(sent[1].args.storage_state.token, "recent")
         end)
 
-        test.it("drops the session when the replay fails and still runs the op", function()
+        test.it("reports failed replay before dispatching the pending op", function()
             local container, sent = harness({ replay_fail = true })
             local state = { last_open = { start_url = "http://host/", token_source = "caller" } }
             local res, err = container.call(state, "snapshot", {}, 30)
-            test.is_nil(err)
-            test.eq(res.op, "snapshot")
+            test.eq(err, "navigation failed")
+            test.is_nil(res)
             test.is_nil(state.last_open)
-            test.eq(#sent, 2)
+            test.eq(#sent, 1)
         end)
 
         test.it("does not replay on a live container", function()
@@ -100,6 +100,23 @@ local function define_tests()
             container.call(state, "open", { start_url = "http://host/x" }, 50)
             test.eq(#sent, 1)
             test.eq(sent[1].args.start_url, "http://host/x")
+        end)
+
+        test.it("restores the latest authenticated navigation after idle", function()
+            local container, sent, calls = harness()
+            local state = { last_open = { token_source = "minted", start_url = "http://host/old" } }
+            local storage = { token = "caller-token" }
+            container.call(state, "goto", { storage_state = storage, url = "http://host/new",
+                origin = "http://host" }, 30)
+            test.eq(#sent, 1)
+            test.eq(sent[1].op, "goto")
+            container.call(state, "goto", { url = "http://host/next" }, 30)
+            state.proc = nil
+            container.call(state, "snapshot", {}, 30)
+            test.eq(sent[3].op, "open")
+            test.eq(sent[3].args.start_url, "http://host/next")
+            test.eq(sent[3].args.storage_state.token, "caller-token")
+            test.eq(calls.mint, 0)
         end)
 
         test.it("reports a failed respawn", function()
