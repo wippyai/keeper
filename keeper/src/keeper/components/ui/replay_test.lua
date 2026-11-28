@@ -119,6 +119,18 @@ local function define_tests()
             test.eq(calls.mint, 0)
         end)
 
+        test.it("closes an idle session without replaying or refreshing it", function()
+            local container, sent, calls = harness()
+            local state = { next_id = 4, last_open = { token_source = "minted", minted_at = 0 } }
+            local res = container.call(state, "close", {}, 30)
+            test.eq(res.id, 5)
+            test.eq(res.ok, true)
+            test.eq(#sent, 0)
+            test.eq(calls.spawn, 0)
+            test.eq(calls.mint, 0)
+            test.is_nil(state.last_open)
+        end)
+
         test.it("reports a failed respawn", function()
             local container, sent = harness({ spawn_fail = true })
             local res, err = container.call({ last_open = { token_source = "caller" } }, "snapshot", {}, 30)
