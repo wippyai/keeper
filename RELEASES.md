@@ -1,5 +1,11 @@
 # Release Notes
 
+## keeper/keeper 0.5.122
+
+UI open, navigation and snapshot responses include ARIA snapshot text on the
+default Playwright runner. Older runners with the accessibility API continue
+to return a structured tree. Explicit snapshot requests report capture errors.
+
 ## keeper/keeper 0.5.121
 
 The UI supervisor restores the saved browser session after an idle shutdown.
