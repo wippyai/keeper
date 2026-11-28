@@ -1,5 +1,13 @@
 # Release Notes
 
+## keeper/keeper 0.5.123
+
+The UI tool signs in direct navigation requests with the caller’s short-lived
+host token. Consecutive navigations in the same authenticated MCP session reuse
+that token and browser context. Changing the credential or session starts a
+fresh context. After an idle restart, Keeper restores the last navigation.
+Both `goto` and `goto_url` are accepted by the MCP tool schema.
+
 ## keeper/keeper 0.5.122
 
 UI open, navigation and snapshot responses include ARIA snapshot text on the
