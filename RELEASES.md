@@ -1,5 +1,18 @@
 # Release Notes
 
+## keeper/keeper 0.5.120
+
+MCP clients receive the kind, message, retryability and details of native tool
+errors through both dynamic tool calls and the `call_tool` meta-tool. When the
+tool supplies a code in its error details, the response also exposes that code.
+
+## keeper/keeper 0.5.119
+
+Keeper can open and screenshot registry-backed UI components by entry ID or unique
+tag. Filesystem components retain priority. At the per-token MCP session cap,
+Keeper checks which sessions are eligible for eviction and rechecks the idlest
+candidate before releasing its slot.
+
 ## keeper/keeper 0.5.118
 
 Keeper discovers announced plugins through the pages route configured by the

@@ -6,6 +6,7 @@ local uuid = require("uuid")
 local sql = require("sql")
 local consts = require("mcp_consts")
 local hash = require("hash")
+local json = require("json")
 
 local function define_tests()
     describe("MCP session context", function()
@@ -114,6 +115,36 @@ local function define_tests()
             end)
             tokens.get_session_context, auth.admin_call = saved_read, saved_call
             if not ok then error(err) end
+        end)
+        it("answers a tool's native error with its kind, code and details", function()
+            local saved = auth.admin_call
+            auth.admin_call = function()
+                return nil, errors.new({ kind = errors.INVALID, message = "limit is too large", retryable = false,
+                    details = { code = "too_large", field = "limit" } })
+            end
+            local ok, err = pcall(function()
+                local result, call_err = dispatch.call(session(), "tool", {})
+                test.is_nil(result)
+                local answer = dispatch.tool_error(call_err)
+                test.is_true(answer.isError)
+                local e = answer.structuredContent.error
+                test.eq(e.kind, errors.INVALID)
+                test.eq(e.code, "too_large")
+                test.eq(e.message, "limit is too large")
+                test.is_false(e.retryable)
+                test.eq(e.details.field, "limit")
+                local text = json.decode(answer.content[1].text)
+                test.eq(text.error.code, "too_large")
+                test.eq(text.error.kind, errors.INVALID)
+            end)
+            auth.admin_call = saved
+            if not ok then error(err) end
+        end)
+        it("answers a message error as its text", function()
+            local answer = dispatch.tool_error("unknown tool: x")
+            test.is_true(answer.isError)
+            test.eq(answer.content[1].text, "unknown tool: x")
+            test.is_nil(answer.structuredContent)
         end)
         it("reports a binding write failure to the caller", function()
             local saved_update, saved_call = tokens.update_session_context, auth.admin_call
