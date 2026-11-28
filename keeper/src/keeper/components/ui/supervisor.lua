@@ -216,14 +216,19 @@ async function openSession(args) {
   return currentState();
 }
 
-async function currentState() {
+async function currentState(requireSnapshot = false) {
   if (!page || page.isClosed()) return { url: null, title: null, snapshot: null };
   let title = null;
   try { title = await page.title(); } catch (_) {}
   let snapshot = null;
   try {
-    snapshot = await page.accessibility.snapshot({ interestingOnly: true });
-  } catch (_) {}
+    // Preserve the structured tree on older configurable Playwright images.
+    snapshot = page.accessibility
+      ? await page.accessibility.snapshot({ interestingOnly: true })
+      : await page.locator(':root').ariaSnapshot({ timeout: 3000 });
+  } catch (err) {
+    if (requireSnapshot) throw err;
+  }
   return {
     url: page.url(),
     title,
@@ -241,7 +246,7 @@ async function handle(req) {
         return { id, ok: true, ...(await openSession(req)) };
       case 'snapshot':
         await ensurePage();
-        return { id, ok: true, ...(await currentState()) };
+        return { id, ok: true, ...(await currentState(true)) };
       case 'goto':
         await ensureAuthenticated(req);
         await page.goto(req.url, { waitUntil: req.wait_until || 'networkidle', timeout: req.timeout || 30000 });
