@@ -50,6 +50,10 @@ function M.new(deps)
         if op == "open" or op == "close" then
             state.last_open = nil
         end
+        if op == "close" and not state.proc then
+            state.next_id = state.next_id + 1
+            return { id = state.next_id, ok = true }
+        end
         local fresh = false
         if not state.proc then
             local ok, err = deps.spawn(state)
